@@ -37,7 +37,7 @@ T IrisDev_GetNativePointer(const IrisValue& ivValue) {
 }
 
 template<class T>
-T IrisDev_GetNativePointer(IIrisObject* pObject) { 
+T IrisDev_GetNativePointer(IIrisObject* pObject) {
 	return static_cast<T>(pObject->GetNativeObject());
 }
 
