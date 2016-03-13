@@ -1,0 +1,286 @@
+module A {
+	module B {
+		class C {
+			fun __format() {
+				;print("format\n")
+			}
+			
+			fun self.max(*data) {
+				;max = data[0]
+				for(i in data) {
+					if(i > max) {
+						;max = i
+					}
+				}
+				;return max
+			}
+		}
+	}
+}
+
+;f1 = A
+;f2 = A::B
+;f3 = A::B::C
+
+;A::B::C.new()
+;f1::B::C.new()
+;f2::C.new()
+;f3.new()
+;print(A::B::C.max(3, 10, 8, 46, 7), "\n")
+
+/* class A {
+	fun __format() {
+		;self.msg = "Hello, World!"
+		;self.a = 0
+	}
+
+	fun show() {
+		;self.a += 1
+		;self.b = self.a
+		;print(self.msg, " ", self.a, " ", self.b, "\n")
+	}
+}
+
+;A.new().show() */
+
+// ;require("script/test1.ir")
+
+
+//在Iris中可以方便地实现著名的生产者-消费者模型：
+
+// ;storage = []
+// ;storage_max = 20
+// ;producer = Thread.new() {
+	// if(storage.size >= 20) {
+		// ;print("Storage is full and turn to sleep.", "\n")
+		// ;sleep(Math.random(5))
+	// }
+	// ;n = random(10)
+	// ;print("Produce : ", n, "\n")
+	// ;storage.push(random(10)))
+// }
+
+// ;customer = Thread.new() {
+	// if(storage.size == 0) {
+		// ;print("Storage is empty and turn to sleep.", "\n")
+		// ;sleep(Math.random(6))
+	// }
+	// ;n = storage.pop()
+	// ;print("Costum : ", n, "\n")
+// }
+
+// ;producer.join()
+// ;customer.join()
+
+//比如在Iris中两个线程同时对一个数组进行插入操作：
+
+// ;require("script/test1.ir")
+
+/* ;a = []
+;mt = Mutex.new()
+;t1 = Thread.new() {
+	;mt.lock() {
+		for(i in [1 => 10]) {
+			;print(i, "\n")
+			;a.push(i)
+		}
+	}
+}
+;t2 = Thread.new() {
+	;mt.lock() {
+		for(i in [11 => 20]) {
+			;print(i, "\n")
+			;a.push(i)
+		}
+	}
+}
+;t1.join()
+;t2.join() */
+
+/* // 导入Iris外部扩展库，其中定义了Pointer类
+;import("../Debug/Iris Extension Demo.dll")
+
+// 申请12个字节的堆空间
+;p = Pointer.new(12)
+// 写入
+;p.set_data(0, "abcd")
+// 读出
+;print(p.get_data(0, 4), "\n")
+// 将会由GC自动回收
+;p = nil
+
+;a = [1, 2, 3, 4, 5]
+for(i in a) {
+	;print(i, "\n")
+} */
+
+/* ;a = []
+;a = 1
+;mutex = Mutex.new()
+;condition_mutex = Mutex.new()
+;condition = ConditionVariable.new(condition_mutex)
+;flag = false
+;t1 = Thread.new() {
+	;condition_mutex.lock() {
+		for(i in [0 => 100]) {
+			;print("Thread1:", i, "\n")
+		}
+		;flag = true
+		;condition.notify_all()
+	}
+}
+
+;t2 = Thread.new() {
+	;condition_mutex.lock() {
+		if(!flag, 0) {
+			;condition.wait()
+		}
+		for(i in [0 => 100]) {
+			;print("Thread2:", i, "\n")
+		}
+	}
+}
+
+;t1.join()
+;t2.join() */
+//;t3.join()
+
+//;print(a)
+
+// [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+// fun groan_error() {
+	//;HCD = 0
+	// if(true, 10, i) {
+		// ;print(i, "\n")
+		// if(i == 5) {
+			// ;groan("Error!")
+		// }
+	// }
+	// ;print("Hello, World!")
+// }
+
+// fun wrap() {
+	// ;groan_error()
+	// ;print("Wrap.")
+// }
+
+// ;wrap()
+// order {
+	// ;wrap()
+// }
+// serve(e) {
+	// ;print(e, "\n")
+// }
+// ignore {
+	// ;print ("Ignore", "\n")
+// }
+
+/* fun is_prime(i) {
+	;j = 1
+	if(j * j < i, 0) {
+		;j += 1
+		if(i % j == 0) {
+			;return false
+		}
+	}
+	;return true
+}
+
+fun get_prime(to) {
+	if(true, to, i) {
+		if(is_prime(i)) {
+			;print(i, "\n")
+		}
+	}
+}
+
+;get_prime(200)
+ */
+// ;require("script/test1.ir")
+
+//;eval(";print(100, \"\n\")")
+
+/* ;array = [1 ,2 ,3, 4]
+;array[6] = 5
+;array.each() {
+	iterator => [e] :
+	;print(e, "\n")
+} */
+
+/* class Node {
+	;get [@data]
+	;gset [@leftNode]
+	;gset [@rightNode]
+	
+	fun __format(data, leftNode, rightNode) {
+		;@data = data
+		;@leftNode = leftNode
+		;@rightNode = rightNode
+	}
+	
+	fun display() {
+		;print(@data, " ")
+	}
+}
+
+class SortedBinaryTree {
+	fun __format() {
+		;@root = nil
+	}
+	
+	fun __insert(cur_node, data) {
+		if(cur_node.data < data) {
+			if(cur_node.leftNode == nil) {
+				;cur_node.leftNode = Node.new(data, nil, nil)
+			} else {
+				;__insert(cur_node.leftNode, data)
+			}
+		} else {
+			if(cur_node.rightNode == nil) {
+				;cur_node.rightNode = Node.new(data, nil, nil)
+			} else {
+				;__insert(cur_node.rightNode, data)
+			}		
+		}
+	}
+	
+	fun __display(cur_node) {
+		if(cur_node == nil) {
+			;return
+		}
+		;cur_node.display()
+		;__display(cur_node.leftNode)
+		;__display(cur_node.rightNode)
+	}
+	
+	fun insert(data) {
+		if(@root == nil) {
+			;@root = Node.new(data, nil, nil)
+		}
+		else {
+			;__insert(@root, data)
+		}
+	}
+	
+	fun display() {
+		;__display(@root)
+	}
+}
+
+;obj = SortedBinaryTree.new()
+;obj.insert(10)
+;obj.insert(9)
+;obj.insert(11)
+;obj.insert(12)
+;obj.insert(8)
+;print("二叉排序树的结果为：")
+;obj.display()
+;print("\n") */
+
+// for(i in ["Z" => "A"]) {
+	// ;print(i, " ")
+// }
+
+// ;str = 'abc'
+// ;print(str)

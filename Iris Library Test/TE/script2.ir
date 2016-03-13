@@ -1,0 +1,40 @@
+;import("E:/与程序有关的文档/C++程序/Iris Language/Iris Reconfiguration/Debug/Iris Pointer Extension.dll")
+;my_pointer = Pointer.new(26)
+;my_pointer.set_data(0, "abcdefghijklmnopqrstuvwxyz")
+;print(my_pointer.get_data(0, 26), "\n")
+;print(my_pointer.length, "\n")
+;my_pointer = nil
+
+/* ;iter = 0
+;n = 3
+;array = []
+;array[0] = 2
+;print("绱犳暟璁＄畻涓璡n")
+
+if(true, 0){
+	;flag = true
+	//try all element in array
+	for(i in array){
+		if(n % i == 0){
+			;flag = false
+			;break
+		}
+	}
+	//is prime
+	if(flag == true){
+		;iter += 1
+		;array[iter] = n
+		;a = array[iter]
+		;print(array[iter], "\n")
+		;print("  ")
+		;n+=1
+	}
+	//not prime
+	if(flag == false){
+		;n+=1
+	}
+	// for(i in array) {
+		// ;print(i, " ")
+	// }
+	// ;print("\n")
+} */
