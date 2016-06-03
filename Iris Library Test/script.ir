@@ -28,15 +28,6 @@ module A {
 ;f3.new()
 ;print(A::B::C.max(3, 10, 8, 46, 7), "\n")
 
-// fun f(vh) {
-	// ;dh = {'a' => 10}
-	// ;dh.combine_without_cover!(vh)
-	// for((k,v) : dh) {
-		// ;print(k, ",", v, " ")
-	// }
-	//a,10 b,50 c,20
-// }
-
 /* class A {
 	fun __format() {
 		;self.msg = "Hello, World!"
