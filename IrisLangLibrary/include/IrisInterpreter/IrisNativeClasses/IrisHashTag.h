@@ -20,15 +20,15 @@ private:
 	struct IrisValueHash {
 		size_t operator () (const IrisValue& ivValue) const {
 
-			if (((IrisValue&)ivValue).GetIrisObject()->Hashed()) {
-				return ((IrisValue&)ivValue).GetIrisObject()->GetHash();
+			if (static_cast<IrisObject*>(((IrisValue&)ivValue).GetIrisObject())->Hashed()) {
+				return static_cast<IrisObject*>(((IrisValue&)ivValue).GetIrisObject())->GetHash();
 			}
 
 			size_t nHash = 0;
-			if (IrisDevUtil::CheckClass((IrisValue&)ivValue ,"Integer")) {
+			if (IrisDevUtil::CheckClassIsInteger((IrisValue&)ivValue)) {
 				nHash = size_t(IrisDevUtil::GetInt((IrisValue&)ivValue));
 			}
-			else if (IrisDevUtil::CheckClass((IrisValue&)ivValue, "Float")) {
+			else if (IrisDevUtil::CheckClassIsFloat((IrisValue&)ivValue)) {
 				int e = 0;
 				double dValue = IrisDevUtil::GetFloat((IrisValue&)ivValue);
 				double tmp = dValue;
@@ -39,7 +39,7 @@ private:
 				e = (int)ceil(log(dValue));
 				nHash = size_t((INT64_MAX + 1.0) * tmp * exp(-e));
 			}
-			else if (IrisDevUtil::CheckClass((IrisValue&)ivValue, "String")) {
+			else if (IrisDevUtil::CheckClassIsString((IrisValue&)ivValue)) {
 				const string& str = IrisString::GetString((IrisValue&)ivValue);
 				size_t h = 0;
 				for (size_t i = 0;i < str.length();++i)
@@ -49,9 +49,9 @@ private:
 				nHash = h;
 			}
 			else {
-				nHash = (size_t)((IrisValue&)ivValue).GetIrisObject()->GetObjectID();
+				nHash = static_cast<IrisObject*>((ivValue.GetIrisObject()))->GetObjectID();
 			}
-			((IrisValue&)ivValue).GetIrisObject()->SetHash(nHash);
+			static_cast<IrisObject*>(((IrisValue&)ivValue).GetIrisObject())->SetHash(nHash);
 			return nHash;
 		}
 	};

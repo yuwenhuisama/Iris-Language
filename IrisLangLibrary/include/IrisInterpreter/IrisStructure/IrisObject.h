@@ -6,7 +6,7 @@
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 
 #include "IrisInterfaces/IIrisObject.h"
-
+#include "IrisUnil/IrisInternString.h"
 
 #include <string>
 #include <unordered_map>
@@ -32,11 +32,11 @@ class IrisObject : public IIrisObject
 #endif
 {
 private:
-	typedef unordered_map<string, IrisMethod*> _MethodHash;
-	typedef pair<string, IrisMethod*> _MethodPair;
+	typedef unordered_map<IrisInternString, IrisMethod*, IrisInternString::IrisInerStringHash> _MethodHash;
+	typedef pair<IrisInternString, IrisMethod*> _MethodPair;
 
-	typedef unordered_map<string, IrisValue> _VariableHash;
-	typedef pair<string, IrisValue> _VariablePair;
+	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _VariableHash;
+	typedef pair<IrisInternString, IrisValue> _VariablePair;
 
 private:
 	static unsigned int s_nMaxID;
@@ -47,7 +47,7 @@ private:
 	_VariableHash m_mpInstanceVariables;
 	void* m_pNativeObject = nullptr;
 
-	int m_nObjectID = 0;
+	size_t m_nObjectID = 0;
 
 	bool m_bIsMaked = false;
 	bool m_bLiteralObject = false;
@@ -66,16 +66,20 @@ private:
 	IrisWLLock m_iwlInstanceValueWLLock;
 	IrisWLLock m_iwlInstanceMethodWLLock;
 
+	//bool m_bIsCreatedInNativeFunction = false;
+
 public:
 	IrisObject();
 
-	IrisValue CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex= - 1);
+	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex= - 1);
 
 	inline bool IsUsed() { return m_nUsedCount > 0; }
 
 	inline void Fix() { lock_guard<recursive_mutex> lgLock(m_rmFixMutex); ++m_nFixCount; }
 	inline void Unfix() { lock_guard<recursive_mutex> lgLock(m_rmFixMutex); --m_nFixCount; }
 	inline bool IsFixed() { return m_nFixCount > 0; }
+	//inline bool IsCreatedInNativeFunction() { return m_bIsCreatedInNativeFunction; }
+	//inline bool SetIsCreateInNativeFunction(bool bFlag) { m_bIsCreatedInNativeFunction = bFlag; }
 
 	inline void SetPermanent(bool bFlag) { m_bPermanent = bFlag; }
 	inline bool IsPermanent() { return m_bPermanent; }
@@ -84,14 +88,14 @@ public:
 	inline size_t GetHash() { return m_nHash; }
 	inline bool Hashed() { return m_bHashed; }
 
-	inline int GetObjectID() { return m_nObjectID; }
+	inline size_t GetObjectID() { return m_nObjectID; }
 	inline IIrisClass* GetClass() { return m_pClass; }
 	inline void SetClass(IIrisClass* pClass) { m_pClass = pClass; }
 
-	const IrisValue& GetInstanceValue(const string& strInstanceValueName, bool& bResult);
-	IrisMethod* GetInstanceMethod(const string& strInstanceMethodName);
+	const IrisValue& GetInstanceValue(const IrisInternString& strInstanceValueName, bool& bResult);
+	IrisMethod* GetInstanceMethod(const IrisInternString& strInstanceMethodName);
 
-	void AddInstanceValue(const string& strInstanceValueName, const IrisValue& ivValue);
+	void AddInstanceValue(const IrisInternString& strInstanceValueName, const IrisValue& ivValue);
 	void AddSingleInstanceMethod(IrisMethod* pMethod);
 
 	void Mark();

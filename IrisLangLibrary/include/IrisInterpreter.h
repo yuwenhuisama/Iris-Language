@@ -10,6 +10,9 @@
 #include "IrisDevelopUtil.h"
 #include "IrisUnil/IrisCodeSegment.h"
 #include "IrisThread/IrisWLLock.h"
+
+#include "IrisUnil/IrisInternString.h"
+
 #include <unordered_map>
 #include <vector>
 #include <list>
@@ -34,24 +37,38 @@ class IrisClosureBlock;
 class IrisInterpreter
 {
 private:
-	typedef unordered_map<string, IrisClass*> _ClassMap;
-	typedef pair<string, IrisClass*> _ClassPair;
-	typedef unordered_map<string, IrisInterface*> _InterfaceMap;
-	typedef pair<string, IrisInterface*> _InterfacePair;
-	typedef unordered_map<string, IrisValue> _ValueMap;
-	typedef pair<string, IrisValue> _ValuePair;
-	typedef unordered_map<string, IrisMethod*> _MethodMap;
-	typedef pair<string, IrisMethod*> _MethodPair;
+	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _ValueMap;
+	typedef pair<IrisInternString, IrisValue> _ValuePair;
+	typedef unordered_map<IrisInternString, IrisMethod*, IrisInternString::IrisInerStringHash> _MethodMap;
+	typedef pair<IrisInternString, IrisMethod*> _MethodPair;
 	typedef unordered_map<string, HMODULE> _ExtentionMap;
 	typedef pair<string, HMODULE> _ExtentionPair;
-
-	//typedef unordered_set<IrisContextEnvironment*> _EnvironmentHeap;
-	//typedef vector<IrisContextEnvironment*> _EnvironmentStack;
-	//typedef vector<unsigned int> _LoopDeepStack;
-	//typedef vector<IrisValue> _ValueStack;
-	//typedef vector<bool> _BooleanStack;
-
+	
 	typedef bool (*ExitConditonFunction)();
+
+public:
+
+#define INNER_CLASS_MEMBER_NAME(klass) m_p##klass##Class
+#define INNER_CLASS_MEMBER(klass) IIrisClass* INNER_CLASS_MEMBER_NAME(klass) = nullptr
+#define INNER_CLASS_GET_POINTER(klass)  IrisInterpreter::CurrentInterpreter()->m_icrInnerClassesRecord.INNER_CLASS_MEMBER_NAME(klass)
+#define INNER_CLASS_SET_POINTER(klass, p) IrisInterpreter::CurrentInterpreter()->m_icrInnerClassesRecord.INNER_CLASS_MEMBER_NAME(klass) = p
+	struct InterClassesRecord {
+		INNER_CLASS_MEMBER(Class);
+		INNER_CLASS_MEMBER(Module);
+		INNER_CLASS_MEMBER(Interface);
+		INNER_CLASS_MEMBER(Object);
+		INNER_CLASS_MEMBER(String);
+		INNER_CLASS_MEMBER(UniqueString);
+		INNER_CLASS_MEMBER(Integer);
+		INNER_CLASS_MEMBER(Float);
+		INNER_CLASS_MEMBER(Array);
+		INNER_CLASS_MEMBER(Hash);
+		INNER_CLASS_MEMBER(Range);
+		INNER_CLASS_MEMBER(Block);
+	};
+
+public:
+	InterClassesRecord m_icrInnerClassesRecord;
 
 private:
 	static IrisInterpreter* s_pInstance;
@@ -63,9 +80,9 @@ private:
 	IrisHeap m_hpHeap;
 	//IrisStack m_stStack;
 
-	IrisTree<IrisModule*> m_trModuels;
-	_ClassMap m_mpClasses;
-	_InterfaceMap m_mpInterfaces;
+	//IrisTree<IrisModule*> m_trModuels;
+	//_ClassMap m_mpClasses;
+	//_InterfaceMap m_mpInterfaces;
 	_MethodMap m_mpMethods;
 
 	_ValueMap m_mpGlobalValues;
@@ -93,7 +110,8 @@ private:
 
 private:
 	IrisInterpreter();
-	int _Split(const string& str, list<string>& ret_, string sep = ",");
+	int _Split(const string& str, list<IrisInternString>& ret_, string sep = ",");
+	IrisModule* _GetLastModuleFromPath(const list<IrisInternString>& lsPath);
 
 public:
 	static IrisInterpreter* CurrentInterpreter();
@@ -107,17 +125,17 @@ public:
 	IrisModule* GetIrisModule(const string& strModuleFullFiledName);
 	IrisInterface* GetIrisInterface(const string& strInterfaceFullFiledName);
 
-	IrisClass* GetIrisClass(const list<string>& lsRoute);
-	IrisModule* GetIrisModule(const list<string>& lsRoute);
-	IrisInterface* GetIrisInterface(const list<string>& lsRoute);
+	IrisClass* GetIrisClass(const list<IrisInternString>& lsRoute);
+	IrisModule* GetIrisModule(const list<IrisInternString>& lsRoute);
+	IrisInterface* GetIrisInterface(const list<IrisInternString>& lsRoute);
 
 	bool RegistClass(const string& strClassFullFieldName, IIrisClass* pClass, bool bNative = true);
 	bool RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative = true);
 	bool RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative = true);
 
-	bool RegistClass(list<string>& lsPath, IIrisClass* pClass, bool bNative = true);
-	bool RegistModule(list<string>& lsPath, IIrisModule* pModule, bool bNative = true);
-	bool RegistInterface(list<string>& lsPath, IIrisInterface* pInterface, bool bNative = true);
+	bool RegistClass(list<IrisInternString>& lsPath, IIrisClass* pClass, bool bNative = true);
+	bool RegistModule(list<IrisInternString>& lsPath, IIrisModule* pModule, bool bNative = true);
+	bool RegistInterface(list<IrisInternString>& lsPath, IIrisInterface* pInterface, bool bNative = true);
 
 	bool AddNewInstanceToHeap(IrisValue& ivValue);
 	bool AddNewEnvironmentToHeap(IrisContextEnvironment* pEnvironment);
@@ -241,7 +259,7 @@ public:
 		return IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister;
 	}
 
-	inline void AddConstance(const string& strValueName, const IrisValue& ivValue) {
+	inline void AddConstance(const IrisInternString& strValueName, const IrisValue& ivValue) {
 		m_iwlConstanceLock.WriteLock();
 		if (m_mpConstances.find(strValueName) != m_mpConstances.end()) {
 			m_iwlConstanceLock.WriteUnlock();
@@ -251,19 +269,19 @@ public:
 		m_iwlConstanceLock.WriteUnlock();
 	}
 
-	inline void AddGlobalValue(const string& strValueName, const IrisValue& ivValue) {
+	inline void AddGlobalValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
 		m_iwlGlobalVariableLock.WriteLock();
 		m_mpGlobalValues.insert(_ValuePair(strValueName, ivValue));
 		m_iwlGlobalVariableLock.WriteUnlock();
 	}
 
-	inline void AddOtherValue(const string& strValueName, const IrisValue& ivValue) {
+	inline void AddOtherValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
 		m_iwlOtherVariableLock.WriteLock();
 		m_mpOtherValues.insert(_ValuePair(strValueName, ivValue));
 		m_iwlOtherVariableLock.WriteUnlock();
 	}
 
-	inline const IrisValue& GetConstance(const string& strValueName, bool& bResult) {
+	inline const IrisValue& GetConstance(const IrisInternString& strValueName, bool& bResult) {
 		bResult = true;
 		m_iwlConstanceLock.ReadLock();
 		decltype(m_mpConstances)::iterator iCons;
@@ -279,7 +297,7 @@ public:
 		}
 	}
 
-	inline const IrisValue& GetGlobalValue(const string& strValueName, bool& bResult) {
+	inline const IrisValue& GetGlobalValue(const IrisInternString& strValueName, bool& bResult) {
 		bResult = true;
 		m_iwlGlobalVariableLock.ReadLock();
 		decltype(m_mpGlobalValues)::iterator iGlob;
@@ -295,7 +313,7 @@ public:
 		}
 	}
 
-	inline const IrisValue& GetOtherValue(const string& strValueName, bool& bResult) {
+	inline const IrisValue& GetOtherValue(const IrisInternString& strValueName, bool& bResult) {
 		bResult = true;
 		m_iwlOtherVariableLock.ReadLock();
 		decltype(m_mpOtherValues)::iterator iOth;
@@ -311,9 +329,9 @@ public:
 		}
 	}
 
-	inline IrisMethod* GetMainMethod(const string& strMethodName);
+	inline IrisMethod* GetMainMethod(const IrisInternString& strMethodName);
 
-	inline void AddMainMethod(const string& strMethodName, IrisMethod* pMethod);
+	inline void AddMainMethod(const IrisInternString& strMethodName, IrisMethod* pMethod);
 
 
 	inline const IrisValue& Nil() { return m_ivNil; }
@@ -325,7 +343,7 @@ public:
 	// -------------- Instructors --------------
 
 private:
-	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName, unsigned int nCurrentFileIndex);
+	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName, unsigned int nCurrentFileIndex);
 	void GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisCodeSegment& icsCodeSegment);
 
 public:

@@ -10,7 +10,7 @@ public:
 
 	IIrisClosureBlock() {}
 
-	virtual IrisValue Excute(IIrisValues* pValues) = 0;
+	//virtual IrisValue Excute(IIrisValues* pValues) = 0;
 
 	virtual ~IIrisClosureBlock() = 0 {};
 };

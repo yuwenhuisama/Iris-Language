@@ -3,7 +3,7 @@
 
 #include "IrisDevHeader.h"
 
-class IrisClosureBlock;
+class IIrisClosureBlock;
 #ifdef IR_USE_MEM_POOL
 class IrisClosureBlockBaseTag : public IrisObjectMemoryPoolInterface<IrisClosureBlockBaseTag, POOLID_IrisClosureBlockBaseTag>
 #else
@@ -11,14 +11,14 @@ class IrisClosureBlockBaseTag
 #endif
 {
 private:
-	IrisClosureBlock* m_pClosureBlock = nullptr;
+	IIrisClosureBlock* m_pClosureBlock = nullptr;
 
 public:
 
-	IrisClosureBlock* GetClosureBlock();
-	void SetClosureBlock(IrisClosureBlock* pColosureBlock);
+	IIrisClosureBlock* GetClosureBlock();
+	void SetClosureBlock(IIrisClosureBlock* pColosureBlock);
 
-	IrisClosureBlockBaseTag(IrisClosureBlock* pColosureBlock);
+	IrisClosureBlockBaseTag(IIrisClosureBlock* pColosureBlock);
 	~IrisClosureBlockBaseTag();
 };
 

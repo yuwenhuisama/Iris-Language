@@ -8,15 +8,8 @@
 class IrisInterfaceBase : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ivObj;
-	}
-
-	static IrisValue GetInterfaceName(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		IrisInterfaceBaseTag* pInterface = IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(ivObj);
-		const string& strModuleName = pInterface->GetInterfaceName();
-		return IrisDevUtil::CreateString(strModuleName.c_str());
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue GetInterfaceName(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 

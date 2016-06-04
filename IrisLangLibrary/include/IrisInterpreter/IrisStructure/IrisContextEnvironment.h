@@ -7,6 +7,7 @@
 #include "IrisUnil/IrisCodeSegment.h"
 #include "IrisThread/IrisWLLock.h"
 #include "IrisInterfaces/IIrisContextEnvironment.h"
+#include "IrisUnil/IrisInternString.h"
 
 #include <list>
 #include <string>
@@ -30,8 +31,8 @@ class IrisContextEnvironment : public IIrisContextEnvironment
 #endif
 {
 private:
-	typedef unordered_map<string, IrisValue> _VariableMap;
-	typedef pair<string, IrisValue> _VariablePair;
+	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _VariableMap;
+	typedef pair<IrisInternString, IrisValue> _VariablePair;
 
 public:
 	enum class EnvironmentType {
@@ -76,12 +77,12 @@ public:
 
 public:
 
-	inline IIrisClosureBlock* GetClosureBlock();
-	inline void SetClosureBlock(IIrisClosureBlock* pBlock);
-	inline IIrisContextEnvironment* GetUpperContextEnvrioment();
+	IIrisClosureBlock* GetClosureBlock();
+	void SetClosureBlock(IIrisClosureBlock* pBlock);
+	IIrisContextEnvironment* GetUpperContextEnvrioment();
 
-	const IrisValue& GetVariableValue(const string& strVariableName, bool& bResult);
-	void AddLocalVariable(const string& strVariableName, const IrisValue& ivValue);
+	const IrisValue& GetVariableValue(const IrisInternString& strVariableName, bool& bResult);
+	void AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue);
 
 	IrisContextEnvironment();
 	~IrisContextEnvironment();

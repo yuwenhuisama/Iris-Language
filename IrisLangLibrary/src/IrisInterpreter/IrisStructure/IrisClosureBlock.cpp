@@ -30,7 +30,7 @@ IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment() {
 	return pNewEnvironment;
 }
 
-const IrisValue& IrisClosureBlock::GetLocalVariable(const string& strVariableName, bool& bResult) {
+const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strVariableName, bool& bResult) {
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	IrisValue* pValue = nullptr;
 
@@ -53,7 +53,7 @@ const IrisValue& IrisClosureBlock::GetLocalVariable(const string& strVariableNam
 	}
 }
 
-const IrisValue& IrisClosureBlock::GetInstanceVariable(const string& strVariableName, bool& bResult) {
+const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& strVariableName, bool& bResult) {
 
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	bResult = false;
@@ -99,7 +99,7 @@ const IrisValue& IrisClosureBlock::GetInstanceVariable(const string& strVariable
 	}
 }
 
-const IrisValue& IrisClosureBlock::GetClassVariable(const string& strVariableName, bool& bResult) {
+const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strVariableName, bool& bResult) {
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	bResult = false;
 	IrisValue* pValue = nullptr;
@@ -152,7 +152,7 @@ const IrisValue& IrisClosureBlock::GetClassVariable(const string& strVariableNam
 	}
 }
 
-const IrisValue& IrisClosureBlock::GetConstance(const string& strConstanceName, bool& bResult) {
+const IrisValue& IrisClosureBlock::GetConstance(const IrisInternString& strConstanceName, bool& bResult) {
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	IrisValue* pValue = nullptr;
 	bResult = false;
@@ -189,15 +189,15 @@ const IrisValue& IrisClosureBlock::GetConstance(const string& strConstanceName, 
 void IrisClosureBlock::Mark() {
 	m_pNativeObject->Mark();
 	for (auto value : m_mpOtherVariables) {
-		value.second.GetIrisObject()->Mark();
+		static_cast<IrisObject*>(value.second.GetIrisObject())->Mark();
 	}
 }
 
-void IrisClosureBlock::AddLocalVariable(const string& strVariableName, const IrisValue& ivValue) {
+void IrisClosureBlock::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue) {
 	m_pCurContextEnvironment->AddLocalVariable(strVariableName, ivValue);
 }
 
-void IrisClosureBlock::AddOtherVariable(const string & strVariableName, const IrisValue & ivValue) {
+void IrisClosureBlock::AddOtherVariable(const IrisInternString & strVariableName, const IrisValue & ivValue) {
 	m_iwlVariableLock.WriteLock();
 	decltype(m_mpOtherVariables)::iterator iValue;
 	if (m_mpOtherVariables.find(strVariableName) != m_mpOtherVariables.end()) {
@@ -271,7 +271,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 	return ivValue;
 }
 
-IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex): m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex): m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
 {
 	m_lsParameters.assign(lsParameters.begin(), lsParameters.end());
 	//m_vcCodes.assign(lsCodes.begin(), lsCodes.end());

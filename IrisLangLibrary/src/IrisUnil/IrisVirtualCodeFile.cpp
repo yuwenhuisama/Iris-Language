@@ -10,12 +10,12 @@ bool IrisVirtualCodeFile::_WriteFileBody(fstream & fOutFile, const IrisCompiler:
 
 	// String Field
 	for (auto& strElem : *pInfo->m_pStringSpace) {
-		_WriteString(fOutFile, strElem);
+		_WriteString(fOutFile, strElem.GetSTLString());
 	}
 
 	// Unique String Field
 	for (auto& strElem : *pInfo->m_pUniqueStringSpace) {
-		_WriteString(fOutFile, strElem);
+		_WriteString(fOutFile, strElem.GetSTLString());
 	}
 
 	// Integer Field
@@ -30,7 +30,7 @@ bool IrisVirtualCodeFile::_WriteFileBody(fstream & fOutFile, const IrisCompiler:
 
 	// Identifier Field
 	for (auto& nIden : *pInfo->m_pIdentifierSpace) {
-		_WriteString(fOutFile, nIden);
+		_WriteString(fOutFile, nIden.GetSTLString());
 	}
 
 	// Virtual Code

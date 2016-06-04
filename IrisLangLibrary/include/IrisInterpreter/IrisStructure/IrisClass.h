@@ -10,10 +10,12 @@
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 
 #include "IrisInterfaces/IIrisClass.h"
+#include "IrisUnil/IrisInternString.h"
 
 #include <string>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 using namespace std;
 
 //class IrisInterface;
@@ -31,25 +33,20 @@ class IrisClass
 #endif
 {
 private:
-	typedef unordered_map<std::string, IrisMethod*> _MethodHash;
-	typedef pair<string, IrisMethod*> _MethodPair;
-	typedef unordered_map<string, IrisValue> _VariableHash;
-	typedef pair<string, IrisValue> _VariablePair;
-	typedef unordered_map<string, IrisInterface*> _InterfaceHash;
-	typedef pair<string, IrisInterface*> _InterfacePair;
-	typedef unordered_map<string, IrisModule*> _ModuleHash;
-	typedef pair<string, IrisModule*> _ModulePair;
-	typedef unordered_map<string, IrisInterface::InterfaceFunctionDeclare> _InterfaceFunctionDeclareMap;
-	typedef pair<string, IrisInterface::InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
+	typedef unordered_map<IrisInternString, IrisMethod*, IrisInternString::IrisInerStringHash> _MethodHash;
+	typedef pair<IrisInternString, IrisMethod*> _MethodPair;
+	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _VariableHash;
+	typedef pair<IrisInternString, IrisValue> _VariablePair;
+
+	typedef unordered_set<IrisInterface*> _InterfaceSet;
+	typedef unordered_set<IrisModule*> _ModuleSet;
+
+	typedef unordered_map<IrisInternString, IrisInterface::InterfaceFunctionDeclare, IrisInternString::IrisInerStringHash> _InterfaceFunctionDeclareMap;
+	typedef pair<IrisInternString, IrisInterface::InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
 
 	typedef IrisValue(*IrisNativeFunction)(IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
 
 public:
-	//enum class SearchMethodType {
-	//	InstanceMethod = 0,
-	//	ClassMethod,
-	//};
-
 	enum class SearchVariableType {
 		Constance = 0,
 		ClassInstance,
@@ -65,12 +62,11 @@ public:
 
 protected:
 	IIrisClass* m_pExternClass = nullptr;
-	string m_strClassName = "";
+	IrisInternString m_strClassName = "";
 	IrisClass* m_pSuperClass = nullptr;
 	IrisModule* m_pUpperModule = nullptr;
-	_InterfaceHash m_hsInterfaces;
-	_ModuleHash m_hsModules;
-	//_MethodHash m_hsClassMethods;
+	_InterfaceSet m_hsInterfaces;
+	_ModuleSet m_hsModules;
 	_MethodHash m_hsInstanceMethods;
 	_VariableHash m_hsClassVariables;
 	_VariableHash m_hsConstances;
@@ -92,21 +88,23 @@ private:
 	void _FunctionCollect(IrisInterface* pInterface, _InterfaceFunctionDeclareMap& mpFunctionDeclare);
 	bool _FunctionAchieved();
 
-	//void _ModuleMethodSearch(SearchMethodType eSearchType, const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod);
-	//void _ClassModuleMethodSearch(SearchMethodType eSearchType, IrisClass* pCurClass, const string& strMethodName, IrisMethod** ppMethod);
-	void _ModuleMethodSearch(const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod);
-	void _ClassModuleMethodSearch(IrisClass* pCurClass, const string& strMethodName, IrisMethod** ppMethod);
-	void _SearchModuleConstance(SearchVariableType eType, const string& strVariableName, IrisModule* pCurModule, IrisValue** pValue);
+	void _ModuleMethodSearch(const IrisInternString& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod);
+	void _ClassModuleMethodSearch(IrisClass* pCurClass, const IrisInternString& strMethodName, IrisMethod** ppMethod);
+	void _SearchModuleConstance(SearchVariableType eType, const IrisInternString& strVariableName, IrisModule* pCurModule, IrisValue** pValue);
 
 public:
 
 	inline virtual IIrisClass* GetExternClass() { return m_pExternClass; }
-
+	
 	inline virtual bool IsClassClass() { return m_eClassType == ClassType::ClassClass; }
 	inline virtual bool IsObjectClass() { return m_eClassType == ClassType::ObjectClass; }
-	inline virtual bool IsNormalClass() { return m_eClassType == ClassType::NormalClass || m_eClassType == ClassType::ObjectClass; }
 	inline virtual bool IsModuleClass() { return m_eClassType == ClassType::ModuleClass; }
 	inline virtual bool IsInterfaceClass() { return m_eClassType == ClassType::InterfaceClass; }
+	inline virtual bool IsNormalClass() {
+		return m_eClassType != ClassType::ClassClass
+			&& m_eClassType != ClassType::ModuleClass
+			&& m_eClassType != ClassType::InterfaceClass;
+										}
 
 	inline virtual void SetCompleted(bool bFlag) { m_bIsCompleteClass = bFlag; }
 
@@ -114,60 +112,43 @@ public:
 
 	virtual void ClearJointingInterfaces();
 
-	virtual void AddConstance(const string& strConstName, const IrisValue& ivInitialValue);
-	virtual const IrisValue&  SearchConstance(const string& strConstName, bool& bResult);
+	virtual void AddConstance(const IrisInternString& strConstName, const IrisValue& ivInitialValue);
+	virtual const IrisValue&  SearchConstance(const IrisInternString& strConstName, bool& bResult);
 
 	virtual void AddClassMethod(IrisMethod* pMethod);
 
 	virtual void AddInstanceMethod(IrisMethod* pMethod);
 
-	virtual void AddClassVariable(const string& strClassVariableName);
-	virtual void AddClassVariable(const string& strClassVariableName, const IrisValue& ivInitialValue);
+	virtual void AddClassVariable(const IrisInternString& strClassVariableName);
+	virtual void AddClassVariable(const IrisInternString& strClassVariableName, const IrisValue& ivInitialValue);
 
-	virtual void AddSetter(const string& strProperName, IrisNativeFunction pfMethod);
-	virtual void AddGetter(const string& strProperName, IrisNativeFunction pfMethod);
+	virtual void AddSetter(const IrisInternString& strProperName, IrisNativeFunction pfMethod);
+	virtual void AddGetter(const IrisInternString& strProperName, IrisNativeFunction pfMethod);
 
 	virtual void AddInterface(IrisInterface* pInterface);
 	virtual void AddModule(IrisModule* pModule);
 	
-	virtual const IrisValue& SearchClassVariable(const string& strClassVariableName, bool& bResult);
+	virtual const IrisValue& SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult);
 	
 	virtual IrisValue CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment);
-	//virtual IrisValue CreateInstanceFromLiteral(char* pLiteral);
-	//virtual IrisValue CreateInstanceByInstantValue(int nValue) { IrisValue ivValue; ivValue.SetIrisObject(nullptr); return ivValue; }
-	//virtual IrisValue CreateInstanceByInstantValue(double dValue) { IrisValue ivValue; ivValue.SetIrisObject(nullptr); return ivValue; }
-	//virtual IrisValue CreateInstanceByInstantValue(const string& strString) { IrisValue ivValue; ivValue.SetIrisObject(nullptr); return ivValue; }
 
-	virtual const string& GetClassName() { return m_strClassName; }
-	virtual IrisValue CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContexEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex = -1);
+	virtual const IrisInternString& GetClassName() { return m_strClassName; }
+	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContexEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex = -1);
 
-	//virtual IrisMethod* GetMethod(SearchMethodType eSearchType, const string& strMethodName, bool& bIsCurClassMethod);
-	//virtual IrisMethod* GetCurrentClassMethod(SearchMethodType eSearchType, const string& strMethodName);
+	virtual IrisMethod* GetMethod(const IrisInternString& strMethodName, bool& bIsCurClassMethod);
+	virtual IrisMethod* GetCurrentClassMethod(const IrisInternString& strMethodName);
 
-	virtual IrisMethod* GetMethod(const string& strMethodName, bool& bIsCurClassMethod);
-	virtual IrisMethod* GetCurrentClassMethod(const string& strMethodName);
-
-	virtual const IrisValue& GetCurrentClassClassVariable(const string& strVariableName, bool& bResult);
-	virtual const IrisValue& GetCurrentClassConstance(const string& strConstanceName, bool& bResult);
+	virtual const IrisValue& GetCurrentClassClassVariable(const IrisInternString& strVariableName, bool& bResult);
+	virtual const IrisValue& GetCurrentClassConstance(const IrisInternString& strConstanceName, bool& bResult);
 
 	virtual void ResetNativeObject();
 	virtual void SetSuperClass(IrisClass* pSuperClass) { m_pSuperClass = pSuperClass; }
 	virtual IrisClass* GetSuperClass() { return m_pSuperClass; }
 
-	IrisClass(const string& strClassName, IrisClass* pSuperClass = nullptr, IrisModule* pUpperModule = nullptr, IIrisClass* pExternClass = nullptr);
+	IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClass = nullptr, IrisModule* pUpperModule = nullptr, IIrisClass* pExternClass = nullptr);
 	virtual ~IrisClass();
 
-	// 为字面量准备的（Integer/Float/String）
-	//virtual void* GetLiteralObject(char* pLiterral) { return nullptr; }
-
 	virtual void ResetAllMethodsObject();
-
-	//virtual int GetTrustteeSize(void* pNativePointer) { return 0; }
-
-	//virtual void* NativeAlloc() { return nullptr; }
-	//virtual void NativeFree(void* pNativePointer) {}
-	//virtual void NativeClassDefine() {}
-	//virtual void Mark(void* pNativePointer) {}
 
 	//Getter Setter
 	inline IrisModule* GetUpperModule() {
@@ -180,7 +161,7 @@ public:
 
 	inline IIrisObject* GetClassObject() { return m_pClassObject; }
 
-	inline _ModuleHash& GetModules() { return m_hsModules; }
+	inline _ModuleSet& GetModules() { return m_hsModules; }
 
 	friend class IrisGC;
 	friend class IrisInterpreter;

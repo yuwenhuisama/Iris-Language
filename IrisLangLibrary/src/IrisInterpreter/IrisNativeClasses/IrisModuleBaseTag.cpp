@@ -11,7 +11,7 @@ void IrisModuleBaseTag::SetModule(IrisModule* pModule) {
 }
 
 const string& IrisModuleBaseTag::GetModuleName() {
-	return m_pModule->GetModuleName();
+	return m_pModule->GetModuleName().GetSTLString();
 }
 
 IrisModule* IrisModuleBaseTag::GetModule() {

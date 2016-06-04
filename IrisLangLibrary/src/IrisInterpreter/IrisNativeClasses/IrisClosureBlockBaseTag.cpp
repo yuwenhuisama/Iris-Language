@@ -2,15 +2,15 @@
 
 
 
-IrisClosureBlockBaseTag::IrisClosureBlockBaseTag(IrisClosureBlock* pClosureBlock) : m_pClosureBlock(pClosureBlock)
+IrisClosureBlockBaseTag::IrisClosureBlockBaseTag(IIrisClosureBlock* pClosureBlock) : m_pClosureBlock(pClosureBlock)
 {
 }
 
-IrisClosureBlock* IrisClosureBlockBaseTag::GetClosureBlock() {
+IIrisClosureBlock* IrisClosureBlockBaseTag::GetClosureBlock() {
 	return m_pClosureBlock;
 }
 
-void IrisClosureBlockBaseTag::SetClosureBlock(IrisClosureBlock* pClosureBlock) {
+void IrisClosureBlockBaseTag::SetClosureBlock(IIrisClosureBlock* pClosureBlock) {
 	m_pClosureBlock = pClosureBlock;
 }
 

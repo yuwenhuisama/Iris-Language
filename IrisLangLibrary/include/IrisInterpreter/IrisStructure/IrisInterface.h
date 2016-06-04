@@ -4,8 +4,12 @@
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 #include "IrisThread/IrisWLLock.h"
+
+#include "IrisUnil/IrisInternString.h"
+
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 using namespace std;
 
 class IrisInterface;
@@ -23,25 +27,25 @@ class IrisInterface
 {
 public:
 	struct InterfaceFunctionDeclare {
-		string m_strInterfaceName = "";
+		IrisInternString m_strInterfaceName = "";
 		int m_nParameterAmount = 0;
 		bool m_bHaveVariableParameter = false;
 
-		InterfaceFunctionDeclare(const string& strInterfaceName, int nParameterAmount, bool b_HaveVariableParameter) : m_strInterfaceName(strInterfaceName), m_nParameterAmount(nParameterAmount), m_bHaveVariableParameter(b_HaveVariableParameter){ }
+		InterfaceFunctionDeclare(const IrisInternString& strInterfaceName, int nParameterAmount, bool b_HaveVariableParameter) : m_strInterfaceName(strInterfaceName), m_nParameterAmount(nParameterAmount), m_bHaveVariableParameter(b_HaveVariableParameter){ }
 		InterfaceFunctionDeclare() { }
 	};
 
 private:
-	typedef unordered_map<string, InterfaceFunctionDeclare> _InterfaceFunctionDeclareMap;
-	typedef pair<string, InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
-	typedef unordered_map<string, IrisInterface*> _InterfaceHash;
-	typedef pair<string, IrisInterface*> _InterfacePair;
+	typedef unordered_map<IrisInternString, InterfaceFunctionDeclare, IrisInternString::IrisInerStringHash> _InterfaceFunctionDeclareMap;
+	typedef pair<IrisInternString, InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
+	typedef unordered_set<IrisInterface*> _InterfaceSet;
+	typedef pair<IrisInternString, IrisInterface*> _InterfacePair;
 
 private:
-	string m_strInterfaceName = "";
+	IrisInternString m_strInterfaceName = "";
 	IrisModule* m_pUpperModule = nullptr;
 	_InterfaceFunctionDeclareMap m_mpFunctionDeclareMap;
-	_InterfaceHash m_mpInterfaces;
+	_InterfaceSet m_mpInterfaces;
 
 	IrisWLLock m_iwlDecAddingLock;
 	IrisWLLock m_iwlInfAddingLock;
@@ -54,16 +58,16 @@ public:
 
 	inline IIrisInterface* GetExternInterface() { return m_pExternInterface; }
 
-	inline const string& GetInterfaceName() { return m_strInterfaceName; }
+	inline const IrisInternString& GetInterfaceName() { return m_strInterfaceName; }
 	inline IIrisObject* GetInterfaceObject() { return m_pInterfaceObject; }
 
-	IrisInterface(const string& strInterfaceName, IrisModule* pUpperModule = nullptr);
+	IrisInterface(const IrisInternString& strInterfaceName, IrisModule* pUpperModule = nullptr);
 	IrisInterface::~IrisInterface();
 
 	void ClearJointingInterfaces();
 
 	void AddInterface(IrisInterface* pInterface);
-	void AddInterfaceFunctionDeclare(const string& strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter = false);
+	void AddInterfaceFunctionDeclare(const IrisInternString& strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter = false);
 
 	friend class IrisClass;
 	friend class IrisModule;

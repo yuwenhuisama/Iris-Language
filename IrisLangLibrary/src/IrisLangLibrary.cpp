@@ -21,74 +21,149 @@ using namespace std;
 IrisDev_FatalErrorMessageFunction g_pfFatalErrorMessageFunction = nullptr;
 IrisDev_ExitConditionFunction g_pfExitConditionFunction = nullptr;
 
+#define IMPLEMENT_IRISDEV_CLASS_CHECK(klass) IRISLANGLIBRARY_API bool IrisDev_CheckClassIs##klass(const IrisValue& ivValue) { return IrisDevUtil::CheckClassIs##klass(ivValue);  }
+
+IMPLEMENT_IRISDEV_CLASS_CHECK(Class)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Module)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Interface)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Object)
+IMPLEMENT_IRISDEV_CLASS_CHECK(String)
+IMPLEMENT_IRISDEV_CLASS_CHECK(UniqueString)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Integer)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Float)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Array)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Hash)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Range)
+IMPLEMENT_IRISDEV_CLASS_CHECK(Block)
+
+IRISLANGLIBRARY_API void * _IrisDev_InnerGetNativePointer(const IrisValue & ivValue)
+{
+	return IrisDevUtil::_InnerGetNativePointer(ivValue);
+}
+
+IRISLANGLIBRARY_API void * _IrisDev_InnerGetNativePointer(IIrisObject * pObject)
+{
+	return IrisDevUtil::_InnerGetNativePointer(pObject);
+}
+
 IRISLANGLIBRARY_API bool IrisDev_CheckClass(const IrisValue & ivValue, const char* strClassName)
 {
-	auto pClass = ((IrisValue&)ivValue).GetIrisObject()->GetClass();
-	auto& strName = pClass->GetInternClass()->GetClassName();
-	return strName == strClassName;
+	return IrisDevUtil::CheckClass(ivValue, strClassName);
 }
 
 IRISLANGLIBRARY_API void IrisDev_GroanIrregularWithString(const char* strIrregularString)
 {
-	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
-	IrisValue ivValue = IrisDev_CreateStringInstanceByInstantValue(strIrregularString);
-	pInterpreter->RegistIrregular(ivValue);
+	IrisDevUtil::GroanIrregularWithString(strIrregularString);
 }
 
 IRISLANGLIBRARY_API int IrisDev_GetInt(const IrisValue & ivValue)
 {
-	return IrisInteger::GetIntData((IrisValue&)ivValue);
+	return IrisDevUtil::GetInt(ivValue);
 }
 
 IRISLANGLIBRARY_API double IrisDev_GetFloat(const IrisValue & ivValue)
 {
-	return IrisFloat::GetFloatData((IrisValue&)ivValue);
+	return IrisDevUtil::GetFloat(ivValue);
 }
 
 IRISLANGLIBRARY_API const char* IrisDev_GetString(const IrisValue & ivValue)
 {
-	if (IrisDev_CheckClass(ivValue, "String")) {
-		return IrisString::GetString((IrisValue&)ivValue).c_str();
-	}
-	else {
-		return IrisUniqueString::GetString((IrisValue&)ivValue).c_str();
-	}
-
+	return IrisDevUtil::GetString(ivValue);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CallMethod(const IrisValue & ivObj, IIrisValues * pParameters, const char* strMethodName)
 {
-	return static_cast<IrisObject*>(((IrisValue&)ivObj).GetIrisObject())->CallInstanceFunction(strMethodName, nullptr, pParameters, CallerSide::Outside);
+	return IrisDevUtil::CallMethod(ivObj, pParameters, strMethodName);
 }
 
 IRISLANGLIBRARY_API IIrisClass * IrisDev_GetClass(const char* strClassPathName)
 {
-	return IrisInterpreter::CurrentInterpreter()->GetIrisClass(strClassPathName)->GetExternClass();
+	return IrisDevUtil::GetClass(strClassPathName);
 }
 
 IRISLANGLIBRARY_API IIrisModule * IrisDev_GetModule(const char * strClassPathName)
 {
-	return IrisInterpreter::CurrentInterpreter()->GetIrisModule(strClassPathName)->GetExternModule();
+	return IrisDevUtil::GetModule(strClassPathName);
 }
 
 IRISLANGLIBRARY_API IIrisInterface * IrisDev_GetInterface(const char * strClassPathName)
 {
-	return IrisInterpreter::CurrentInterpreter()->GetIrisInterface(strClassPathName)->GetExternInterface();
+	return IrisDevUtil::GetInterface(strClassPathName);
+}
+
+IRISLANGLIBRARY_API bool IrisDev_ObjectIsFixed(const IrisValue & ivObj)
+{
+	return IrisDevUtil::ObjectIsFixed(ivObj);
+}
+
+IRISLANGLIBRARY_API IIrisClosureBlock * IrisDev_GetClosureBlock(IIrisContextEnvironment * pContextEnvironment)
+{
+	return IrisDevUtil::GetClosureBlock(pContextEnvironment);
+}
+
+IRISLANGLIBRARY_API IrisValue IrisDev_ExcuteClosureBlock(IIrisClosureBlock * pClosureBlock, IIrisValues * pParameters)
+{
+	return IrisDevUtil::ExcuteClosureBlock(pClosureBlock, pParameters);
+}
+
+IRISLANGLIBRARY_API void IrisDev_ContextEnvironmentSetClosureBlock(IIrisContextEnvironment * pContextEnvironment, IIrisClosureBlock * pBlock)
+{
+	return IrisDevUtil::ContextEnvironmentSetClosureBlock(pContextEnvironment, pBlock);
+}
+
+IRISLANGLIBRARY_API IIrisObject * IrisDev_GetNativeObjectPointer(const IrisValue & ivObj)
+{
+	return IrisDevUtil::GetNativeObjectPointer(ivObj);
+}
+
+IRISLANGLIBRARY_API int IrisDev_GetObjectID(const IrisValue & ivObj)
+{
+	return IrisDevUtil::GetObjectID(ivObj);
+}
+
+IRISLANGLIBRARY_API IIrisClass * IrisDev_GetClassOfObject(const IrisValue & ivObj)
+{
+	return IrisDevUtil::GetClassOfObject(ivObj);
+}
+
+IRISLANGLIBRARY_API const char * IrisDev_GetNameOfClass(IIrisClass * pClass)
+{
+	return IrisDevUtil::GetNameOfClass(pClass);
+}
+
+IRISLANGLIBRARY_API const char * IrisDev_GetNameOfModule(IIrisModule * pModule)
+{
+	return IrisDevUtil::GetNameOfModule(pModule);
+}
+
+IRISLANGLIBRARY_API const char * IrisDev_GetNameOfInterface(IIrisInterface * pInterface)
+{
+	return IrisDevUtil::GetNameOfInterface(pInterface);
+}
+
+IRISLANGLIBRARY_API void IrisDev_MarkObject(const IrisValue & ivObject)
+{
+	IrisDevUtil::MarkObject(ivObject);
+}
+
+IRISLANGLIBRARY_API void IrisDev_MarkClosureBlock(IIrisClosureBlock * pClosureBlock)
+{
+	IrisDevUtil::MarkClosureBlock(pClosureBlock);
 }
 
 IRISLANGLIBRARY_API const IrisValue & IrisDev_Nil()
 {
-	return IrisInterpreter::CurrentInterpreter()->Nil();
+	return IrisDevUtil::Nil();
 }
 
 IRISLANGLIBRARY_API const IrisValue & IrisDev_False()
 {
-	return IrisInterpreter::CurrentInterpreter()->False();
+	return IrisDevUtil::False();
 }
 
 IRISLANGLIBRARY_API const IrisValue & IrisDev_True()
 {
-	return IrisInterpreter::CurrentInterpreter()->True();
+	return IrisDevUtil::True();
 }
 
 IRISLANGLIBRARY_API bool IrisDev_RegistClass(const char * szPath, IIrisClass * pClass)
@@ -108,178 +183,117 @@ IRISLANGLIBRARY_API bool IrisDev_RegistInterface(const char * szPath, IIrisInter
 
 IRISLANGLIBRARY_API void IrisDev_AddInstanceMethod(IIrisClass * pClass, const char * szMethodName, IrisNativeFunction pfFunction, size_t nParamCount, bool bIsWithVariableParameter)
 {
-	pClass->GetInternClass()->AddInstanceMethod(new IrisMethod(szMethodName, pfFunction, nParamCount, bIsWithVariableParameter));
+	IrisDevUtil::AddInstanceMethod(pClass, szMethodName, pfFunction, nParamCount, bIsWithVariableParameter);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddClassMethod(IIrisClass * pClass, const char * szMethodName, IrisNativeFunction pfFunction, size_t nParamCount, bool bIsWithVariableParameter)
 {
-	pClass->GetInternClass()->AddClassMethod(new IrisMethod(szMethodName, pfFunction, nParamCount, bIsWithVariableParameter));
+	IrisDevUtil::AddClassMethod(pClass, szMethodName, pfFunction, nParamCount, bIsWithVariableParameter);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddInstanceMethod(IIrisModule * pModule, const char * szMethodName, IrisNativeFunction pfFunction, size_t nParamCount, bool bIsWithVariableParameter)
 {
-	pModule->GetInternModule()->AddInstanceMethod(new IrisMethod(szMethodName, pfFunction, nParamCount, bIsWithVariableParameter));
+	IrisDevUtil::AddInstanceMethod(pModule, szMethodName, pfFunction, nParamCount, bIsWithVariableParameter);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddClassMethod(IIrisModule * pModule, const char * szMethodName, IrisNativeFunction pfFunction, size_t nParamCount, bool bIsWithVariableParameter)
 {
-	pModule->GetInternModule()->AddClassMethod(new IrisMethod(szMethodName, pfFunction, nParamCount, bIsWithVariableParameter));
+	IrisDevUtil::AddClassMethod(pModule, szMethodName, pfFunction, nParamCount, bIsWithVariableParameter);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddGetter(IIrisClass * pClass, const char * szInstanceVariableName, IrisNativeFunction pfFunction)
 {
-	pClass->GetInternClass()->AddGetter(szInstanceVariableName, pfFunction);
+	IrisDevUtil::AddGetter(pClass, szInstanceVariableName, pfFunction);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddSetter(IIrisClass* pClass, const char * szInstanceVariableName, IrisNativeFunction pfFunction)
 {
-	pClass->GetInternClass()->AddSetter(szInstanceVariableName, pfFunction);
+	IrisDevUtil::AddSetter(pClass, szInstanceVariableName, pfFunction);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddConstance(IIrisClass * pClass, const char * szConstanceName, const IrisValue & ivValue)
 {
-	pClass->GetInternClass()->AddConstance(szConstanceName, ivValue);
+	IrisDevUtil::AddConstance(pClass, szConstanceName, ivValue);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddConstance(IIrisModule * pModule, const char * szConstanceName, const IrisValue & ivValue)
 {
-	pModule->GetInternModule()->AddConstance(szConstanceName, ivValue);
+	IrisDevUtil::AddConstance(pModule, szConstanceName, ivValue);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddClassVariable(IIrisClass * pClass, const char * szVariableName, const IrisValue & ivValue)
 {
-	pClass->GetInternClass()->AddClassVariable(szVariableName, ivValue);
+	IrisDevUtil::AddClassVariable(pClass, szVariableName, ivValue);
 }
 
-IRISLANGLIBRARY_API void IrisDev_AddClassVariable(IIrisModule * pClass, const char * szVariableName, const IrisValue & ivValue)
+IRISLANGLIBRARY_API void IrisDev_AddClassVariable(IIrisModule * pModule, const char * szVariableName, const IrisValue & ivValue)
 {
-	pClass->GetInternModule()->AddClassVariable(szVariableName, ivValue);
+	IrisDevUtil::AddClassVariable(pModule, szVariableName, ivValue);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddModule(IIrisClass * pClass, IIrisModule * pTargetModule)
 {
-	pClass->GetInternClass()->AddModule(pTargetModule->GetInternModule());
+	IrisDevUtil::AddModule(pClass, pTargetModule);
 }
 
 IRISLANGLIBRARY_API void IrisDev_AddModule(IIrisModule * pModule, IIrisModule * pTargetModule)
 {
-	pModule->GetInternModule()->AddModule(pTargetModule->GetInternModule());
+	IrisDevUtil::AddModule(pModule, pTargetModule);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CreateNormalInstance(IIrisClass * pClass, IIrisValues * ivsParams, IIrisContextEnvironment * pContexEnvironment)
 {
-	return pClass->GetInternClass()->CreateInstance(ivsParams, pContexEnvironment);
+	return IrisDevUtil::CreateInstance(pClass, ivsParams, pContexEnvironment);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CreateStringInstanceByInstantValue(const char * szString)
 {
-	auto pClass = IrisDev_GetClass("String");
-	IrisValue ivValue;
-	IrisObject* pObject = new IrisObject();
-	pObject->SetClass(pClass);
-	IrisStringTag* pString = new IrisStringTag(szString);
-	pObject->SetNativeObject(pString);
-	ivValue.SetIrisObject(pObject);
-
-	IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
-	IrisGC::CurrentGC()->Start();
-
-	// 将新对象保存到堆里
-	IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
-	return ivValue;
+	return IrisDevUtil::CreateString(szString);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CreateFloatInstanceByInstantValue(double dFloat)
 {
-	auto pClass = IrisDev_GetClass("Float");
-	IrisValue ivValue;
-	IrisObject* pObject = new IrisObject();
-	pObject->SetClass(pClass);
-	IrisFloatTag* pFloat = new IrisFloatTag(dFloat);
-	pObject->SetNativeObject(pFloat);
-	ivValue.SetIrisObject(pObject);
-
-	IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
-	IrisGC::CurrentGC()->Start();
-
-	// 将新对象保存到堆里
-	IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
-	return ivValue;
+	return IrisDevUtil::CreateFloat(dFloat);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CreateIntegerInstanceByInstantValue(int nInteger)
 {
-	auto pClass = IrisDev_GetClass("Integer");
-	IrisValue ivValue;
-	IrisObject* pObject = new IrisObject();
-	pObject->SetClass(pClass);
-	IrisIntegerTag* pInteger = new IrisIntegerTag(nInteger);
-	pObject->SetNativeObject(pInteger);
-	ivValue.SetIrisObject(pObject);
-
-	IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
-	IrisGC::CurrentGC()->Start();
-
-	// 将新对象保存到堆里
-	IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
-	return ivValue;
+	return IrisDevUtil::CreateInt(nInteger);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_CreateUniqueStringInstanceByUniqueIndex(size_t nIndex)
 {
-	IrisValue ivValue;
-	bool bResult = false;
-	ivValue = IrisUniqueString::GetUniqueString(nIndex, bResult);
-	if (bResult) {
-		return ivValue;
-	}
-
-	auto pClass = IrisDev_GetClass("UniqueString");
-
-	IrisObject* pObject = new IrisObject();
-	pObject->SetClass(pClass);
-	pObject->SetPermanent(true);
-	IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()));
-	pObject->SetNativeObject(pString);
-	ivValue.SetIrisObject(pObject);
-
-	IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
-	IrisGC::CurrentGC()->Start();
-
-	// 将新对象保存到堆里
-	IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
-
-	IrisUniqueString::AddUniqueString(nIndex, ivValue);
-	return ivValue;
+	return IrisDevUtil::CreateUniqueStringInstanceByUniqueIndex(nIndex);
 }
 
 IRISLANGLIBRARY_API void IrisDev_SetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
 {
-	bool bResult = false;
-	auto& ivResult =  ivObj.GetIrisObject()->GetInstanceValue(szInstanceVariableName, bResult);
-	if (bResult) {
-		((IrisValue&)ivResult).SetIrisObject(ivResult.GetIrisObject());
-	}
-	else {
-		ivObj.GetIrisObject()->AddInstanceValue(szInstanceVariableName, ivValue);
-	}
+	IrisDevUtil::SetObjectInstanceVariable(ivObj, szInstanceVariableName, ivValue);
 }
 
 IRISLANGLIBRARY_API IrisValue IrisDev_GetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName)
 {
-	bool bResult = false;
-	auto& ivResult = ivObj.GetIrisObject()->GetInstanceValue(szInstanceVariableName, bResult);
-	return ivResult;
+	return IrisDevUtil::GetObjectInstanceVariable(ivObj, szInstanceVariableName);
 }
 
 IRISLANGLIBRARY_API bool IrisDev_IrregularHappened()
 {
-	return IrisInterpreter::CurrentInterpreter()->IrregularHappened();
+	return IrisDevUtil::IrregularHappened();
 }
 
 IRISLANGLIBRARY_API bool IrisDev_FatalErrorHappened()
 {
-	return IrisInterpreter::CurrentInterpreter()->FatalErrorHappened();
+	return IrisDevUtil::FatalErrorHappened();
+}
+
+IRISLANGLIBRARY_API IIrisValues * IrisDev_CreateIrisValuesList(size_t nSize)
+{
+	return nSize > 0 ? new IrisValues(nSize) : nullptr;
+}
+
+IRISLANGLIBRARY_API void IrisDev_ReleaseIrisValuesList(IIrisValues * pValues)
+{
+	delete pValues;
 }
 
 void _InternFatalErrorMessageFunction(const string& pMessage) {
@@ -301,14 +315,6 @@ IRISLANGLIBRARY_API bool IR_Initialize(PIrisInitializeStruct pInitializeStruct)
 	IrisFatalErrorHandler::CurrentFatalHandler()->SetFatalErrorMessageFuncton(_InternFatalErrorMessageFunction);
 	pInterpreter->SetExitConditionFunction(_InternExitConditionFunction);
 
-	return true;
-}
-
-IRISLANGLIBRARY_API bool IR_Run()
-{
-	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
-	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
-
 	pInterpreter->SetCompiler(pCompiler);
 
 	// Run
@@ -320,6 +326,13 @@ IRISLANGLIBRARY_API bool IR_Run()
 
 	IrisGC::CurrentGC()->ResetNextThreshold();
 	IrisGC::CurrentGC()->SetGCFlag(true);
+
+	return true;
+}
+
+IRISLANGLIBRARY_API bool IR_Run()
+{
+	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
 	if (!pInterpreter->Run()) {
 		return false;
@@ -345,7 +358,9 @@ IRISLANGLIBRARY_API bool IR_LoadScriptFromPath(char * pScriptFilePath)
 	strDestFileName += ".irc";
 
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
-	pCompiler->LoadScript(pScriptFilePath);
+	if (!pCompiler->LoadScript(pScriptFilePath)) {
+		return false;
+	}
 	bool bCompileResult = pCompiler->Generate();
 	if (!bCompileResult) {
 		remove(strDestFileName.c_str());
@@ -359,7 +374,9 @@ IRISLANGLIBRARY_API bool IR_LoadScriptFromVirtualPathAndText(char* pPath, char *
 	strDestFileName += ".irc";
 
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
-	pCompiler->LoadScriptFromVirtualPathAndText(pPath, pScriptText);
+	if (!pCompiler->LoadScriptFromVirtualPathAndText(pPath, pScriptText)) {
+		return false;
+	}
 	bool bCompileResult = pCompiler->Generate();
 	if (!bCompileResult) {
 		remove(strDestFileName.c_str());

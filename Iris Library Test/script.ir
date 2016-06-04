@@ -1,4 +1,4 @@
-module A {
+/* module A {
 	module B {
 		class C {
 			fun __format() {
@@ -27,7 +27,7 @@ module A {
 ;f2::C.new()
 ;f3.new()
 ;print(A::B::C.max(3, 10, 8, 46, 7), "\n")
-
+ */
 // fun f(vh) {
 	// ;dh = {'a' => 10}
 	// ;dh.combine_without_cover!(vh)
@@ -217,7 +217,7 @@ fun get_prime(to) {
 	;print(e, "\n")
 } */
 
-/* class Node {
+class Node {
 	;get [@data]
 	;gset [@leftNode]
 	;gset [@rightNode]
@@ -285,7 +285,7 @@ class SortedBinaryTree {
 ;obj.insert(8)
 ;print("二叉排序树的结果为：")
 ;obj.display()
-;print("\n") */
+;print("\n")
 
 // for(i in ["Z" => "A"]) {
 	// ;print(i, " ")

@@ -6,7 +6,7 @@ IrisMethodBaseTag::IrisMethodBaseTag(IrisMethod* pMethod) : m_pMethod(pMethod)
 }
 
 const string& IrisMethodBaseTag::GetMethodName() {
-	return m_pMethod->GetMethodName();
+	return m_pMethod->GetMethodName().GetSTLString();
 }
 
 void IrisMethodBaseTag::SetMethod(IrisMethod* pMethod) {

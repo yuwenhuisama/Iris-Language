@@ -10,15 +10,8 @@ class IrisMethodBase : public IIrisClass
 {
 
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ivObj;
-	}
-
-	static IrisValue GetMethodName(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		IrisMethodBaseTag* pMethod = IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivObj);
-		const string& strMethodName = pMethod->GetMethodName();
-		return IrisDevUtil::CreateString(strMethodName.c_str());
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue GetMethodName(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 

@@ -12,28 +12,11 @@ class IrisHashIterator :
 	public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		IrisHashTag* pHash = (IrisHashTag*)(ivsValues->GetValue(0).GetInstanceNativePointer());
-		((IrisHashIteratorTag*)ivObj.GetInstanceNativePointer())->Initialize(&pHash->m_mpHash);
-		return ivObj;
-	}
-
-	static IrisValue Next(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		((IrisHashIteratorTag*)ivObj.GetInstanceNativePointer())->Next();
-		return ivObj;
-	}
-
-	static IrisValue IsEnd(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ((IrisHashIteratorTag*)ivObj.GetInstanceNativePointer())->IsEnd() ? IrisInterpreter::CurrentInterpreter()->True() : IrisInterpreter::CurrentInterpreter()->False();
-	}
-
-	static IrisValue GetKey(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ((IrisHashIteratorTag*)ivObj.GetInstanceNativePointer())->GetKey();
-	}
-
-	static IrisValue GetValue(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ((IrisHashIteratorTag*)ivObj.GetInstanceNativePointer())->GetValue();
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Next(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue IsEnd(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue GetKey(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue GetValue(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 

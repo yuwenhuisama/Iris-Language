@@ -11,8 +11,8 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisObjectBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisClassBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisModuleBase.h"
-#include "IrisInterpreter/IrisNativeClasses/IrisTrueClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisFalseClass.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisTrueClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisNilClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisArray.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisArrayIterator.h"
@@ -53,13 +53,17 @@ bool IrisInterpreter::Initialize() {
 
 	// Maybe a little mass....
  	RegistClass("Class", new IrisClassBase());
+	INNER_CLASS_SET_POINTER(Class, GetIrisClass("Class")->GetExternClass());
 	//GetIrisClass("Class")->ResetNativeObject();
 	bool bResult = false;
 	((IrisValue&)GetConstance("Class", bResult)).SetIrisObject(GetIrisClass("Class")->GetClassObject());
 	RegistClass("Module", new IrisModuleBase());
+	INNER_CLASS_SET_POINTER(Module, GetIrisClass("Module")->GetExternClass());
 	RegistClass("Interface", new IrisInterfaceBase());
+	INNER_CLASS_SET_POINTER(Interface, GetIrisClass("Interface")->GetExternClass());
 	RegistModule("Kernel", new IrisKernel());
 	RegistClass("Object", new IrisObjectBase());
+	INNER_CLASS_SET_POINTER(Object, GetIrisClass("Object")->GetExternClass());
 
 	GetIrisClass("Object")->m_eClassType = IrisClass::ClassType::ObjectClass;
 	GetIrisClass("Class")->SetSuperClass(GetIrisClass("Object"));
@@ -76,6 +80,7 @@ bool IrisInterpreter::Initialize() {
 	GetIrisClass("Module")->ResetAllMethodsObject();
 	GetIrisClass("Interface")->ResetAllMethodsObject();
 	GetIrisModule("Kernel")->ResetAllMethodsObject();
+	GetIrisClass("Method")->ResetAllMethodsObject();
 
 	RegistClass("String", new IrisString());
 	RegistClass("UniqueString", new IrisUniqueString());
@@ -104,6 +109,15 @@ bool IrisInterpreter::Initialize() {
 	m_ivTrue = GetIrisClass("TrueClass")->CreateInstance(nullptr, nullptr);
 	m_ivFalse = GetIrisClass("FalseClass")->CreateInstance(nullptr, nullptr);
 	m_ivNil = GetIrisClass("NilClass")->CreateInstance(nullptr, nullptr);
+
+	INNER_CLASS_SET_POINTER(String, GetIrisClass("String")->GetExternClass());
+	INNER_CLASS_SET_POINTER(UniqueString, GetIrisClass("UniqueString")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Integer, GetIrisClass("Integer")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Float, GetIrisClass("Float")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Array, GetIrisClass("Array")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Hash, GetIrisClass("Hash")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Range, GetIrisClass("Range")->GetExternClass());
+	INNER_CLASS_SET_POINTER(Block, GetIrisClass("Block")->GetExternClass());
 
 	return true;
 }
@@ -149,7 +163,7 @@ void IrisInterpreter::SetCurrentInterpreter(IrisInterpreter * pInter)
 	s_pInstance = pInter;
 }
 
-int IrisInterpreter::_Split(const string& str, list<string>& ret_, string sep) {
+int IrisInterpreter::_Split(const string& str, list<IrisInternString>& ret_, string sep) {
 	if (str.empty())
 	{
 		return 0;
@@ -182,84 +196,77 @@ int IrisInterpreter::_Split(const string& str, list<string>& ret_, string sep) {
 	return 0;
 }
 
-IrisClass* IrisInterpreter::GetIrisClass(const string& strClassFullFieldName) {
-	IrisModule* pTmpModule = nullptr;
-	IrisClass* pClass = nullptr;
-	list<string> lsRoute;
-	_Split(strClassFullFieldName, lsRoute, "::");
-	//bool bResult = m_trClassTree.GetNodeData(lsRoute, pClass);
-	string strRegistName = lsRoute.back();
-	lsRoute.pop_back();
-	if (!lsRoute.empty()) {
-		m_iwlClassLock.ReadLock();
-		bool bResult = m_trModuels.GetNodeData(lsRoute, pTmpModule);
-		m_iwlClassLock.ReadUnlock();
-		if (!bResult) {
-			// **Error**
-			return nullptr;
-		}
-		pClass = pTmpModule->GetClass(strRegistName);
+IrisModule * IrisInterpreter::_GetLastModuleFromPath(const list<IrisInternString>& lsPath)
+{
+	bool bTmpResult = false;
+	auto ivIter = lsPath.begin();
+	auto& ivConst = GetConstance(*(ivIter++), bTmpResult);
+	if (!bTmpResult) {
+		return false;
 	}
-	else {
-		m_iwlClassLock.ReadLock();
-		decltype(m_mpClasses)::iterator iClass;
-		if ((iClass = m_mpClasses.find(strRegistName)) != m_mpClasses.end()) {
-			pClass = iClass->second;
-		}
-		else {
-			pClass = nullptr;
-		}
-		m_iwlClassLock.ReadUnlock();
+	if (!IrisDevUtil::CheckClassIsModule(ivConst)) {
+		return nullptr;
 	}
 
-	return pClass;
+	IrisModule* pCurModule = IrisDevUtil::GetNativeModule(ivConst)->GetInternModule();
+	for (; ivIter != lsPath.end(); ++ivIter) {
+		auto& ivConst = pCurModule->GetCurrentModuleConstance(*ivIter, bTmpResult);
+		if (!bTmpResult) {
+			return nullptr;
+		}
+		if (!IrisDevUtil::CheckClassIsModule(ivConst)) {
+			return nullptr;
+		}
+		pCurModule = IrisDevUtil::GetNativeModule(ivConst)->GetInternModule();
+	}
+	return pCurModule;
+}
+
+IrisClass* IrisInterpreter::GetIrisClass(const string& strClassFullFieldName) {
+	list<IrisInternString> lsRoute;
+	_Split(strClassFullFieldName, lsRoute, "::");
+	return GetIrisClass(lsRoute);
 }
 
 IrisInterface* IrisInterpreter::GetIrisInterface(const string& strInterfaceFullFieldName) {
-
-	IrisModule* pTmpModule = nullptr;
-	IrisInterface* pInterface = nullptr;
-	list<string> lsRoute;
+	list<IrisInternString> lsRoute;
 	_Split(strInterfaceFullFieldName, lsRoute, "::");
-	//bool bResult = m_trClassTree.GetNodeData(lsRoute, pClass);
-	string strRegistName = lsRoute.back();
-	lsRoute.pop_back();
-	if (!lsRoute.empty()) {
-		m_iwlInterfaceLock.ReadLock();
-		bool bResult = m_trModuels.GetNodeData(lsRoute, pTmpModule);
-		m_iwlInterfaceLock.ReadUnlock();
-		if (!bResult) {
-			// **Error**
-			return nullptr;
-		}
-		pInterface = pTmpModule->GetInterface(strRegistName);
-	}
-	else {
-		m_iwlInterfaceLock.ReadLock();
-		if (m_mpInterfaces.find(strRegistName) != m_mpInterfaces.end()) {
-			pInterface = m_mpInterfaces[strRegistName];
-		}
-		else {
-			pInterface = nullptr;
-		}
-		m_iwlInterfaceLock.ReadUnlock();
-	}
+	return GetIrisInterface(lsRoute);
+}
 
-	return pInterface;
+IrisModule* IrisInterpreter::GetIrisModule(const string& strModuleFullFieldName) {
+	list<IrisInternString> lsRoute;
+	_Split(strModuleFullFieldName, lsRoute, "::");
+	return GetIrisModule(lsRoute);
 }
 
 bool IrisInterpreter::RegistClass(const string& strClassFullFieldName, IIrisClass* pClass, bool bNative) {
+	list<IrisInternString> lsRoute;
+	_Split(strClassFullFieldName, lsRoute, "::");
+	return RegistClass(lsRoute, pClass, bNative);
+}
 
-	if (GetIrisModule(strClassFullFieldName)
-		|| GetIrisInterface(strClassFullFieldName)) {
+bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative) {
+	list<IrisInternString> lsRoute;
+	_Split(strModuleFullFieldName, lsRoute, "::");
+	return RegistModule(lsRoute, pModule, bNative);
+}
+
+bool IrisInterpreter::RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative) {
+	list<IrisInternString> lsRoute;
+	_Split(strInterfaceFullFieldName, lsRoute, "::");
+	return RegistInterface(lsRoute, pInterface, bNative);
+}
+
+bool IrisInterpreter::RegistClass(list<IrisInternString>& lsRoute, IIrisClass* pClass, bool bNative)
+{
+	if (GetIrisModule(lsRoute)
+		|| GetIrisInterface(lsRoute)) {
 		// **Error**
 		return false;
 	}
 
-	IrisModule* pTmpModule = nullptr;
-	list<string> lsRoute;
-	_Split(strClassFullFieldName, lsRoute, "::");
-	string strRegistName = lsRoute.back();
+	IrisInternString strRegistName = lsRoute.back();
 	lsRoute.pop_back();
 
 	if (bNative) {
@@ -272,24 +279,21 @@ bool IrisInterpreter::RegistClass(const string& strClassFullFieldName, IIrisClas
 
 	m_iwlClassLock.WriteLock();
 	if (!lsRoute.empty()) {
-		if (!m_trModuels.GetNodeData(lsRoute, pTmpModule)) {
+		IrisModule* pModule = GetIrisModule(lsRoute);
+		if (!pModule) {
 			// **Error**
 			m_iwlClassLock.WriteUnlock();
 			return false;
 		}
 
-		if (pTmpModule->GetClass(strRegistName)) {
+		if (pModule->GetClass(strRegistName)) {
 			// **Error**
 			m_iwlClassLock.WriteUnlock();
 			return false;
 		}
 
-		pTmpModule->AddClass(pClass->GetInternClass());
-		//pClass->m_pUpperModule = pTmpModule;
-		pClass->GetInternClass()->SetUpperModule(pTmpModule);
-	}
-	else {
-		m_mpClasses.insert(_ClassPair(strRegistName, pClass->GetInternClass()));
+		pModule->AddClass(pClass->GetInternClass());
+		pClass->GetInternClass()->SetUpperModule(pModule);
 	}
 	m_iwlClassLock.WriteUnlock();
 
@@ -306,29 +310,26 @@ bool IrisInterpreter::RegistClass(const string& strClassFullFieldName, IIrisClas
 	else {
 		AddConstance(strRegistName, ivObj);
 	}
-
 	return true;
 }
 
-bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative) {
-
-	if (GetIrisClass(strModuleFullFieldName)
-		|| GetIrisInterface(strModuleFullFieldName)) {
+bool IrisInterpreter::RegistModule(list<IrisInternString>& lsRoute, IIrisModule* pModule, bool bNative)
+{
+	if (GetIrisClass(lsRoute)
+		|| GetIrisInterface(lsRoute)) {
 		// **Error**
 		return false;
 	}
 
 	IrisModule* pTmpModule = nullptr;
-	list<string> lsRoute;
-	_Split(strModuleFullFieldName, lsRoute, "::");
 	m_iwlModuleLock.WriteLock();
-	if (m_trModuels.GetNodeData(lsRoute, pTmpModule)) {
+	if (GetIrisModule(lsRoute)) {
 		m_iwlModuleLock.WriteUnlock();
 		return false;
 	}
-	string strRegistName = lsRoute.back();
+	IrisInternString strRegistName = lsRoute.back();
 
-	if(bNative) {
+	if (bNative) {
 		pModule->m_pInternModule = new IrisModule(
 			pModule->NativeModuleNameDefine(),
 			pModule->NativeUpperModuleDefine() ? pModule->NativeUpperModuleDefine()->GetInternModule() : nullptr
@@ -337,7 +338,14 @@ bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisMo
 	}
 
 	lsRoute.pop_back();
-	m_trModuels.AddNode(lsRoute, strRegistName, pModule->GetInternModule());
+	if (!lsRoute.empty()) {
+		pTmpModule = GetIrisModule(lsRoute);
+		if (pTmpModule && !bNative) {
+			pModule->GetInternModule()->m_pUpperModule = pTmpModule;
+			pTmpModule->AddInvolvingModule(pModule->GetInternModule());
+		}
+	}
+
 	m_iwlModuleLock.WriteUnlock();
 
 	if (bNative) {
@@ -356,39 +364,34 @@ bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisMo
 	return true;
 }
 
-bool IrisInterpreter::RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative) {
-
-	if (GetIrisModule(strInterfaceFullFieldName)
-		|| GetIrisClass(strInterfaceFullFieldName)) {
+bool IrisInterpreter::RegistInterface(list<IrisInternString>& lsRoute, IIrisInterface* pInterface, bool bNative)
+{
+	if (GetIrisModule(lsRoute)
+		|| GetIrisClass(lsRoute)) {
 		// **Error**
 		return false;
 	}
 
-	IrisModule* pTmpModule = nullptr;
-	list<string> lsRoute;
-	_Split(strInterfaceFullFieldName, lsRoute, "::");
-	string strRegistName = lsRoute.back();
+	IrisInternString strRegistName = lsRoute.back();
 	lsRoute.pop_back();
 
 	m_iwlInterfaceLock.WriteLock();
 	if (!lsRoute.empty()) {
-		if (!m_trModuels.GetNodeData(lsRoute, pTmpModule)) {
+		IrisModule* pModule = GetIrisModule(lsRoute);
+		if (!pModule) {
 			// **Error**
 			m_iwlInterfaceLock.WriteUnlock();
 			return false;
 		}
 
-		if (pTmpModule->GetClass(strRegistName)) {
+		if (pModule->GetInterface(strRegistName)) {
 			// **Error**
 			m_iwlInterfaceLock.WriteUnlock();
 			return false;
 		}
 
-		pTmpModule->AddInvolvedInterface(pInterface->GetInternInterface());
-		pInterface->GetInternInterface()->m_pUpperModule = pTmpModule;
-	}
-	else {
-		m_mpInterfaces.insert(_InterfacePair(strRegistName, pInterface->GetInternInterface()));
+		pModule->AddInvolvedInterface(pInterface->GetInternInterface());
+		pInterface->GetInternInterface()->m_pUpperModule = pModule;
 	}
 	m_iwlInterfaceLock.WriteUnlock();
 
@@ -405,238 +408,103 @@ bool IrisInterpreter::RegistInterface(const string& strInterfaceFullFieldName, I
 	return true;
 }
 
-bool IrisInterpreter::RegistClass(list<string>& lsPath, IIrisClass* pClass, bool bNative)
-{
-	if (GetIrisModule(lsPath)
-		|| GetIrisInterface(lsPath)) {
-		// **Error**
-		return false;
-	}
-
-	if(bNative){
-		pClass->m_pInternClass = new IrisClass(pClass->NativeClassNameDefine() ? pClass->NativeClassNameDefine() : lsPath.back(),
-			pClass->NativeSuperClassDefine() ? pClass->NativeSuperClassDefine()->GetInternClass() : nullptr,
-			pClass->NativeUpperModuleDefine() ? pClass->NativeUpperModuleDefine()->GetInternModule() : nullptr,
-			pClass);
-	}
-
-	IrisModule* pTmpModule = nullptr;
-	string strRegistName = lsPath.back();
-	lsPath.pop_back();
-
-	m_iwlClassLock.WriteLock();
-	if (!lsPath.empty()) {
-		if (!m_trModuels.GetNodeData(lsPath, pTmpModule)) {
-			// **Error**
-			m_iwlClassLock.WriteUnlock();
-			return false;
-		}
-
-		if (pTmpModule->GetClass(strRegistName)) {
-			// **Error**
-			m_iwlClassLock.WriteUnlock();
-			return false;
-		}
-
-		pTmpModule->AddClass(pClass->GetInternClass());
-		//pClass->m_pUpperModule = pTmpModule;
-		pClass->GetInternClass()->SetUpperModule(pTmpModule);
-	}
-	else {
-		m_mpClasses.insert(_ClassPair(strRegistName, pClass->GetInternClass()));
-	}
-	m_iwlClassLock.WriteUnlock();
-
-	if (bNative) {
-		pClass->NativeClassDefine();
-	}
-	
-	// 添加类对象常量
-	IrisValue ivObj = IrisValue::WrapObjectPointerToIrisValue(pClass->GetInternClass()->GetClassObject());
-
-	if (pClass->GetInternClass()->GetUpperModule()) {
-		pClass->GetInternClass()->GetUpperModule()->AddClass(pClass->GetInternClass());
-		pClass->GetInternClass()->GetUpperModule()->AddConstance(strRegistName, ivObj);
-	}
-	else {
-		AddConstance(strRegistName, ivObj);
-	}
-
-	return true;
-}
-
-bool IrisInterpreter::RegistModule(list<string>& lsPath, IIrisModule* pModule, bool bNative)
-{
-	if (GetIrisClass(lsPath)
-		|| GetIrisInterface(lsPath)) {
-		// **Error**
-		return false;
-	}
-	
-	if(bNative) {
-		pModule->m_pInternModule = new IrisModule(
-			pModule->m_pInternModule->m_pExternModule ? pModule->NativeModuleNameDefine() : pModule->m_pInternModule->GetModuleName(),
-			pModule->NativeUpperModuleDefine() ? pModule->NativeUpperModuleDefine()->GetInternModule() : nullptr);
-		pModule->m_pInternModule->m_pExternModule = pModule;
-	}
-
-	IrisModule* pTmpModule = nullptr;
-	m_iwlModuleLock.WriteLock();
-	if (m_trModuels.GetNodeData(lsPath, pTmpModule)) {
-		m_iwlModuleLock.WriteUnlock();
-		return false;
-	}
-	string strRegistName = lsPath.back();
-	lsPath.pop_back();
-	m_trModuels.AddNode(lsPath, strRegistName, pModule->GetInternModule());
-	m_iwlModuleLock.WriteUnlock();
-
-	if (bNative) {
-		pModule->NativeModuleDefine();
-	}
-
-	// 添加模块对象常量
-	IrisValue ivObj = IrisValue::WrapObjectPointerToIrisValue(pModule->GetInternModule()->GetModuleObject());
-	if (pModule->GetInternModule()->GetUpperModule()) {
-		pModule->GetInternModule()->GetUpperModule()->AddModule(pModule->GetInternModule());
-		pModule->GetInternModule()->GetUpperModule()->AddConstance(strRegistName, ivObj);
-	}
-	else {
-		AddConstance(strRegistName, ivObj);
-	}
-
-	return true;
-}
-
-bool IrisInterpreter::RegistInterface(list<string>& lsPath, IIrisInterface* pInterface, bool bNative)
-{
-	if (GetIrisModule(lsPath)
-		|| GetIrisClass(lsPath)) {
-		// **Error**
-		return false;
-	}
-
-	IrisModule* pTmpModule = nullptr;
-	string strRegistName = lsPath.back();
-	lsPath.pop_back();
-
-	m_iwlInterfaceLock.WriteLock();
-	if (!lsPath.empty()) {
-		if (!m_trModuels.GetNodeData(lsPath, pTmpModule)) {
-			// **Error**
-			m_iwlInterfaceLock.WriteUnlock();
-			return false;
-		}
-
-		if (pTmpModule->GetClass(strRegistName)) {
-			// **Error**
-			m_iwlInterfaceLock.WriteUnlock();
-			return false;
-		}
-
-		pTmpModule->AddInvolvedInterface(pInterface->GetInternInterface());
-		pInterface->GetInternInterface()->m_pUpperModule = pTmpModule;
-	}
-	else {
-		m_mpInterfaces.insert(_InterfacePair(strRegistName, pInterface->GetInternInterface()));
-	}
-	m_iwlInterfaceLock.WriteUnlock();
-
-	// 添加类对象常量
-	IrisValue ivObj = IrisValue::WrapObjectPointerToIrisValue(pInterface->GetInternInterface()->m_pInterfaceObject);
-
-	if (pInterface->GetInternInterface()->m_pUpperModule) {
-		pInterface->GetInternInterface()->m_pUpperModule->AddInvolvedInterface(pInterface->GetInternInterface());
-		pInterface->GetInternInterface()->m_pUpperModule->AddConstance(strRegistName, ivObj);
-	}
-	else {
-		AddConstance(strRegistName, ivObj);
-	}
-
-	return true;
-}
-
-IrisModule* IrisInterpreter::GetIrisModule(const string& strModuleFullFieldName) {
-	//return nullptr;
-	IrisModule* pModule = nullptr;
-	list<string> lsRoute;
-	_Split(strModuleFullFieldName, lsRoute, "::");
-	m_iwlModuleLock.ReadLock();
-	bool bResult = m_trModuels.GetNodeData(lsRoute, pModule);
-	m_iwlModuleLock.ReadUnlock();
-	return pModule;
-}
-
-IrisClass* IrisInterpreter::GetIrisClass(const list<string>& lsRoute) {
-	IrisModule* pTmpModule = nullptr;
+IrisClass* IrisInterpreter::GetIrisClass(const list<IrisInternString>& lsRoute) {
 	IrisClass* pClass = nullptr;
-	list<string> lsTmpRoute;
-	string strRegistName = lsRoute.back();
+	list<IrisInternString> lsTmpRoute;
+
 	lsTmpRoute.assign(lsRoute.begin(), lsRoute.end());
+	IrisInternString strRegistName = lsTmpRoute.back();
 	lsTmpRoute.pop_back();
+
 	if (!lsTmpRoute.empty()) {
 		m_iwlClassLock.ReadLock();
-		bool bResult = m_trModuels.GetNodeData(lsTmpRoute, pTmpModule);
-		m_iwlClassLock.ReadUnlock();
-		if (!bResult) {
-			// **Error**
+		IrisModule* pModule = _GetLastModuleFromPath(lsRoute);
+		// **Error**
+		if (!pModule) {
+			m_iwlClassLock.ReadUnlock();
 			return nullptr;
 		}
-
-		pClass = pTmpModule->GetClass(strRegistName);
-	}
-	else {
-		m_iwlClassLock.ReadLock();
-		decltype(m_mpClasses)::iterator iClass;
-		if ((iClass = m_mpClasses.find(strRegistName)) != m_mpClasses.end()) {
-			pClass = iClass->second;
-		}
-		else {
-			pClass = nullptr;
-		}
+		pClass = pModule->GetClass(strRegistName);
 		m_iwlClassLock.ReadUnlock();
 	}
+	else {
+		bool bResult = false;
+		m_iwlClassLock.ReadLock();
+		auto& ivConst = GetConstance(strRegistName, bResult);
+		if (!bResult) {
+			// **Error**
+			m_iwlClassLock.ReadUnlock();
+			return nullptr;
+		}
+		if (!IrisDevUtil::CheckClassIsClass(ivConst) && IrisDevUtil::GetNativeClass(ivConst)->GetInternClass()->GetClassName() != "Class") {
+			// **Error**
+			m_iwlClassLock.ReadUnlock();
+			return nullptr;
+		}
+		m_iwlClassLock.ReadUnlock();
+		pClass = IrisDevUtil::GetNativeClass(ivConst)->GetInternClass();
+	}
+
 	return pClass;
 }
 
-IrisInterface* IrisInterpreter::GetIrisInterface(const list<string>& lsRoute) {
-	IrisModule* pTmpModule = nullptr;
+IrisInterface* IrisInterpreter::GetIrisInterface(const list<IrisInternString>& lsRoute) {
 	IrisInterface* pInterface = nullptr;
-	list<string> lsTmpRoute;
-	string strRegistName = lsRoute.back();
+	list<IrisInternString> lsTmpRoute;
+
 	lsTmpRoute.assign(lsRoute.begin(), lsRoute.end());
+	IrisInternString strRegistName = lsTmpRoute.back();
 	lsTmpRoute.pop_back();
+
 	if (!lsTmpRoute.empty()) {
 		m_iwlInterfaceLock.ReadLock();
-		bool bResult = m_trModuels.GetNodeData(lsTmpRoute, pTmpModule);
-		m_iwlInterfaceLock.ReadUnlock();
-		if (!bResult) {
-			// **Error**
+		IrisModule* pModule = _GetLastModuleFromPath(lsRoute);
+		// **Error**
+		if (!pModule) {
+			m_iwlInterfaceLock.ReadUnlock();
 			return nullptr;
 		}
-		pInterface = pTmpModule->GetInterface(strRegistName);
-	}
-	else {
-		m_iwlInterfaceLock.ReadLock();
-		decltype(m_mpInterfaces)::iterator iInterface;
-		if ((iInterface = m_mpInterfaces.find(strRegistName)) != m_mpInterfaces.end()) {
-			pInterface = iInterface->second;
-		}
-		else {
-			pInterface = nullptr;
-		}
+		pInterface = pModule->GetInterface(strRegistName);
 		m_iwlInterfaceLock.ReadUnlock();
 	}
-
+	else {
+		bool bResult = false;
+		m_iwlInterfaceLock.ReadLock();
+		auto& ivConst = GetConstance(strRegistName, bResult);
+		if (!bResult) {
+			// **Error**
+			m_iwlInterfaceLock.ReadUnlock();
+			return nullptr;
+		}
+		if (!IrisDevUtil::CheckClassIsClass(ivConst)) {
+			// **Error**
+			m_iwlInterfaceLock.ReadUnlock();
+			return nullptr;
+		}
+		m_iwlInterfaceLock.ReadUnlock();
+		pInterface = IrisDevUtil::GetNativeInterface(ivConst)->GetInternInterface();
+	}
 
 	return pInterface;
 }
 
-IrisModule* IrisInterpreter::GetIrisModule(const list<string>& lsRoute) {
+IrisModule* IrisInterpreter::GetIrisModule(const list<IrisInternString>& lsRoute) {
 	IrisModule* pModule = nullptr;
-	m_iwlModuleLock.ReadLock();
-	bool bResult = m_trModuels.GetNodeData(lsRoute, pModule);
-	m_iwlModuleLock.ReadUnlock();
+	if (lsRoute.size() == 1) {
+		auto& strName = lsRoute.front();
+		bool bResult;
+		auto& ivConst = GetConstance(strName, bResult);
+		if (!bResult) {
+			return nullptr;
+		}
+		if (!IrisDevUtil::CheckClassIsModule(ivConst)) {
+			return nullptr;
+		}
+		pModule = IrisDevUtil::GetNativeModule(ivConst)->GetInternModule();
+	}
+	else {
+		pModule = _GetLastModuleFromPath(lsRoute);
+	}
 	return pModule;
 }
 
@@ -974,7 +842,7 @@ void IrisInterpreter::PopStack(unsigned int nTimes)
 	}
 }
 
-inline IrisMethod * IrisInterpreter::GetMainMethod(const string & strMethodName) {
+inline IrisMethod * IrisInterpreter::GetMainMethod(const IrisInternString & strMethodName) {
 	m_iwlMethodLock.ReadLock();
 	decltype(m_mpMethods)::iterator iMethod;
 	if ((iMethod = m_mpMethods.find(strMethodName)) == m_mpMethods.end()) {
@@ -988,7 +856,7 @@ inline IrisMethod * IrisInterpreter::GetMainMethod(const string & strMethodName)
 	}
 }
 
-inline void IrisInterpreter::AddMainMethod(const string & strMethodName, IrisMethod * pMethod) {
+inline void IrisInterpreter::AddMainMethod(const IrisInternString & strMethodName, IrisMethod * pMethod) {
 	m_iwlMethodLock.WriteLock();
 	decltype(m_mpMethods)::iterator iMethod;
 	if ((iMethod = m_mpMethods.find(strMethodName)) == m_mpMethods.end()) {
@@ -1036,7 +904,7 @@ void IrisInterpreter::GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vc
 	}
 }
 
-bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName, unsigned int nCurrentFileIndex) {
+bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName, unsigned int nCurrentFileIndex) {
 	IrisCompiler* pCompiler = m_pCurrentCompiler;
 
 	IrisMethod::UserFunction* pUserFunction = new IrisMethod::UserFunction();
@@ -1161,9 +1029,9 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 	case IrisAMType::ImmediateString:
 	{
-		const string& strString = m_pCurrentCompiler->GetString(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strString = m_pCurrentCompiler->GetString(iaAM.m_dwIndex, nCurrentFileIndex);
 		//pInfo->m_ivResultRegister = GetIrisClass("String")->CreateInstanceByInstantValue(strString);
-		pInfo->m_ivResultRegister = IrisDevUtil::CreateInstanceByInstantValue(strString.c_str());
+		pInfo->m_ivResultRegister = IrisDevUtil::CreateInstanceByInstantValue(strString.GetCTypeString());
 	}
 		break;
 	case IrisAMType::ImmediateUniqueString:
@@ -1190,7 +1058,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	case IrisAMType::Constance:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		// Main
 		if (!pInfo->m_pEnvrionmentRegister || pInfo->m_pEnvrionmentRegister->m_bIsThreadMainContext || pInfo->m_pEnvrionmentRegister->m_bIsClosure) {
 			pInfo->m_ivResultRegister = GetConstance(strIdentifier, bResult);
@@ -1219,7 +1087,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 			pInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(strIdentifier, bResult);
 			if (!bResult) {
 				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + strIdentifier + " not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + strIdentifier.GetSTLString() + " not found.");
 				return false;
 			}
 		}
@@ -1233,7 +1101,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	case IrisAMType::GlobalValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		pInfo->m_ivResultRegister = GetGlobalValue(strIdentifier, bResult);
 		if (bResult) {
 			AddGlobalValue(strIdentifier, m_ivNil);
@@ -1243,7 +1111,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	case IrisAMType::ClassValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister) {
 			pInfo->m_ivResultRegister = GetOtherValue(strIdentifier, bResult);
 			if (!bResult) {
@@ -1309,7 +1177,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	case IrisAMType::InstanceValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
 		if (pObject) {
 			pInfo->m_ivResultRegister = pObject->GetInstanceValue(strIdentifier, bResult);
@@ -1334,7 +1202,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		// Main
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister) {
 			//|| pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
 			pInfo->m_ivResultRegister = GetOtherValue(strIdentifier, bResult);
@@ -1357,16 +1225,16 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	case IrisAMType::MemberValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		string strGetterMethod = "__get_" + strIdentifier;
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		string strGetterMethod = "__get_" + strIdentifier.GetSTLString();
 		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, pInfo->m_pEnvrionmentRegister, nullptr, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
 		break;
 	case IrisAMType::SelfMemberValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		string strInstanceVariableName = "@" + strIdentifier;
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		string strInstanceVariableName = "@" + strIdentifier.GetSTLString();
 		pInfo->m_ivResultRegister = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->GetInstanceValue(strInstanceVariableName, bResult);
 		if (!bResult) {
 			pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->AddInstanceValue(strInstanceVariableName, m_ivNil);
@@ -1403,7 +1271,7 @@ bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	}
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	const int nParameters = iaAM.m_dwIndex;
@@ -1450,7 +1318,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::Constance:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		// if exist then error
 		// Main
 		if (!pInfo->m_pEnvrionmentRegister) {
@@ -1504,7 +1372,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::GlobalValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		IrisValue& ivTmp = (IrisValue&)GetGlobalValue(strIdentifier, bResult);
 		if (!bResult) {
 			AddGlobalValue(strIdentifier, pInfo->m_ivResultRegister);
@@ -1517,7 +1385,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::ClassValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister) {
 			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
 			if (!bResult) {
@@ -1604,7 +1472,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::InstanceValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister) {
 			//|| pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
 			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
@@ -1657,7 +1525,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::LocalValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister) {
 			//|| pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
 			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
@@ -1686,8 +1554,8 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::MemberValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		string strSetterName = "__set_" + strIdentifier;
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		string strSetterName = "__set_" + strIdentifier.GetSTLString();
 		IrisValues ivsValues = { pInfo->m_stStack.m_lsStack.back() };
 		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
@@ -1695,7 +1563,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::SelfMemberValue:
 	{
 		bool bResult = false;
-		const string& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister || !pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular, nLineNumber, nCurrentFileIndex,
@@ -1705,7 +1573,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		else {
 			bool bResult = false;
 			IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-			string strIntanceVaraible = "@" + strIdentifier;
+			string strIntanceVaraible = "@" + strIdentifier.GetSTLString();
 			IrisValue& ivTmp = (IrisValue&)pObject->GetInstanceValue(strIntanceVaraible, bResult);
 			if (!bResult) {
 				pObject->AddInstanceValue(strIntanceVaraible, pInfo->m_ivResultRegister);
@@ -1752,7 +1620,7 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	}
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	const int nParameters = iaAM.m_dwIndex;
@@ -1849,7 +1717,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	bool bHaveBegin = iaAM.m_dwIndex == 1;
 	if (!pInfo->m_lsFieldsRegister.empty()) {
 		auto& ivResultRegister = pInfo->m_ivResultRegister;
-		auto pObject = ivResultRegister.GetIrisObject();
+		auto pObject = static_cast<IrisObject*>(ivResultRegister.GetIrisObject());
 		if (!pObject->GetClass()->GetInternClass()->IsModuleClass()) {
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Invalid routing head, the routing head must be a Module.");
 			return false;
@@ -1864,10 +1732,10 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 			++nCount;
 			auto& ivResult = pModule->SearchConstance(*iField, bSearchResult);
 			if (!bSearchResult) {
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + *iField + "not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + "not found.");
 				return false;
 			}
-			auto pRouterObject = ((IrisValue&)ivResult).GetIrisObject();
+			auto pRouterObject = static_cast<IrisObject*>(ivResult.GetIrisObject());
 			if (pRouterObject->GetClass()->GetInternClass()->IsModuleClass()) {
 				pModule = IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>((IrisValue&)ivResult)->GetModule();
 				ivSearchResult = ivResult;
@@ -1880,7 +1748,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 				return false;
 			}
 		}
-		auto pSearchObject = ivSearchResult.GetIrisObject();
+		auto pSearchObject = static_cast<IrisObject*>(ivSearchResult.GetIrisObject());
 		if (pSearchObject->GetClass()->GetInternClass()->IsClassClass()) {
 			auto pClass = IrisDevUtil::GetNativePointer<IrisClassBaseTag*>(ivSearchResult)->GetClass();
 			pInfo->m_ivResultRegister = pClass->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
@@ -1892,7 +1760,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	}
 	else if (pInfo->m_lsFieldsRegister.empty() && bHaveBegin) {
 		auto& ivResultRegister = pInfo->m_ivResultRegister;
-		auto pObject = ivResultRegister.GetIrisObject();
+		auto pObject = static_cast<IrisObject*>(ivResultRegister.GetIrisObject());
 		if (!pObject->GetClass()->GetInternClass()->IsModuleClass() && !pObject->GetClass()->GetInternClass()->IsClassClass()) {
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Invalid routing head, the routing head must be a Module or a Class.");
 			return false;
@@ -1964,7 +1832,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 
 	if (!bResult) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex) + " not found.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex).GetSTLString() + " not found.");
 		return false;
 	}
 
@@ -2022,7 +1890,7 @@ bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-	string strMethodName = "";
+	IrisInternString strMethodName = "";
 	IrisMethod::UserFunction* pUserFunction= nullptr;
 
 	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName, nCurrentFileIndex)) {
@@ -2055,7 +1923,7 @@ bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-	string strMethodName = "";
+	IrisInternString strMethodName = "";
 	IrisMethod::UserFunction* pUserFunction = nullptr;
 
 	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName, nCurrentFileIndex)) {
@@ -2122,7 +1990,7 @@ bool IrisInterpreter::ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivTimerRegister = pInfo->m_ivResultRegister;
-	if (((IrisIntegerTag*)pInfo->m_ivTimerRegister.GetInstanceNativePointer())->m_nInteger <= 0) {
+	if (IrisDevUtil::GetNativePointer<IrisIntegerTag*>(pInfo->m_ivTimerRegister)->m_nInteger <= 0) {
 		pInfo->m_bUnimitedLoopFlagRegister = true;
 	}
 	else {
@@ -2166,7 +2034,7 @@ bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisCompiler* pCompiler = m_pCurrentCompiler;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strLog = pCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strLog = pCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	bool bResult = false;
 	if (pInfo->m_pEnvrionmentRegister) {
@@ -2321,7 +2189,7 @@ bool IrisInterpreter::assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivVessleRegister = pInfo->m_ivResultRegister;
-	pInfo->m_ivVessleRegister.GetIrisObject()->Fix();
+	static_cast<IrisObject*>(pInfo->m_ivVessleRegister.GetIrisObject())->Fix();
 	return true;
 }
 
@@ -2401,13 +2269,13 @@ bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	
 	IrisModule* pUpperModule = nullptr;
-	const string& strClassName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strClassName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	GetOneAM(vcVector, nCodePointer);
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-	list<string> lsModules;
+	list<IrisInternString> lsModules;
 	if (pUpperEnvironment) {
 		pUpperModule = pUpperEnvironment->m_uType.m_pModule;
 		// 获取模块包含链
@@ -2446,7 +2314,7 @@ bool IrisInterpreter::add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	// if not extends class
-	if (!pInfo->m_ivResultRegister.GetIrisObject()->GetClass()->GetInternClass()->IsClassClass()) {
+	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsClassClass()) {
 		// ** Error **
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - An normal object has been extended to a Class.");
@@ -2463,7 +2331,7 @@ bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	// if not involves module
-	if (!pInfo->m_ivResultRegister.GetIrisObject()->GetClass()->GetInternClass()->IsModuleClass()) {
+	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsModuleClass()) {
 		// ** Error **
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - A normal object has been involved with a Module.");
@@ -2472,11 +2340,11 @@ bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
 		IrisClass* pClass = pInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
-		pClass->AddModule(((IrisModuleBaseTag*)(pInfo->m_ivResultRegister.GetInstanceNativePointer()))->GetModule());
+		pClass->AddModule(IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>(pInfo->m_ivResultRegister)->GetModule());
 	}
 	else if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ModuleDefineTime) {
 		IrisModule* pModule = pInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
-		pModule->AddModule(((IrisModuleBaseTag*)(pInfo->m_ivResultRegister.GetInstanceNativePointer()))->GetModule());
+		pModule->AddModule(IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>(pInfo->m_ivResultRegister)->GetModule());
 	}
 
 	return true;
@@ -2485,7 +2353,7 @@ bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
 {	// if not involves module
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-	if (!pInfo->m_ivResultRegister.GetIrisObject()->GetClass()->GetInternClass()->IsInterfaceClass()) {
+	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsInterfaceClass()) {
 		// ** Error **
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - A normal object has been involved with a Interface.");
@@ -2494,11 +2362,11 @@ bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
 		IrisClass* pClass = pInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
-		pClass->AddInterface(((IrisInterfaceBaseTag*)(pInfo->m_ivResultRegister.GetInstanceNativePointer()))->GetInterface());
+		pClass->AddInterface(IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(pInfo->m_ivResultRegister)->GetInterface());
 	}
 	else if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ModuleDefineTime) {
 		IrisModule* pModule = pInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
-		pModule->AddInvolvedInterface(((IrisInterfaceBaseTag*)(pInfo->m_ivResultRegister.GetInstanceNativePointer()))->GetInterface());
+		pModule->AddInvolvedInterface(IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(pInfo->m_ivResultRegister)->GetInterface());
 	}
 	return true;
 }
@@ -2552,7 +2420,7 @@ bool IrisInterpreter::pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	nCodePointer += 3;
-	pInfo->m_ivVessleRegister.GetIrisObject()->Unfix();
+	static_cast<IrisObject*>(pInfo->m_ivVessleRegister.GetIrisObject())->Unfix();
 	PopVessle();
 	return true;
 }
@@ -2574,13 +2442,13 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
-	strSetterName.assign(strVariableName.begin() + 1, strVariableName.end());
+	strSetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
 	strSetterName = "__set_" + strSetterName;
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strParameterName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strParameterName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	bool bWithBlock = iaAM.m_dwIndex == 0 ? false : true;
 	iaAM = GetOneAM(vcVector, nCodePointer);
@@ -2633,9 +2501,9 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strGetterName;
-	strGetterName.assign(strVariableName.begin() + 1, strVariableName.end());
+	strGetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
 	strGetterName = "__get_" + strGetterName;
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
@@ -2686,13 +2554,13 @@ bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
-	strSetterName.assign(strVariableName.begin() + 1, strVariableName.end());
+	strSetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
 	strSetterName = "__set_" + strSetterName;
 
 	string strGetterName;
-	strGetterName.assign(strVariableName.begin() + 1, strVariableName.end());
+	strGetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
 	strGetterName = "__get_" + strGetterName;
 
 	IrisClass* pClass = pInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
@@ -2719,7 +2587,7 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	IrisAuthorityEnvironment eEnv = (IrisAuthorityEnvironment)iaAM.m_dwIndex;
@@ -2741,7 +2609,7 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		}
 		if (!pMethod) {
 			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nCurrentFileIndex, "Method of " + strMethodName + " not found.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nCurrentFileIndex, "Method of " + strMethodName.GetSTLString() + " not found.");
 			return false;
 		}
 		switch (eType)
@@ -2796,13 +2664,13 @@ bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
 	IrisModule* pUpperModule = nullptr;
-	const string& strModuleName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strModuleName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	GetOneAM(vcVector, nCodePointer);
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-	list<string> lsModules;
+	list<IrisInternString> lsModules;
 	if (pUpperEnvironment) {
 		pUpperModule = pUpperEnvironment->m_uType.m_pModule;
 		// 获取模块包含链
@@ -2827,7 +2695,7 @@ bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	}
 
 	pModule->ClearInvolvingModules();
-	pModule->ClearJointedInterfaces();
+	//pModule->ClearJointedInterfaces();
 	pInfo->m_pEnvrionmentRegister->m_uType.m_pModule = pModule;
 	
 	pInfo->m_ivResultRegister = IrisValue::WrapObjectPointerToIrisValue(pModule->GetModuleObject());
@@ -2841,13 +2709,13 @@ bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
 	IrisModule* pUpperModule = nullptr;
-	const string& strInterfaceName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strInterfaceName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	GetOneAM(vcVector, nCodePointer);
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-	list<string> lsModules;
+	list<IrisInternString> lsModules;
 	if (pUpperEnvironment) {
 		pUpperModule = pUpperEnvironment->m_uType.m_pModule;
 		// 获取模块包含链
@@ -2885,7 +2753,7 @@ bool IrisInterpreter::def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	unsigned int nParameterCount = vcVector[nCodePointer] & 0x00FF - 2;
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const string& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	int nParamSize = nParameterCount;
@@ -2904,7 +2772,7 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	unsigned int nPrametersCount = (vcVector[nCodePointer] & 0x00FF) - 1;
-	list<string> lsParameters;
+	list<IrisInternString> lsParameters;
 	vector<IR_WORD> vcCodes;
 	IrisCodeSegment icsCodeSegment;
 
@@ -3025,7 +2893,7 @@ bool IrisInterpreter::assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
-	const string& strLocalValue = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+	auto& strLocalValue = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	bool bResult = false;
 	if (pInfo->m_pEnvrionmentRegister) {
 		IrisValue& ivResult = (IrisValue&)pInfo->m_pEnvrionmentRegister->GetVariableValue(strLocalValue, bResult);
@@ -3061,7 +2929,7 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	IrisMethod* pMethod = pInfo->m_pEnvrionmentRegister->m_pCurMethod;
 	IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
 	//查找父类的同名方法
-	const string& strMethodName = pMethod->GetMethodName();
+	auto& strMethodName = pMethod->GetMethodName();
 
 	if (!pObject
 		|| pObject->GetClass()->GetInternClass()->IsNormalClass()
@@ -3092,7 +2960,7 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 			if (!pSuperMethod) {
 				auto& hsModules = pClass->GetModules();
 				for (auto& module : hsModules) {
-					auto pModule = module.second;
+					auto pModule = module;
 					if (pSuperMethod = pModule->GetModuleInstanceMethod(strMethodName)) {
 						break;
 					}

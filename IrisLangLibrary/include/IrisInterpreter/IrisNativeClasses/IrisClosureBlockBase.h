@@ -9,19 +9,8 @@
 class IrisClosureBlockBase : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-
-		IIrisClosureBlock* pClosureBlock = nullptr;
-		pClosureBlock = pContextEnvironment->GetClosureBlock();
-		IrisDevUtil::GetNativePointer<IrisClosureBlockBaseTag*>(ivObj)->SetClosureBlock(static_cast<IrisClosureBlock*>(pClosureBlock));
-		pContextEnvironment->SetClosureBlock(nullptr);
-
-		return ivObj;
-	}
-
-	static IrisValue Call(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return IrisDevUtil::GetNativePointer<IrisClosureBlockBaseTag*>(ivObj)->GetClosureBlock()->Excute(ivsVariableValues);
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Call(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 
@@ -35,7 +24,7 @@ public:
 
 	void Mark(void* pNativeObjectPointer) {
 		IrisClosureBlockBaseTag* pClosureBlock = static_cast<IrisClosureBlockBaseTag*>(pNativeObjectPointer);
-		pClosureBlock->GetClosureBlock()->Mark();
+		IrisDevUtil::MarkClosureBlock(pClosureBlock->GetClosureBlock());
 	}
 
 	int GetTrustteeSize(void* pNativePointer) {

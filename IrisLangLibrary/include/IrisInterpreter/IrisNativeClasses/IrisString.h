@@ -8,34 +8,9 @@
 class IrisString : public IIrisClass
 {
 public:
-
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return ivObj;
-	}
-
-	static IrisValue Add(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment){
-		IrisValue ivValue;
-		IrisStringTag* pString = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
-		if (!IrisDevUtil::CheckClass((IrisValue&)ivsValues->GetValue(0), "String")) {
-			IrisDevUtil::GroanIrregularWithString("String CAN ONLY be added with a String object.");
-			return IrisDevUtil::Nil();
-		}
-		IrisStringTag* pAddedString = IrisDevUtil::GetNativePointer<IrisStringTag*>((IrisValue&)ivsValues->GetValue(0));
-		ivValue = IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("String"), nullptr, pContextEnvironment);
-		IrisStringTag* pResultString = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivValue);
-		(*pResultString) = pString->Add(*pAddedString);
-		return ivValue;
-	}
-
-	static IrisValue Equal(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		auto pSelf = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
-		auto& ivTarget = (IrisValue&)ivsValues->GetValue(0);
-		if (!IrisDevUtil::CheckClass(ivTarget, "String")) {
-			return IrisDevUtil::False();
-		}
-		auto pTarget = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivTarget);
-		return pSelf->GetString() == pTarget->GetString() ? IrisDevUtil::True() : IrisDevUtil::False();
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Add(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Equal(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 
@@ -49,7 +24,7 @@ public:
 		return IrisDevUtil::GetClass("Object");
 	}
 
-	static const string& GetString(IrisValue& ivValue) {
+	static const string& GetString(const IrisValue& ivValue) {
 		return IrisDevUtil::GetNativePointer<IrisStringTag*>(ivValue)->GetString();
 	}
 

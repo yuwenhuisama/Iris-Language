@@ -29,7 +29,7 @@ void IrisClass::_FunctionCollect(IrisInterface* pInterface, _InterfaceFunctionDe
 	// 下一层
 	pTmpInter->m_iwlInfAddingLock.ReadLock();
 	for (auto inter : pTmpInter->m_mpInterfaces){
-		_FunctionCollect(inter.second, mpFunctionDeclare);
+		_FunctionCollect(inter, mpFunctionDeclare);
 	}
 	pTmpInter->m_iwlInfAddingLock.ReadUnlock();
 }
@@ -39,7 +39,7 @@ bool IrisClass::_FunctionAchieved() {
 	// 递归调用，把所有的接口的FunctionDeclare给放到map里面
 	m_iwlInterfaceAddingWLLock.ReadLock();
 	for (auto& inter : m_hsInterfaces){
-		_FunctionCollect(inter.second, mpFunctionDeclare);
+		_FunctionCollect(inter, mpFunctionDeclare);
 	}
 
 	bool bResult = false;
@@ -66,7 +66,7 @@ bool IrisClass::_FunctionAchieved() {
 	return true;
 }
 
-void IrisClass::_SearchModuleConstance(SearchVariableType eType, const string& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
+void IrisClass::_SearchModuleConstance(SearchVariableType eType, const IrisInternString& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
 	//出口
 	if (pCurModule == nullptr) {
 		return;
@@ -88,14 +88,14 @@ void IrisClass::_SearchModuleConstance(SearchVariableType eType, const string& s
 		}
 	}
 
-	for (auto module : pCurModule->GetModules()) {
-		_SearchModuleConstance(eType, strVariableName, module.second, pValue);
+	for (auto& module : pCurModule->GetModules()) {
+		_SearchModuleConstance(eType, strVariableName, module, pValue);
 		if (*pValue)
 			return;
 	}
 }
 
-const IrisValue& IrisClass::SearchConstance(const string& strConstName, bool& bResult) {
+const IrisValue& IrisClass::SearchConstance(const IrisInternString& strConstName, bool& bResult) {
 	bResult = true;
 	IrisValue* pValue = nullptr;
 	// 查找顺序本类、所包含的模块、父类
@@ -114,7 +114,7 @@ const IrisValue& IrisClass::SearchConstance(const string& strConstName, bool& bR
 	IrisClass* pCurClass = this;
 	do{
 		for (auto& module : pCurClass->m_hsModules){
-			_SearchModuleConstance(SearchVariableType::Constance, strConstName, module.second, &pValue);
+			_SearchModuleConstance(SearchVariableType::Constance, strConstName, module, &pValue);
 			if (pValue){
 				return *pValue;
 			}
@@ -145,57 +145,22 @@ const IrisValue& IrisClass::SearchConstance(const string& strConstName, bool& bR
 }
 
 void IrisClass::AddInterface(IrisInterface* pInterface) {
-
-	string strFullPath = "";
-	IrisModule* pTmpModule = pInterface->m_pUpperModule;
-	while (pTmpModule) {
-		strFullPath = pTmpModule->GetModuleName() + "::" + strFullPath;
-		pTmpModule = pTmpModule->GetUpperModule();
-	}
-	strFullPath += pInterface->GetInterfaceName();
-
 	m_iwlInterfaceAddingWLLock.WriteLock();
-	if (m_hsInterfaces.find(strFullPath) != m_hsInterfaces.end()) {
-		m_hsInterfaces[strFullPath] = pInterface;
-	}
-	else {
-		m_hsInterfaces.insert(_InterfacePair(strFullPath, pInterface));
-	}
+	m_hsInterfaces.insert(pInterface);
 	m_iwlInterfaceAddingWLLock.WriteUnlock();
 }
 
 void IrisClass::AddModule(IrisModule* pModule) {
-
-	string strFullPath = "";
-	IrisModule* pTmpModule = pModule->GetUpperModule();
-	while (pTmpModule) {
-		strFullPath = pTmpModule->GetModuleName() + "::" + strFullPath;
-		pTmpModule = pTmpModule->GetUpperModule();
-	}
-	strFullPath += pModule->GetModuleName();
-
 	m_iwlModuleAddingWLLock.WriteLock();
-	if (m_hsModules.find(strFullPath) != m_hsModules.end()) {
-		m_hsModules[strFullPath] = pModule;
-	}
-	else {
-		m_hsModules.insert(_ModulePair(strFullPath, pModule));
-	}
+	m_hsModules.insert(pModule);
 	m_iwlModuleAddingWLLock.WriteUnlock();
 }
 
-const IrisValue& IrisClass::SearchClassVariable(const string& strClassVariableName, bool& bResult) {
+const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult) {
 	bResult = true;
 	IrisValue* pValue = nullptr;
 	// 查找顺序本类、所包含的模块、父类
 	// 本类
-	//decltype(m_hsClassVariables)::iterator iVariable;
-	//if ((iVariable = m_hsClassVariables.find(strClassVariableName)) != m_hsClassVariables.end()) {
-	//	auto& ivValue = iVariable->second;
-	//	m_iwlClassVariableWLLock.ReadUnlock();
-	//	return ivValue;
-	//}
-
 	auto& ivResultValue = GetCurrentClassConstance(strClassVariableName, bResult);
 	if (bResult) {
 		return ivResultValue;
@@ -205,7 +170,7 @@ const IrisValue& IrisClass::SearchClassVariable(const string& strClassVariableNa
 	IrisClass* pCurClass = this;
 	do {
 		for (auto& module : pCurClass->m_hsModules) {
-			_SearchModuleConstance(SearchVariableType::ClassInstance, strClassVariableName, module.second, &pValue);
+			_SearchModuleConstance(SearchVariableType::ClassInstance, strClassVariableName, module, &pValue);
 			if (pValue) {
 				return *pValue;
 			}
@@ -216,10 +181,6 @@ const IrisValue& IrisClass::SearchClassVariable(const string& strClassVariableNa
 	// 父类
 	pCurClass = m_pSuperClass;
 	do {
-		//if ((iVariable = pCurClass->m_hsClassVariables.find(strClassVariableName)) != pCurClass->m_hsClassVariables.end()) {
-		//	auto& ivValue = iVariable->second;
-		//	return ivValue;
-		//}
 		auto& ivResultValue = pCurClass->GetCurrentClassClassVariable(strClassVariableName, bResult);
 		if (bResult) {
 			return ivResultValue;
@@ -237,13 +198,17 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	if (!m_bIsCompleteClass){
 		if (!(m_bIsCompleteClass = _FunctionAchieved())) {
 			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, 0, 0, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, 0, 0, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.");
 			return IrisInterpreter::CurrentInterpreter()->Nil();
 		}
 	}
 	// 生成对象
 	IrisObject* pObject = new IrisObject();
 	pObject->SetClass(m_pExternClass);
+	if (IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference > 0) {
+		//pObject->SetIsCreateInNativeFunction(true);
+		IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap.insert(pObject);
+	}
 	if (IsObjectClass()) {
 		pObject->SetNativeObject(this);
 		IrisGC::CurrentGC()->AddSize(sizeof(IrisObject));
@@ -266,35 +231,16 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	return ivValue;
 }
 
-// 为内置对象提供
-//IrisValue IrisClass::CreateInstanceFromLiteral(char* pLiteral){
-//	// 检查是否有没有实现的接口
-//	IrisValue ivValue;
-//	// 生成对象
-//	IrisObject* pObject = new IrisObject();
-//	pObject->SetClass(this->GetExternClass());
-//	pObject->SetNativeObject(m_pExternClass->GetLiteralObject(pLiteral));
-//
-//	IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
-//	IrisGC::CurrentGC()->Start();
-//
-//	ivValue.SetIrisObject(pObject);
-//	// 将新对象保存到堆里
-//	IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
-//
-//	return ivValue;
-//}
-
-void IrisClass::_ClassModuleMethodSearch(IrisClass* pCurClass, const string& strMethodName, IrisMethod** ppMethod) {
+void IrisClass::_ClassModuleMethodSearch(IrisClass* pCurClass, const IrisInternString& strMethodName, IrisMethod** ppMethod) {
 	for (auto& module : pCurClass->m_hsModules) {
-		_ModuleMethodSearch(strMethodName, module.second, ppMethod);
+		_ModuleMethodSearch(strMethodName, module, ppMethod);
 		// 找到就退出
 		if (*ppMethod)
 			return;
 	}
 }
 
-void IrisClass::_ModuleMethodSearch(const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
+void IrisClass::_ModuleMethodSearch(const IrisInternString& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
 	// 出口
 	if (!pCurModule)
 		return;
@@ -314,13 +260,13 @@ void IrisClass::_ModuleMethodSearch(const string& strFunctionName, IrisModule* p
 	}
 	// 继续递归查找
 	for (auto& module : pCurModule->GetModules()) {
-		_ModuleMethodSearch(strFunctionName, module.second, ppMethod);
+		_ModuleMethodSearch(strFunctionName, module, ppMethod);
 		if (*ppMethod)
 			break;
 	}
 }
 
-IrisMethod* IrisClass::GetMethod(const string& strMethodName, bool& bIsCurClassMethod) {
+IrisMethod* IrisClass::GetMethod(const IrisInternString& strMethodName, bool& bIsCurClassMethod) {
 	// 方法的查找顺序：本类、父类该所包含的模块，如果都找不到那就真找不到了
 	// 检查本类
 	// 如果是调用类方法的情况下
@@ -367,10 +313,10 @@ IrisMethod* IrisClass::GetMethod(const string& strMethodName, bool& bIsCurClassM
 	return nullptr;
 }
 
-IrisClass::IrisClass(const string& strClassName, IrisClass* pSuperClass, IrisModule* pUpperModule, IIrisClass* pExternClass) : m_strClassName(strClassName), m_pSuperClass(pSuperClass), m_pUpperModule(pUpperModule), m_pExternClass(pExternClass) {
+IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClass, IrisModule* pUpperModule, IIrisClass* pExternClass) : m_strClassName(strClassName), m_pSuperClass(pSuperClass), m_pUpperModule(pUpperModule), m_pExternClass(pExternClass) {
 	if (IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")) {
 		IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr);
-		((IrisClassBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetClass(this);
+		IrisDevUtil::GetNativePointer<IrisClassBaseTag*>(ivValue)->SetClass(this);
 		m_pClassObject = ivValue.GetIrisObject();
 	}
 	else {
@@ -393,7 +339,7 @@ IrisClass::IrisClass(const string& strClassName, IrisClass* pSuperClass, IrisMod
 	}
 }
 
-IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
 	return static_cast<IrisObject*>(m_pClassObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide, nLineNumber, nBelongingFileIndex);
 }
 
@@ -409,7 +355,7 @@ void IrisClass::ResetAllMethodsObject() {
 	}
 }
 
-IrisMethod* IrisClass::GetCurrentClassMethod(const string& strMethodName) {
+IrisMethod* IrisClass::GetCurrentClassMethod(const IrisInternString& strMethodName) {
 	IrisMethod* pResultMethod = nullptr;
 	m_iwlInstanceMethodWLLock.ReadLock();
 	decltype(m_hsInstanceMethods)::iterator iMethod;
@@ -423,7 +369,7 @@ IrisMethod* IrisClass::GetCurrentClassMethod(const string& strMethodName) {
 	return pResultMethod;
 }
 
-const IrisValue & IrisClass::GetCurrentClassClassVariable(const string & strVariableName, bool & bResult)
+const IrisValue & IrisClass::GetCurrentClassClassVariable(const IrisInternString & strVariableName, bool & bResult)
 {
 	decltype(m_hsClassVariables)::iterator iVariable;
 	m_iwlClassClassVariableWLLock.ReadLock();
@@ -440,7 +386,7 @@ const IrisValue & IrisClass::GetCurrentClassClassVariable(const string & strVari
 	}
 }
 
-const IrisValue & IrisClass::GetCurrentClassConstance(const string & strConstanceName, bool & bResult)
+const IrisValue & IrisClass::GetCurrentClassConstance(const IrisInternString & strConstanceName, bool & bResult)
 {
 	decltype(m_hsConstances)::iterator iVariable;
 	m_iwlClassConstanceWLLock.ReadLock();
@@ -457,8 +403,8 @@ const IrisValue & IrisClass::GetCurrentClassConstance(const string & strConstanc
 	}
 }
 
-void IrisClass::AddSetter(const string& strProperName, IrisNativeFunction pfMethod) {
-	string strMethodName = strProperName;
+void IrisClass::AddSetter(const IrisInternString& strProperName, IrisNativeFunction pfMethod) {
+	string strMethodName = strProperName.GetSTLString();
 	strMethodName.assign(strMethodName.begin() + 1, strMethodName.end());
 	strMethodName = "__set_" + strMethodName;
 	IrisMethod* pMethod = new IrisMethod(strMethodName, pfMethod, 1, false);
@@ -476,8 +422,8 @@ void IrisClass::AddSetter(const string& strProperName, IrisNativeFunction pfMeth
 	m_iwlInstanceMethodWLLock.WriteUnlock();
 }
 
-void IrisClass::AddGetter(const string& strProperName, IrisNativeFunction pfMethod) {
-	string strMethodName = strProperName;
+void IrisClass::AddGetter(const IrisInternString& strProperName, IrisNativeFunction pfMethod) {
+	string strMethodName = strProperName.GetSTLString();
 	strMethodName.assign(strMethodName.begin() + 1, strMethodName.end());
 	strMethodName = "__get_" + strMethodName;
 	IrisMethod* pMethod = new IrisMethod(strMethodName, pfMethod, 0, false);
@@ -497,7 +443,7 @@ void IrisClass::AddGetter(const string& strProperName, IrisNativeFunction pfMeth
 
 void IrisClass::ResetNativeObject() {
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr);
-	((IrisClassBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetClass(this);
+	IrisDevUtil::GetNativePointer<IrisClassBaseTag*>(ivValue)->SetClass(this);
 	m_pClassObject = static_cast<IrisObject*>(ivValue.GetIrisObject());
 }
 
@@ -514,7 +460,7 @@ void IrisClass::ResetNativeObject() {
 	m_iwlInterfaceAddingWLLock.WriteUnlock();
 }
 
- void IrisClass::AddConstance(const string& strConstName, const IrisValue& ivInitialValue) {
+ void IrisClass::AddConstance(const IrisInternString& strConstName, const IrisValue& ivInitialValue) {
 	m_iwlClassConstanceWLLock.WriteLock();
 	m_hsConstances.insert(_VariablePair(strConstName, ivInitialValue));
 	m_iwlClassConstanceWLLock.WriteUnlock();
@@ -537,13 +483,13 @@ void IrisClass::ResetNativeObject() {
 	m_iwlInstanceMethodWLLock.WriteUnlock();
 }
 
- void IrisClass::AddClassVariable(const string& strClassVariableName) {
+ void IrisClass::AddClassVariable(const IrisInternString& strClassVariableName) {
 	m_iwlClassClassVariableWLLock.WriteLock();
 	m_hsClassVariables.insert(_VariablePair(strClassVariableName, IrisInterpreter::CurrentInterpreter()->Nil()));
 	m_iwlClassClassVariableWLLock.WriteUnlock();
 }
 
- void IrisClass::AddClassVariable(const string& strClassVariableName, const IrisValue& ivInitialValue) {
+ void IrisClass::AddClassVariable(const IrisInternString& strClassVariableName, const IrisValue& ivInitialValue) {
     m_iwlClassClassVariableWLLock.WriteLock();
 	m_hsClassVariables.insert(_VariablePair(strClassVariableName, ivInitialValue));
 	m_iwlClassClassVariableWLLock.WriteUnlock();

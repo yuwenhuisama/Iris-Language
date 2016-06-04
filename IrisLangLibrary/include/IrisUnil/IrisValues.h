@@ -28,6 +28,10 @@ public:
 		return m_vcValues[nIndex];
 	}
 
+	inline void SetValue(size_t nIndex, const IrisValue& ivValue) {
+		m_vcValues[nIndex] = ivValue;
+	}
+
 	//bool Ergodic(const function<bool(IrisValue&)>& fErgodicFunction);
 
 	inline IrisValue& operator [](size_t nIndex) {

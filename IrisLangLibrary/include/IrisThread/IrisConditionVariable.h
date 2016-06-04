@@ -5,6 +5,7 @@
 
 #include "IrisMutex.h"
 #include "IrisConditionVariableTag.h"
+#include "IrisInterpreter/IrisStructure/IrisObject.h"
 
 class IrisConditionVariable : public IIrisClass
 {
@@ -19,7 +20,7 @@ public:
 		auto pMutex = &IrisDevUtil::GetNativePointer<IrisMutexTag*>((IrisValue&)ivsValues->GetValue(0))->GetMutex();
 		auto pConditionVariable = IrisDevUtil::GetNativePointer<IrisConditionVariableTag*>(ivObj);
 		pConditionVariable->Initialize(pMutex);
-		ivObj.GetIrisObject()->AddInstanceValue("@mutex", (IrisValue&)ivsValues->GetValue(0));
+		static_cast<IrisObject*>(ivObj.GetIrisObject())->AddInstanceValue("@mutex", (IrisValue&)ivsValues->GetValue(0));
 		return ivObj;
 	}
 

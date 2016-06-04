@@ -209,23 +209,23 @@ bool IrisCompiler::Generate()
 	cout << "--------Static Data---------" << endl;
 	cout << "String Field:" << endl;
 	for (auto str : *m_pCurrentStatementInfo->m_pStringSpace) {
-		StringReplace(str, "\n", "\\n");
-		StringReplace(str, "\t", "\\t");
-		cout << setw(6) << str << "\t";
+		StringReplace((string&)(str.GetSTLString()), "\n", "\\n");
+		StringReplace((string&)(str.GetSTLString()), "\t", "\\t");
+		cout << setw(6) << str.GetSTLString() << "\t";
 	}
 	cout << endl;
 
 	cout << "UniqueString Field:" << endl;
 	for (auto str : *m_pCurrentStatementInfo->m_pUniqueStringSpace) {
-		StringReplace(str, "\n", "\\n");
-		StringReplace(str, "\t", "\\t");
-		cout << setw(6) << str << "\t";
+		StringReplace((string&)(str.GetSTLString()), "\n", "\\n");
+		StringReplace((string&)(str.GetSTLString()), "\t", "\\t");
+		cout << setw(6) << str.GetSTLString() << "\t";
 	}
 	cout << endl;
 
 	cout << "Identifier Field:" << endl;
 	for (auto id : *m_pCurrentStatementInfo->m_pIdentifierSpace) {
-		cout << setw(6) << id << "\t";
+		cout << setw(6) << id.GetSTLString() << "\t";
 	}
 	cout << endl;
 

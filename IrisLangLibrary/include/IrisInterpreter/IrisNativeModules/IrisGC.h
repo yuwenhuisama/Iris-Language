@@ -57,7 +57,7 @@ private:
 
 	static void _GCThreadFunction();
 
-	void _ErgodicTreeAndMark(IrisTree<IrisModule*>::Node<IrisModule*>* pCurNode);
+	void _ErgodicTreeAndMark(IrisModule* pCurNode);
 
 	void _ClearMark();
 	void _Mark();

@@ -1,16 +1,34 @@
 #include "IrisDevelopUtil.h"
 #include "IrisInterpreter/IrisStructure/IrisClass.h"
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
+#include "IrisInterpreter/IrisStructure/IrisInterface.h"
+#include "IrisInterpreter/IrisStructure/IrisClosureBlock.h"
 #include "IrisInterpreter.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisInteger.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisFloat.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisString.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisUniqueString.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisClassBase.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisModuleBase.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisInterfaceBase.h"
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 
 #include <string>
 using namespace std;
 namespace IrisDevUtil {
+
+	IMPLEMENT_CLASS_CHECK(Class)
+	IMPLEMENT_CLASS_CHECK(Module)
+	IMPLEMENT_CLASS_CHECK(Interface)
+	IMPLEMENT_CLASS_CHECK(Object)
+	IMPLEMENT_CLASS_CHECK(String)
+	IMPLEMENT_CLASS_CHECK(UniqueString)
+	IMPLEMENT_CLASS_CHECK(Integer)
+	IMPLEMENT_CLASS_CHECK(Float)
+	IMPLEMENT_CLASS_CHECK(Array)
+	IMPLEMENT_CLASS_CHECK(Hash)
+	IMPLEMENT_CLASS_CHECK(Range)
+	IMPLEMENT_CLASS_CHECK(Block)
 
 	IrisThreadUniqueInfo * GetCurrentThreadInfo()
 	{
@@ -22,11 +40,13 @@ namespace IrisDevUtil {
 		return IrisThreadManager::CurrentThreadManager()->IsMainThread();
 	}
 
-	bool CheckClass(IrisValue & ivValue, const char* strClassName)
+	bool CheckClass(const IrisValue & ivValue, const char* strClassName)
 	{
-		auto pClass = ivValue.GetIrisObject()->GetClass();
-		auto& strName = pClass->GetInternClass()->GetClassName();
-		return strName == strClassName;
+		auto pClass = static_cast<IrisObject*>(ivValue.GetIrisObject())->GetClass();
+		auto pTargetClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass(strClassName);
+		//auto& strName = pClass->GetInternClass()->GetClassName();
+		//return strName == strClassName;
+		return pTargetClass == pClass->GetInternClass();
 	}
 
 	void GroanIrregularWithString(const char* strIrregularString)
@@ -36,19 +56,19 @@ namespace IrisDevUtil {
 		pInterpreter->RegistIrregular(ivValue);
 	}
 
-	int GetInt(IrisValue & ivValue)
+	int GetInt(const IrisValue & ivValue)
 	{
 		return IrisInteger::GetIntData(ivValue);
 	}
 
-	double GetFloat(IrisValue & ivValue)
+	double GetFloat(const IrisValue & ivValue)
 	{
 		return IrisFloat::GetFloatData(ivValue);
 	}
 
-	const char* GetString(IrisValue & ivValue)
+	const char* GetString(const IrisValue & ivValue)
 	{
-		if (CheckClass(ivValue, "String")) {
+		if (CheckClassIsString(ivValue)) {
 			return IrisString::GetString(ivValue).c_str();
 		}
 		else {
@@ -57,7 +77,7 @@ namespace IrisDevUtil {
 
 	}
 
-	IrisValue CallMethod(IrisValue & ivObj, IIrisValues * pParameters, const char* strMethodName)
+	IrisValue CallMethod(const IrisValue & ivObj, IIrisValues * pParameters, const char* strMethodName)
 	{
 		return static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, nullptr, pParameters, CallerSide::Outside);
 	}
@@ -90,6 +110,102 @@ namespace IrisDevUtil {
 	IIrisInterface * GetInterface(const char * strClassPathName)
 	{
 		return IrisInterpreter::CurrentInterpreter()->GetIrisInterface(strClassPathName)->GetExternInterface();
+	}
+
+	bool ObjectIsFixed(const IrisValue& ivObj)
+	{
+		return static_cast<IrisObject*>(static_cast<IrisObject*>(ivObj.GetIrisObject()))->IsFixed();
+	}
+
+	IIrisClosureBlock * GetClosureBlock(IIrisContextEnvironment * pContextEnvironment)
+	{
+		return static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock();
+	}
+
+	IrisValue ExcuteClosureBlock(IIrisClosureBlock * pClosureBlock, IIrisValues* pParameters)
+	{
+		return static_cast<IrisClosureBlock*>(pClosureBlock)->Excute(pParameters);
+	}
+
+	void ContextEnvironmentSetClosureBlock(IIrisContextEnvironment* pContextEnvironment, IIrisClosureBlock* pBlock)
+	{
+		static_cast<IrisContextEnvironment*>(pContextEnvironment)->SetClosureBlock(pBlock);
+	}
+
+	IIrisObject * GetNativeObjectPointer(const IrisValue & ivObj)
+	{
+		return static_cast<IrisObject*>(ivObj.GetIrisObject())->GetClass()->GetInternClass()->GetClassObject();
+	}
+
+	int GetObjectID(const IrisValue & ivObj)
+	{
+		IrisObject* pObject = static_cast<IrisObject*>(ivObj.GetIrisObject());
+		int nObjectID = pObject->GetObjectID();
+		return nObjectID;
+	}
+
+	IIrisClass* GetClassOfObject(const IrisValue & ivObj)
+	{
+		return static_cast<IrisObject*>(ivObj.GetIrisObject())->GetClass();
+	}
+
+	const char * GetNameOfClass(IIrisClass * pClass)
+	{
+		return pClass->GetInternClass()->GetClassName().GetCTypeString();
+	}
+
+	const char * GetNameOfModule(IIrisModule * pModule)
+	{
+		return pModule->GetInternModule()->GetModuleName().GetCTypeString();
+	}
+
+	const char * GetNameOfInterface(IIrisInterface * pInterface)
+	{
+		return pInterface->GetInternInterface()->GetInterfaceName().GetCTypeString();
+	}
+
+	void SetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
+	{
+		bool bResult = false;
+		auto& ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->GetInstanceValue(szInstanceVariableName, bResult);
+		if (bResult) {
+			((IrisValue&)ivResult).SetIrisObject(ivValue.GetIrisObject());
+		}
+		else {
+			static_cast<IrisObject*>(ivObj.GetIrisObject())->AddInstanceValue(szInstanceVariableName, ivValue);
+		}
+	}
+
+	IrisValue GetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName)
+	{
+		bool bResult = false;
+		auto& ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->GetInstanceValue(szInstanceVariableName, bResult);
+		return ivResult;
+	}
+
+	const char * GetClassName(IIrisClass * pClass)
+	{
+		return pClass->GetInternClass()->GetClassName().GetCTypeString();
+	}
+
+	void MarkObject(const IrisValue& ivObject)
+	{
+		static_cast<IrisObject*>(ivObject.GetIrisObject())->Mark();
+	}
+
+	void MarkClosureBlock(IIrisClosureBlock * pClosureBlock)
+	{
+		static_cast<IrisClosureBlock*>(pClosureBlock)->Mark();
+	}
+
+	void * _InnerGetNativePointer(const IrisValue & ivValue)
+	{
+		return static_cast<IrisObject*>(ivValue.GetIrisObject())->GetNativeObject();
+	}
+
+	void * _InnerGetNativePointer(IIrisObject * pObject)
+	{
+		return static_cast<IrisObject*>(pObject)->GetNativeObject();
 	}
 
 	const IrisValue & Nil()
@@ -169,17 +285,17 @@ namespace IrisDevUtil {
 
 	IIrisClass * GetNativeClass(const IrisValue & ivValue)
 	{
-		return nullptr;
+		return static_cast<IrisClassBaseTag*>(static_cast<IrisObject*>(ivValue.GetIrisObject())->GetNativeObject())->GetClass()->GetExternClass();
 	}
 
 	IIrisModule * GetNativeModule(const IrisValue & ivValue)
 	{
-		return nullptr;
+		return static_cast<IrisModuleBaseTag*>(static_cast<IrisObject*>(ivValue.GetIrisObject())->GetNativeObject())->GetModule()->GetExternModule();
 	}
 
 	IIrisInterface * GetNativeInterface(const IrisValue & ivValue)
 	{
-		return nullptr;
+		return static_cast<IrisInterfaceBaseTag*>(static_cast<IrisObject*>(ivValue.GetIrisObject())->GetNativeObject())->GetInterface()->GetExternInterface();
 	}
 
 	IrisValue CreateInstance(IIrisClass * pClass, IIrisValues * ivsParams, IIrisContextEnvironment * pContexEnvironment)
@@ -189,7 +305,7 @@ namespace IrisDevUtil {
 
 	IrisValue CreateInstanceByInstantValue(const char * szString)
 	{
-		auto pClass = GetClass("String");
+		auto pClass = INNER_CLASS_GET_POINTER(String);
 		IrisValue ivValue;
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
@@ -207,7 +323,7 @@ namespace IrisDevUtil {
 
 	IrisValue CreateInstanceByInstantValue(double dFloat)
 	{
-		auto pClass = GetClass("Float");
+		auto pClass = INNER_CLASS_GET_POINTER(Float);
 		IrisValue ivValue;
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
@@ -225,7 +341,7 @@ namespace IrisDevUtil {
 
 	IrisValue CreateInstanceByInstantValue(int nInteger)
 	{
-		auto pClass = GetClass("Integer");
+		auto pClass = INNER_CLASS_GET_POINTER(Integer);
 		IrisValue ivValue;
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
@@ -241,21 +357,6 @@ namespace IrisDevUtil {
 		return ivValue;
 	}
 
-	//IrisValue CreateFloatInstanceByInstantValue(char * szLiterral)
-	//{
-	//	return IrisValue();
-	//}
-	//
-	//IrisValue CreateIntegerInstanceByInstantValue(char * szLiterral)
-	//{
-	//	return IrisValue();
-	//}
-	//
-	//IrisValue CreateStringInstanceByInstantValue(char * szLiterral)
-	//{
-	//	return IrisValue();
-	//}
-
 	IrisValue CreateUniqueStringInstanceByUniqueIndex(size_t nIndex)
 	{
 		IrisValue ivValue;
@@ -265,12 +366,12 @@ namespace IrisDevUtil {
 			return ivValue;
 		}
 
-		auto pClass = GetClass("UniqueString");
+		auto pClass = INNER_CLASS_GET_POINTER(UniqueString);
 
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
 		pObject->SetPermanent(true);
-		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()));
+		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()).GetSTLString());
 		pObject->SetNativeObject(pString);
 		ivValue.SetIrisObject(pObject);
 

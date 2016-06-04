@@ -80,6 +80,13 @@ bool IrisBinaryExpression::OperateAssignGenerate(unsigned int nOperatorIndex)
 
 	// ¸³Öµ
 	pMaker->assign(eType, nIndex);
+
+	if (eType == IrisAMType::MemberValue) {
+		pMaker->pop(1);
+	}
+	else if (eType == IrisAMType::IndexValue) {
+		pMaker->pop(2);
+	}
 	return true;
 }
 

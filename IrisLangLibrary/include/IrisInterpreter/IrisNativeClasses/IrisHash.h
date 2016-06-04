@@ -4,48 +4,17 @@
 #include "IrisDevHeader.h"
 #include "IrisIntegerTag.h"
 #include "IrisHashTag.h"
+#include "IrisInterpreter/IrisStructure/IrisClosureBlock.h"
 
 class IrisHash : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->Initialize(static_cast<IrisValues*>(ivsVariableValues));
-		return ivObj;
-	}
-
-	static IrisValue At(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		const IrisValue& ivIndex = ivsValues->GetValue(0);
-		return IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->At(ivIndex);
-	}
-
-	static IrisValue Set(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		const IrisValue& ivIndex = ivsValues->GetValue(0);
-		const IrisValue& ivValue = ivsValues->GetValue(1);
-		return IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->Set(ivIndex, ivValue);
-	}
-
-	static IrisValue Each(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		auto pClosureBlock = pContextEnvironment->GetClosureBlock();
-		IrisValues ivValues(2);
-		for (auto& elem : IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->m_mpHash) {
-			ivValues[0] = elem.first;
-			ivValues[1] = elem.second;
-			pClosureBlock->Excute(&ivValues);
-			if (IrisDevUtil::IrregularHappened() || IrisDevUtil::FatalErrorHappened()) {
-				break;
-			}
-		}
-		return IrisInterpreter::CurrentInterpreter()->Nil();
-	}
-
-	static IrisValue Size(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		return IrisDevUtil::CreateInt(IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->Size());
-	}
-
-	static IrisValue GetIterator(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		IrisValues ivsParameter = { ivObj };
-		return IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("HashIterator"), &ivsParameter, pContextEnvironment);
-	}
+	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue At(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Set(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Each(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Size(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue GetIterator(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 
@@ -60,8 +29,8 @@ public:
 	void Mark(void* pNativeObjectPointer) {
 		IrisHashTag* pHash = (IrisHashTag*)pNativeObjectPointer;
 		for (auto& pair : pHash->m_mpHash) {
-			((IrisValue&)pair.first).GetIrisObject()->Mark();
-			pair.second.GetIrisObject()->Mark();
+			static_cast<IrisObject*>(((IrisValue&)pair.first).GetIrisObject())->Mark();
+			static_cast<IrisObject*>(((IrisValue&)pair.second).GetIrisObject())->Mark();
 		}
 	}
 

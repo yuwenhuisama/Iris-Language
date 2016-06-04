@@ -10,7 +10,7 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 
-IrisMethod::IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority) {
+IrisMethod::IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority) {
 	m_strMethodName = strMethodName;
 	m_eMethodType = MethodType::NativeMethod;
 	m_uFunction.m_pfNativeFunction = pfNativeFunction;
@@ -21,12 +21,12 @@ IrisMethod::IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeF
 	IrisClass* pMethodClass = nullptr;
 	if (pMethodClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")) {
 		IrisValue ivValue = pMethodClass->CreateInstance(nullptr, nullptr);
-		((IrisMethodBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetMethod(this);
+		IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 		m_pMethodObject = ivValue.GetIrisObject();
 	}
 }
 
-IrisMethod::IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority) {
+IrisMethod::IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority) {
 	m_strMethodName = strMethodName;
 	m_eMethodType = MethodType::UserMethod;
 	m_uFunction.m_pUserFunction = pUserFunction;
@@ -34,12 +34,12 @@ IrisMethod::IrisMethod(const string& strMethodName, UserFunction* pUserFunction,
 	m_eAuthority = eAuthority;
 
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
-	((IrisMethodBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetMethod(this);
+	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 	m_nParameterAmount = pUserFunction->m_lsParameters.size();
 }
 
-IrisMethod::IrisMethod(const string & strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority)
+IrisMethod::IrisMethod(const IrisInternString & strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority)
 {
 	m_strMethodName = strMethodName;
 	m_eMethodType = eType;
@@ -48,7 +48,7 @@ IrisMethod::IrisMethod(const string & strMethodName, UserFunction* pUserFunction
 	m_eAuthority = eAuthority;
 
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
-	((IrisMethodBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetMethod(this);
+	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue.GetIrisObject())->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 	m_nParameterAmount = pUserFunction->m_lsParameters.size();
 }
@@ -111,7 +111,8 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 			// 新建一个数组
 			IrisValues ivsValues;
 			ivsValues.GetVector().assign(it, pParameters->GetVector().end());
-			IrisValue ivArray = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Array")->CreateInstance(&ivsValues, nullptr);
+			auto pClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Array");
+			IrisValue ivArray = pClass->CreateInstance(&ivsValues, nullptr);
 			pNewEnvironment->AddLocalVariable(m_uFunction.m_pUserFunction->m_strVariableParameter, ivArray);
 		}
 	}
@@ -144,21 +145,19 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 
 	// 参数检查错误
 	// 特殊情况 new 不检查，丢给__format检查
-	//if (!(m_strMethodName == "new")) {
-		if (!_ParameterCheck(pParameters)) {
-			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
-			return IrisInterpreter::CurrentInterpreter()->Nil();
-		}
-	//}
+	if (!_ParameterCheck(pParameters)) {
+		// **Error**
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+		return IrisInterpreter::CurrentInterpreter()->Nil();
+	}
 
 	// Getter Setter
 	if (m_eMethodType == MethodType::GetterMethod) {
 		string strValueName;
-		strValueName.assign(m_strMethodName.begin() + 6, m_strMethodName.end());
+		strValueName.assign(m_strMethodName.GetSTLString().begin() + 6, m_strMethodName.GetSTLString().end());
 		strValueName = "@" + strValueName;
 		bool bResult = false;
-		IIrisObject* pObject = ivObject.GetIrisObject();
+		auto* pObject = static_cast<IrisObject*>(ivObject.GetIrisObject());
 		const IrisValue& ivResult = pObject->GetInstanceValue(strValueName, bResult);
 		// 不存在则定义
 		if (!bResult) {
@@ -169,10 +168,10 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	}
 	else if (m_eMethodType == MethodType::SetterMethod) {
 		string strValueName;
-		strValueName.assign(m_strMethodName.begin() + 6, m_strMethodName.end());
+		strValueName.assign(m_strMethodName.GetSTLString().begin() + 6, m_strMethodName.GetSTLString().end());
 		strValueName = "@" + strValueName;
 		bool bResult = false;
-		IIrisObject* pObject = ivObject.GetIrisObject();
+		auto pObject = static_cast<IrisObject*>(ivObject.GetIrisObject());
 		IrisValue& ivResult = (IrisValue&)pObject->GetInstanceValue(strValueName, bResult);
 		IrisValue& ivParam = (*pParameters)[0];
 		// 不存在则定义
@@ -207,7 +206,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	}
 	else {
 		// 检查可变参数
-		if ((int)pParameters->GetSize() > m_nParameterAmount) {
+		if (pParameters->GetSize() > m_nParameterAmount) {
 			bHaveVariableParameters = true;
 			ivsVariableValues.GetVector().assign(pParameters->GetVector().begin() + m_nParameterAmount, pParameters->GetVector().end());
 		}
@@ -216,6 +215,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 		}
 
 		if (m_eMethodType == MethodType::NativeMethod) {
+			++IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference;
 			if (bHaveVariableParameters) {
 				if (m_nParameterAmount > 0) {
 					ivValue = m_uFunction.m_pfNativeFunction(ivObject, &ivsNormalPrameters, &ivsVariableValues, pNewEnvironment);
@@ -231,6 +231,13 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 				else {
 					ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, nullptr, pNewEnvironment);
 				}
+			}
+			--IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference;
+			if (IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference == 0) {
+				//for (auto& obj : IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap) {
+				//	obj->SetIsCreateInNativeFunction(false);
+				//}
+				IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap.clear();
 			}
 		}
 		else {
@@ -278,7 +285,7 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLine
 	// 参数检查错误
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 	bool bIsGetNew = false;
@@ -314,7 +321,7 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLine
 
 void IrisMethod::ResetObject() {
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
-	((IrisMethodBaseTag*)ivValue.GetIrisObject()->GetNativeObject())->SetMethod(this);
+	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 }
 
@@ -329,11 +336,11 @@ IrisMethod::~IrisMethod() {
 	//delete m_pMethodObject;
 }
 
-const string & IrisMethod::GetMethodName() {
+const IrisInternString & IrisMethod::GetMethodName() {
 	return m_strMethodName;
 }
 
-void IrisMethod::SetMethodName(const string & strMethodName) {
+void IrisMethod::SetMethodName(const IrisInternString & strMethodName) {
 	m_strMethodName = strMethodName;
 }
 

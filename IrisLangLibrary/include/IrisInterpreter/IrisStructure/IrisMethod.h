@@ -6,6 +6,7 @@
 #include "IrisUnil/IrisCodeSegment.h"
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
+#include "IrisUnil/IrisInternString.h"
 
 #include <string>
 #include <vector>
@@ -46,8 +47,8 @@ public:
 
 public:
 	struct UserFunction {
-		list<string> m_lsParameters;
-		string m_strVariableParameter = "";
+		list<IrisInternString> m_lsParameters;
+		IrisInternString m_strVariableParameter = "";
 
 		IrisCodeSegment m_icsBlockCodes;
 		IrisCodeSegment m_icsWithBlockCodes;
@@ -60,7 +61,7 @@ public:
 	};
 
 private:
-	string m_strMethodName = "";
+	IrisInternString m_strMethodName = "";
 	bool m_bIsWithVariableParameter = false;
 	MethodType m_eMethodType = MethodType::NativeMethod;
 	unsigned int m_nParameterAmount = 0;
@@ -77,9 +78,9 @@ private:
 	IrisContextEnvironment* _CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, bool& bIsGetNew);
 
 public:
-	IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
-	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
-	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
 
 	void ResetObject();
 
@@ -96,9 +97,9 @@ public:
 
 	//Getter Setter
 
-	const string& GetMethodName();
+	const IrisInternString& GetMethodName();
 
-	void SetMethodName(const string& strMethodName);
+	void SetMethodName(const IrisInternString& strMethodName);
 
 	MethodAuthority GetAuthority();
 

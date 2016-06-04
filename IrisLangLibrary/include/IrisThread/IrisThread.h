@@ -57,7 +57,7 @@ public:
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		static_cast<IrisContextEnvironment*>(static_cast<IrisClosureBlock*>(pTmpContextEnvironment->GetClosureBlock())->GetCurrentContextEnvironment())->m_bIsThreadMainContext = true;
 		unique_lock<mutex> ulLock(pThreadTag->GetMutex());
-		auto pThread = new thread(ThreadBlockRun, static_cast<IrisClosureBlock*>(pContextEnvironment->GetClosureBlock()), pThreadTag, static_cast<IrisObject*>(ivObj.GetIrisObject()));
+		auto pThread = new thread(ThreadBlockRun, static_cast<IrisClosureBlock*>(static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock()), pThreadTag, static_cast<IrisObject*>(ivObj.GetIrisObject()));
 		pTmpContextEnvironment->m_pClosureBlock = nullptr;
 		pThreadTag->Initialize(pThread);
 		return ivObj;

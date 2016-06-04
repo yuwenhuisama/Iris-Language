@@ -6,7 +6,7 @@ IrisClassBaseTag::IrisClassBaseTag(IrisClass* pClass) : m_pClass(pClass)
 }
 
 const string& IrisClassBaseTag::GetThisClassName() {
-	return m_pClass->GetClassName();
+	return m_pClass->GetClassName().GetSTLString();
 }
 
 void IrisClassBaseTag::SetClass(IrisClass* pClass) {
