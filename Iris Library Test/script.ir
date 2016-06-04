@@ -283,7 +283,7 @@ class SortedBinaryTree {
 ;obj.insert(11)
 ;obj.insert(12)
 ;obj.insert(8)
-;print("浜屽弶鎺掑簭鏍戠殑缁撴灉涓猴細")
+;print("二叉排序树的运行结果为：")
 ;obj.display()
 ;print("\n")
 

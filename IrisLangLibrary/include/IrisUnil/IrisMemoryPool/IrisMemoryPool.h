@@ -47,14 +47,14 @@ void * IrisMemoryPool<T>::Malloc()
 {
 	char* pData = nullptr;
 	if (m_lsFreeSlotList.empty()) {
-		pData = new char[m_nNextSlotCount * sizeof(T)];
+		pData = new char[(m_nNextSlotCount >> 1) * sizeof(T)];
 		m_lsMallocedMemoryList.push_back(pData);
 		m_lsFreeSlotList.reserve(m_nNextSlotCount);
-		for (size_t i = 0; i < m_nNextSlotCount; ++i) {
+		for (size_t i = 0; i < (m_nNextSlotCount >> 1); ++i) {
 			m_lsFreeSlotList.push_back(pData + i * sizeof(T));
 		}
 		// The same strategy as stl::vector
-		m_nNextSlotCount += m_nNextSlotCount;
+		m_nNextSlotCount <<= 2;
 	}
 	pData = m_lsFreeSlotList.back();
 	m_lsFreeSlotList.pop_back();
