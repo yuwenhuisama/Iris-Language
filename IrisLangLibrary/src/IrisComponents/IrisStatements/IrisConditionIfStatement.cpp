@@ -73,7 +73,9 @@ bool IrisConditionIfStatement::Generate()
 
 	if (m_pElseBlock) {
 		vcNewVector.clear();
-		m_pElseBlock->Generate();
+		if (!m_pElseBlock->Generate()) {
+			return false;
+		}
 		vcElseBlockCodes = new vector <IR_WORD>();
 		vcElseBlockCodes->assign(vcNewVector.begin(), vcNewVector.end());
 	}
@@ -86,7 +88,7 @@ bool IrisConditionIfStatement::Generate()
 	for (; iCond != vcConditionsCodes.end(); ++iCond, ++iBlock) {
 		nAllCodeSize += (*iCond)->size();
 		nAllCodeSize += (*iBlock)->size();
-		nAllCodeSize += 8 + 4 + 4 + 1; // jnof and jmp
+		nAllCodeSize += 5 + 5; // jnof and jmp
 	}
 
 	if (m_pElseBlock) {
@@ -116,14 +118,14 @@ bool IrisConditionIfStatement::Generate()
 
 		pCompiler->LinkCodesToRealCodes(*(*iBlock));
 		if (*iCond != vcConditionsCodes.back()) {
-			nAllCodeSize -= ((*iCond)->size() + (*iBlock)->size() + 8 + 4 + 4 + 1);
-			pMaker->jmp(nAllCodeSize - 4 - 1);
+			nAllCodeSize -= ((*iCond)->size() + (*iBlock)->size() + 5 + 5);
+			pMaker->jmp(nAllCodeSize - 5);
 		}
 		else {
 			// last condition and has else
 			if (m_pElseBlock) {
-				nAllCodeSize -= ((*iCond)->size() + (*iBlock)->size() + 8 + 4 + 4 + 1);
-				pMaker->jmp(nAllCodeSize - 4 - 1);
+				nAllCodeSize -= ((*iCond)->size() + (*iBlock)->size() + 5 + 5);
+				pMaker->jmp(nAllCodeSize - 5);
 			}
 		}
 	}
