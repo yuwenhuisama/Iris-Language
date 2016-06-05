@@ -33,7 +33,15 @@ bool IrisInterfaceStatement::Generate()
 	}
 
 	// Block
-	m_pBlock->Generate();
+	if (m_pBlock) {
+		m_pBlock->Generate();
+	}
+	else {
+		pCompiler->IncreamDefineIndex();
+		pMaker->blk_def(pCompiler->GetDefineIndex());
+		pMaker->end_def(pCompiler->GetDefineIndex());
+		pCompiler->DecreamDefineIndex();
+	}
 
 	pMaker->end_def(pCompiler->GetDefineIndex());
 	pCompiler->DecreamDefineIndex();

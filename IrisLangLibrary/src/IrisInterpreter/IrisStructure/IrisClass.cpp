@@ -110,6 +110,7 @@ const IrisValue& IrisClass::SearchConstance(const IrisInternString& strConstName
 		return ivResultValue;
 	}
 
+	bResult = true;
 	// 所包含的模块
 	IrisClass* pCurClass = this;
 	do{
@@ -122,12 +123,10 @@ const IrisValue& IrisClass::SearchConstance(const IrisInternString& strConstName
 		pCurClass = pCurClass->m_pSuperClass;
 	} while (pCurClass);
 
+	bResult = true;
 	// 父类
 	pCurClass = m_pSuperClass;
 	do{
-		//if ((iCons = pCurClass->m_hsConstances.find(strConstName)) != pCurClass->m_hsConstances.end()){
-		//	return iCons->second;
-		//}
 		auto& ivResultValue = pCurClass->GetCurrentClassConstance(strConstName, bResult);
 		if (bResult) {
 			return ivResultValue;
@@ -135,6 +134,7 @@ const IrisValue& IrisClass::SearchConstance(const IrisInternString& strConstName
 		pCurClass = pCurClass->m_pSuperClass;
 	} while (pCurClass);
 
+	bResult = true;
 	pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetConstance(strConstName, bResult);
 	if (bResult) {
 		return *pValue;
@@ -166,6 +166,7 @@ const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClass
 		return ivResultValue;
 	}
 
+	bResult = true;
 	// 所包含的模块
 	IrisClass* pCurClass = this;
 	do {
@@ -178,6 +179,7 @@ const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClass
 		pCurClass = pCurClass->m_pSuperClass;
 	} while (pCurClass);
 
+	bResult = true;
 	// 父类
 	pCurClass = m_pSuperClass;
 	do {
