@@ -1227,7 +1227,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		string strGetterMethod = "__get_" + strIdentifier.GetSTLString();
-		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, pInfo->m_pEnvrionmentRegister, nullptr, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, nullptr, nullptr, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
 		break;
 	case IrisAMType::SelfMemberValue:
@@ -1245,7 +1245,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		IrisValues ivsValues = { pInfo->m_stStack.m_lsStack.back() };
-		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]", pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
 		break;
 	case IrisAMType::RegistValue:
@@ -1557,7 +1557,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		string strSetterName = "__set_" + strIdentifier.GetSTLString();
 		IrisValues ivsValues = { pInfo->m_stStack.m_lsStack.back() };
-		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
 		break;
 	case IrisAMType::SelfMemberValue:
@@ -1591,7 +1591,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		IrisValue ivKey = *pInfo->m_stStack.m_lsStack.rbegin();
 		IrisValue ivValue = *(pInfo->m_stStack.m_lsStack.rbegin() + 1);
 		IrisValues ivsValues = { ivKey, ivValue };
-		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]=", pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]=", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	}
 		break;
 	case IrisAMType::RegistValue:
@@ -2232,7 +2232,7 @@ bool IrisInterpreter::cmp_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisValues ivsValues = { pInfo->m_ivResultRegister };
-	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivCompareRegister.GetIrisObject())->CallInstanceFunction("==", pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivCompareRegister.GetIrisObject())->CallInstanceFunction("==", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
 	return true;
 }
 

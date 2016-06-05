@@ -293,16 +293,70 @@ class SortedBinaryTree {
 
 // ;str = 'abc'
 // ;print(str)
+/*
+class A {
+	;gset [@data]
+	;gset [@data2]
+	
+	fun __format() {
+		;@data = 0
+		;@data2 = 1
+	}
+}
 
-;i = 20
-if(i == 17) {
-	;print(i)
+;a = A.new()
+;a.data += 1
+;a.data2 += 1
+;print(a.data, "\n", a.data2)
+*/
+
+;$scene = nil
+
+class Scene_Base {
+	fun pre_load() {
+	}
+	
+	fun update() {
+	}
+	
+	fun post_load() {
+	}
+	
+	fun main() {
+		;pre_load()
+		
+		if(true, 0) {
+			;update()
+			;Graphics.update()
+			;Input.update()
+			if($scene != self) {
+				;break
+			}
+		}
+		
+		;post_load()
+	}
 }
-elseif(i == 18) {
-	;print(i)
+
+class Scene_Title extends Scene_Base {
+
+	fun __format() {
+	}
+
+	fun pre_load() {
+		;@sprite_title = Sprite.new()
+		;@sprite_title.bitmap = Bitmap.new("image/selections.png")
+		;@sprite_title.x = 250.0
+		;@sprite_title.y = 100.0
+	}
+	
+	fun post_load() {
+		;@sprite_title.bitmap.dispose()
+		;@sprite_title.dispose()
+	}
 }
-elseif(i == 19) {
-	;print(i)
-}else {
-	;print(i)
+
+;$scene = Scene_Title.new()
+if($scene != nil, 0) {
+	;$scene.main()
 }
