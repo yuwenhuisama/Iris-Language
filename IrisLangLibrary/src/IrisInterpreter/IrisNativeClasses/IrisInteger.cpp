@@ -305,6 +305,12 @@ IrisValue IrisInteger::ToString(IrisValue & ivObj, IIrisValues * ivsValues, IIri
 	return IrisDevUtil::CreateString(pInteger->ToString().c_str());
 }
 
+IrisValue IrisInteger::ToFloat(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+{
+	auto nInteger = IrisDevUtil::GetInt(ivObj);
+	return IrisDevUtil::CreateFloat(static_cast<int>(nInteger));
+}
+
 IrisInteger::IrisInteger()
 {
 }

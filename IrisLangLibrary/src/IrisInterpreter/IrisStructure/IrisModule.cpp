@@ -230,7 +230,7 @@ void IrisModule::AddInstanceMethod(IrisMethod * pMethod) {
 	decltype(m_hsInstanceMethods)::iterator iMethod;
 	m_iwlInstanceMethodWLLock.WriteLock();
 	if ((iMethod = m_hsInstanceMethods.find(pMethod->GetMethodName())) != m_hsInstanceMethods.end()) {
-		delete iMethod->second;
+		//delete iMethod->second;
 		m_hsInstanceMethods[pMethod->GetMethodName()] = pMethod;
 	}
 	else {

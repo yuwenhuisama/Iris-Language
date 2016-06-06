@@ -24,6 +24,8 @@ public:
 	static IrisValue Require(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue Import(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue Eval(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue SRand(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue Rand(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 	IrisKernel();
@@ -49,6 +51,12 @@ private:
 
 		IrisDevUtil::AddClassMethod(this, "require", Require, 0, true);
 		IrisDevUtil::AddClassMethod(this, "import", Import, 0, true);
+
+		IrisDevUtil::AddClassMethod(this, "srand", SRand, 0, true);
+		IrisDevUtil::AddInstanceMethod(this, "srand", SRand, 0, true);
+
+		IrisDevUtil::AddClassMethod(this, "rand", Rand, 2, false);
+		IrisDevUtil::AddInstanceMethod(this, "rand", Rand, 2, false);
 	};
 
 };

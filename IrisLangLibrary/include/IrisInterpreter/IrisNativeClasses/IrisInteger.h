@@ -63,6 +63,7 @@ public:
 	static IrisValue Plus(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue Minus(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue ToString(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue ToFloat(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 	IrisInteger();
@@ -117,6 +118,7 @@ public:
 		IrisDevUtil::AddInstanceMethod(this, "__minus", Minus, 0, false);
 
 		IrisDevUtil::AddInstanceMethod(this, "to_string", ToString, 0, false);
+		IrisDevUtil::AddInstanceMethod(this, "to_float", ToFloat, 0, false);
 	}
 
 	//virtual void* GetLiteralObject(char* szLiterral) {

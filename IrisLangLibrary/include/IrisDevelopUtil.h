@@ -55,6 +55,8 @@ namespace IrisDevUtil {
 	double GetFloat(const IrisValue& ivValue);
 	const char* GetString(const IrisValue& ivValue);
 	IrisValue CallMethod(const IrisValue& ivObj, IIrisValues* pParameters, const char* szMethodName);
+	IrisValue CallClassMethod(IIrisClass* pClass, const char* szMethodName, IIrisValues* pParameters);
+	IrisValue CallClassMethod(IIrisModule* pModule, const char* szMethodName, IIrisValues* pParameters);
 	IrisValue CreateInt(int nInteger);
 	IrisValue CreateFloat(double dDouble);
 	IrisValue CreateString(const char* nInteger);

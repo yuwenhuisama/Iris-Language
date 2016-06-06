@@ -29,16 +29,34 @@ typedef IrisValue(*IrisNativeFunction)(IrisValue&, IIrisValues*, IIrisValues*, I
 typedef void(*IrisDev_FatalErrorMessageFunction)(char* pMessage);
 typedef int(*IrisDev_ExitConditionFunction)();
 
+#define DECLARE_IRISDEV_CLASS_CHECK(klass) IRISLANGLIBRARY_API bool IrisDev_CheckClassIs##klass(const IrisValue& ivValue);
+
+DECLARE_IRISDEV_CLASS_CHECK(Class)
+DECLARE_IRISDEV_CLASS_CHECK(Module)
+DECLARE_IRISDEV_CLASS_CHECK(Interface)
+DECLARE_IRISDEV_CLASS_CHECK(Object)
+DECLARE_IRISDEV_CLASS_CHECK(String)
+DECLARE_IRISDEV_CLASS_CHECK(UniqueString)
+DECLARE_IRISDEV_CLASS_CHECK(Integer)
+DECLARE_IRISDEV_CLASS_CHECK(Float)
+DECLARE_IRISDEV_CLASS_CHECK(Array)
+DECLARE_IRISDEV_CLASS_CHECK(Hash)
+DECLARE_IRISDEV_CLASS_CHECK(Range)
+DECLARE_IRISDEV_CLASS_CHECK(Block)
+
+IRISLANGLIBRARY_API void* _IrisDev_InnerGetNativePointer(const IrisValue& ivValue);
+IRISLANGLIBRARY_API void* _IrisDev_InnerGetNativePointer(IIrisObject* pObject);
+
 #ifndef _IRIS_LIB_DEFINE_
 #define _IRIS_LIB_DEFINE_
 template<class T>
 T IrisDev_GetNativePointer(const IrisValue& ivValue) {
-	return static_cast<T>(ivValue.GetInstanceNativePointer());
+	return static_cast<T>(_IrisDev_InnerGetNativePointer(ivValue));
 }
 
 template<class T>
-T IrisDev_GetNativePointer(IIrisObject* pObject) {
-	return static_cast<T>(pObject->GetNativeObject());
+T IrisDev_GetNativePointer(IIrisObject* pObject) { 
+	return static_cast<T>(_IrisDev_InnerGetNativePointer(pObject));
 }
 
 typedef struct IrisInitializeStruct_tag {
@@ -55,9 +73,24 @@ IRISLANGLIBRARY_API int IrisDev_GetInt(const IrisValue& ivValue);
 IRISLANGLIBRARY_API double IrisDev_GetFloat(const IrisValue& ivValue);
 IRISLANGLIBRARY_API const char* IrisDev_GetString(const IrisValue& ivValue);
 IRISLANGLIBRARY_API IrisValue IrisDev_CallMethod(const IrisValue& ivObj, IIrisValues* pParameters, const char* szMethodName);
+IRISLANGLIBRARY_API IrisValue CallClassClassMethod(IIrisClass* pClass, const char* szMethodName, IIrisValues* pParameters);
+IRISLANGLIBRARY_API IrisValue CallClassModuleMethod(IIrisModule* pModule, const char* szMethodName, IIrisValues* pParameters);
 IRISLANGLIBRARY_API IIrisClass* IrisDev_GetClass(const char* strClassPathName);
 IRISLANGLIBRARY_API IIrisModule* IrisDev_GetModule(const char* strClassPathName);
 IRISLANGLIBRARY_API IIrisInterface* IrisDev_GetInterface(const char* strClassPathName);
+
+IRISLANGLIBRARY_API bool IrisDev_ObjectIsFixed(const IrisValue& ivObj);
+IRISLANGLIBRARY_API IIrisClosureBlock* IrisDev_GetClosureBlock(IIrisContextEnvironment* pContextEnvironment);
+IRISLANGLIBRARY_API IrisValue IrisDev_ExcuteClosureBlock(IIrisClosureBlock* pClosureBlock, IIrisValues* pParameters);
+IRISLANGLIBRARY_API void IrisDev_ContextEnvironmentSetClosureBlock(IIrisContextEnvironment* pContextEnvironment, IIrisClosureBlock* pBlock);
+IRISLANGLIBRARY_API IIrisObject* IrisDev_GetNativeObjectPointer(const IrisValue& ivObj);
+IRISLANGLIBRARY_API int IrisDev_GetObjectID(const IrisValue& ivObj);
+IRISLANGLIBRARY_API IIrisClass* IrisDev_GetClassOfObject(const IrisValue& ivObj);
+IRISLANGLIBRARY_API const char* IrisDev_GetNameOfClass(IIrisClass* pClass);
+IRISLANGLIBRARY_API const char* IrisDev_GetNameOfModule(IIrisModule* pModule);
+IRISLANGLIBRARY_API const char* IrisDev_GetNameOfInterface(IIrisInterface* pInterface);
+IRISLANGLIBRARY_API void IrisDev_MarkObject(const IrisValue& ivObject);
+IRISLANGLIBRARY_API void IrisDev_MarkClosureBlock(IIrisClosureBlock* pClosureBlock);
 
 IRISLANGLIBRARY_API const IrisValue& IrisDev_Nil();
 IRISLANGLIBRARY_API const IrisValue& IrisDev_False();
@@ -98,6 +131,9 @@ IRISLANGLIBRARY_API IrisValue IrisDev_GetObjectInstanceVariable(IrisValue& ivObj
 
 IRISLANGLIBRARY_API bool IrisDev_IrregularHappened();
 IRISLANGLIBRARY_API bool IrisDev_FatalErrorHappened();
+
+IRISLANGLIBRARY_API IIrisValues* IrisDev_CreateIrisValuesList(size_t nSize);
+IRISLANGLIBRARY_API void IrisDev_ReleaseIrisValuesList(IIrisValues* pValues);
 
 IRISLANGLIBRARY_API bool IR_Initialize(PIrisInitializeStruct pInitializeStruct);
 IRISLANGLIBRARY_API bool IR_Run();

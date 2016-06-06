@@ -169,7 +169,7 @@ public:
 	inline void AddStatement(IrisStatement* pStatement) { m_bEvalFlag ? m_pEvalStatements.push_back(pStatement) : m_pCurrentStatementInfo->m_pStatementList->push_back(pStatement); }
 
 	inline void IncreamLineNumber() { ++m_nCurLineNumber; }
-	inline void ResetLineNumber() { m_nCurLineNumber = 0; }
+	inline void ResetLineNumber() { m_nCurLineNumber = 1; }
 	inline void SetLineNumber(unsigned int nLineNumber) { m_nCurLineNumber = nLineNumber; }
 	inline unsigned int GetCurrentLineNumber() { return m_nCurLineNumber; }
 

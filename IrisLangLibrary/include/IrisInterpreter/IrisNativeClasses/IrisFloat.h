@@ -44,6 +44,7 @@ public:
 	static IrisValue Plus(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue Minus(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue ToString(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue ToInteger(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
 public:
 
@@ -88,6 +89,7 @@ public:
 		IrisDevUtil::AddInstanceMethod(this, "__minus", Minus, 0, false);
 
 		IrisDevUtil::AddInstanceMethod(this, "to_string", ToString, 0, false);
+		IrisDevUtil::AddInstanceMethod(this, "to_integer", ToInteger, 0, false);
 	}
 
 	static double GetFloatData(const IrisValue& ivValue) {

@@ -76,6 +76,16 @@ IRISLANGLIBRARY_API IrisValue IrisDev_CallMethod(const IrisValue & ivObj, IIrisV
 	return IrisDevUtil::CallMethod(ivObj, pParameters, strMethodName);
 }
 
+IRISLANGLIBRARY_API IrisValue IrisDev_CallClassClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters)
+{
+	return IrisDevUtil::CallClassMethod(pClass, szMethodName, pParameters);
+}
+
+IRISLANGLIBRARY_API IrisValue IrisDev_CallClassModuleMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters)
+{
+	return IrisDevUtil::CallClassMethod(pModule, szMethodName, pParameters);
+}
+
 IRISLANGLIBRARY_API IIrisClass * IrisDev_GetClass(const char* strClassPathName)
 {
 	return IrisDevUtil::GetClass(strClassPathName);

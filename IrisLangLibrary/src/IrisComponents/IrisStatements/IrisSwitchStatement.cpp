@@ -36,6 +36,7 @@ bool IrisSwitchStatement::Generate()
 	vector<IR_WORD>* pElseVector = nullptr;
 	_WhenStructure* pWhenStructure = nullptr;
 	vector<_WhenStructure*> vcWhenStructures;
+	size_t nWholeSize = 0;
 
 	// Generate
 	for(auto when : m_pSwitchBlock->m_pWhenList->m_lsList){
@@ -61,16 +62,20 @@ bool IrisSwitchStatement::Generate()
 		}
 
 		pCompiler->SetCurrentCodeList(&(pWhenStructure->m_lsBlockCodes));
-		pNewVector = new vector<IR_WORD>();
-		when->m_pBlock->Generate();
+		//pNewVector = new vector<IR_WORD>();
+		if (!when->m_pBlock->Generate()) {
+			return false;
+		}
 
 		vcWhenStructures.push_back(pWhenStructure);
+		nWholeSize += pWhenStructure->m_lsBlockCodes.size() + pWhenStructure->m_nComparerSize + 5; // + jmp
 	}
 
 	if (m_pSwitchBlock->m_pElseBlock) {
 		pElseVector = new vector<IR_WORD>();
 		pCompiler->SetCurrentCodeList(pElseVector);
 		m_pSwitchBlock->m_pElseBlock->Generate();
+		nWholeSize += pElseVector->size();
 	}
 
 	pCompiler->SetCurrentCodeList(pOldVector);
@@ -82,22 +87,30 @@ bool IrisSwitchStatement::Generate()
 		for (auto cmp : when->m_lsComparerCodes) {
 			pCompiler->LinkCodesToRealCodes(*cmp);
 			if (cmp != when->m_lsComparerCodes.back()) {
-				pMaker->jt(Offset - cmp->size() - 4 - 1); // - jmp
+				pMaker->jt(Offset - cmp->size() + 5); // - jmp
 			}
 			else {
-				if (when == vcWhenStructures.back()) {
+				if (when != vcWhenStructures.back()) {
 					pMaker->jfon(when->m_lsBlockCodes.size() + 4 + 1); // skip the block and jmp
 				}
 				else {
-					pMaker->jfon(when->m_lsBlockCodes.size()); // skip the block
+					if(!pElseVector) {
+						pMaker->jfon(when->m_lsBlockCodes.size()); // skip the block
+					}
+					else {
+						pMaker->jfon(when->m_lsBlockCodes.size() + 5); // skip the block
+					}
 				}
 			}
 		}
 		pCompiler->LinkCodesToRealCodes(when->m_lsBlockCodes);
+		nWholeSize -= when->m_lsBlockCodes.size() + when->m_nComparerSize + 5;
+		if(nWholeSize != 0) {
+			pMaker->jmp(nWholeSize);
+		}
 	}
 
 	if (pElseVector) {
-		pMaker->jmp(pElseVector->size());
 		pCompiler->LinkCodesToRealCodes(*pElseVector);
 	}
 

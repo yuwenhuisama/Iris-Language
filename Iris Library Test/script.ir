@@ -310,18 +310,15 @@ class A {
 ;print(a.data, "\n", a.data2)
 */
 
-module A {
-	;CONST = 1
-}
-
-class B involves A {
-}
-
-class C extends B {
-	fun __format() {
-		;print(CONST)
+;a = 12
+switch(a) {
+	when(9, 10) {
+		;print(1)
+	}
+	when(11, 12) {
+		;print(2)
+	}
+	else {
+		;print(3)
 	}
 }
-
-;C.new()
-

@@ -82,6 +82,16 @@ namespace IrisDevUtil {
 		return static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, nullptr, pParameters, CallerSide::Outside);
 	}
 
+	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters)
+	{
+		return pClass->GetInternClass()->CallClassMethod(szMethodName, nullptr, static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+	}
+
+	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters)
+	{
+		return pModule->GetInternModule()->CallClassMethod(szMethodName, nullptr, static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+	}
+
 	IrisValue CreateInt(int nInteger)
 	{
 		return CreateInstanceByInstantValue(nInteger);

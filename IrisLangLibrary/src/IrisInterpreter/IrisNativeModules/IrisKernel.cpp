@@ -44,7 +44,7 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 				continue;
 			}
 
-			IrisGC::CurrentGC()->SetGCFlag(false);
+			//IrisGC::CurrentGC()->SetGCFlag(false);
 			if (!pCompiler->LoadScript(strFileName)) {
 				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
 				return IrisDevUtil::Nil();
@@ -56,8 +56,8 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 				return IrisDevUtil::Nil();
 			}
 
-			IrisGC::CurrentGC()->ResetNextThreshold();
-			IrisGC::CurrentGC()->SetGCFlag(true);
+			//IrisGC::CurrentGC()->ResetNextThreshold();
+			//IrisGC::CurrentGC()->SetGCFlag(true);
 
 			auto& vcCodes = pCompiler->GetCodes();
 
@@ -131,6 +131,50 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 	pInterpreter->PopEnvironment();
 
 	return IrisInterpreter::CurrentInterpreter()->Nil();
+}
+
+IrisValue IrisKernel::SRand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+{
+	if (ivsVariableValues) {
+		if (ivsVariableValues->GetSize() == 1) {
+			auto& ivParam = ivsVariableValues->GetValue(0);
+			if (IrisDevUtil::CheckClassIsInteger(ivParam)) {
+				auto nSRand = IrisDevUtil::GetInt(ivParam);
+				srand(nSRand);
+			}
+			else {
+				IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
+			}
+		}
+		else {
+			IrisDevUtil::GroanIrregularWithString("Invaild parameter list.");
+		}
+	}
+	else {
+		srand((unsigned int)(::GetTickCount()));
+	}
+	return IrisDevUtil::Nil();
+}
+
+IrisValue IrisKernel::Rand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+{
+	auto& ivFrom = ivsValues->GetValue(0);
+	auto& ivTo = ivsValues->GetValue(1);
+
+	if (!IrisDevUtil::CheckClassIsInteger(ivFrom) && !IrisDevUtil::CheckClassIsFloat(ivFrom)) {
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer or a Float");
+		return IrisDevUtil::Nil();
+	}
+
+	if (!IrisDevUtil::CheckClassIsInteger(ivTo) && !IrisDevUtil::CheckClassIsFloat(ivTo)) {
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be an Integer or a Float");
+		return IrisDevUtil::Nil();
+	}
+
+	auto fFrom = IrisDevUtil::CheckClassIsInteger(ivFrom) ? IrisDevUtil::GetInt(ivFrom) : IrisDevUtil::GetFloat(ivFrom);
+	auto fTo = IrisDevUtil::CheckClassIsInteger(ivTo) ? IrisDevUtil::GetInt(ivTo) : IrisDevUtil::GetFloat(ivTo);
+
+	return IrisDevUtil::CreateFloat(rand() * 1.0f / RAND_MAX * (fTo - fFrom) + fFrom);
 }
 
 IrisKernel::IrisKernel()

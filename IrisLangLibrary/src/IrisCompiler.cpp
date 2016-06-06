@@ -96,6 +96,8 @@ bool IrisCompiler::LoadScript(const string& strFile) {
 		}
 
 		fFile.close();
+		
+		IrisCompiler::CurrentCompiler()->ResetLineNumber();
 
 		g_pCurrentString = (char*)strText.c_str();
 		g_nCurrentStringLength = strText.length();
