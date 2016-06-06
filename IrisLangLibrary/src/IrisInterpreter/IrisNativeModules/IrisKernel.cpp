@@ -45,10 +45,14 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 			}
 
 			IrisGC::CurrentGC()->SetGCFlag(false);
-			pCompiler->LoadScript(strFileName);
+			if (!pCompiler->LoadScript(strFileName)) {
+				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
+				return IrisDevUtil::Nil();
+			}
 
 			bool bCompileResult = pCompiler->Generate();
 			if (!bCompileResult) {
+				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
 				return IrisDevUtil::Nil();
 			}
 

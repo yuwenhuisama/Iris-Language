@@ -80,7 +80,7 @@ int yyerror(char const *str)
 	string strIrregularMessage = ">The Irregular name is ";
 	stringstream ssStream;
 	ssStream << IrisCompiler::CurrentCompiler()->GetCurrentLineNumber();
-	string strLinenoMessage = ">and happened at line " + ssStream.str() + " where token is " + string(yytext) + ".";
+	string strLinenoMessage = ">and happened at line " + ssStream.str() + " file " + IrisCompiler::CurrentCompiler()->GetCurrentFileName() + " where token is " + string(yytext) + ".";
 
 	strMessage += strIrregularMessage + "SyntaxIrregular," + "\n" + strLinenoMessage + "\n";
 
