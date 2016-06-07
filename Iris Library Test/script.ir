@@ -293,32 +293,25 @@ class SortedBinaryTree {
 
 // ;str = 'abc'
 // ;print(str)
-/*
-class A {
-	;gset [@data]
-	;gset [@data2]
+
+// class A {
+	// ;gset [@data]
+	// ;gset [@data2]
 	
-	fun __format() {
-		;@data = 0
-		;@data2 = 1
-	}
-}
+	// fun __format() {
+		// ;@data = 0
+		// ;@data2 = 1
+	// }
+// }
 
-;a = A.new()
-;a.data += 1
-;a.data2 += 1
-;print(a.data, "\n", a.data2)
-*/
+//;a = A.new()
+//;a.data += 1
+//;a.data2 += 1
+//;print(a.data, "\n", a.data2)
 
-;a = 12
-switch(a) {
-	when(9, 10) {
-		;print(1)
-	}
-	when(11, 12) {
-		;print(2)
-	}
-	else {
-		;print(3)
-	}
-}
+;a = 10
+;b = 10
+;c = 9
+;d = 8
+
+;print(a == b && c == d)

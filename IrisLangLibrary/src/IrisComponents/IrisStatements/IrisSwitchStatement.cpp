@@ -106,7 +106,7 @@ bool IrisSwitchStatement::Generate()
 		pCompiler->LinkCodesToRealCodes(when->m_lsBlockCodes);
 		nWholeSize -= when->m_lsBlockCodes.size() + when->m_nComparerSize + 5;
 		if(nWholeSize != 0) {
-			pMaker->jmp(nWholeSize);
+			pMaker->jmp(nWholeSize - 5);
 		}
 	}
 

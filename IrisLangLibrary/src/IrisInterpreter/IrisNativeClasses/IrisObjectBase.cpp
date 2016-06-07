@@ -63,7 +63,8 @@ IrisValue IrisObjectBase::LogicAnd(IrisValue & ivObj, IIrisValues * ivsValues, I
 	if (ivObj == IrisDevUtil::False() || ivObj == IrisDevUtil::Nil()) {
 		return IrisDevUtil::False();
 	}
-	else if (ivDest == IrisInterpreter::CurrentInterpreter()->False() && ivDest == IrisInterpreter::CurrentInterpreter()->Nil()) {
+	//else if (ivDest == IrisDevUtil::False() && ivDest == IrisDevUtil::Nil()) {
+	else if (ivDest == IrisDevUtil::False() || ivDest == IrisDevUtil::Nil()) {
 		return IrisDevUtil::False();
 	}
 	else {
