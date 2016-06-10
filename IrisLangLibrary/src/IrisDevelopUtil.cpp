@@ -161,17 +161,29 @@ namespace IrisDevUtil {
 
 	const char * GetNameOfClass(IIrisClass * pClass)
 	{
+#ifdef IR_USE_STL_STRING
+		return pClass->GetInternClass()->GetClassName().c_str();
+#else
 		return pClass->GetInternClass()->GetClassName().GetCTypeString();
+#endif // IR_USE_STL_STRING
 	}
 
 	const char * GetNameOfModule(IIrisModule * pModule)
 	{
+#ifdef IR_USE_STL_STRING
+		return pModule->GetInternModule()->GetModuleName().c_str();
+#else
 		return pModule->GetInternModule()->GetModuleName().GetCTypeString();
+#endif // IR_USE_STL_STRING
 	}
 
 	const char * GetNameOfInterface(IIrisInterface * pInterface)
 	{
+#ifdef IR_USE_STL_STRING
+		return pInterface->GetInternInterface()->GetInterfaceName().c_str();
+#else
 		return pInterface->GetInternInterface()->GetInterfaceName().GetCTypeString();
+#endif // IR_USE_STL_STRING
 	}
 
 	void SetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
@@ -195,7 +207,11 @@ namespace IrisDevUtil {
 
 	const char * GetClassName(IIrisClass * pClass)
 	{
+#ifdef IR_USE_STL_STRING
+		return pClass->GetInternClass()->GetClassName().c_str();
+#else
 		return pClass->GetInternClass()->GetClassName().GetCTypeString();
+#endif // IR_USE_STL_STRING
 	}
 
 	void MarkObject(const IrisValue& ivObject)
@@ -381,7 +397,11 @@ namespace IrisDevUtil {
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
 		pObject->SetPermanent(true);
+#ifdef IR_USE_STL_STRING
+		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()));
+#else
 		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()).GetSTLString());
+#endif // IR_USE_STL_STRING
 		pObject->SetNativeObject(pString);
 		ivValue.SetIrisObject(pObject);
 

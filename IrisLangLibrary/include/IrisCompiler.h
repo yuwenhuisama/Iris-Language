@@ -21,6 +21,18 @@ private:
 	typedef list<IrisStatement*> _StatementList;
 	typedef vector<IR_WORD> _CodeVector;
 
+#ifdef IR_USE_STL_STRING
+	typedef map<string, unsigned int> _StringField;
+	typedef pair<string, unsigned int> _StringPair;
+	typedef map<int, unsigned int> _IntegerField;
+	typedef pair<int, unsigned int> _IntegerPair;
+	typedef map<double, unsigned int> _FloatField;
+	typedef pair<double, unsigned int> _FloatPair;
+
+	typedef vector<string> _StringSpace;
+	typedef vector<int> _IntegerSpace;
+	typedef vector<double> _FloatSpace;
+#else
 	typedef unordered_map<IrisInternString, unsigned int, IrisInternString::IrisInerStringHash> _StringField;
 	typedef pair<IrisInternString, unsigned int> _StringPair;
 	typedef unordered_map<int, unsigned int> _IntegerField;
@@ -31,6 +43,7 @@ private:
 	typedef vector<IrisInternString> _StringSpace;
 	typedef vector<int> _IntegerSpace;
 	typedef vector<double> _FloatSpace;
+#endif // IR_USE_STL_STRING
 
 private:
 	struct _StatementInfo {
@@ -254,7 +267,11 @@ public:
 	unsigned int GetIdentifierIndex(const string& strIdentifier, unsigned int nFileIndex);
 	unsigned int GetUniqueStringIndex(const string& strString, unsigned int nFileIndex);
 
+#ifdef IR_USE_STL_STRING
+	inline const string& GetString(unsigned int nIndex, unsigned int nFileIndex) {
+#else
 	inline const IrisInternString& GetString(unsigned int nIndex, unsigned int nFileIndex) {
+#endif // IR_USE_STL_STRING
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pStringSpace->at(nIndex); 
 	}
@@ -266,16 +283,28 @@ public:
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pFloatSpace->at(nIndex);
 	}
+#ifdef IR_USE_STL_STRING
+	inline const string& GetIdentifier(unsigned int nIndex, unsigned int nFileIndex) {
+#else
 	inline const IrisInternString& GetIdentifier(unsigned int nIndex, unsigned int nFileIndex) {
+#endif // IR_USE_STL_STRING
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pIdentifierSpace->at(nIndex);
 	}
+#ifdef IR_USE_STL_STRING
+	inline const string& GetUniqueString(unsigned int nIndex, unsigned int nFileIndex) {
+#else
 	inline const IrisInternString& GetUniqueString(unsigned int nIndex, unsigned int nFileIndex) {
+#endif // IR_USE_STL_STRING
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pUniqueStringSpace->at(nIndex);
 	}
 
-	inline const IrisInternString& GetFileName(unsigned int nIndex) {
+#ifdef IR_USE_STL_STRING
+	inline const string& GetFileName(unsigned int nIndex) {
+#else
+		inline const IrisInternString& GetFileName(unsigned int nIndex) {
+#endif // IR_USE_STL_STRING
 		return m_vcFiles[nIndex];
 	}
 

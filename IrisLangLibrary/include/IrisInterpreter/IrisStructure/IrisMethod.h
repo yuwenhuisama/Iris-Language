@@ -47,8 +47,13 @@ public:
 
 public:
 	struct UserFunction {
+#ifdef IR_USE_STL_STRING
+		list<string> m_lsParameters;
+		string m_strVariableParameter = "";
+#else
 		list<IrisInternString> m_lsParameters;
 		IrisInternString m_strVariableParameter = "";
+#endif // IR_USE_STL_STRING
 
 		IrisCodeSegment m_icsBlockCodes;
 		IrisCodeSegment m_icsWithBlockCodes;
@@ -61,7 +66,11 @@ public:
 	};
 
 private:
+#ifdef IR_USE_STL_STRING
+	string m_strMethodName = "";
+#else
 	IrisInternString m_strMethodName = "";
+#endif // IR_USE_STL_STRING
 	bool m_bIsWithVariableParameter = false;
 	MethodType m_eMethodType = MethodType::NativeMethod;
 	unsigned int m_nParameterAmount = 0;
@@ -78,9 +87,16 @@ private:
 	IrisContextEnvironment* _CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, bool& bIsGetNew);
 
 public:
+
+#ifdef IR_USE_STL_STRING
+	IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
+#else
 	IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
 	IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
 	IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
+#endif // IR_USE_STL_STRING
 
 	void ResetObject();
 
@@ -97,9 +113,15 @@ public:
 
 	//Getter Setter
 
-	const IrisInternString& GetMethodName();
 
+#ifdef IR_USE_STL_STRING
+	const string& GetMethodName();
+	void SetMethodName(const string& strMethodName);
+#else
+	const IrisInternString& GetMethodName();
 	void SetMethodName(const IrisInternString& strMethodName);
+#endif // IR_USE_STL_STRING
+
 
 	MethodAuthority GetAuthority();
 

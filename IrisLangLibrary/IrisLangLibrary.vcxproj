@@ -148,9 +148,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Text Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="include\IrisCompiler.h" />
     <ClInclude Include="include\IrisCompilerDev.h" />
     <ClInclude Include="include\IrisComponents\IrisComponentsDefines.h" />

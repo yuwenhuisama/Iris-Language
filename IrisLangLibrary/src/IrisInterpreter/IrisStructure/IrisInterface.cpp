@@ -4,7 +4,11 @@
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
 #include "IrisDevelopUtil.h"
 
+#ifdef IR_USE_STL_STRING
+IrisInterface::IrisInterface(const string& strInterfaceName, IrisModule* pUpperModule) : m_strInterfaceName(strInterfaceName), m_pUpperModule(pUpperModule) {
+#else
 IrisInterface::IrisInterface(const IrisInternString& strInterfaceName, IrisModule* pUpperModule) : m_strInterfaceName(strInterfaceName), m_pUpperModule(pUpperModule) {
+#endif // IR_USE_STL_STRING
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Interface")->CreateInstance(nullptr, nullptr);
 	IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(ivValue)->SetInterface(this);
 	m_pInterfaceObject = ivValue.GetIrisObject();
@@ -16,7 +20,11 @@ void IrisInterface::AddInterface(IrisInterface* pInterface) {
 	m_iwlInfAddingLock.WriteUnlock();
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisInterface::AddInterfaceFunctionDeclare(const string & strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter) {
+#else
 void IrisInterface::AddInterfaceFunctionDeclare(const IrisInternString & strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter) {
+#endif // IR_USE_STL_STRING
 	InterfaceFunctionDeclare ifdDeclare{ strFunctionName, m_nParameterAmount, bHaveHaveVariableParameter };
 	m_iwlDecAddingLock.WriteLock();
 	decltype(m_mpFunctionDeclareMap)::iterator iFunc;

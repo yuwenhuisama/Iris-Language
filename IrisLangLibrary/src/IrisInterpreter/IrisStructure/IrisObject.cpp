@@ -25,8 +25,11 @@ IrisObject::IrisObject() {
 	m_nObjectID = ++s_nMaxID;
 }
 
+#ifdef IR_USE_STL_STRING
+IrisValue IrisObject::CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+#else
 IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
-
+#endif // IR_USE_STL_STRING
 	// 先在自己的Instance Functions中寻找对应方法
 	IrisMethod* pMethod = nullptr;
 	bool bIsCurClassMethod = false;
@@ -113,7 +116,11 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 				// 禁止调用
 				if (pMethod->GetAuthority() == IrisMethod::MethodAuthority::Personal) {
 					// **Error**
+#ifdef IR_USE_STL_STRING
+					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName() + ".");
+#else
 					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
+#endif // IR_USE_STL_STRING
 					ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 				}
 				else {
@@ -127,7 +134,11 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 			// 禁止调用
 			if (pMethod->GetAuthority() != IrisMethod::MethodAuthority::Everyone) {
 				// **Error**
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex,  "Method of " + strFunctionName.GetSTLString() + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + " .");
+#ifdef IR_USE_STL_STRING
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName() + " .");
+#else
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + " .");
+#endif // IR_USE_STL_STRING
 				ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 			}
 			else {
@@ -137,14 +148,22 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 	}
 	else {
 		// **Error**
+#ifdef IR_USE_STL_STRING
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " not found in class " + m_pClass->GetInternClass()->GetClassName() + ".");
+#else
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " not found in class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
+#endif // IR_USE_STL_STRING
 		ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 
 	return ivResult;
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue & IrisObject::GetInstanceValue(const string & strInstanceValueName, bool & bResult) {
+#else
 const IrisValue & IrisObject::GetInstanceValue(const IrisInternString & strInstanceValueName, bool & bResult) {
+#endif // IR_USE_STL_STRING
 	m_iwlInstanceValueWLLock.ReadLock();
 	decltype(m_mpInstanceVariables)::iterator iVariable;
 	if ((iVariable = m_mpInstanceVariables.find(strInstanceValueName)) == m_mpInstanceVariables.end()) {
@@ -158,7 +177,11 @@ const IrisValue & IrisObject::GetInstanceValue(const IrisInternString & strInsta
 	return ivResult;
 }
 
+#ifdef IR_USE_STL_STRING
+IrisMethod * IrisObject::GetInstanceMethod(const string & strInstanceMethodName)
+#else
 IrisMethod * IrisObject::GetInstanceMethod(const IrisInternString & strInstanceMethodName)
+#endif // IR_USE_STL_STRING
 {
 	m_iwlInstanceMethodWLLock.ReadLock();
 	decltype(m_mpInstanceMethods)::iterator iVariable = m_mpInstanceMethods.find(strInstanceMethodName);
@@ -170,7 +193,11 @@ IrisMethod * IrisObject::GetInstanceMethod(const IrisInternString & strInstanceM
 	return iVariable->second;
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisObject::AddInstanceValue(const string & strInstanceValueName, const IrisValue & ivValue) {
+#else
 void IrisObject::AddInstanceValue(const IrisInternString & strInstanceValueName, const IrisValue & ivValue) {
+#endif // IR_USE_STL_STRING
 	m_iwlInstanceValueWLLock.WriteLock();
 	m_mpInstanceVariables.insert(_VariablePair(strInstanceValueName, ivValue));
 	m_iwlInstanceValueWLLock.WriteUnlock();

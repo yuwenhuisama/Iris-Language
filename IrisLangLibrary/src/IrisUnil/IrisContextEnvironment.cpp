@@ -13,7 +13,11 @@ void IrisContextEnvironment::SetClosureBlock(IIrisClosureBlock * pBlock) { m_pCl
 
 IIrisContextEnvironment * IrisContextEnvironment::GetUpperContextEnvrioment() { return m_pUpperContextEnvironment; }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisContextEnvironment::GetVariableValue(const string& strVariableName, bool& bResult) {
+#else
 const IrisValue& IrisContextEnvironment::GetVariableValue(const IrisInternString& strVariableName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	decltype(m_mpVariables)::iterator iVariable;
 	m_iwlVariableLock.ReadLock();
 	if ((iVariable = m_mpVariables.find(strVariableName)) == m_mpVariables.end()){
@@ -27,7 +31,11 @@ const IrisValue& IrisContextEnvironment::GetVariableValue(const IrisInternString
 	return ivResult;
 }
 
-void IrisContextEnvironment::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue){
+#ifdef IR_USE_STL_STRING
+void IrisContextEnvironment::AddLocalVariable(const string& strVariableName, const IrisValue& ivValue) {
+#else
+void IrisContextEnvironment::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue) {
+#endif // IR_USE_STL_STRING
 	m_iwlVariableLock.WriteLock();
 	m_mpVariables.insert(_VariablePair(strVariableName, ivValue));
 	m_iwlVariableLock.WriteUnlock();

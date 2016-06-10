@@ -10,7 +10,11 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 
+#ifdef IR_USE_STL_STRING
+IrisMethod::IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority) {
+#else
 IrisMethod::IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority) {
+#endif // IR_USE_STL_STRING
 	m_strMethodName = strMethodName;
 	m_eMethodType = MethodType::NativeMethod;
 	m_uFunction.m_pfNativeFunction = pfNativeFunction;
@@ -26,7 +30,11 @@ IrisMethod::IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+IrisMethod::IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority) {
+#else
 IrisMethod::IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority) {
+#endif // IR_USE_STL_STRING
 	m_strMethodName = strMethodName;
 	m_eMethodType = MethodType::UserMethod;
 	m_uFunction.m_pUserFunction = pUserFunction;
@@ -39,7 +47,11 @@ IrisMethod::IrisMethod(const IrisInternString& strMethodName, UserFunction* pUse
 	m_nParameterAmount = pUserFunction->m_lsParameters.size();
 }
 
+#ifdef IR_USE_STL_STRING
+IrisMethod::IrisMethod(const string & strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority)
+#else
 IrisMethod::IrisMethod(const IrisInternString & strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority)
+#endif // IR_USE_STL_STRING
 {
 	m_strMethodName = strMethodName;
 	m_eMethodType = eType;
@@ -147,14 +159,22 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	// 特殊情况 new 不检查，丢给__format检查
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
+#ifdef IR_USE_STL_STRING
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+#else
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+#endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 
 	// Getter Setter
 	if (m_eMethodType == MethodType::GetterMethod) {
 		string strValueName;
+#ifdef IR_USE_STL_STRING
+		strValueName.assign(m_strMethodName.begin() + 6, m_strMethodName.end());
+#else
 		strValueName.assign(m_strMethodName.GetSTLString().begin() + 6, m_strMethodName.GetSTLString().end());
+#endif // IR_USE_STL_STRING
 		strValueName = "@" + strValueName;
 		bool bResult = false;
 		auto* pObject = static_cast<IrisObject*>(ivObject.GetIrisObject());
@@ -168,7 +188,11 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	}
 	else if (m_eMethodType == MethodType::SetterMethod) {
 		string strValueName;
+#ifdef IR_USE_STL_STRING
+		strValueName.assign(m_strMethodName.begin() + 6, m_strMethodName.end());
+#else
 		strValueName.assign(m_strMethodName.GetSTLString().begin() + 6, m_strMethodName.GetSTLString().end());
+#endif // IR_USE_STL_STRING
 		strValueName = "@" + strValueName;
 		bool bResult = false;
 		auto pObject = static_cast<IrisObject*>(ivObject.GetIrisObject());
@@ -285,7 +309,11 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLine
 	// 参数检查错误
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
+#ifdef IR_USE_STL_STRING
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+#else
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+#endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 	bool bIsGetNew = false;
@@ -336,11 +364,19 @@ IrisMethod::~IrisMethod() {
 	//delete m_pMethodObject;
 }
 
+#ifdef IR_USE_STL_STRING
+const string & IrisMethod::GetMethodName() {
+#else
 const IrisInternString & IrisMethod::GetMethodName() {
+#endif // IR_USE_STL_STRING
 	return m_strMethodName;
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisMethod::SetMethodName(const string & strMethodName) {
+#else
 void IrisMethod::SetMethodName(const IrisInternString & strMethodName) {
+#endif // IR_USE_STL_STRING
 	m_strMethodName = strMethodName;
 }
 

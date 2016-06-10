@@ -170,6 +170,9 @@
     <ClInclude Include="include\IrisLangLibrary.h" />
     <ClInclude Include="include\IrisUnil\IrisValue.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="ReadMe.txt" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

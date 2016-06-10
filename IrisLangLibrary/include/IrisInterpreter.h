@@ -37,10 +37,18 @@ class IrisClosureBlock;
 class IrisInterpreter
 {
 private:
+
+#ifdef IR_USE_STL_STRING
+	typedef unordered_map<string, IrisValue> _ValueMap;
+	typedef pair<string, IrisValue> _ValuePair;
+	typedef unordered_map<string, IrisMethod*> _MethodMap;
+	typedef pair<string, IrisMethod*> _MethodPair;
+#else
 	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _ValueMap;
 	typedef pair<IrisInternString, IrisValue> _ValuePair;
 	typedef unordered_map<IrisInternString, IrisMethod*, IrisInternString::IrisInerStringHash> _MethodMap;
 	typedef pair<IrisInternString, IrisMethod*> _MethodPair;
+#endif // IR_USE_STL_STRING
 	typedef unordered_map<string, HMODULE> _ExtentionMap;
 	typedef pair<string, HMODULE> _ExtentionPair;
 	
@@ -110,8 +118,13 @@ private:
 
 private:
 	IrisInterpreter();
+#ifdef IR_USE_STL_STRING
+	int _Split(const string& str, list<string>& ret_, string sep = ",");
+	int _Split(const string& str, list<string>& ret_, string sep = ",");
+#else
 	int _Split(const string& str, list<IrisInternString>& ret_, string sep = ",");
 	IrisModule* _GetLastModuleFromPath(const list<IrisInternString>& lsPath);
+#endif // IR_USE_STL_STRING
 
 public:
 	static IrisInterpreter* CurrentInterpreter();
@@ -125,17 +138,29 @@ public:
 	IrisModule* GetIrisModule(const string& strModuleFullFiledName);
 	IrisInterface* GetIrisInterface(const string& strInterfaceFullFiledName);
 
+#ifdef IR_USE_STL_STRING
+	IrisClass* GetIrisClass(const list<string>& lsRoute);
+	IrisModule* GetIrisModule(const list<string>& lsRoute);
+	IrisInterface* GetIrisInterface(const list<string>& lsRoute);
+#else
 	IrisClass* GetIrisClass(const list<IrisInternString>& lsRoute);
 	IrisModule* GetIrisModule(const list<IrisInternString>& lsRoute);
 	IrisInterface* GetIrisInterface(const list<IrisInternString>& lsRoute);
+#endif // IR_USE_STL_STRING
 
 	bool RegistClass(const string& strClassFullFieldName, IIrisClass* pClass, bool bNative = true);
 	bool RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative = true);
 	bool RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative = true);
 
+#ifdef IR_USE_STL_STRING
+	bool RegistClass(list<string>& lsPath, IIrisClass* pClass, bool bNative = true);
+	bool RegistModule(list<string>& lsPath, IIrisModule* pModule, bool bNative = true);
+	bool RegistInterface(list<string>& lsPath, IIrisInterface* pInterface, bool bNative = true);
+#else
 	bool RegistClass(list<IrisInternString>& lsPath, IIrisClass* pClass, bool bNative = true);
 	bool RegistModule(list<IrisInternString>& lsPath, IIrisModule* pModule, bool bNative = true);
 	bool RegistInterface(list<IrisInternString>& lsPath, IIrisInterface* pInterface, bool bNative = true);
+#endif // IR_USE_STL_STRING
 
 	bool AddNewInstanceToHeap(IrisValue& ivValue);
 	bool AddNewEnvironmentToHeap(IrisContextEnvironment* pEnvironment);
@@ -259,7 +284,11 @@ public:
 		return IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister;
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline void AddConstance(const string& strValueName, const IrisValue& ivValue) {
+#else
 	inline void AddConstance(const IrisInternString& strValueName, const IrisValue& ivValue) {
+#endif // IR_USE_STL_STRING
 		m_iwlConstanceLock.WriteLock();
 		if (m_mpConstances.find(strValueName) != m_mpConstances.end()) {
 			m_iwlConstanceLock.WriteUnlock();
@@ -269,19 +298,31 @@ public:
 		m_iwlConstanceLock.WriteUnlock();
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline void AddGlobalValue(const string& strValueName, const IrisValue& ivValue) {
+#else
 	inline void AddGlobalValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
+#endif // IR_USE_STL_STRING
 		m_iwlGlobalVariableLock.WriteLock();
 		m_mpGlobalValues.insert(_ValuePair(strValueName, ivValue));
 		m_iwlGlobalVariableLock.WriteUnlock();
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline void AddOtherValue(const string& strValueName, const IrisValue& ivValue) {
+#else
 	inline void AddOtherValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
+#endif // IR_USE_STL_STRING
 		m_iwlOtherVariableLock.WriteLock();
 		m_mpOtherValues.insert(_ValuePair(strValueName, ivValue));
 		m_iwlOtherVariableLock.WriteUnlock();
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline const IrisValue& GetConstance(const string& strValueName, bool& bResult) {
+#else
 	inline const IrisValue& GetConstance(const IrisInternString& strValueName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 		bResult = true;
 		m_iwlConstanceLock.ReadLock();
 		decltype(m_mpConstances)::iterator iCons;
@@ -297,7 +338,11 @@ public:
 		}
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline const IrisValue& GetGlobalValue(const string& strValueName, bool& bResult) {
+#else
 	inline const IrisValue& GetGlobalValue(const IrisInternString& strValueName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 		bResult = true;
 		m_iwlGlobalVariableLock.ReadLock();
 		decltype(m_mpGlobalValues)::iterator iGlob;
@@ -313,7 +358,11 @@ public:
 		}
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline const IrisValue& GetOtherValue(const string& strValueName, bool& bResult) {
+#else
 	inline const IrisValue& GetOtherValue(const IrisInternString& strValueName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 		bResult = true;
 		m_iwlOtherVariableLock.ReadLock();
 		decltype(m_mpOtherValues)::iterator iOth;
@@ -329,9 +378,17 @@ public:
 		}
 	}
 
+#ifdef IR_USE_STL_STRING
+	inline IrisMethod* GetMainMethod(const string& strMethodName);
+#else
 	inline IrisMethod* GetMainMethod(const IrisInternString& strMethodName);
+#endif // IR_USE_STL_STRING
 
+#ifdef IR_USE_STL_STRING
+	inline void AddMainMethod(const string& strMethodName, IrisMethod* pMethod);
+#else
 	inline void AddMainMethod(const IrisInternString& strMethodName, IrisMethod* pMethod);
+#endif // IR_USE_STL_STRING
 
 
 	inline const IrisValue& Nil() { return m_ivNil; }
@@ -343,7 +400,11 @@ public:
 	// -------------- Instructors --------------
 
 private:
+#ifdef IR_USE_STL_STRING
+	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName, unsigned int nCurrentFileIndex);
+#else
 	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName, unsigned int nCurrentFileIndex);
+#endif // IR_USE_STL_STRING
 	void GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisCodeSegment& icsCodeSegment);
 
 public:

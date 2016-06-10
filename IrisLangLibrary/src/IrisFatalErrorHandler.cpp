@@ -35,7 +35,11 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, int nLin
 	ssStream << nLineNumber;
 	string strLinenoMessage = "";
 	if (nLineNumber > 0) {
+#ifdef IR_USE_STL_STRING
+		strLinenoMessage = ">and happened at line " + ssStream.str() + " file " + IrisCompiler::CurrentCompiler()->GetFileName(nBelongingFileIndex) + ".\n";
+#else
 		strLinenoMessage = ">and happened at line " + ssStream.str() + " file " + IrisCompiler::CurrentCompiler()->GetFileName(nBelongingFileIndex).GetSTLString() + ".\n";
+#endif // IR_USE_STL_STRING
 	}
 
 	switch (eType)

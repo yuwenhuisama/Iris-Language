@@ -4,7 +4,11 @@
 #include "IrisFatalErrorHandler.h"
 
 
+#ifdef IR_USE_STL_STRING
+void IrisModule::_SearchConstance(const string& strConstanceName, IrisModule* pCurModule, IrisValue** pValue) {
+#else
 void IrisModule::_SearchConstance(const IrisInternString& strConstanceName, IrisModule* pCurModule, IrisValue** pValue) {
+#endif // IR_USE_STL_STRING
 	//出口
 	if (pCurModule == nullptr) {
 		return;
@@ -28,7 +32,11 @@ void IrisModule::_SearchConstance(const IrisInternString& strConstanceName, Iris
 			return;
 	}
 }
-void IrisModule::_SearchClassVariable(const IrisInternString& strVariableName, IrisModule* pCurModule, IrisValue** pValue){
+#ifdef IR_USE_STL_STRING
+void IrisModule::_SearchClassVariable(const string& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
+#else
+void IrisModule::_SearchClassVariable(const IrisInternString& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
+#endif // IR_USE_STL_STRING
 	//出口
 	if (pCurModule == nullptr) {
 		return;
@@ -47,7 +55,11 @@ void IrisModule::_SearchClassVariable(const IrisInternString& strVariableName, I
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisModule::SearchConstance(const string& strConstName, bool& bResult) {
+#else
 const IrisValue& IrisModule::SearchConstance(const IrisInternString& strConstName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	bResult = true;
 	IrisValue* pValue = nullptr;
 
@@ -80,7 +92,11 @@ void IrisModule::AddInvolvingModule(IrisModule * pModule)
 	m_iwlModuleInvolvingWLLock.WriteUnlock();
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisModule::SearchClassVariable(const string& strClassVariableName, bool& bResult) {
+#else
 const IrisValue& IrisModule::SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	bResult = true;
 	IrisValue* pValue = nullptr;
 
@@ -95,7 +111,11 @@ const IrisValue& IrisModule::SearchClassVariable(const IrisInternString& strClas
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisModule::_SearchModuleMethod(const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
+#else
 void IrisModule::_SearchModuleMethod(const IrisInternString& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
+#endif // IR_USE_STL_STRING
 
 	// 出口
 	if (*ppMethod)
@@ -115,11 +135,19 @@ void IrisModule::_SearchModuleMethod(const IrisInternString& strFunctionName, Ir
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+IrisValue IrisModule::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+#else
 IrisValue IrisModule::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+#endif // IR_USE_STL_STRING
 	return static_cast<IrisObject*>(m_pModuleObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide, nLineNumber, nBelongingFileIndex);
 }
 
+#ifdef IR_USE_STL_STRING
+IrisModule::IrisModule(const string& strModuleName, IrisModule* pUpperModule) : m_strModuleName(strModuleName), m_pUpperModule(pUpperModule) {
+#else
 IrisModule::IrisModule(const IrisInternString& strModuleName, IrisModule* pUpperModule) : m_strModuleName(strModuleName), m_pUpperModule(pUpperModule) {
+#endif // IR_USE_STL_STRING
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Module")->CreateInstance(nullptr, nullptr);
 	IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>(ivValue.GetIrisObject())->SetModule(this);
 	m_pModuleObject = ivValue.GetIrisObject();
@@ -141,7 +169,11 @@ void IrisModule::ResetAllMethodsObject() {
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+IrisMethod* IrisModule::GetCurrentModuleMethod(const string& strMethodName) {
+#else
 IrisMethod* IrisModule::GetCurrentModuleMethod(const IrisInternString& strMethodName) {
+#endif // IR_USE_STL_STRING
 	IrisMethod* pResult = nullptr;
 
 	decltype(m_hsInstanceMethods)::iterator iMethod;
@@ -157,7 +189,11 @@ IrisMethod* IrisModule::GetCurrentModuleMethod(const IrisInternString& strMethod
 	return pResult;
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue & IrisModule::GetCurrentModuleClassVariable(const string& strVariableName, bool& bResult)
+#else
 const IrisValue & IrisModule::GetCurrentModuleClassVariable(const IrisInternString& strVariableName, bool& bResult)
+#endif // IR_USE_STL_STRING
 {
 	decltype(m_hsClassVariables)::iterator iVariable;
 	m_iwlModuleClassVariableWLLock.ReadLock();
@@ -174,7 +210,11 @@ const IrisValue & IrisModule::GetCurrentModuleClassVariable(const IrisInternStri
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue & IrisModule::GetCurrentModuleConstance(const string& strConstanceName, bool& bResult)
+#else
 const IrisValue & IrisModule::GetCurrentModuleConstance(const IrisInternString& strConstanceName, bool& bResult)
+#endif // IR_USE_STL_STRING
 {
 	decltype(m_hsConstances)::iterator iVariable;
 	m_iwlModuleConstanceWLLock.ReadLock();
@@ -214,7 +254,11 @@ void IrisModule::ClearJointedInterfaces()
 	m_iwlInterfaceAddingWLLock.WriteUnlock();
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisModule::AddConstance(const string & strConstName, const IrisValue & ivInitialValue) {
+#else
 void IrisModule::AddConstance(const IrisInternString & strConstName, const IrisValue & ivInitialValue) {
+#endif // IR_USE_STL_STRING
 	m_iwlModuleConstanceWLLock.WriteLock();
 	m_hsConstances.insert(_VariablePair(strConstName, ivInitialValue));
 	m_iwlModuleConstanceWLLock.WriteUnlock();
@@ -238,13 +282,22 @@ void IrisModule::AddInstanceMethod(IrisMethod * pMethod) {
 	}
 	m_iwlInstanceMethodWLLock.WriteUnlock();
 }
+
+#ifdef IR_USE_STL_STRING
+void IrisModule::AddClassVariable(const string & strClassVariableName) {
+#else
 void IrisModule::AddClassVariable(const IrisInternString & strClassVariableName) {
+#endif // IR_USE_STL_STRING
 	m_iwlModuleClassVariableWLLock.WriteLock();
 	m_hsClassVariables.insert(_VariablePair(strClassVariableName, IrisInterpreter::CurrentInterpreter()->Nil()));
 	m_iwlModuleClassVariableWLLock.WriteUnlock();
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisModule::AddClassVariable(const string & strClassVariableName, const IrisValue & ivInitialValue) {
+#else
 void IrisModule::AddClassVariable(const IrisInternString & strClassVariableName, const IrisValue & ivInitialValue) {
+#endif // IR_USE_STL_STRING
 	m_iwlModuleClassVariableWLLock.WriteLock();
 	m_hsClassVariables.insert(_VariablePair(strClassVariableName, ivInitialValue));
 	m_iwlModuleClassVariableWLLock.WriteUnlock();
@@ -264,7 +317,11 @@ void IrisModule::AddInvolvedInterface(IrisInterface * pInterface) {
 	m_iwlInterfaceAddingWLLock.WriteUnlock();
 }
 
+#ifdef IR_USE_STL_STRING
+IrisClass * IrisModule::GetClass(const string & strClassName) {
+#else
 IrisClass * IrisModule::GetClass(const IrisInternString & strClassName) {
+#endif // IR_USE_STL_STRING
 	IrisClass* pClass = nullptr;
 	m_iwlClassAddingWLLock.ReadLock();
 	if (m_hsConstances.find(strClassName) != m_hsConstances.end()) {
@@ -277,7 +334,11 @@ IrisClass * IrisModule::GetClass(const IrisInternString & strClassName) {
 	return pClass;
 }
 
+#ifdef IR_USE_STL_STRING
+IrisInterface * IrisModule::GetInterface(const string & strInterfaceName) {
+#else
 IrisInterface * IrisModule::GetInterface(const IrisInternString & strInterfaceName) {
+#endif // IR_USE_STL_STRING
 	IrisInterface* pInterface = nullptr;
 	m_iwlInterfaceAddingWLLock.ReadLock();
 	if (m_hsConstances.find(strInterfaceName) != m_hsConstances.end()) {
@@ -290,7 +351,11 @@ IrisInterface * IrisModule::GetInterface(const IrisInternString & strInterfaceNa
 	return pInterface;
 }
 
+#ifdef IR_USE_STL_STRING
+IrisMethod * IrisModule::GetModuleInstanceMethod(const string& strMethodName)
+#else
 IrisMethod * IrisModule::GetModuleInstanceMethod(const IrisInternString& strMethodName)
+#endif // IR_USE_STL_STRING
 {
 	IrisMethod* pResultMethod = nullptr;
 
@@ -299,7 +364,11 @@ IrisMethod * IrisModule::GetModuleInstanceMethod(const IrisInternString& strMeth
 	return pResultMethod;
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisModule::_GetModuleInstanceMethod(const string & strMethodName, IrisModule * pCurModule, IrisMethod ** ppResultMethod)
+#else
 void IrisModule::_GetModuleInstanceMethod(const IrisInternString & strMethodName, IrisModule * pCurModule, IrisMethod ** ppResultMethod)
+#endif // IR_USE_STL_STRING
 {
 	if (*ppResultMethod) {
 		return;

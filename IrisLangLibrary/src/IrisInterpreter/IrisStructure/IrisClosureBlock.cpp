@@ -30,7 +30,11 @@ IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment() {
 	return pNewEnvironment;
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisClosureBlock::GetLocalVariable(const string& strVariableName, bool& bResult) {
+#else
 const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strVariableName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	IrisValue* pValue = nullptr;
 
@@ -52,9 +56,11 @@ const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strV
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 }
-
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisClosureBlock::GetInstanceVariable(const string& strVariableName, bool& bResult) {
+#else
 const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& strVariableName, bool& bResult) {
-
+#endif // IR_USE_STL_STRING
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	bResult = false;
 	IrisValue* pValue = nullptr;
@@ -99,7 +105,11 @@ const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& s
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisClosureBlock::GetClassVariable(const string& strVariableName, bool& bResult) {
+#else
 const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strVariableName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	bResult = false;
 	IrisValue* pValue = nullptr;
@@ -151,8 +161,11 @@ const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strV
 		}
 	}
 }
-
+#ifdef IR_USE_STL_STRING
+const IrisValue& IrisClosureBlock::GetConstance(const string& strConstanceName, bool& bResult) {
+#else
 const IrisValue& IrisClosureBlock::GetConstance(const IrisInternString& strConstanceName, bool& bResult) {
+#endif // IR_USE_STL_STRING
 	//IrisValue ivResult{ IrisInterpreter::CurrentInterpreter()->Nil() };
 	IrisValue* pValue = nullptr;
 	bResult = false;
@@ -193,11 +206,19 @@ void IrisClosureBlock::Mark() {
 	}
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisClosureBlock::AddLocalVariable(const string& strVariableName, const IrisValue& ivValue) {
+#else
 void IrisClosureBlock::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue) {
+#endif // IR_USE_STL_STRING
 	m_pCurContextEnvironment->AddLocalVariable(strVariableName, ivValue);
 }
 
+#ifdef IR_USE_STL_STRING
+void IrisClosureBlock::AddOtherVariable(const string & strVariableName, const IrisValue & ivValue) {
+#else
 void IrisClosureBlock::AddOtherVariable(const IrisInternString & strVariableName, const IrisValue & ivValue) {
+#endif // IR_USE_STL_STRING
 	m_iwlVariableLock.WriteLock();
 	decltype(m_mpOtherVariables)::iterator iValue;
 	if (m_mpOtherVariables.find(strVariableName) != m_mpOtherVariables.end()) {
@@ -271,7 +292,11 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 	return ivValue;
 }
 
-IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex): m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+#ifdef IR_USE_STL_STRING
+IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+#else
+IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+#endif // IR_USE_STL_STRING
 {
 	m_lsParameters.assign(lsParameters.begin(), lsParameters.end());
 	//m_vcCodes.assign(lsCodes.begin(), lsCodes.end());

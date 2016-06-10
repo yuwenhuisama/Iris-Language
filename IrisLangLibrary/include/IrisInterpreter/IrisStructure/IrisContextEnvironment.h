@@ -31,8 +31,13 @@ class IrisContextEnvironment : public IIrisContextEnvironment
 #endif
 {
 private:
+#ifdef IR_USE_STL_STRING
+	typedef unordered_map<string, IrisValue> _VariableMap;
+	typedef pair<string, IrisValue> _VariablePair;
+#else
 	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _VariableMap;
 	typedef pair<IrisInternString, IrisValue> _VariablePair;
+#endif // IR_USE_STL_STRING
 
 public:
 	enum class EnvironmentType {
@@ -81,8 +86,13 @@ public:
 	void SetClosureBlock(IIrisClosureBlock* pBlock);
 	IIrisContextEnvironment* GetUpperContextEnvrioment();
 
+#ifdef IR_USE_STL_STRING
+	const IrisValue& GetVariableValue(const string& strVariableName, bool& bResult);
+	void AddLocalVariable(const string& strVariableName, const IrisValue& ivValue);
+#else
 	const IrisValue& GetVariableValue(const IrisInternString& strVariableName, bool& bResult);
 	void AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue);
+#endif // IR_USE_STL_STRING
 
 	IrisContextEnvironment();
 	~IrisContextEnvironment();

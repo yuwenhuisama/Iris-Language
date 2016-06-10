@@ -7,7 +7,11 @@ IrisInterfaceBaseTag::IrisInterfaceBaseTag(IrisInterface* pInterface) : m_pInter
 }
 
 const string& IrisInterfaceBaseTag::GetInterfaceName() {
+#ifdef IR_USE_STL_STRING
+	return m_pInterface->GetInterfaceName();
+#else
 	return m_pInterface->GetInterfaceName().GetSTLString();
+#endif // USE_STL_STRING
 }
 
 void IrisInterfaceBaseTag::SetInterface(IrisInterface* pInterface) {
