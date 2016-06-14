@@ -608,6 +608,7 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 {
 
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+
 	//string strOldFileName = pInfo->m_strCurrentFileName;
 	//pInfo->m_strCurrentFileName = nCurrentFileIndex;
 

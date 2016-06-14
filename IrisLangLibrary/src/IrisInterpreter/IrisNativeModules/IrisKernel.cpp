@@ -46,6 +46,7 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 
 			//IrisGC::CurrentGC()->SetGCFlag(false);
 			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+
 			if (!pCompiler->LoadScript(strFileName)) {
 				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
 				return IrisDevUtil::Nil();
@@ -62,13 +63,16 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 
 			auto& vcCodes = pCompiler->GetCodes();
 
+			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+			pInfo->m_nCurrentFileIndex = IrisCompiler::CurrentCompiler()->GetCurrentFileIndex();
+
 			pInterpreter->PushEnvironment();
 			pInterpreter->SetEnvironment(nullptr);
 
 			pInterpreter->RunCode(vcCodes, 0, vcCodes.size());
 
 			pInterpreter->PopEnvironment();
-
+			pInfo->m_nCurrentFileIndex = nOldFileIndex;
 		}
 	}
 
@@ -109,17 +113,21 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 	pCompiler->SetLineNumber(0);
 	const string& strScript = IrisDevUtil::GetNativePointer<IrisStringTag*>((IrisValue&)ivsValues->GetValue(0))->GetString();
 
-	IrisGC::CurrentGC()->SetGCFlag(false);
+	//IrisGC::CurrentGC()->SetGCFlag(false);
 
-	pCompiler->LoadScriptString(strScript);
-
-	bool bCompileResult = pCompiler->Generate();
-	if (!bCompileResult) {
+	if (!pCompiler->LoadScriptString(strScript)) {
+		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str());
 		return pInterpreter->Nil();
 	}
 
-	IrisGC::CurrentGC()->ResetNextThreshold();
-	IrisGC::CurrentGC()->SetGCFlag(true);
+	bool bCompileResult = pCompiler->Generate();
+	if (!bCompileResult) {
+		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str());
+		return pInterpreter->Nil();
+	}
+
+	//IrisGC::CurrentGC()->ResetNextThreshold();
+	//IrisGC::CurrentGC()->SetGCFlag(true);
 
 	auto& vcCodes = pCompiler->GetEvalCodes();
 
