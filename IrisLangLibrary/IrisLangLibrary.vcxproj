@@ -164,7 +164,6 @@
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisNativeObjectExpression.h" />
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisRangeExpression.h" />
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfExpression.h" />
-    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfFunctionCallExpression.h" />
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfMemberExpression.h" />
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisUnaryExpression.h" />
     <ClInclude Include="include\IrisComponents\IrisParts\IrisClosureBlockLiteral.h" />
@@ -235,6 +234,8 @@
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIntegerTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBase.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBase.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBaseTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisModuleBase.h" />
@@ -308,6 +309,8 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregular.cpp" />
+    <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.cpp" />
     <ClCompile Include="src\IrisLangLibrary.cpp" />
     <ClCompile Include="src\IrisCompiler.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp" />

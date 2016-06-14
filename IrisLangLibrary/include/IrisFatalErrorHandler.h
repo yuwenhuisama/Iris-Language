@@ -45,7 +45,7 @@ public:
 
 public:
 	void SetFatalErrorMessageFuncton(FatalErrorMessageFunction pfFunction);
-	void ShowFatalErrorMessage(FatalErrorType eType, int nLineNumber, int nBelongingFileIndex, const string& strFatalErrorMessage);
+	void ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage);
 	void ShowFatalErrorDirectly(const string& strFatalErrorMessage);
 
 private:

@@ -45,6 +45,7 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 			}
 
 			//IrisGC::CurrentGC()->SetGCFlag(false);
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 			if (!pCompiler->LoadScript(strFileName)) {
 				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
 				return IrisDevUtil::Nil();
@@ -64,7 +65,7 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 			pInterpreter->PushEnvironment();
 			pInterpreter->SetEnvironment(nullptr);
 
-			pInterpreter->RunCode(vcCodes, 0, vcCodes.size(), pCompiler->GetCurrentFileIndex());
+			pInterpreter->RunCode(vcCodes, 0, vcCodes.size());
 
 			pInterpreter->PopEnvironment();
 
@@ -126,7 +127,7 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 	auto& skStack = IrisDevUtil::GetCurrentThreadInfo()->m_skEnvironmentStack;
 	pInterpreter->SetEnvironment(skStack[skStack.size() - 2]);
 
-	pInterpreter->RunCode(vcCodes, 0, vcCodes.size(), IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex);
+	pInterpreter->RunCode(vcCodes, 0, vcCodes.size());
 
 	pInterpreter->PopEnvironment();
 

@@ -54,9 +54,6 @@
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfExpression.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfFunctionCallExpression.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfMemberExpression.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -447,6 +444,12 @@
     <ClInclude Include="include\stdafx.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp">
@@ -807,6 +810,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\stdafx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregular.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

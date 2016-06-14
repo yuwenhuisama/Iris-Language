@@ -174,7 +174,7 @@ public:
 #else
 	virtual const IrisValue& SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult);
 	virtual const IrisInternString& GetClassName() { return m_strClassName; }
-	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContexEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex = -1);
+	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContexEnvironment, IrisValues* ivParameters, CallerSide eSide);
 	virtual IrisMethod* GetMethod(const IrisInternString& strMethodName, bool& bIsCurClassMethod);
 	virtual IrisMethod* GetCurrentClassMethod(const IrisInternString& strMethodName);
 #endif // IR_USE_STL_STRING

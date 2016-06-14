@@ -53,7 +53,7 @@ public:
 	IrisValue m_ivVessleRegister;							  // for语句迭代容器寄存器
 	IrisValue m_ivIteratorRegister;							  // for语句迭代器寄存器
 	IrisValue m_ivCompareRegister;							  // switch语句比较寄存器
-	list<IrisInternString> m_lsFieldsRegister;						  // 域寄存器
+	list<IrisInternString> m_lsFieldsRegister;				  // 域寄存器
 	bool m_bUnimitedLoopFlagRegister = false;				  // 无限循环标志寄存器
 	IrisContextEnvironment* m_pEnvrionmentRegister = nullptr; // 上下文寄存器
 	IrisClosureBlock* m_pClosureBlockRegister = nullptr;	  // 块寄存器
@@ -61,6 +61,8 @@ public:
 	IrisValue m_ivIrregularObjectRegister;					  // 异常状态对象寄存器
 	bool m_bIrregularHappenedRegister = false;				  // 异常发生寄存器
 	bool m_bFatalErrorHappendRegister = false;			      // FatalError发生寄存器
+
+	size_t m_nCurrentLineNumber = 0;						  // 当前线程所在代码行号
 };
 
 #endif

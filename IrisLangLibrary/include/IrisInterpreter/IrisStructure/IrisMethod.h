@@ -106,8 +106,8 @@ public:
 	IrisValue FunctionName(IrisValue ivObject, IrisValue ivParam1, IrisValue ivParam2, ...);
 	*/
 	// 按照类型的不同分别调用不同的函数（直接调用 or 解释运行）
-	IrisValue Call(IrisValue& ivObject, IrisContextEnvironment* pContexEnvironment, IrisValues* pParameters = nullptr, unsigned int nLineNumber = -1, int nBelongingFileIndex = -1);
-	IrisValue CallMainMethod(IrisValues* pParameters = nullptr, unsigned int nLineNumber = -1, int nBelongingFileIndex = -1);
+	IrisValue Call(IrisValue& ivObject, IrisContextEnvironment* pContexEnvironment, IrisValues* pParameters = nullptr);
+	IrisValue CallMainMethod(IrisValues* pParameters = nullptr);
 
 	~IrisMethod();
 

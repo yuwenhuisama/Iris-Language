@@ -238,23 +238,24 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 	auto& nStartPointer = m_icsCodes.m_nStartPointer;
 	auto& nEndPointer = m_icsCodes.m_nEndPointer;
 	auto& nBelongingFileIndex = m_icsCodes.m_nBelongingFileIndex;
-
+		
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (!m_lsParameters.empty()) {
 		if (!pValues) {
 			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, vcCodes[nStartPointer], nBelongingFileIndex, "Parameters of block assigned is not fit.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
 		}
 		else if (m_lsParameters.size() != pValues->GetSize()) {
 			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, vcCodes[nStartPointer], nBelongingFileIndex, "Parameters of block assigned is not fit.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
 		}
 	}
 	else {
 		if(pValues) {
 			// **Error**
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, vcCodes[nStartPointer], nBelongingFileIndex, "Parameters of block assigned is not fit.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
 		}
 	}
@@ -281,7 +282,13 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 
 		//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
 		pInterpreter->PushMethodDeepIndex(m_nIndex);
-		pInterpreter->RunCode(vcCodes, nStartPointer, nEndPointer, nBelongingFileIndex);
+
+		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+		auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+		pInfo->m_nCurrentFileIndex = nBelongingFileIndex;
+		pInterpreter->RunCode(vcCodes, nStartPointer, nEndPointer);
+		pInfo->m_nCurrentFileIndex = nOldFileIndex;
+
 		ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
 		pInterpreter->PopMethodTopDeepIndex();
 	}

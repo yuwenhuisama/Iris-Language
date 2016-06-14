@@ -44,16 +44,25 @@ namespace IrisDevUtil {
 	{
 		auto pClass = static_cast<IrisObject*>(ivValue.GetIrisObject())->GetClass();
 		auto pTargetClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass(strClassName);
-		//auto& strName = pClass->GetInternClass()->GetClassName();
-		//return strName == strClassName;
 		return pTargetClass == pClass->GetInternClass();
 	}
 
 	void GroanIrregularWithString(const char* strIrregularString)
 	{
-		IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
-		IrisValue ivValue = CreateInstanceByInstantValue(strIrregularString);
-		pInterpreter->RegistIrregular(ivValue);
+		auto* pInterpreter = IrisInterpreter::CurrentInterpreter();
+		auto* pCompiler = IrisCompiler::CurrentCompiler();
+		auto* pInfo = IrisDevUtil::GetCurrentThreadInfo();
+		
+		auto nLineNumber = pInfo->m_nCurrentLineNumber;
+		auto strFileName = pCompiler->GetFileName(pInfo->m_nCurrentFileIndex);
+
+		IrisValue ivLineNumber = IrisDevUtil::CreateInstanceByInstantValue(static_cast<int>(nLineNumber));
+		IrisValue ivFileName = IrisDevUtil::CreateString(strFileName.GetCTypeString());
+		IrisValue ivMsg = IrisDevUtil::CreateString(strIrregularString);
+
+		IrisValues ivValues = { ivLineNumber, ivFileName, ivMsg };
+
+		pInterpreter->RegistIrregular(IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Irregular"), &ivValues, nullptr));
 	}
 
 	int GetInt(const IrisValue & ivValue)

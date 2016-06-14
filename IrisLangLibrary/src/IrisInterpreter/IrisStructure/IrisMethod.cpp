@@ -149,20 +149,21 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 }
 
 // 按照类型的不同分别调用不同的函数（直接调用 or 解释运行）
-IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContextEnvironment ,IrisValues* pParameters, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContextEnvironment ,IrisValues* pParameters) {
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->Nil();
 	IrisValues ivsNormalPrameters;
 	IrisValues ivsVariableValues;
 	bool bHaveVariableParameters = false;
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 
 	// 参数检查错误
 	// 特殊情况 new 不检查，丢给__format检查
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
 #ifdef IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
 #endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
@@ -223,7 +224,13 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
 			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
-			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex);
+
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+			pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
+			pInfo->m_nCurrentFileIndex = nOldFileIndex;
+
 			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
 			pInterpreter->PopMethodTopDeepIndex();
 		}
@@ -269,7 +276,13 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			
 			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
-			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex);
+
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+			pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
+			pInfo->m_nCurrentFileIndex = nOldFileIndex;
+
 			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
 			pInterpreter->PopMethodTopDeepIndex();
 		}
@@ -295,7 +308,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	return ivValue;
 }
 
-IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
 	IrisValue ivValue;
 
 	IrisValues ivsNormalPrameters;
@@ -306,13 +319,15 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLine
 	//	strBelongingFileName = &IrisDevUtil::GetCurrentThreadInfo()->m_strCurrentFileName;
 	//}
 
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+
 	// 参数检查错误
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
 #ifdef IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, nLineNumber, nBelongingFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
 #endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
@@ -325,7 +340,12 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, unsigned int nLine
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	
 	pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
-	pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex);
+
+	auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+	pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+	pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
+	pInfo->m_nCurrentFileIndex = nOldFileIndex;
+
 	if (bIsGetNew) {
 		IrisInterpreter::CurrentInterpreter()->PopEnvironment();
 	}

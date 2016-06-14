@@ -14,6 +14,7 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisFalseClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisTrueClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisNilClass.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisIrregular.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisArray.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisArrayIterator.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisHash.h"
@@ -91,6 +92,7 @@ bool IrisInterpreter::Initialize() {
 	RegistClass("FalseClass", new IrisFalseClass());
 	RegistClass("NilClass", new IrisNilClass());
 
+	RegistClass("Irregular", new IrisIrregular());
 	RegistClass("Array", new IrisArray());
 	RegistClass("ArrayIterator", new IrisArrayIterator());
 	RegistClass("Hash", new IrisHash());
@@ -593,24 +595,24 @@ bool IrisInterpreter::Run()
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_nCurrentFileIndex = m_pCurrentCompiler->GetCurrentFileIndex();
 
-	bool bResult = RunCode(m_pCurrentCompiler->GetCodes(), 0, m_pCurrentCompiler->GetCodes().size(), pInfo->m_nCurrentFileIndex);
+	bool bResult = RunCode(m_pCurrentCompiler->GetCodes(), 0, m_pCurrentCompiler->GetCodes().size());
 
 	if (IrregularHappened()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IrregularNotDealedIrregular, 0, 0, "There is still an Irregular goaned but NOT being dealed with.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IrregularNotDealedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "There is still an Irregular goaned but NOT being dealed with.");
 	}
 
 	return bResult;
 }
 
-bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPointer, unsigned int nEndPointer, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPointer, unsigned int nEndPointer)
 {
 
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	//string strOldFileName = pInfo->m_strCurrentFileName;
 	//pInfo->m_strCurrentFileName = nCurrentFileIndex;
 
-	int nOldFileIndex = pInfo->m_nCurrentFileIndex;
-	pInfo->m_nCurrentFileIndex = nCurrentFileIndex;
+	//auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
+	//pInfo->m_nCurrentFileIndex = nCurrentFileIndex;
 
 	IR_BYTE bInstructor = 0;
 	unsigned int nCodePointer = nStartPointer; // 0;
@@ -631,214 +633,215 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 		}
 
 		nLineNumber = vcVector[nCodePointer++];
+		IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentLineNumber = nLineNumber;
 		//nFileIndex = vcVector[nCodePointer++];
  		bInstructor = vcVector[nCodePointer] >> 8;
 
 		switch (bInstructor)
 		{
 		case 0: // push_env
- 			bResult = push_env(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+ 			bResult = push_env(vcVector, nCodePointer);
 			break;
 		case 1: // pop_env
-			bResult = pop_env(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_env(vcVector, nCodePointer);
 			break;
 		case 2: // push
-			bResult = push(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push(vcVector, nCodePointer);
 			break;
 		case 3: // pop
-			bResult = pop(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop(vcVector, nCodePointer);
 			break;
 		case 4: // cre_env
-			bResult = cre_env(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cre_env(vcVector, nCodePointer);
 			break;
 		case 5: // load
-			bResult = load(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load(vcVector, nCodePointer);
 			break;
 		case 6: // nol_call
-			bResult = nol_call(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = nol_call(vcVector, nCodePointer);
 			break;
 		case 7: // assign
-			bResult = assign(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign(vcVector, nCodePointer);
 			break;
 		case 8:	// hid_call
-			bResult = hid_call(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = hid_call(vcVector, nCodePointer);
 			break;
 		case 9:  // set_fld
-			bResult = set_fld(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = set_fld(vcVector, nCodePointer);
 			break;
 		case 10: // clr_fld
-			bResult = clr_fld(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = clr_fld(vcVector, nCodePointer);
 			break;
 		case 11: // fld_load
-			bResult = fld_load(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = fld_load(vcVector, nCodePointer);
 			break;
 		case 12: // load_nil
-			bResult = load_nil(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load_nil(vcVector, nCodePointer);
 			break;
 		case 13: // load_true
-			bResult = load_true(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load_true(vcVector, nCodePointer);
 			break;
 		case 14: // load_false
-			bResult = load_false(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load_false(vcVector, nCodePointer);
 			break;
 		case 15: // load_self
-			bResult = load_self(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load_self(vcVector, nCodePointer);
 			break;
 		case 16: // imth_def
-			bResult = imth_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = imth_def(vcVector, nCodePointer);
 			break;
 		case 17: // cmth_def
-			bResult = cmth_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cmth_def(vcVector, nCodePointer);
 			break;
 		case 18: // blk_def
-			bResult = blk_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = blk_def(vcVector, nCodePointer);
 			break;
 		case 19: // end_def
-			bResult = end_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = end_def(vcVector, nCodePointer);
 			break;
 		case 20: // jfon
-			bResult = jfon(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = jfon(vcVector, nCodePointer);
 			break;
 		case 21: // jmp
-			bResult = jmp(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = jmp(vcVector, nCodePointer);
 			break;
 		case 22: // ini_tm
-			bResult = ini_tm(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = ini_tm(vcVector, nCodePointer);
 			break;
 		case 23: // ini_cnt
-			bResult = ini_cnt(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = ini_cnt(vcVector, nCodePointer);
 			break;
 		case 24: // cmp_tac
-			bResult = cmp_tac(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cmp_tac(vcVector, nCodePointer);
 			break;
 		case 25: // inc_cnt
-			bResult = inc_cnt(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = inc_cnt(vcVector, nCodePointer);
 			break;
 		case 26: // assign_log
-			bResult = assign_log(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign_log(vcVector, nCodePointer);
 			break;
 		case 27: // brk
-  			bResult = brk(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+  			bResult = brk(vcVector, nCodePointer);
 			break;
 		case 28: // push_deep
-			bResult = push_deep(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_deep(vcVector, nCodePointer);
 			break;
 		case 29: // pop_deep
-			bResult = pop_deep(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_deep(vcVector, nCodePointer);
 			break;
 		case 30: // rtn
-			bResult = rtn(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex, nEndPointer);
+			bResult = rtn(vcVector, nCodePointer, nEndPointer);
 			break;
 		case 31: // ctn;
-			bResult = ctn(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = ctn(vcVector, nCodePointer);
 			break;
 		case 32: // assign_vsl
-			bResult = assign_vsl(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign_vsl(vcVector, nCodePointer);
 			break;
 		case 33: // assign_iter
-			bResult = assign_iter(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign_iter(vcVector, nCodePointer);
 			break;
 		case 34: //load_iter
-			bResult = load_iter(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = load_iter(vcVector, nCodePointer);
 			break;
 		case 35: // jt
-			bResult = jt(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = jt(vcVector, nCodePointer);
 			break;
 		case 36: // assign_cmp
-			bResult = assign_cmp(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign_cmp(vcVector, nCodePointer);
 			break;
 		case 37: // cmp_cmp
-			bResult = cmp_cmp(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cmp_cmp(vcVector, nCodePointer);
 			break;
 		case 38: // cr_cenv
-			bResult = cre_cenv(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cre_cenv(vcVector, nCodePointer);
 			break;
 		case 39: // def_cls
-			bResult = def_cls(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = def_cls(vcVector, nCodePointer);
 			break;
 		case 40: // add_ext
-			bResult = add_ext(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = add_ext(vcVector, nCodePointer);
 			break;
 		case 41: // add_mld
-			bResult = add_mld(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = add_mld(vcVector, nCodePointer);
 			break;
 		case 42: // add_inf
-			bResult = add_inf(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = add_inf(vcVector, nCodePointer);
 			break;
 		case 43: // push_cnt
-			bResult = push_cnt(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_cnt(vcVector, nCodePointer);
 			break;
 		case 44: // push_tim
-			bResult = push_tim(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_tim(vcVector, nCodePointer);
 			break;
 		case 45: // pop_cnt
-			bResult = pop_cnt(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_cnt(vcVector, nCodePointer);
 			break;
 		case 46: // pop_tim
-			bResult = pop_tim(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_tim(vcVector, nCodePointer);
 			break;
 		case 47: // push_unim
-			bResult = push_unim(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_unim(vcVector, nCodePointer);
 			break;
 		case 48: // pop_unim
-			bResult = pop_unim(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_unim(vcVector, nCodePointer);
 			break;
 		case 49: // push_vsl
-			bResult = push_vsl(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_vsl(vcVector, nCodePointer);
 			break;
 		case 50: // pop_vsl
-			bResult = pop_vsl(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_vsl(vcVector, nCodePointer);
 			break;
 		case 51: // push_iter
-			bResult = push_iter(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = push_iter(vcVector, nCodePointer);
 			break;
 		case 52: // pop_iter
-			bResult = pop_iter(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = pop_iter(vcVector, nCodePointer);
 			break;
 		case 53: // str_def
-			bResult = str_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = str_def(vcVector, nCodePointer);
 			break;
 		case 54: // gtr_def
-			bResult = gtr_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = gtr_def(vcVector, nCodePointer);
 			break;
 		case 55: // gstr_def
-			bResult = gstr_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = gstr_def(vcVector, nCodePointer);
 			break;
 		case 56: // set_auth
-			bResult = set_auth(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = set_auth(vcVector, nCodePointer);
 			break;
 		case 57: // def_mld
-			bResult = def_mld(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = def_mld(vcVector, nCodePointer);
 			break;
 		case 58: // def_inf
-			bResult = def_inf(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = def_inf(vcVector, nCodePointer);
 			break;
 		case 59: // def_infs
-			bResult = def_infs(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = def_infs(vcVector, nCodePointer);
 			break;
 		case 60: // cblk_def
-			bResult = cblk_def(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cblk_def(vcVector, nCodePointer);
 			break;
 		case 61: // blk
-			bResult = blk(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = blk(vcVector, nCodePointer);
 			break;
 		case 62: // cast
-			bResult = cast(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = cast(vcVector, nCodePointer);
 			break;
 		case 63: // reg_irp
-			bResult = reg_irp(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = reg_irp(vcVector, nCodePointer);
 			break;
 		case 64: // ureg_irp
-			bResult = ureg_irp(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = ureg_irp(vcVector, nCodePointer);
 			break;
 		case 65: // assign_ir
-			bResult = assign_ir(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = assign_ir(vcVector, nCodePointer);
 			break;
 		case 66: // grn
-			bResult = grn(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = grn(vcVector, nCodePointer);
 			break;
 		case 67: // spr
-			bResult = spr(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex);
+			bResult = spr(vcVector, nCodePointer);
 		default:
 			break;
 		}
@@ -847,11 +850,11 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 
 	--nCodePointer;
 
-	pInfo->m_nCurrentFileIndex = nOldFileIndex;
+	//pInfo->m_nCurrentFileIndex = nOldFileIndex;
 
 	// Irregular
 	if (IrregularHappened() || FatalErrorHappened()) {
-		rtn(vcVector, nCodePointer, nLineNumber, nCurrentFileIndex, nEndPointer);
+		rtn(vcVector, nCodePointer, nEndPointer);
 		return false;
 	}
 
@@ -976,10 +979,13 @@ void IrisInterpreter::GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vc
 }
 
 #ifdef IR_USE_STL_STRING
-bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName, unsigned int nCurrentFileIndex) {
+bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName) {
 #else
-bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName, unsigned int nCurrentFileIndex) {
+bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName) {
 #endif // IR_USE_STL_STRING
+	
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
+	
 	IrisCompiler* pCompiler = m_pCurrentCompiler;
 
 	IrisMethod::UserFunction* pUserFunction = new IrisMethod::UserFunction();
@@ -1050,14 +1056,14 @@ bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVec
 	return true;
 }
 
-bool IrisInterpreter::push_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_skEnvironmentStack.push_back(pInfo->m_pEnvrionmentRegister);
 	return true;
 }
 
-bool IrisInterpreter::pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_pEnvrionmentRegister = pInfo->m_skEnvironmentStack.back();
@@ -1065,14 +1071,14 @@ bool IrisInterpreter::pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::push(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_stStack.Push(pInfo->m_ivResultRegister);
 	return true;
 }
 
-bool IrisInterpreter::pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
@@ -1082,7 +1088,7 @@ bool IrisInterpreter::pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	return true;
 }
 
-bool IrisInterpreter::cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto pNewContextEnvironment = new IrisContextEnvironment();
@@ -1095,8 +1101,9 @@ bool IrisInterpreter::cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	IrisAMType iatType = (IrisAMType)iaAM.m_bType;
@@ -1163,16 +1170,16 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 			if (!bResult) {
 				// ** Error **
 #ifdef IR_USE_STL_STRING
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + strIdentifier + " not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, "Identifier of " + strIdentifier + " not found.");
 #else
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + strIdentifier.GetSTLString() + " not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + strIdentifier.GetSTLString() + " not found.");
 #endif // IR_USE_STL_STRING
 				return false;
 			}
 		}
 		else {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceDeclareIrregular, nLineNumber, nCurrentFileIndex, "Constance can not be declared here.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceDeclareIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Constance can not be declared here.");
 			return false;
 		}
 	}
@@ -1213,7 +1220,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		}
 		else if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::InterfaceDefineTime) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassVariableDeclareIrregular, nLineNumber, nCurrentFileIndex, "Class variable cannot be declared in interface.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassVariableDeclareIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class variable cannot be declared in interface.");
 			return false;
 		}
 		// Runtime
@@ -1310,7 +1317,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 #else
 		string strGetterMethod = "__get_" + strIdentifier.GetSTLString();
 #endif // IR_USE_STL_STRING
-		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, nullptr, nullptr, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, nullptr, nullptr, CallerSide::Outside);
 	}
 		break;
 	case IrisAMType::SelfMemberValue:
@@ -1332,7 +1339,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		IrisValues ivsValues = { pInfo->m_stStack.m_lsStack.back() };
-		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]", nullptr, &ivsValues, CallerSide::Outside);
 	}
 		break;
 	case IrisAMType::RegistValue:
@@ -1344,9 +1351,10 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	return true;
 }
 
-bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	if (pInfo->m_pClosureBlockRegister) {
 		pInfo->m_pEnvrionmentRegister->m_pClosureBlock = pInfo->m_pClosureBlockRegister;
 		pInfo->m_pClosureBlockRegister = nullptr;
@@ -1369,7 +1377,7 @@ bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	ivsValues.GetVector().assign(pInfo->m_stStack.m_lsStack.begin() + pInfo->m_stStack.m_lsStack.size() - nParameters, pInfo->m_stStack.m_lsStack.end());
 
 	pInfo->m_stStack.Push(pInfo->m_ivResultRegister);
-	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strMethodName, pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strMethodName, pInfo->m_pEnvrionmentRegister, &ivsValues, CallerSide::Outside);
 	pInfo->m_stStack.Pop();
 
 	if (pInfo->m_pEnvrionmentRegister->m_pClosureBlock) {
@@ -1387,9 +1395,10 @@ bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	IrisAMType iatType = (IrisAMType)iaAM.m_bType;
 	switch (iatType)
@@ -1398,7 +1407,8 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	case IrisAMType::ImmediateInteger:
 	case IrisAMType::ImmediateFloat:
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::LeftValueIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::LeftValueIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Left value must be IDENTIFIER, object's MEMBER, self MEMBER or array/hash's INDEX.");
 		return false;
 		break;
@@ -1415,7 +1425,8 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			}
 			else {
 				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular, nLineNumber, nCurrentFileIndex,
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular,
+					pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 					"Constance can not be reassigned.");
 				return false;
 			}
@@ -1429,7 +1440,8 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			}
 			else {
 				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular, nLineNumber, nCurrentFileIndex,
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular,
+					pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 					"Constance can not be reassigned.");
 				return false;
 			}
@@ -1443,14 +1455,16 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			}
 			else {
 				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular, nLineNumber, nCurrentFileIndex,
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceReassignIrregular,
+					pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 					"Constance can not be reassigned.");
 				return false;
 			}
 		}
 		else {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceDeclareIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ConstanceDeclareIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Constance can not be declared here.");
 			return false;
 		}
@@ -1504,7 +1518,9 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		}
 		else if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::InterfaceDefineTime) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassVariableDeclareIrregular, nLineNumber, nCurrentFileIndex, "Class variable cannot be declared in interface.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassVariableDeclareIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
+				"Class variable cannot be declared in interface.");
 			return false;
 		}
 		// Runtime
@@ -1648,7 +1664,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		string strSetterName = "__set_" + strIdentifier.GetSTLString();
 #endif // IR_USE_STL_STRING
 		IrisValues ivsValues = { pInfo->m_stStack.m_lsStack.back() };
-		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, nullptr, &ivsValues, CallerSide::Outside);
 	}
 		break;
 	case IrisAMType::SelfMemberValue:
@@ -1657,7 +1673,8 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		if (!pInfo->m_pEnvrionmentRegister || !pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Statement of self must be used in INSTANCE METHOD OF CLASS.");
 			return false;
 		}
@@ -1686,7 +1703,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		IrisValue ivKey = *pInfo->m_stStack.m_lsStack.rbegin();
 		IrisValue ivValue = *(pInfo->m_stStack.m_lsStack.rbegin() + 1);
 		IrisValues ivsValues = { ivKey, ivValue };
-		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]=", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction("[]=", nullptr, &ivsValues, CallerSide::Outside);
 	}
 		break;
 	case IrisAMType::RegistValue:
@@ -1701,9 +1718,10 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	return true;
 }
 
-bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	if (pInfo->m_pClosureBlockRegister) {
 		pInfo->m_pEnvrionmentRegister->m_pClosureBlock = pInfo->m_pClosureBlockRegister;
 		pInfo->m_pClosureBlockRegister = nullptr;
@@ -1734,10 +1752,10 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	if (pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
 		IrisMethod* pMethod = GetMainMethod(strMethodName);
 		if (pMethod) {
-			pInfo->m_ivResultRegister = pMethod->CallMainMethod(pValues, nLineNumber, nCurrentFileIndex);
+			pInfo->m_ivResultRegister = pMethod->CallMainMethod(pValues);
 		}
 		else {
-			pInfo->m_ivResultRegister = GetIrisModule("Kernel")->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+			pInfo->m_ivResultRegister = GetIrisModule("Kernel")->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Outside);
 		}
 	}
 	else {
@@ -1745,13 +1763,13 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		if(pUpperEnvironment && pUpperEnvironment->m_uType.m_pCurObject) {
 			IrisObject* pObject = pUpperEnvironment->m_uType.m_pCurObject;
 			//if (pObject->GetClass()->GetInternClass()->IsClassClass()) {
-			//	pInfo->m_ivResultRegister = ((IrisClassBaseTag*)pObject->GetNativeObject())->GetClass()->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside, nLineNumber, nCurrentFileIndex);
+			//	pInfo->m_ivResultRegister = ((IrisClassBaseTag*)pObject->GetNativeObject())->GetClass()->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside);
 			//}
 			//else if (pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-			//	pInfo->m_ivResultRegister = ((IrisModuleBaseTag*)pObject->GetNativeObject())->GetModule()->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside, nLineNumber, nCurrentFileIndex);
+			//	pInfo->m_ivResultRegister = ((IrisModuleBaseTag*)pObject->GetNativeObject())->GetModule()->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside);
 			//}
 			//else {
-				pInfo->m_ivResultRegister = pObject->CallInstanceFunction(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside, nLineNumber, nCurrentFileIndex);
+				pInfo->m_ivResultRegister = pObject->CallInstanceFunction(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside);
 			//}
 		}
 		else {
@@ -1760,7 +1778,7 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 				pInfo->m_ivResultRegister = pMethod->CallMainMethod(pValues);
 			}
 			else {
-				pInfo->m_ivResultRegister = GetIrisModule("Kernel")->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+				pInfo->m_ivResultRegister = GetIrisModule("Kernel")->CallClassMethod(strMethodName, pInfo->m_pEnvrionmentRegister, pValues, CallerSide::Outside);
 			}
 		}
 	}
@@ -1780,9 +1798,10 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::set_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::set_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	unsigned int nFields = vcVector[nCodePointer] & 0x00FF;
 	IrisAM iaAM;
 
@@ -1793,19 +1812,20 @@ bool IrisInterpreter::set_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::clr_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::clr_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_lsFieldsRegister.clear();
 	return true;
 }
 
-bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisModule* pModule = nullptr;
 	IrisAM iaAM;
 	bool bResult = false;
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	auto nTargetIndex = iaAM.m_dwIndex;
 	iaAM = GetOneAM(vcVector, nCodePointer);
@@ -1814,7 +1834,9 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		auto& ivResultRegister = pInfo->m_ivResultRegister;
 		auto pObject = static_cast<IrisObject*>(ivResultRegister.GetIrisObject());
 		if (!pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Invalid routing head, the routing head must be a Module.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
+				"Invalid routing head, the routing head must be a Module.");
 			return false;
 		}
 		auto pModule = IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>(ivResultRegister)->GetModule();
@@ -1828,9 +1850,9 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 			auto& ivResult = pModule->SearchConstance(*iField, bSearchResult);
 			if (!bSearchResult) {
 #ifdef IR_USE_STL_STRING
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + *iField + "not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + *iField + "not found.");
 #else
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + "not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + "not found.");
 #endif // IR_USE_STL_STRING
 				return false;
 			}
@@ -1843,7 +1865,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 				ivSearchResult = ivResult;
 			}
 			else {
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Invalid routing.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Invalid routing.");
 				return false;
 			}
 		}
@@ -1861,7 +1883,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		auto& ivResultRegister = pInfo->m_ivResultRegister;
 		auto pObject = static_cast<IrisObject*>(ivResultRegister.GetIrisObject());
 		if (!pObject->GetClass()->GetInternClass()->IsModuleClass() && !pObject->GetClass()->GetInternClass()->IsClassClass()) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Invalid routing head, the routing head must be a Module or a Class.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Invalid routing head, the routing head must be a Module or a Class.");
 			return false;
 		}
 		if (pObject->GetClass()->GetInternClass()->IsModuleClass()) {
@@ -1920,7 +1942,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 			case IrisContextEnvironment::EnvironmentType::InterfaceDefineTime:
 			{
 				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, nLineNumber, nCurrentFileIndex, "Field CANNOT be routed in interface.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Field CANNOT be routed in interface.");
 				return false;
 			}
 			default:
@@ -1932,9 +1954,9 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	if (!bResult) {
 		// ** Error **
 #ifdef IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex) + " not found.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex) + " not found.");
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, nLineNumber, nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex).GetSTLString() + " not found.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex).GetSTLString() + " not found.");
 #endif // IR_USE_STL_STRING
 		return false;
 	}
@@ -1942,28 +1964,28 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::load_nil(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load_nil(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivResultRegister = m_ivNil;
 	return true;
 }
 
-bool IrisInterpreter::load_true(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load_true(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivResultRegister = m_ivTrue;
 	return true;
 }
 
-bool IrisInterpreter::load_false(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load_false(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivResultRegister = m_ivFalse;
 	return true;
 }
 
-bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (!pInfo->m_pEnvrionmentRegister
@@ -1971,7 +1993,8 @@ bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 		|| !pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject
 		|| pInfo->m_pEnvrionmentRegister->m_bIsClosure) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Statement of self must be used in INSTANCE METHOD OF CLASS.");
 		return false;
 	}
@@ -1980,7 +2003,8 @@ bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 
 	if (pObject->GetClass()->GetInternClass()->IsClassClass() || pObject->GetClass()->GetInternClass()->IsModuleClass()) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Statement of self must be used in INSTANCE METHOD OF CLASS.");
 		return false;
 	}
@@ -1990,7 +2014,7 @@ bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 	return true;
 }
 
-bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 #ifdef IR_USE_STL_STRING
@@ -2000,7 +2024,7 @@ bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 #endif // IR_USE_STL_STRING
 	IrisMethod::UserFunction* pUserFunction= nullptr;
 
-	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName, nCurrentFileIndex)) {
+	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName)) {
 		return false;
 	}
 
@@ -2027,7 +2051,7 @@ bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 #ifdef IR_USE_STL_STRING
@@ -2037,7 +2061,7 @@ bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 #endif // IR_USE_STL_STRING
 	IrisMethod::UserFunction* pUserFunction = nullptr;
 
-	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName, nCurrentFileIndex)) {
+	if (!BuildUserFunction((void**)&pUserFunction, vcVector, nCodePointer, strMethodName)) {
 		return false;
 	}
 
@@ -2064,19 +2088,19 @@ bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::blk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::blk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	return true;
 }
 
-bool IrisInterpreter::end_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::end_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	return true;
 }
 
-bool IrisInterpreter::jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (!(pInfo->m_ivResultRegister == m_ivFalse || pInfo->m_ivResultRegister == m_ivNil)) {
@@ -2090,14 +2114,14 @@ bool IrisInterpreter::jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	return true;
 }
 
-bool IrisInterpreter::jmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::jmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	nCodePointer += iaAM.m_dwIndex;
 	return true;
 }
 
-bool IrisInterpreter::ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivTimerRegister = pInfo->m_ivResultRegister;
@@ -2110,7 +2134,7 @@ bool IrisInterpreter::ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	return true;
 }
 
-bool IrisInterpreter::ini_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::ini_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	//pInfo->m_ivCounterRegister = GetIrisClass("Integer")->CreateInstanceByInstantValue(0);
@@ -2118,7 +2142,7 @@ bool IrisInterpreter::ini_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::cmp_tac(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cmp_tac(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (pInfo->m_bUnimitedLoopFlagRegister) {
@@ -2133,16 +2157,17 @@ bool IrisInterpreter::cmp_tac(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::inc_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::inc_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	++IrisDevUtil::GetNativePointer<IrisIntegerTag*>(pInfo->m_ivCounterRegister)->m_nInteger;
 	return true;
 }
 
-bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	IrisCompiler* pCompiler = m_pCurrentCompiler;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strLog = pCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
@@ -2160,7 +2185,7 @@ bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 	return true;
 }
 
-bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
  {
 	// Get Current Deep Index
 	unsigned int nDeepIndex = GetTopDeepIndex();
@@ -2187,20 +2212,20 @@ bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	return true;
 }
 
-bool IrisInterpreter::push_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	PushDeepIndex(iaAM.m_dwIndex);
 	return true;
 }
 
-bool IrisInterpreter::pop_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PopTopDeepIndex();
 	return true;
 }
 
-bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex, unsigned int nEnder)
+bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nEnder)
 {
 	nCodePointer -= 2;
 	IrisAM iaAM;
@@ -2269,7 +2294,7 @@ bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	return true;
 }
 
-bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {	// Get Current Deep Index
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	unsigned int nDeepIndex = GetTopDeepIndex();
@@ -2296,7 +2321,7 @@ bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	return true;
 }
 
-bool IrisInterpreter::assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivVessleRegister = pInfo->m_ivResultRegister;
@@ -2304,21 +2329,21 @@ bool IrisInterpreter::assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 	return true;
 }
 
-bool IrisInterpreter::assign_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivIteratorRegister = pInfo->m_ivResultRegister;
 	return true;
 }
 
-bool IrisInterpreter::load_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::load_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivResultRegister = pInfo->m_ivIteratorRegister;
 	return true;
 }
 
-bool IrisInterpreter::jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (pInfo->m_ivResultRegister != m_ivTrue) {
@@ -2332,22 +2357,22 @@ bool IrisInterpreter::jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, 
 	return true;
 }
 
-bool IrisInterpreter::assign_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	pInfo->m_ivCompareRegister = pInfo->m_ivResultRegister;
 	return true;
 }
 
-bool IrisInterpreter::cmp_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cmp_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisValues ivsValues = { pInfo->m_ivResultRegister };
-	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivCompareRegister.GetIrisObject())->CallInstanceFunction("==", nullptr, &ivsValues, CallerSide::Outside, nLineNumber, nCurrentFileIndex);
+	pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivCompareRegister.GetIrisObject())->CallInstanceFunction("==", nullptr, &ivsValues, CallerSide::Outside);
 	return true;
 }
 
-bool IrisInterpreter::cre_cenv(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cre_cenv(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 
@@ -2374,9 +2399,10 @@ bool IrisInterpreter::cre_cenv(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	
 	IrisModule* pUpperModule = nullptr;
@@ -2408,7 +2434,8 @@ bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		pClass->SetSuperClass(GetIrisClass("Object"));
 		if (!RegistClass(lsModules, pClass->GetExternClass(), false)) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - The class CANNOT be registed to Iris.");
 			return false;
 		}
@@ -2425,13 +2452,14 @@ bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	// if not extends class
 	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsClassClass()) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - An normal object has been extended to a Class.");
 		return false;
 	}
@@ -2442,13 +2470,14 @@ bool IrisInterpreter::add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	// if not involves module
 	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsModuleClass()) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - A normal object has been involved with a Module.");
  		return false;
 	}
@@ -2465,12 +2494,13 @@ bool IrisInterpreter::add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {	// if not involves module
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (!static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->GetClass()->GetInternClass()->IsInterfaceClass()) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+			pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 			"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - A normal object has been involved with a Interface.");
 		return false;
 	}
@@ -2486,52 +2516,52 @@ bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::push_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PushCounter();
 	return true;
 }
 
-bool IrisInterpreter::push_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PushTimer();
 	return true;
 }
 
-bool IrisInterpreter::pop_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	PopCounter();
 	return true;
 }
 
-bool IrisInterpreter::pop_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	PopTimer();
 	return true;
 }
 
-bool IrisInterpreter::push_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PushUnlimitedLoopFlag();
 	return true;
 }
 
-bool IrisInterpreter::pop_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	PopUnlimitedLoopFlag();
 	return true;
 }
 
-bool IrisInterpreter::push_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PushVessle();
 	return true;
 }
 
-bool IrisInterpreter::pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	nCodePointer += 3;
@@ -2540,22 +2570,23 @@ bool IrisInterpreter::pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::push_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::push_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	PushIterator();
 	return true;
 }
 
-bool IrisInterpreter::pop_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::pop_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	PopIterator();
 	return true;
 }
 
-bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
@@ -2587,7 +2618,8 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		IR_BYTE bInstructor = vcVector[++nCodePointer] >> 8;
 		if (bInstructor != 18) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! Well, Iris surely DO NOT kown How STUPPID and UNBELIEVABLE an operation you have done this time.");
 			return false;
 		}
@@ -2616,9 +2648,10 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 #ifdef IR_USE_STL_STRING
 	const string& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
@@ -2650,7 +2683,8 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		IR_BYTE bInstructor = vcVector[++nCodePointer] >> 8;
 		if (bInstructor != 18) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! このバーか、さっさと死になさいよ！なんでプログラミングをやってんの、ちっともあってないのに、一生コンピューターなんて触らず寂しい人生を無駄過ごしな、このダメ人間！");
 			return false;
 		}
@@ -2677,9 +2711,10 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
@@ -2718,9 +2753,10 @@ bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
@@ -2745,9 +2781,9 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		if (!pMethod) {
 			// **Error**
 #ifdef IR_USE_STL_STRING
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nCurrentFileIndex, "Method of " + strMethodName + " not found.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strMethodName + " not found.");
 #else
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nCurrentFileIndex, "Method of " + strMethodName.GetSTLString() + " not found.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strMethodName.GetSTLString() + " not found.");
 #endif // IR_USE_STL_STRING
 			return false;
 		}
@@ -2797,9 +2833,10 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
 	IrisModule* pUpperModule = nullptr;
@@ -2831,7 +2868,8 @@ bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		pModule->m_pExternModule->m_pInternModule = pModule;
 		if (!RegistModule(lsModules, pModule->GetExternModule(), false)) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - The interface CANNOT be registed to Iris.");
 			return false;
 		}
@@ -2846,9 +2884,10 @@ bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
 	IrisModule* pUpperModule = nullptr;
@@ -2878,7 +2917,8 @@ bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		pInterface = new IrisInterface(strInterfaceName, pUpperEnvironment ? pUpperEnvironment->m_uType.m_pModule : nullptr);
 		if (!RegistInterface(lsModules, pInterface->GetExternInterface(), false)) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular, nLineNumber, nCurrentFileIndex,
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
+				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
 				"Oh, shit! An UNKNOWN ERROR has been lead to by YOU to Iris! What a SHIT unlucky man you are! Please don't approach Iris ANYMORE ! - The interface CANNOT be registed to Iris.");
 			return false;
 		}
@@ -2893,9 +2933,10 @@ bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisInterface* pInterface = pInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
 	unsigned int nParameterCount = vcVector[nCodePointer] & 0x00FF - 2;
 
@@ -2915,9 +2956,10 @@ bool IrisInterpreter::def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	unsigned int nPrametersCount = (vcVector[nCodePointer] & 0x00FF) - 1;
 #ifdef IR_USE_STL_STRING
 	list<string> lsParameters;
@@ -2952,17 +2994,17 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	return true;
 }
 
-bool IrisInterpreter::blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex) {
+bool IrisInterpreter::blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer) {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (pInfo->m_pEnvrionmentRegister->m_pClosureBlock) {
-		return RunCode(*pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_pWholeCodes, pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_nStartPointer, pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_nEndPointer, nCurrentFileIndex);
+		return RunCode(*pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_pWholeCodes, pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_nStartPointer, pInfo->m_pEnvrionmentRegister->m_pWithBlock->m_nEndPointer);
 	}
 	else {
-		return RunCode(*pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_pWholeCodes, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nStartPointer, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nEndPointer, nCurrentFileIndex);
+		return RunCode(*pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_pWholeCodes, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nStartPointer, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nEndPointer);
 	}
 }
 
-bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex) {
+bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer) {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	const int nParameters = iaAM.m_dwIndex;
@@ -2983,7 +3025,7 @@ bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	return true;
 }
 
-bool IrisInterpreter::reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisContextEnvironment::IrregularProcessProgram ipProgram;// = new IrisContextEnvironment::IrregularProcessProgram();
@@ -3013,17 +3055,17 @@ bool IrisInterpreter::reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		GetCodesFromBlock(nIndex, vcVector, nCodePointer, ipProgram.m_icsIgnoreCodes);
 	}
 	
-	RunCode(*ipProgram.m_icsOrderCodes.m_pWholeCodes, ipProgram.m_icsOrderCodes.m_nStartPointer, ipProgram.m_icsOrderCodes.m_nEndPointer, nCurrentFileIndex);
+	RunCode(*ipProgram.m_icsOrderCodes.m_pWholeCodes, ipProgram.m_icsOrderCodes.m_nStartPointer, ipProgram.m_icsOrderCodes.m_nEndPointer);
 
 	if (IrregularHappened()) {
 		UnregistIrregular();
-		RunCode(*ipProgram.m_icsServeCodes.m_pWholeCodes, ipProgram.m_icsServeCodes.m_nStartPointer, ipProgram.m_icsServeCodes.m_nEndPointer, nCurrentFileIndex);
+		RunCode(*ipProgram.m_icsServeCodes.m_pWholeCodes, ipProgram.m_icsServeCodes.m_nStartPointer, ipProgram.m_icsServeCodes.m_nEndPointer);
 	}
 
 	if (bWithIgnoreBlock) {
 		bool bTmp = pInfo->m_bIrregularHappenedRegister;
 		pInfo->m_bIrregularHappenedRegister = false;
-		if (!RunCode(*ipProgram.m_icsIgnoreCodes.m_pWholeCodes, ipProgram.m_icsIgnoreCodes.m_nStartPointer, ipProgram.m_icsIgnoreCodes.m_nEndPointer, nCurrentFileIndex)) {
+		if (!RunCode(*ipProgram.m_icsIgnoreCodes.m_pWholeCodes, ipProgram.m_icsIgnoreCodes.m_nStartPointer, ipProgram.m_icsIgnoreCodes.m_nEndPointer)) {
 			return false;
 		}
 
@@ -3033,15 +3075,16 @@ bool IrisInterpreter::reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	return true;
 }
 
-bool IrisInterpreter::ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	nCodePointer += 3;
 	return true;
 }
 
-bool IrisInterpreter::assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto nCurrentFileIndex = pInfo->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 
 	auto& strLocalValue = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
@@ -3060,14 +3103,14 @@ bool IrisInterpreter::assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 	return true;
 }
 
-bool IrisInterpreter::grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	RegistIrregular(pInfo->m_ivResultRegister);
 	return true;
 }
 
-bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nLineNumber, unsigned int nCurrentFileIndex)
+bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	if (pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
@@ -3086,7 +3129,7 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 		|| pObject->GetClass()->GetInternClass()->IsNormalClass()
 		|| pObject->GetClass()->GetInternClass()->IsModuleClass()
 		|| pObject->GetClass()->GetInternClass()->IsInterfaceClass()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, nLineNumber, nCurrentFileIndex, "Super can only used in an instance method whose super class has the one with the same name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Super can only used in an instance method whose super class has the one with the same name.");
 		return false;
 	}
 
@@ -3126,7 +3169,7 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 
 		if (!pSuperClass) {
 			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, nLineNumber, nCurrentFileIndex, "Super can only used in a instance method whose super class has the one with the same name.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Super can only used in a instance method whose super class has the one with the same name.");
 			return false;
 		}
 
@@ -3167,7 +3210,7 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	}
 	else {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, nLineNumber, nCurrentFileIndex, "Super can only used in an instance method whose super class has the one with the same name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Super can only used in an instance method whose super class has the one with the same name.");
 		return false;
 	}
 

@@ -315,3 +315,4 @@ class SortedBinaryTree {
 ;d = 8
 
 ;print(a == b && c == d)
+;require("script2.ir")

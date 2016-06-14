@@ -208,14 +208,15 @@ const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClass
 
 IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment) {
 	// 检查是否有没有实现的接口
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisValue ivValue;
 	if (!m_bIsCompleteClass){
 		if (!(m_bIsCompleteClass = _FunctionAchieved())) {
 			// **Error**
 #ifdef IR_USE_STL_STRING
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, 0, 0, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.");
 #else
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, 0, 0, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.");
 #endif // IR_USE_STL_STRING
 
 			return IrisInterpreter::CurrentInterpreter()->Nil();
@@ -375,11 +376,11 @@ IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClas
 }
 
 #ifdef IR_USE_STL_STRING
-IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
 #else
-IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
 #endif // IR_USE_STL_STRING
-	return static_cast<IrisObject*>(m_pClassObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide, nLineNumber, nBelongingFileIndex);
+	return static_cast<IrisObject*>(m_pClassObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide);
 }
 
 void IrisClass::ResetAllMethodsObject() {

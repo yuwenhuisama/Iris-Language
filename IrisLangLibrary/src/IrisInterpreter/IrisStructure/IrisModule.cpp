@@ -136,11 +136,11 @@ void IrisModule::_SearchModuleMethod(const IrisInternString& strFunctionName, Ir
 }
 
 #ifdef IR_USE_STL_STRING
-IrisValue IrisModule::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisModule::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
 #else
-IrisValue IrisModule::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisModule::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
 #endif // IR_USE_STL_STRING
-	return static_cast<IrisObject*>(m_pModuleObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide, nLineNumber, nBelongingFileIndex);
+	return static_cast<IrisObject*>(m_pModuleObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide);
 }
 
 #ifdef IR_USE_STL_STRING

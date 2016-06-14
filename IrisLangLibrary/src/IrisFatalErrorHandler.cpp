@@ -23,11 +23,11 @@ void IrisFatalErrorHandler::SetFatalErrorMessageFuncton(FatalErrorMessageFunctio
 	s_pfMessageFunction = pfFunction;
 }
 
-void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, int nLineNumber, int nBelongingFileIndex, const string & strFatalErrorMessage)
+void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage)
 {
 
 	IrisInterpreter::CurrentInterpreter()->HappenFatalError();
-
+	
 	string strIrregularTitle = "<Irregular : ";
 	string strMessage = "\n  Irregular-happened Report : Oh! Master, a FATAL ERROR has happened and Iris is not clever and dosen't kown how to deal with it. Could you please cheak it yourself? \n";
 	string strIrregularMessage = ">The Irregular name is ";
@@ -62,6 +62,23 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, int nLin
 		strMessage = strIrregularTitle + "IrregularNotDealedIrregular>" + strMessage;
 		strMessage += strIrregularMessage + "IrregularNotDealedIrregular," + "\n" + strLinenoMessage;
 		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		{
+			auto& ivIrregularObj = IrisDevUtil::GetCurrentThreadInfo()->m_ivIrregularObjectRegister;
+			auto nLineNumber = IrisDevUtil::GetInt(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@line_number"));
+			auto szFileName = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@file_name"));
+			auto szMsg = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@message"));
+			strMessage += "> file name : ";
+			strMessage += szFileName;
+			strMessage += "\n";
+			strMessage += "> line number : ";
+			stringstream ssStream;
+			ssStream << nLineNumber;
+			strMessage += ssStream.str();
+			strMessage += "\n";
+			strMessage += "> message : ";
+			strMessage += szMsg;
+			strMessage += "\n";
+		}
 		break;
 	case FatalErrorType::SourceObjectIrregular:
 		strMessage = strIrregularTitle + "SourceObjectIrregular>" + strMessage;

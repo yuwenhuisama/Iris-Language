@@ -71,7 +71,7 @@ private:
 public:
 	IrisObject();
 
-	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber = -1, int nBelongingFileIndex= - 1);
+	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide);
 
 	inline bool IsUsed() { return m_nUsedCount > 0; }
 

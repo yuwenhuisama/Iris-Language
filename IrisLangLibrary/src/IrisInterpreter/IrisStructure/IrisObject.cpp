@@ -26,9 +26,9 @@ IrisObject::IrisObject() {
 }
 
 #ifdef IR_USE_STL_STRING
-IrisValue IrisObject::CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisObject::CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide) {
 #else
-IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide, unsigned int nLineNumber, int nBelongingFileIndex) {
+IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide) {
 #endif // IR_USE_STL_STRING
 	// 先在自己的Instance Functions中寻找对应方法
 	IrisMethod* pMethod = nullptr;
@@ -100,6 +100,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 		pMethod = m_pClass->GetInternClass()->GetMethod(strFunctionName, bIsCurClassMethod);
 	}
 
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisValue ivResult;
 	if (pMethod) {
 		IrisValue ivValue;
@@ -109,7 +110,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 		if (eSide == CallerSide::Inside) {
 			// 本类内部调用无限制
 			if (bIsCurClassMethod) {
-				ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues), nLineNumber, nBelongingFileIndex);
+				ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues));
 			}
 			// 子类调用父类方法
 			else {
@@ -117,14 +118,14 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 				if (pMethod->GetAuthority() == IrisMethod::MethodAuthority::Personal) {
 					// **Error**
 #ifdef IR_USE_STL_STRING
-					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName() + ".");
+					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName() + ".");
 #else
-					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
+					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
 #endif // IR_USE_STL_STRING
 					ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 				}
 				else {
-					ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues), nLineNumber, nBelongingFileIndex);
+					ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues));
 				}
 			}
 		}
@@ -135,23 +136,23 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 			if (pMethod->GetAuthority() != IrisMethod::MethodAuthority::Everyone) {
 				// **Error**
 #ifdef IR_USE_STL_STRING
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName() + " .");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName() + " .");
 #else
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + " .");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + " .");
 #endif // IR_USE_STL_STRING
 				ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 			}
 			else {
-				ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues), nLineNumber, nBelongingFileIndex);
+				ivResult = pMethod->Call(ivValue, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(ivsValues));
 			}
 		}
 	}
 	else {
 		// **Error**
 #ifdef IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName + " not found in class " + m_pClass->GetInternClass()->GetClassName() + ".");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " not found in class " + m_pClass->GetInternClass()->GetClassName() + ".");
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, nLineNumber, nBelongingFileIndex, "Method of " + strFunctionName.GetSTLString() + " not found in class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " not found in class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
 #endif // IR_USE_STL_STRING
 		ivResult = IrisInterpreter::CurrentInterpreter()->Nil();
 	}
