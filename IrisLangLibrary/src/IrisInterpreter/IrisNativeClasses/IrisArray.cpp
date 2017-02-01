@@ -7,7 +7,7 @@ IrisValue IrisArray::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValu
 }
 
 IrisValue IrisArray::At(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	auto ivIndex = ivsValues->GetValue(0); //(*ivsValues)[0];
+	auto ivIndex = static_cast<IrisValues*>(ivsValues)->GetValue(0); //(*ivsValues)[0];
 	if (!IrisDevUtil::CheckClassIsInteger(ivIndex)) {
 		IrisDevUtil::GroanIrregularWithString("The index of an ARRAY object must be an INTEGER.");
 		return IrisDevUtil::Nil();
@@ -16,12 +16,12 @@ IrisValue IrisArray::At(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues 
 }
 
 IrisValue IrisArray::Set(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisValue& ivIndex = (IrisValue&)(ivsValues->GetValue(0));
+	IrisValue& ivIndex = (IrisValue&)(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	if (!IrisDevUtil::CheckClassIsInteger(ivIndex)) {
 		IrisDevUtil::GroanIrregularWithString("The index of an ARRAY object must be an INTEGER.");
 		return IrisDevUtil::Nil();
 	}
-	IrisValue& ivValue = (IrisValue&)(ivsValues->GetValue(1));
+	IrisValue& ivValue = (IrisValue&)(static_cast<IrisValues*>(ivsValues)->GetValue(1));
 	return IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj)->Set(IrisInteger::GetIntData(ivIndex), ivValue);
 }
 
@@ -49,7 +49,7 @@ IrisValue IrisArray::Push(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValue
 		IrisDevUtil::GroanIrregularWithString("Cannot push value into a fixed ARRAY object.");
 		return IrisDevUtil::Nil();
 	}
-	return IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj)->Push((ivsValues->GetValue(0)));
+	return IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj)->Push((static_cast<IrisValues*>(ivsValues)->GetValue(0)));
 }
 
 IrisValue IrisArray::Pop(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {

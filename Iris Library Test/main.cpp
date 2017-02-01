@@ -5,17 +5,17 @@ using namespace std;
 
 #pragma comment(lib, "IrisLangLibrary.lib")
 
-int ExitCondition() {
-	return 0;
+bool ExitCondition() {
+	return false;
 }
 
-void ShowFatalErrorMessage(char* pMessage) {
+void ShowFatalErrorMessage(const char* pMessage) {
 	cout << pMessage << endl;
 }
 
 int main(int argc, char* argv[]) {
 
-	IrisInitializeStruct iisInit;
+	IrisInitializeStructForCpp iisInit;
 	iisInit.m_pfExitConditionFunction = ExitCondition;
 	iisInit.m_pfFatalErrorMessageFunction = ShowFatalErrorMessage;
 

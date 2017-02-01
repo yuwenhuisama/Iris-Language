@@ -5,15 +5,15 @@ IrisValue IrisFloat::CmpOperation(Operation eOperationType, IrisValue & ivObj, I
 	IrisFloatTag* pFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(ivObj);
 	IrisFloatTag iftRightFloat;
 	// 如果右边为Integer，则转化为Float之间的运算
-	if (IrisDevUtil::CheckClassIsInteger((IrisValue&)ivsValues->GetValue(0))) {
+	if (IrisDevUtil::CheckClassIsInteger((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
 		// 获取右边的值
-		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)ivsValues->GetValue(0));
+		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 将右边对象转换为Float
 		iftRightFloat = static_cast<IrisFloatTag>(*pRightInteger);
 	}
 	else {
-		if (IrisDevUtil::CheckClassIsFloat((IrisValue&)ivsValues->GetValue(0))) {
-			iftRightFloat = *(IrisDevUtil::GetNativePointer<IrisFloatTag*>((IrisValue&)ivsValues->GetValue(0)));
+		if (IrisDevUtil::CheckClassIsFloat((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
+			iftRightFloat = *(IrisDevUtil::GetNativePointer<IrisFloatTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0)));
 		}
 		else {
 			IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
@@ -57,14 +57,14 @@ IrisValue IrisFloat::CastOperation(Operation eOperationType, IrisValue & ivObj, 
 	IrisFloatTag* pFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(ivObj);
 	IrisFloatTag iftRightFloat;
 	// 如果右边为Integer，则转化为Float之间的运算
-	if (IrisDevUtil::CheckClassIsInteger((IrisValue&)ivsValues->GetValue(0))) {
+	if (IrisDevUtil::CheckClassIsInteger((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
 		// 获取右边的值
-		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)ivsValues->GetValue(0));
+		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 将右边对象转换为Float
 		iftRightFloat = static_cast<IrisFloatTag>(*pRightInteger);
 	}
 	else {
-		iftRightFloat = *(IrisDevUtil::GetNativePointer<IrisFloatTag*>(ivsValues->GetValue(0)));
+		iftRightFloat = *(IrisDevUtil::GetNativePointer<IrisFloatTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0)));
 	}
 	// 新建临时Float对象作为结果
 	//ivValue = IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Float"), nullptr, pContextEnvironment);

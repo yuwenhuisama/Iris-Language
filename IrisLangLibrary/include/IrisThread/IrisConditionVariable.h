@@ -12,15 +12,15 @@ class IrisConditionVariable : public IIrisClass
 public:
 	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 
-		if (!IrisDevUtil::CheckClass((IrisValue&)ivsValues->GetValue(0), "Mutex")) {
+		if (!IrisDevUtil::CheckClass((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0), "Mutex")) {
 			IrisDevUtil::GroanIrregularWithString("Invalid Parameter.");
 			return IrisDevUtil::Nil();
 		}
 
-		auto pMutex = &IrisDevUtil::GetNativePointer<IrisMutexTag*>((IrisValue&)ivsValues->GetValue(0))->GetMutex();
+		auto pMutex = &IrisDevUtil::GetNativePointer<IrisMutexTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0))->GetMutex();
 		auto pConditionVariable = IrisDevUtil::GetNativePointer<IrisConditionVariableTag*>(ivObj);
 		pConditionVariable->Initialize(pMutex);
-		static_cast<IrisObject*>(ivObj.GetIrisObject())->AddInstanceValue("@mutex", (IrisValue&)ivsValues->GetValue(0));
+		static_cast<IrisObject*>(ivObj.GetIrisObject())->AddInstanceValue("@mutex", (IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		return ivObj;
 	}
 

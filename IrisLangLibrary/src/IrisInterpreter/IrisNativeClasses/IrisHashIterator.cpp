@@ -3,7 +3,7 @@
 
 
 IrisValue IrisHashIterator::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisHashTag* pHash = IrisDevUtil::GetNativePointer<IrisHashTag*>(ivsValues->GetValue(0));
+	IrisHashTag* pHash = IrisDevUtil::GetNativePointer<IrisHashTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	IrisDevUtil::GetNativePointer<IrisHashIteratorTag*>(ivObj)->Initialize(&pHash->m_mpHash);
 	return ivObj;
 }

@@ -18,13 +18,13 @@ public:
 public:
 	static IrisValue WrapObjectPointerToIrisValue(IIrisObject* pObjectPointer);
 
-	void* GetInstanceNativePointer() const;
-
-	bool operator == (const IrisValue& ivValue){
+	//void* GetInstanceNativePointer() const;
+	
+	bool operator == (const IrisValue& ivValue) const{
 		return ivValue.m_pObject == m_pObject;
 	}
 
-	bool operator != (const IrisValue& ivValue) {
+	bool operator != (const IrisValue& ivValue) const {
 		return !(*this == ivValue);
 	}
 };

@@ -8,13 +8,13 @@ IrisValue IrisHash::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValue
 }
 
 IrisValue IrisHash::At(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	const IrisValue& ivIndex = ivsValues->GetValue(0);
+	const IrisValue& ivIndex = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	return IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->At(ivIndex);
 }
 
 IrisValue IrisHash::Set(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	const IrisValue& ivIndex = ivsValues->GetValue(0);
-	const IrisValue& ivValue = ivsValues->GetValue(1);
+	const IrisValue& ivIndex = static_cast<IrisValues*>(ivsValues)->GetValue(0);
+	const IrisValue& ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(1);
 	return IrisDevUtil::GetNativePointer<IrisHashTag*>(ivObj)->Set(ivIndex, ivValue);
 }
 

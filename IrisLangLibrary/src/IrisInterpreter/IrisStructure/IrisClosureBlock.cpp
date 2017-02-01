@@ -246,7 +246,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
 		}
-		else if (m_lsParameters.size() != pValues->GetSize()) {
+		else if (m_lsParameters.size() != static_cast<IrisValues*>(pValues)->GetSize()) {
 			// **Error**
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();

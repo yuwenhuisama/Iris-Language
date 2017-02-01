@@ -201,6 +201,8 @@
     <ClInclude Include="include\IrisComponents\LexYacc\y.tab.h" />
     <ClInclude Include="include\IrisDevelopUtil.h" />
     <ClInclude Include="include\IrisDevHeader.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForC.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForCpp.h" />
     <ClInclude Include="include\IrisExtentionUtil.h" />
     <ClInclude Include="include\IrisFatalErrorHandler.h" />
     <ClInclude Include="include\IrisInstructorMaker.h" />
@@ -310,9 +312,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="src\IrisExportAPIs\IrisExportForC.cpp" />
+    <ClCompile Include="src\IrisExportAPIs\IrisExportForCpp.cpp" />
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregular.cpp" />
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.cpp" />
-    <ClCompile Include="src\IrisLangLibrary.cpp" />
     <ClCompile Include="src\IrisCompiler.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisBinaryExpression.cpp" />

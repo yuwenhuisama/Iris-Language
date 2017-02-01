@@ -150,7 +150,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="include\IrisUnil\IrisValue.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -159,16 +158,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\IrisInterfaces\IIrisClass.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisClosureBlock.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisContextEnvironment.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisInterface.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisInterString.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisModule.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisObject.h" />
-    <ClInclude Include="include\IrisInterfaces\IIrisValues.h" />
     <ClInclude Include="include\IrisLangLibrary.h" />
-    <ClInclude Include="include\IrisUnil\IrisValue.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
