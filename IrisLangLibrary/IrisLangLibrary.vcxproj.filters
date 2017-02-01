@@ -450,6 +450,9 @@
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\IrisCompileConfigure.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp">

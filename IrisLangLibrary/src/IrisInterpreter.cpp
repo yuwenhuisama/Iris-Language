@@ -57,7 +57,7 @@ bool IrisInterpreter::Initialize() {
 	INNER_CLASS_SET_POINTER(Class, GetIrisClass("Class")->GetExternClass());
 	//GetIrisClass("Class")->ResetNativeObject();
 	bool bResult = false;
-	((IrisValue&)GetConstance("Class", bResult)).SetIrisObject(GetIrisClass("Class")->GetClassObject());
+	//((IrisValue&)GetConstance("Class", bResult)).SetIrisObject(GetIrisClass("Class")->GetClassObject());
 	RegistClass("Module", new IrisModuleBase());
 	INNER_CLASS_SET_POINTER(Module, GetIrisClass("Module")->GetExternClass());
 	RegistClass("Interface", new IrisInterfaceBase());
@@ -165,7 +165,7 @@ void IrisInterpreter::SetCurrentInterpreter(IrisInterpreter * pInter)
 	s_pInstance = pInter;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 int IrisInterpreter::_Split(const string& str, list<string>& ret_, string sep) {
 #else
 int IrisInterpreter::_Split(const string& str, list<IrisInternString>& ret_, string sep) {
@@ -202,7 +202,7 @@ int IrisInterpreter::_Split(const string& str, list<IrisInternString>& ret_, str
 	return 0;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisModule * IrisInterpreter::_GetLastModuleFromPath(const list<string>& lsPath)
 #else
 IrisModule * IrisInterpreter::_GetLastModuleFromPath(const list<IrisInternString>& lsPath)
@@ -233,7 +233,7 @@ IrisModule * IrisInterpreter::_GetLastModuleFromPath(const list<IrisInternString
 }
 
 IrisClass* IrisInterpreter::GetIrisClass(const string& strClassFullFieldName) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -243,7 +243,7 @@ IrisClass* IrisInterpreter::GetIrisClass(const string& strClassFullFieldName) {
 }
 
 IrisInterface* IrisInterpreter::GetIrisInterface(const string& strInterfaceFullFieldName) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -253,7 +253,7 @@ IrisInterface* IrisInterpreter::GetIrisInterface(const string& strInterfaceFullF
 }
 
 IrisModule* IrisInterpreter::GetIrisModule(const string& strModuleFullFieldName) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -263,7 +263,7 @@ IrisModule* IrisInterpreter::GetIrisModule(const string& strModuleFullFieldName)
 }
 
 bool IrisInterpreter::RegistClass(const string& strClassFullFieldName, IIrisClass* pClass, bool bNative) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -273,7 +273,7 @@ bool IrisInterpreter::RegistClass(const string& strClassFullFieldName, IIrisClas
 }
 
 bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -283,7 +283,7 @@ bool IrisInterpreter::RegistModule(const string& strModuleFullFieldName, IIrisMo
 }
 
 bool IrisInterpreter::RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsRoute;
 #else
 	list<IrisInternString> lsRoute;
@@ -292,7 +292,7 @@ bool IrisInterpreter::RegistInterface(const string& strInterfaceFullFieldName, I
 	return RegistInterface(lsRoute, pInterface, bNative);
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 bool IrisInterpreter::RegistClass(list<string>& lsRoute, IIrisClass* pClass, bool bNative)
 #else
 bool IrisInterpreter::RegistClass(list<IrisInternString>& lsRoute, IIrisClass* pClass, bool bNative)
@@ -351,7 +351,7 @@ bool IrisInterpreter::RegistClass(list<IrisInternString>& lsRoute, IIrisClass* p
 	return true;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 bool IrisInterpreter::RegistModule(list<string>& lsRoute, IIrisModule* pModule, bool bNative)
 #else
 bool IrisInterpreter::RegistModule(list<IrisInternString>& lsRoute, IIrisModule* pModule, bool bNative)
@@ -406,7 +406,7 @@ bool IrisInterpreter::RegistModule(list<IrisInternString>& lsRoute, IIrisModule*
 	return true;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 bool IrisInterpreter::RegistInterface(list<string>& lsRoute, IIrisInterface* pInterface, bool bNative)
 #else
 bool IrisInterpreter::RegistInterface(list<IrisInternString>& lsRoute, IIrisInterface* pInterface, bool bNative)
@@ -454,13 +454,13 @@ bool IrisInterpreter::RegistInterface(list<IrisInternString>& lsRoute, IIrisInte
 	return true;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisClass* IrisInterpreter::GetIrisClass(const list<string>& lsRoute) {
 #else
 IrisClass* IrisInterpreter::GetIrisClass(const list<IrisInternString>& lsRoute) {
 #endif
 	IrisClass* pClass = nullptr;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsTmpRoute;
 #else
 	list<IrisInternString> lsTmpRoute;
@@ -501,13 +501,13 @@ IrisClass* IrisInterpreter::GetIrisClass(const list<IrisInternString>& lsRoute) 
 
 	return pClass;
 }
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisInterface* IrisInterpreter::GetIrisInterface(const list<string>& lsRoute) {
 #else
 IrisInterface* IrisInterpreter::GetIrisInterface(const list<IrisInternString>& lsRoute) {
 #endif
 	IrisInterface* pInterface = nullptr;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsTmpRoute;
 #else
 	list<IrisInternString> lsTmpRoute;
@@ -549,7 +549,7 @@ IrisInterface* IrisInterpreter::GetIrisInterface(const list<IrisInternString>& l
 	return pInterface;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisModule* IrisInterpreter::GetIrisModule(const list<string>& lsRoute) {
 #else
 IrisModule* IrisInterpreter::GetIrisModule(const list<IrisInternString>& lsRoute) {
@@ -909,7 +909,7 @@ void IrisInterpreter::PopStack(unsigned int nTimes)
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 inline IrisMethod * IrisInterpreter::GetMainMethod(const string & strMethodName) {
 #else
 inline IrisMethod * IrisInterpreter::GetMainMethod(const IrisInternString & strMethodName) {
@@ -927,7 +927,7 @@ inline IrisMethod * IrisInterpreter::GetMainMethod(const IrisInternString & strM
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 inline void IrisInterpreter::AddMainMethod(const string & strMethodName, IrisMethod * pMethod) {
 #else
 inline void IrisInterpreter::AddMainMethod(const IrisInternString & strMethodName, IrisMethod * pMethod) {
@@ -979,7 +979,7 @@ void IrisInterpreter::GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vc
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName) {
 #else
 bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName) {
@@ -1114,7 +1114,11 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		auto& strString = m_pCurrentCompiler->GetString(iaAM.m_dwIndex, nCurrentFileIndex);
 		//pInfo->m_ivResultRegister = GetIrisClass("String")->CreateInstanceByInstantValue(strString);
+#if IR_USE_STL_STRING
+		pInfo->m_ivResultRegister = IrisDevUtil::CreateInstanceByInstantValue(strString.c_str());
+#else
 		pInfo->m_ivResultRegister = IrisDevUtil::CreateInstanceByInstantValue(strString.GetCTypeString());
+#endif
 	}
 		break;
 	case IrisAMType::ImmediateUniqueString:
@@ -1170,8 +1174,8 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 			pInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(strIdentifier, bResult);
 			if (!bResult) {
 				// ** Error **
-#ifdef IR_USE_STL_STRING
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, "Identifier of " + strIdentifier + " not found.");
+#if IR_USE_STL_STRING
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + strIdentifier + " not found.");
 #else
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + strIdentifier.GetSTLString() + " not found.");
 #endif // IR_USE_STL_STRING
@@ -1190,7 +1194,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		pInfo->m_ivResultRegister = GetGlobalValue(strIdentifier, bResult);
-		if (bResult) {
+		if (!bResult) {
 			AddGlobalValue(strIdentifier, m_ivNil);
 		}
 	}
@@ -1313,7 +1317,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		string strGetterMethod = "__get_" + strIdentifier;
 #else
 		string strGetterMethod = "__get_" + strIdentifier.GetSTLString();
@@ -1325,7 +1329,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		string strInstanceVariableName = "@" + strIdentifier;
 #else
 		string strInstanceVariableName = "@" + strIdentifier.GetSTLString();
@@ -1659,7 +1663,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		string strSetterName = "__set_" + strIdentifier;
 #else
 		string strSetterName = "__set_" + strIdentifier.GetSTLString();
@@ -1682,7 +1686,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		else {
 			bool bResult = false;
 			IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 			string strIntanceVaraible = "@" + strIdentifier;
 #else
 			string strIntanceVaraible = "@" + strIdentifier.GetSTLString();
@@ -1850,7 +1854,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 			++nCount;
 			auto& ivResult = pModule->SearchConstance(*iField, bSearchResult);
 			if (!bSearchResult) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + *iField + "not found.");
 #else
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + "not found.");
@@ -1954,7 +1958,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 
 	if (!bResult) {
 		// ** Error **
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex) + " not found.");
 #else
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdentifierNotFoundIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex).GetSTLString() + " not found.");
@@ -2018,7 +2022,7 @@ bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	string strMethodName = "";
 #else
 	IrisInternString strMethodName = "";
@@ -2055,7 +2059,7 @@ bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	string strMethodName = "";
 #else
 	IrisInternString strMethodName = "";
@@ -2413,7 +2417,7 @@ bool IrisInterpreter::def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsModules;
 #else
 	list<IrisInternString> lsModules;
@@ -2591,7 +2595,7 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	strSetterName.assign(strVariableName.begin() + 1, strVariableName.end());
 #else
 	strSetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
@@ -2654,13 +2658,13 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	const string& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 #else
 	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 #endif // IR_USE_STL_STRING
 	string strGetterName;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	strGetterName.assign(strVariableName.begin() + 1, strVariableName.end());
 #else
 	strGetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
@@ -2719,7 +2723,7 @@ bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strVariableName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	string strSetterName;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	strSetterName.assign(strVariableName.begin() + 1, strVariableName.end());
 #else
 	strSetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
@@ -2727,7 +2731,7 @@ bool IrisInterpreter::gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	strSetterName = "__set_" + strSetterName;
 
 	string strGetterName;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	strGetterName.assign(strVariableName.begin() + 1, strVariableName.end());
 #else
 	strGetterName.assign(strVariableName.GetSTLString().begin() + 1, strVariableName.GetSTLString().end());
@@ -2781,7 +2785,7 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		}
 		if (!pMethod) {
 			// **Error**
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strMethodName + " not found.");
 #else
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strMethodName.GetSTLString() + " not found.");
@@ -2847,7 +2851,7 @@ bool IrisInterpreter::def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsModules;
 #else
 	list<IrisInternString> lsModules;
@@ -2898,7 +2902,7 @@ bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	auto pUpperEnvironment = pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsModules;
 #else
 	list<IrisInternString> lsModules;
@@ -2962,7 +2966,7 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	unsigned int nPrametersCount = (vcVector[nCodePointer] & 0x00FF) - 1;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> lsParameters;
 #else
 	list<IrisInternString> lsParameters;

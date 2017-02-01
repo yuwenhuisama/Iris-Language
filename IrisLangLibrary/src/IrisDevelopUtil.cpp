@@ -1,3 +1,5 @@
+#include "IrisCompileConfigure.h"
+
 #include "IrisDevelopUtil.h"
 #include "IrisInterpreter/IrisStructure/IrisClass.h"
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
@@ -57,8 +59,13 @@ namespace IrisDevUtil {
 		auto strFileName = pCompiler->GetFileName(pInfo->m_nCurrentFileIndex);
 
 		IrisValue ivLineNumber = IrisDevUtil::CreateInstanceByInstantValue(static_cast<int>(nLineNumber));
-		IrisValue ivFileName = IrisDevUtil::CreateString(strFileName.GetCTypeString());
 		IrisValue ivMsg = IrisDevUtil::CreateString(strIrregularString);
+
+#if IR_USE_STL_STRING
+		IrisValue ivFileName = IrisDevUtil::CreateString(strFileName.c_str());
+#else
+		IrisValue ivFileName = IrisDevUtil::CreateString(strFileName.GetCTypeString());
+#endif
 
 		IrisValues ivValues = { ivLineNumber, ivFileName, ivMsg };
 
@@ -170,7 +177,7 @@ namespace IrisDevUtil {
 
 	const char * GetNameOfClass(IIrisClass * pClass)
 	{
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		return pClass->GetInternClass()->GetClassName().c_str();
 #else
 		return pClass->GetInternClass()->GetClassName().GetCTypeString();
@@ -179,7 +186,7 @@ namespace IrisDevUtil {
 
 	const char * GetNameOfModule(IIrisModule * pModule)
 	{
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		return pModule->GetInternModule()->GetModuleName().c_str();
 #else
 		return pModule->GetInternModule()->GetModuleName().GetCTypeString();
@@ -188,7 +195,7 @@ namespace IrisDevUtil {
 
 	const char * GetNameOfInterface(IIrisInterface * pInterface)
 	{
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		return pInterface->GetInternInterface()->GetInterfaceName().c_str();
 #else
 		return pInterface->GetInternInterface()->GetInterfaceName().GetCTypeString();
@@ -216,7 +223,7 @@ namespace IrisDevUtil {
 
 	const char * GetClassName(IIrisClass * pClass)
 	{
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		return pClass->GetInternClass()->GetClassName().c_str();
 #else
 		return pClass->GetInternClass()->GetClassName().GetCTypeString();
@@ -406,7 +413,7 @@ namespace IrisDevUtil {
 		IrisObject* pObject = new IrisObject();
 		pObject->SetClass(pClass);
 		pObject->SetPermanent(true);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()));
 #else
 		IrisUniqueStringTag* pString = new IrisUniqueStringTag(IrisCompiler::CurrentCompiler()->GetUniqueString(nIndex, IrisCompiler::CurrentCompiler()->GetCurrentFileIndex()).GetSTLString());

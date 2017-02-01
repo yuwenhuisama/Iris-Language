@@ -1,5 +1,8 @@
 #ifndef _H_IRISVIRTUALCODEFILE_
 #define _H_IRISVIRTUALCODEFILE_
+
+#include "../IrisCompileConfigure.h"
+
 #include "IrisCompiler.h"
 //#include <time.h>
 #include <fstream>

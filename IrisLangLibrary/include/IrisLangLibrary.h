@@ -1,4 +1,4 @@
-  // 下列 ifdef 块是创建使从 DLL 导出更简单的
+// 下列 ifdef 块是创建使从 DLL 导出更简单的
 // 宏的标准方法。此 DLL 中的所有文件都是用命令行上定义的 IRISLANGLIBRARY_EXPORTS
 // 符号编译的。在使用此 DLL 的
 // 任何其他项目上不应定义此符号。这样，源文件中包含此文件的任何其他项目都会将
@@ -8,6 +8,12 @@
 #define IRISLANGLIBRARY_API __declspec(dllexport)
 #else
 #define IRISLANGLIBRARY_API __declspec(dllimport)
+#endif
+
+#include "IrisCompileConfigure.h"
+
+#if IR_USE_C_EXPORT
+#else
 #endif
 
 #include "IrisUnil/IrisValue.h"

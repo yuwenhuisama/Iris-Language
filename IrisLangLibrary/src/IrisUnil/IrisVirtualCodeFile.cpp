@@ -1,3 +1,4 @@
+#include "IrisCompileConfigure.h"
 #include "IrisUnil/IrisVirtualCodeFile.h"
 #include <sys/stat.h>
 using namespace std;
@@ -10,7 +11,7 @@ bool IrisVirtualCodeFile::_WriteFileBody(fstream & fOutFile, const IrisCompiler:
 
 	// String Field
 	for (auto& strElem : *pInfo->m_pStringSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		_WriteString(fOutFile, strElem);
 #else
 		_WriteString(fOutFile, strElem.GetSTLString());
@@ -19,7 +20,7 @@ bool IrisVirtualCodeFile::_WriteFileBody(fstream & fOutFile, const IrisCompiler:
 
 	// Unique String Field
 	for (auto& strElem : *pInfo->m_pUniqueStringSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		_WriteString(fOutFile, strElem);
 #else
 		_WriteString(fOutFile, strElem.GetSTLString());
@@ -38,7 +39,7 @@ bool IrisVirtualCodeFile::_WriteFileBody(fstream & fOutFile, const IrisCompiler:
 
 	// Identifier Field
 	for (auto& nIden : *pInfo->m_pIdentifierSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		_WriteString(fOutFile, nIden);
 #else
 		_WriteString(fOutFile, nIden.GetSTLString());

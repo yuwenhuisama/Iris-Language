@@ -1,6 +1,8 @@
 #ifndef _H_IRISOBJECT_
 #define _H_IRISOBJECT_
 
+#include "../../IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisValue.h"
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
@@ -25,7 +27,7 @@ enum class CallerSide {
 	Outside,
 };
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisObject : public IIrisObject, public IrisObjectMemoryPoolInterface<IrisObject, POOLID_IrisObject>
 #else
 class IrisObject : public IIrisObject
@@ -70,8 +72,12 @@ private:
 
 public:
 	IrisObject();
-
+	
+#if IR_USE_STL_STRING
+	IrisValue CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide);
+#else
 	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide);
+#endif
 
 	inline bool IsUsed() { return m_nUsedCount > 0; }
 
@@ -92,10 +98,18 @@ public:
 	inline IIrisClass* GetClass() { return m_pClass; }
 	inline void SetClass(IIrisClass* pClass) { m_pClass = pClass; }
 
+#if IR_USE_STL_STRING
+	const IrisValue & GetInstanceValue(const string & strInstanceValueName, bool & bResult);
+	IrisMethod* GetInstanceMethod(const string& strInstanceMethodName);
+
+	void AddInstanceValue(const string& strInstanceValueName, const IrisValue& ivValue);
+#else
 	const IrisValue& GetInstanceValue(const IrisInternString& strInstanceValueName, bool& bResult);
 	IrisMethod* GetInstanceMethod(const IrisInternString& strInstanceMethodName);
 
 	void AddInstanceValue(const IrisInternString& strInstanceValueName, const IrisValue& ivValue);
+#endif
+
 	void AddSingleInstanceMethod(IrisMethod* pMethod);
 
 	void Mark();

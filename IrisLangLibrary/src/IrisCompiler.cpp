@@ -211,7 +211,7 @@ bool IrisCompiler::Generate()
 	cout << "--------Static Data---------" << endl;
 	cout << "String Field:" << endl;
 	for (auto str : *m_pCurrentStatementInfo->m_pStringSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		StringReplace(str, "\n", "\\n");
 		StringReplace(str, "\t", "\\t");
 		cout << setw(6) << str << "\t";
@@ -225,7 +225,7 @@ bool IrisCompiler::Generate()
 
 	cout << "UniqueString Field:" << endl;
 	for (auto str : *m_pCurrentStatementInfo->m_pUniqueStringSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		StringReplace(str, "\n", "\\n");
 		StringReplace(str, "\t", "\\t");
 		cout << setw(6) << str << "\t";
@@ -239,7 +239,7 @@ bool IrisCompiler::Generate()
 
 	cout << "Identifier Field:" << endl;
 	for (auto id : *m_pCurrentStatementInfo->m_pIdentifierSpace) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		cout << setw(6) << id << "\t";
 #else
 		cout << setw(6) << id.GetSTLString() << "\t";

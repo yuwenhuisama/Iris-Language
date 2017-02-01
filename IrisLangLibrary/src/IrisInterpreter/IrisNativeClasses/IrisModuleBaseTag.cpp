@@ -1,3 +1,5 @@
+#include "IrisCompileConfigure.h"
+
 #include "IrisInterpreter/IrisNativeClasses/IrisModuleBaseTag.h"
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
 
@@ -11,7 +13,7 @@ void IrisModuleBaseTag::SetModule(IrisModule* pModule) {
 }
 
 const string& IrisModuleBaseTag::GetModuleName() {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	return m_pModule->GetModuleName();
 #else
 	return m_pModule->GetModuleName().GetSTLString();

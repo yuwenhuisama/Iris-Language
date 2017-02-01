@@ -4,7 +4,7 @@
 #include "IrisDevHeader.h"
 
 class IIrisClosureBlock;
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisClosureBlockBaseTag : public IrisObjectMemoryPoolInterface<IrisClosureBlockBaseTag, POOLID_IrisClosureBlockBaseTag>
 #else
 class IrisClosureBlockBaseTag

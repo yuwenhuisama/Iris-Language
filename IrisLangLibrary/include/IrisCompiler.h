@@ -7,6 +7,8 @@
 #include <fstream>
 #include <map>
 #include <vector>
+
+#include "IrisCompileConfigure.h"
 #include <IrisUnil/IrisInternString.h>
 using namespace std;
 
@@ -21,7 +23,7 @@ private:
 	typedef list<IrisStatement*> _StatementList;
 	typedef vector<IR_WORD> _CodeVector;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef map<string, unsigned int> _StringField;
 	typedef pair<string, unsigned int> _StringPair;
 	typedef map<int, unsigned int> _IntegerField;
@@ -267,7 +269,7 @@ public:
 	unsigned int GetIdentifierIndex(const string& strIdentifier, unsigned int nFileIndex);
 	unsigned int GetUniqueStringIndex(const string& strString, unsigned int nFileIndex);
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const string& GetString(unsigned int nIndex, unsigned int nFileIndex) {
 #else
 	inline const IrisInternString& GetString(unsigned int nIndex, unsigned int nFileIndex) {
@@ -283,7 +285,7 @@ public:
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pFloatSpace->at(nIndex);
 	}
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const string& GetIdentifier(unsigned int nIndex, unsigned int nFileIndex) {
 #else
 	inline const IrisInternString& GetIdentifier(unsigned int nIndex, unsigned int nFileIndex) {
@@ -291,7 +293,7 @@ public:
 		auto pData = m_vcStatementInfos[nFileIndex];
 		return pData->m_pIdentifierSpace->at(nIndex);
 	}
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const string& GetUniqueString(unsigned int nIndex, unsigned int nFileIndex) {
 #else
 	inline const IrisInternString& GetUniqueString(unsigned int nIndex, unsigned int nFileIndex) {
@@ -300,7 +302,7 @@ public:
 		return pData->m_pUniqueStringSpace->at(nIndex);
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const string& GetFileName(unsigned int nIndex) {
 #else
 		inline const IrisInternString& GetFileName(unsigned int nIndex) {

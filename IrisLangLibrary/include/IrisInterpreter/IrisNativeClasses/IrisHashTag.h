@@ -10,7 +10,7 @@
 #include <math.h>  
 using namespace std;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisHashTag : public IrisObjectMemoryPoolInterface<IrisHashTag, POOLID_IrisHashTag>
 #else
 class IrisHashTag

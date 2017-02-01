@@ -6,6 +6,8 @@
 #include <unordered_set>
 using namespace std;
 
+#include "../../IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisValue.h"
 #include "IrisObject.h"
 #include "IrisMethod.h"
@@ -16,7 +18,7 @@ using namespace std;
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 #include "IrisUnil/IrisInternString.h"
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisModule : public IrisObjectMemoryPoolInterface<IrisModule, POOLID_IrisModule> 
 #else
 class IrisModule
@@ -24,7 +26,7 @@ class IrisModule
 {
 private:
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef unordered_map<string, IrisMethod*> _MethodHash;
 	typedef pair<string, IrisMethod*> _MethodPair;
 
@@ -56,7 +58,7 @@ private:
 
 	IIrisModule* m_pExternModule = nullptr;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	string m_strModuleName = "";
 #else
 	IrisInternString m_strModuleName = "";
@@ -72,7 +74,7 @@ private:
 	_InterfaceSet m_hsInvolvedInterfaces;
 	_ClassSet m_hsClasses;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	void _SearchModuleMethod(const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod);
 	void _SearchConstance(const string& strConstanceName, IrisModule* pCurModule, IrisValue** pValue);
 	void _GetModuleInstanceMethod(const string& strMethodName, IrisModule* pCurModule, IrisMethod** ppResultMethod);
@@ -100,7 +102,7 @@ private:
 public:
 
 	virtual IIrisModule* GetExternModule() { return m_pExternModule; }
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual const IrisValue&  SearchConstance(const string& strConstName, bool& bResult);
 #else
 	virtual const IrisValue&  SearchConstance(const IrisInternString& strConstName, bool& bResult);
@@ -108,13 +110,13 @@ public:
 	virtual void AddModule(IrisModule* pModule);
 	virtual void AddInvolvingModule(IrisModule* pModule);
 	//virtual void AddInstanceVariable(const string& strClassVariableName);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual const IrisValue& SearchClassVariable(const string& strClassVariableName, bool& bResult);
 #else
 	virtual const IrisValue& SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult);
 #endif // IR_USE_STL_STRING
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual IrisValue CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide);
 #else
 	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide);
@@ -122,7 +124,7 @@ public:
 
 	virtual void ResetAllMethodsObject();
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual IrisMethod* GetCurrentModuleMethod(const string& strMethodName);
 	virtual const IrisValue& GetCurrentModuleClassVariable(const string& strVariableName, bool& bResult);
 	virtual const IrisValue& GetCurrentModuleConstance(const string& strConstanceName, bool& bResult);
@@ -144,7 +146,7 @@ public:
 	virtual void ClearInvolvingModules();
 	virtual void ClearJointedInterfaces();
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual void AddConstance(const string& strConstName, const IrisValue& ivInitialValue);
 #else
 	virtual void AddConstance(const IrisInternString& strConstName, const IrisValue& ivInitialValue);
@@ -154,7 +156,7 @@ public:
 
 	virtual void AddInstanceMethod(IrisMethod* pMethod);
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual void AddClassVariable(const string& strClassVariableName);
 	virtual void AddClassVariable(const string& strClassVariableName, const IrisValue& ivInitialValue);
 #else
@@ -168,7 +170,7 @@ public:
 	virtual void AddInvolvedInterface(IrisInterface* pInterface);
 
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	virtual IrisClass* GetClass(const string& strClassName);
 	virtual IrisInterface* GetInterface(const string& strInterfaceName);
 	virtual IrisMethod* GetModuleInstanceMethod(const string& strMethodName);
@@ -180,7 +182,7 @@ public:
 
 	inline IIrisObject* GetModuleObject() { return  m_pModuleObject; }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline virtual const string& GetModuleName() { return m_strModuleName; }
 #else
 	inline virtual const IrisInternString& GetModuleName() { return m_strModuleName; }
@@ -189,8 +191,8 @@ public:
 
 	inline virtual _VariableHash& GetConstances() { return m_hsConstances; }
 	inline virtual _VariableHash& GetClassVariables() { return m_hsClassVariables; }
-#ifdef IR_USE_STL_STRING
-	inline virtual _ModuleHash& GetModules() { return m_hsModules; }
+#if IR_USE_STL_STRING
+	inline virtual _ModuleSet& GetModules() { return m_hsModules; }
 #else
 	inline virtual _ModuleSet& GetModules() { return m_hsModules; }
 #endif // IR_USE_STL_STRING

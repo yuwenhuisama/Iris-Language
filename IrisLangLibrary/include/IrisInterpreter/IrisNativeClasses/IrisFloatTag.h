@@ -7,7 +7,7 @@
 #include <math.h>
 #include <sstream>
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisFloatTag : public IrisObjectMemoryPoolInterface<IrisFloatTag, POOLID_IrisFloatTag>
 #else
 class IrisFloatTag

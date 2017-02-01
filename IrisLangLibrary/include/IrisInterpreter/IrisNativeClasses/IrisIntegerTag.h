@@ -8,7 +8,7 @@ class IrisFloatTag;
 #include <math.h>
 #include <sstream>
 using namespace std;
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisIntegerTag : public IrisObjectMemoryPoolInterface<IrisIntegerTag, POOLID_IrisIntegerTag>
 #else
 class IrisIntegerTag
