@@ -21,6 +21,7 @@ public:
 	static IrisValue Size(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 	static IrisValue GetIterator(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 
+	static IrisValue Sort(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
 public:
 
 	int GetTrustteeSize(void* pNativePointer) {
@@ -50,10 +51,12 @@ public:
 		IrisDevUtil::AddInstanceMethod(this, "push", Push, 1, false);
 		IrisDevUtil::AddInstanceMethod(this, "pop", Pop, 0, false);
 		IrisDevUtil::AddInstanceMethod(this, "each", Each, 0, false);
+		IrisDevUtil::AddInstanceMethod(this, "sort", Sort, 0, false);
 
 		IrisDevUtil::AddInstanceMethod(this, "get_iterator", GetIterator, 0, false);
 
 		IrisDevUtil::AddGetter(this, "@size", Size);
+
 	}
 
 	const char* NativeClassNameDefine() const {
