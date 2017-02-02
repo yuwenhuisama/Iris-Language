@@ -8,13 +8,13 @@ void IrisArrayIteratorTag::Initialize(vector<IrisValue>* pArray)
 	m_iIter = pArray->begin();
 }
 
-void IrisArrayIteratorTag::Next()
+IrisArrayIteratorTag IrisArrayIteratorTag::Next()
 {
 	++m_iIter;
+	return *this;
 }
 
-bool IrisArrayIteratorTag::IsEnd()
-{
+bool IrisArrayIteratorTag::IsEnd() {
 	return m_pArray->end() == m_iIter;
 }
 
