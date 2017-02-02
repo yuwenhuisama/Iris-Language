@@ -1,6 +1,8 @@
 #ifndef _H_IRISTHREADUTIL_
 #define _H_IRISTHREADUTIL_
 
+#include "../IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisValue.h"
 #include "IrisInterpreter/IrisStructure/IrisContextEnvironment.h"
 #include "IrisUnil/IrisStack.h"
@@ -53,7 +55,11 @@ public:
 	IrisValue m_ivVessleRegister;							  // forÓï¾äµü´úÈİÆ÷¼Ä´æÆ÷
 	IrisValue m_ivIteratorRegister;							  // forÓï¾äµü´úÆ÷¼Ä´æÆ÷
 	IrisValue m_ivCompareRegister;							  // switchÓï¾ä±È½Ï¼Ä´æÆ÷
+#if IR_USE_STL_STRING
+	list<string> m_lsFieldsRegister;						  // Óò¼Ä´æÆ÷
+#else 
 	list<IrisInternString> m_lsFieldsRegister;				  // Óò¼Ä´æÆ÷
+#endif
 	bool m_bUnimitedLoopFlagRegister = false;				  // ÎŞÏŞÑ­»·±êÖ¾¼Ä´æÆ÷
 	IrisContextEnvironment* m_pEnvrionmentRegister = nullptr; // ÉÏÏÂÎÄ¼Ä´æÆ÷
 	IrisClosureBlock* m_pClosureBlockRegister = nullptr;	  // ¿é¼Ä´æÆ÷

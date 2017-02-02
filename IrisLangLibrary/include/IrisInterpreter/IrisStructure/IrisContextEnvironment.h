@@ -1,5 +1,8 @@
 #ifndef _H_IRISCONTENXENVIRIONMENT_
 #define _H_IRISCONTENXENVIRIONMENT_
+
+#include "../../IrisCompileConfigure.h"
+
 #include "IrisObject.h"
 #include "IrisComponents/IrisVirtualCodeStructures.h"
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
@@ -24,14 +27,14 @@ class IrisInterface;
 
 class IIrisClosureBlock;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisContextEnvironment : public IIrisContextEnvironment, public IrisObjectMemoryPoolInterface<IrisContextEnvironment, POOLID_IrisContextEnvironment>
 #else
 class IrisContextEnvironment : public IIrisContextEnvironment
 #endif
 {
 private:
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef unordered_map<string, IrisValue> _VariableMap;
 	typedef pair<string, IrisValue> _VariablePair;
 #else
@@ -86,7 +89,7 @@ public:
 	void SetClosureBlock(IIrisClosureBlock* pBlock);
 	IIrisContextEnvironment* GetUpperContextEnvrioment();
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	const IrisValue& GetVariableValue(const string& strVariableName, bool& bResult);
 	void AddLocalVariable(const string& strVariableName, const IrisValue& ivValue);
 #else

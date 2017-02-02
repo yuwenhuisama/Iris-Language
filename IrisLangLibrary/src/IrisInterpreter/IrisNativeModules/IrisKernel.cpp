@@ -7,8 +7,8 @@ recursive_mutex IrisKernel::sm_rmEvalMutex;
 IrisValue IrisKernel::Print(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisValue ivString;
 	if (ivsVariableValues) {
-		for (size_t i = 0; i < ivsVariableValues->GetSize(); ++i) {
-			auto& elem = (IrisValue&)ivsVariableValues->GetValue(i);
+		for (size_t i = 0; i < static_cast<IrisValues*>(ivsVariableValues)->GetSize(); ++i) {
+			auto& elem = (IrisValue&)static_cast<IrisValues*>(ivsVariableValues)->GetValue(i);
 			if (IrisDevUtil::CheckClassIsString(elem)) {
 				cout << IrisDevUtil::GetNativePointer<IrisStringTag*>(elem)->GetString();
 			}
@@ -37,8 +37,8 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 	string strCurFileName = pCompiler->GetCurrentFileName();
 
 	if (ivsVariableValues) {
-		for (size_t i = 0; i < ivsVariableValues->GetSize(); ++i) {
-			auto& elem = (IrisValue&)ivsVariableValues->GetValue(i);
+		for (size_t i = 0; i < static_cast<IrisValues*>(ivsVariableValues)->GetSize(); ++i) {
+			auto& elem = (IrisValue&)static_cast<IrisValues*>(ivsVariableValues)->GetValue(i);
 			const string& strFileName = IrisDevUtil::GetNativePointer<IrisStringTag*>(elem)->GetString();
 			if (pCompiler->HaveFileRequired(strFileName)) {
 				continue;
@@ -90,8 +90,8 @@ IrisValue IrisKernel::Import(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVa
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
 	if (ivsVariableValues) {
-		for (size_t i = 0; i < ivsVariableValues->GetSize(); ++i) {
-			auto& elem = ivsVariableValues->GetValue(i);
+		for (size_t i = 0; i < static_cast<IrisValues*>(ivsVariableValues)->GetSize(); ++i) {
+			auto& elem = static_cast<IrisValues*>(ivsVariableValues)->GetValue(i);
 			const string& strFileName = IrisDevUtil::GetNativePointer<IrisStringTag*>(elem)->GetString();
 			if (!pInterpreter->LoadExtension(strFileName.c_str())) {
 				string strErrorMsg("Error when loading extention from " + strFileName);
@@ -111,7 +111,7 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	pCompiler->SetLineNumber(0);
-	const string& strScript = IrisDevUtil::GetNativePointer<IrisStringTag*>((IrisValue&)ivsValues->GetValue(0))->GetString();
+	const string& strScript = IrisDevUtil::GetNativePointer<IrisStringTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0))->GetString();
 
 	//IrisGC::CurrentGC()->SetGCFlag(false);
 
@@ -145,8 +145,8 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 IrisValue IrisKernel::SRand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	if (ivsVariableValues) {
-		if (ivsVariableValues->GetSize() == 1) {
-			auto& ivParam = ivsVariableValues->GetValue(0);
+		if (static_cast<IrisValues*>(ivsVariableValues)->GetSize() == 1) {
+			auto& ivParam = static_cast<IrisValues*>(ivsVariableValues)->GetValue(0);
 			if (IrisDevUtil::CheckClassIsInteger(ivParam)) {
 				auto nSRand = IrisDevUtil::GetInt(ivParam);
 				srand(nSRand);
@@ -167,8 +167,8 @@ IrisValue IrisKernel::SRand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVal
 
 IrisValue IrisKernel::Rand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
-	auto& ivFrom = ivsValues->GetValue(0);
-	auto& ivTo = ivsValues->GetValue(1);
+	auto& ivFrom = static_cast<IrisValues*>(ivsValues)->GetValue(0);
+	auto& ivTo = static_cast<IrisValues*>(ivsValues)->GetValue(1);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivFrom) && !IrisDevUtil::CheckClassIsFloat(ivFrom)) {
 		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer or a Float");

@@ -4,7 +4,7 @@
 
 IrisValue IrisRange::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	auto* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(ivObj);
-	auto ivValue = ivsValues->GetValue(0);
+	auto ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivValue)) {
 		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.");
@@ -19,8 +19,8 @@ IrisValue IrisRange::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValu
 
 	auto eType = static_cast<IrisRangeType>(IrisDevUtil::GetInt(ivValue));
 
-	ivValue = ivsValues->GetValue(1);
-	auto ivValue2 = ivsValues->GetValue(2);
+	ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(1);
+	auto ivValue2 = static_cast<IrisValues*>(ivsValues)->GetValue(2);
 	if (IrisDevUtil::CheckClassIsString((IrisValue&)ivValue) && IrisDevUtil::CheckClassIsString(ivValue2)) {
 		auto strFrom = IrisDevUtil::GetString(ivValue);
 		auto strTo = IrisDevUtil::GetString(ivValue2);

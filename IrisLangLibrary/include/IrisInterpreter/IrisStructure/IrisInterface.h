@@ -1,6 +1,8 @@
 #ifndef _H_IRISINTERFACE_
 #define _H_IRISINTERFACE_
 
+#include "IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 #include "IrisThread/IrisWLLock.h"
@@ -19,7 +21,7 @@ class IrisObject;
 class IIrisInterface;
 class IIrisObject;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisInterface : public IrisObjectMemoryPoolInterface<IrisInterface, POOLID_IrisInterface> 
 #else
 class IrisInterface
@@ -27,14 +29,14 @@ class IrisInterface
 {
 public:
 	struct InterfaceFunctionDeclare {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		string m_strInterfaceName = "";
 #else
 		IrisInternString m_strInterfaceName = "";
 #endif // IR_USE_STL_STRING
 		int m_nParameterAmount = 0;
 		bool m_bHaveVariableParameter = false;
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		InterfaceFunctionDeclare(const string& strInterfaceName, int nParameterAmount, bool b_HaveVariableParameter) : m_strInterfaceName(strInterfaceName), m_nParameterAmount(nParameterAmount), m_bHaveVariableParameter(b_HaveVariableParameter) { }
 #else
 		InterfaceFunctionDeclare(const IrisInternString& strInterfaceName, int nParameterAmount, bool b_HaveVariableParameter) : m_strInterfaceName(strInterfaceName), m_nParameterAmount(nParameterAmount), m_bHaveVariableParameter(b_HaveVariableParameter) { }
@@ -44,7 +46,7 @@ public:
 
 private:
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef unordered_map<string, InterfaceFunctionDeclare> _InterfaceFunctionDeclareMap;
 	typedef pair<string, InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
 	typedef unordered_set<IrisInterface*> _InterfaceSet;
@@ -55,7 +57,12 @@ private:
 #endif // IR_USE_STL_STRING
 
 private:
+
+#if IR_USE_STL_STRING
+	string m_strInterfaceName = "";
+#else
 	IrisInternString m_strInterfaceName = "";
+#endif
 	IrisModule* m_pUpperModule = nullptr;
 	_InterfaceFunctionDeclareMap m_mpFunctionDeclareMap;
 	_InterfaceSet m_mpInterfaces;
@@ -71,14 +78,14 @@ public:
 
 	inline IIrisInterface* GetExternInterface() { return m_pExternInterface; }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const string& GetInterfaceName() { return m_strInterfaceName; }
 #else
 	inline const IrisInternString& GetInterfaceName() { return m_strInterfaceName; }
 #endif // IR_USE_STL_STRING
 	inline IIrisObject* GetInterfaceObject() { return m_pInterfaceObject; }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	IrisInterface(const string& strInterfaceName, IrisModule* pUpperModule = nullptr);
 #else
 	IrisInterface(const IrisInternString& strInterfaceName, IrisModule* pUpperModule = nullptr);
@@ -88,7 +95,7 @@ public:
 	void ClearJointingInterfaces();
 
 	void AddInterface(IrisInterface* pInterface);
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	void AddInterfaceFunctionDeclare(const string& strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter = false);
 #else
 	void AddInterfaceFunctionDeclare(const IrisInternString& strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter = false);

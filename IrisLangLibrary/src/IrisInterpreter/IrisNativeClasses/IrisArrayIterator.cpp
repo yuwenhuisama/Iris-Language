@@ -3,7 +3,7 @@
 
 
 IrisValue IrisArrayIterator::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisArrayTag* pArray = IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivsValues->GetValue(0));
+	IrisArrayTag* pArray = IrisDevUtil::GetNativePointer<IrisArrayTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	IrisDevUtil::GetNativePointer<IrisArrayIteratorTag*>(ivObj)->Initialize(&pArray->m_vcValues);
 	return ivObj;
 }

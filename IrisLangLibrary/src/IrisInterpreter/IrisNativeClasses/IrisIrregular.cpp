@@ -15,9 +15,9 @@ IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivs
 {
 	auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 
-	auto& ivLineNumber = ivsValues->GetValue(0);
-	auto& ivFileName = ivsValues->GetValue(1);
-	auto& ivMsg = ivsValues->GetValue(2);
+	auto& ivLineNumber = static_cast<IrisValues*>(ivsValues)->GetValue(0);
+	auto& ivFileName = static_cast<IrisValues*>(ivsValues)->GetValue(1);
+	auto& ivMsg = static_cast<IrisValues*>(ivsValues)->GetValue(2);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivLineNumber)) {
 		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
@@ -46,7 +46,7 @@ IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivs
 
 IrisValue IrisIrregular::SetLineNumber(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
-	auto& ivLineNumber = ivsValues->GetValue(0);
+	auto& ivLineNumber = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsInteger(ivLineNumber)) {
 		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
 		return IrisDevUtil::Nil();
@@ -57,7 +57,7 @@ IrisValue IrisIrregular::SetLineNumber(IrisValue & ivObj, IIrisValues * ivsValue
 
 IrisValue IrisIrregular::SetFileName(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
-	auto& ivFileName = ivsValues->GetValue(0);
+	auto& ivFileName = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivFileName) && !IrisDevUtil::CheckClassIsUniqueString(ivFileName)) {
 		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.");
 		return IrisDevUtil::Nil();
@@ -68,7 +68,7 @@ IrisValue IrisIrregular::SetFileName(IrisValue & ivObj, IIrisValues * ivsValues,
 
 IrisValue IrisIrregular::SetMessage(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
-	auto& ivMsg = ivsValues->GetValue(0);
+	auto& ivMsg = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivMsg) && !IrisDevUtil::CheckClassIsUniqueString(ivMsg)) {
 		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.");
 		return IrisDevUtil::Nil();

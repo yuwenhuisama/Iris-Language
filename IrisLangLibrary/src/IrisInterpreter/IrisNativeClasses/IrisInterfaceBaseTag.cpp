@@ -1,3 +1,5 @@
+#include "IrisCompileConfigure.h"
+
 #include "IrisInterpreter/IrisNativeClasses/IrisInterfaceBaseTag.h"
 #include "IrisInterpreter/IrisStructure/IrisInterface.h"
 
@@ -7,7 +9,7 @@ IrisInterfaceBaseTag::IrisInterfaceBaseTag(IrisInterface* pInterface) : m_pInter
 }
 
 const string& IrisInterfaceBaseTag::GetInterfaceName() {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	return m_pInterface->GetInterfaceName();
 #else
 	return m_pInterface->GetInterfaceName().GetSTLString();

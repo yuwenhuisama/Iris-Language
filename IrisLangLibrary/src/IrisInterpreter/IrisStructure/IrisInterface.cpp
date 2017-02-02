@@ -4,7 +4,7 @@
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
 #include "IrisDevelopUtil.h"
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisInterface::IrisInterface(const string& strInterfaceName, IrisModule* pUpperModule) : m_strInterfaceName(strInterfaceName), m_pUpperModule(pUpperModule) {
 #else
 IrisInterface::IrisInterface(const IrisInternString& strInterfaceName, IrisModule* pUpperModule) : m_strInterfaceName(strInterfaceName), m_pUpperModule(pUpperModule) {
@@ -20,7 +20,7 @@ void IrisInterface::AddInterface(IrisInterface* pInterface) {
 	m_iwlInfAddingLock.WriteUnlock();
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisInterface::AddInterfaceFunctionDeclare(const string & strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter) {
 #else
 void IrisInterface::AddInterfaceFunctionDeclare(const IrisInternString & strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter) {

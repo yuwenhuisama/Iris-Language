@@ -1,6 +1,8 @@
 #ifndef _H_IRISMETHOD_
 #define _H_IRISMETHOD_
 
+#include "IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisValue.h"
 #include "IrisComponents/IrisVirtualCodeStructures.h"
 #include "IrisUnil/IrisCodeSegment.h"
@@ -22,7 +24,7 @@ class IrisValues;
 class IIrisValues;
 class IIrisContextEnvironment;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisMethod : public IrisObjectMemoryPoolInterface<IrisMethod, POOLID_IrisMethod> 
 #else
 class IrisMethod
@@ -47,7 +49,7 @@ public:
 
 public:
 	struct UserFunction {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		list<string> m_lsParameters;
 		string m_strVariableParameter = "";
 #else
@@ -66,7 +68,7 @@ public:
 	};
 
 private:
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	string m_strMethodName = "";
 #else
 	IrisInternString m_strMethodName = "";
@@ -88,7 +90,7 @@ private:
 
 public:
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
 	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
 	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
@@ -114,7 +116,7 @@ public:
 	//Getter Setter
 
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	const string& GetMethodName();
 	void SetMethodName(const string& strMethodName);
 #else

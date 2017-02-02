@@ -13,7 +13,7 @@ void IrisContextEnvironment::SetClosureBlock(IIrisClosureBlock * pBlock) { m_pCl
 
 IIrisContextEnvironment * IrisContextEnvironment::GetUpperContextEnvrioment() { return m_pUpperContextEnvironment; }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisContextEnvironment::GetVariableValue(const string& strVariableName, bool& bResult) {
 #else
 const IrisValue& IrisContextEnvironment::GetVariableValue(const IrisInternString& strVariableName, bool& bResult) {
@@ -31,7 +31,7 @@ const IrisValue& IrisContextEnvironment::GetVariableValue(const IrisInternString
 	return ivResult;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisContextEnvironment::AddLocalVariable(const string& strVariableName, const IrisValue& ivValue) {
 #else
 void IrisContextEnvironment::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue) {

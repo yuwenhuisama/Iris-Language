@@ -30,7 +30,7 @@ IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment() {
 	return pNewEnvironment;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClosureBlock::GetLocalVariable(const string& strVariableName, bool& bResult) {
 #else
 const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strVariableName, bool& bResult) {
@@ -56,7 +56,7 @@ const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strV
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 }
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClosureBlock::GetInstanceVariable(const string& strVariableName, bool& bResult) {
 #else
 const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& strVariableName, bool& bResult) {
@@ -105,7 +105,7 @@ const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& s
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClosureBlock::GetClassVariable(const string& strVariableName, bool& bResult) {
 #else
 const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strVariableName, bool& bResult) {
@@ -161,7 +161,7 @@ const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strV
 		}
 	}
 }
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClosureBlock::GetConstance(const string& strConstanceName, bool& bResult) {
 #else
 const IrisValue& IrisClosureBlock::GetConstance(const IrisInternString& strConstanceName, bool& bResult) {
@@ -206,7 +206,7 @@ void IrisClosureBlock::Mark() {
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClosureBlock::AddLocalVariable(const string& strVariableName, const IrisValue& ivValue) {
 #else
 void IrisClosureBlock::AddLocalVariable(const IrisInternString& strVariableName, const IrisValue& ivValue) {
@@ -214,7 +214,7 @@ void IrisClosureBlock::AddLocalVariable(const IrisInternString& strVariableName,
 	m_pCurContextEnvironment->AddLocalVariable(strVariableName, ivValue);
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClosureBlock::AddOtherVariable(const string & strVariableName, const IrisValue & ivValue) {
 #else
 void IrisClosureBlock::AddOtherVariable(const IrisInternString & strVariableName, const IrisValue & ivValue) {
@@ -246,7 +246,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
 		}
-		else if (m_lsParameters.size() != pValues->GetSize()) {
+		else if (m_lsParameters.size() != static_cast<IrisValues*>(pValues)->GetSize()) {
 			// **Error**
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
 			return pInterpreter->Nil();
@@ -299,7 +299,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 	return ivValue;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
 #else
 IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)

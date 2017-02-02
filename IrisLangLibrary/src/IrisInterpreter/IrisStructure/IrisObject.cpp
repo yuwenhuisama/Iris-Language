@@ -25,7 +25,7 @@ IrisObject::IrisObject() {
 	m_nObjectID = ++s_nMaxID;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisValue IrisObject::CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide) {
 #else
 IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide) {
@@ -117,7 +117,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 				// 禁止调用
 				if (pMethod->GetAuthority() == IrisMethod::MethodAuthority::Personal) {
 					// **Error**
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName() + ".");
 #else
 					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " is PERSONAL and cannot be called from derrived class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
@@ -135,7 +135,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 			// 禁止调用
 			if (pMethod->GetAuthority() != IrisMethod::MethodAuthority::Everyone) {
 				// **Error**
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName() + " .");
 #else
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::MethodAuthorityIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " is not EVERYONE and cannot be called outside the class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + " .");
@@ -149,7 +149,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 	}
 	else {
 		// **Error**
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName + " not found in class " + m_pClass->GetInternClass()->GetClassName() + ".");
 #else
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Method of " + strFunctionName.GetSTLString() + " not found in class " + m_pClass->GetInternClass()->GetClassName().GetSTLString() + ".");
@@ -160,7 +160,7 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 	return ivResult;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue & IrisObject::GetInstanceValue(const string & strInstanceValueName, bool & bResult) {
 #else
 const IrisValue & IrisObject::GetInstanceValue(const IrisInternString & strInstanceValueName, bool & bResult) {
@@ -178,7 +178,7 @@ const IrisValue & IrisObject::GetInstanceValue(const IrisInternString & strInsta
 	return ivResult;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisMethod * IrisObject::GetInstanceMethod(const string & strInstanceMethodName)
 #else
 IrisMethod * IrisObject::GetInstanceMethod(const IrisInternString & strInstanceMethodName)
@@ -194,7 +194,7 @@ IrisMethod * IrisObject::GetInstanceMethod(const IrisInternString & strInstanceM
 	return iVariable->second;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisObject::AddInstanceValue(const string & strInstanceValueName, const IrisValue & ivValue) {
 #else
 void IrisObject::AddInstanceValue(const IrisInternString & strInstanceValueName, const IrisValue & ivValue) {

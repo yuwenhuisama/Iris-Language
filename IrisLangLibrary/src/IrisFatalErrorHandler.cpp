@@ -1,3 +1,5 @@
+#include "IrisCompileConfigure.h"
+
 #include "IrisFatalErrorHandler.h"
 #include "IrisCompiler.h"
 #include "IrisInterpreter.h"
@@ -35,7 +37,7 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t n
 	ssStream << nLineNumber;
 	string strLinenoMessage = "";
 	if (nLineNumber > 0) {
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 		strLinenoMessage = ">and happened at line " + ssStream.str() + " file " + IrisCompiler::CurrentCompiler()->GetFileName(nBelongingFileIndex) + ".\n";
 #else
 		strLinenoMessage = ">and happened at line " + ssStream.str() + " file " + IrisCompiler::CurrentCompiler()->GetFileName(nBelongingFileIndex).GetSTLString() + ".\n";

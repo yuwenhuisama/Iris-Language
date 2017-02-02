@@ -24,7 +24,7 @@ IrisValue IrisObjectBase::ToString(IrisValue & ivObj, IIrisValues * ivsValues, I
 }
 
 IrisValue IrisObjectBase::Equal(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	const IrisValue& ivDestObj = ivsValues->GetValue(0);
+	const IrisValue& ivDestObj = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (ivObj == ivDestObj) {
 		return IrisDevUtil::True();
 	}
@@ -44,7 +44,7 @@ IrisValue IrisObjectBase::NotEqual(IrisValue & ivObj, IIrisValues * ivsValues, I
 }
 
 IrisValue IrisObjectBase::LogicOr(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisValue& ivDest = (IrisValue&)ivsValues->GetValue(0);
+	IrisValue& ivDest = (IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	// 左右两边只要有一个不为nil或false那么就为true
 	if (ivObj != IrisDevUtil::False() && ivObj != IrisDevUtil::Nil()) {
 		return IrisDevUtil::True();
@@ -58,7 +58,7 @@ IrisValue IrisObjectBase::LogicOr(IrisValue & ivObj, IIrisValues * ivsValues, II
 }
 
 IrisValue IrisObjectBase::LogicAnd(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisValue& ivDest = (IrisValue&)ivsValues->GetValue(0);
+	IrisValue& ivDest = (IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	// 左右两边只要有一个为nil或false那么就为false
 	if (ivObj == IrisDevUtil::False() || ivObj == IrisDevUtil::Nil()) {
 		return IrisDevUtil::False();

@@ -6,7 +6,7 @@
 #include <vector>
 using namespace std;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisArrayTag : public IrisObjectMemoryPoolInterface<IrisArrayTag, POOLID_IrisArrayTag>
 #else
 class IrisArrayTag

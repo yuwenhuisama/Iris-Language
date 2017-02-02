@@ -3,7 +3,7 @@
 
 #include "IrisDevHeader.h"
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisModuleBaseTag : public IrisObjectMemoryPoolInterface<IrisModuleBaseTag, POOLID_IrisModuleBaseTag>
 #else
 class IrisModuleBaseTag

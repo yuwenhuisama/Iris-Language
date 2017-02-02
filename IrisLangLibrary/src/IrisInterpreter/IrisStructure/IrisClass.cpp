@@ -66,7 +66,7 @@ bool IrisClass::_FunctionAchieved() {
 	return true;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClass::_SearchModuleConstance(SearchVariableType eType, const string& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
 #else
 void IrisClass::_SearchModuleConstance(SearchVariableType eType, const IrisInternString& strVariableName, IrisModule* pCurModule, IrisValue** pValue) {
@@ -99,7 +99,7 @@ void IrisClass::_SearchModuleConstance(SearchVariableType eType, const IrisInter
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClass::SearchConstance(const string& strConstName, bool& bResult) {
 #else
 const IrisValue& IrisClass::SearchConstance(const IrisInternString& strConstName, bool& bResult) {
@@ -164,7 +164,7 @@ void IrisClass::AddModule(IrisModule* pModule) {
 	m_iwlModuleAddingWLLock.WriteUnlock();
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue& IrisClass::SearchClassVariable(const string& strClassVariableName, bool& bResult) {
 #else
 const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult) {
@@ -213,7 +213,7 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	if (!m_bIsCompleteClass){
 		if (!(m_bIsCompleteClass = _FunctionAchieved())) {
 			// **Error**
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.");
 #else
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.");
@@ -230,7 +230,7 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 		IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap.insert(pObject);
 	}
 	if (IsObjectClass()) {
-		pObject->SetNativeObject(this);
+		pObject->SetNativeObject(m_pExternClass->NativeAlloc());
 		IrisGC::CurrentGC()->AddSize(sizeof(IrisObject));
 	}
 	else {
@@ -251,7 +251,7 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	return ivValue;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClass::_ClassModuleMethodSearch(IrisClass* pCurClass, const string& strMethodName, IrisMethod** ppMethod) {
 #else
 void IrisClass::_ClassModuleMethodSearch(IrisClass* pCurClass, const IrisInternString& strMethodName, IrisMethod** ppMethod) {
@@ -264,7 +264,7 @@ void IrisClass::_ClassModuleMethodSearch(IrisClass* pCurClass, const IrisInternS
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClass::_ModuleMethodSearch(const string& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
 #else
 void IrisClass::_ModuleMethodSearch(const IrisInternString& strFunctionName, IrisModule* pCurModule, IrisMethod** ppMethod) {
@@ -294,7 +294,7 @@ void IrisClass::_ModuleMethodSearch(const IrisInternString& strFunctionName, Iri
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisMethod* IrisClass::GetMethod(const string& strMethodName, bool& bIsCurClassMethod) {
 #else
 IrisMethod* IrisClass::GetMethod(const IrisInternString& strMethodName, bool& bIsCurClassMethod) {
@@ -345,7 +345,7 @@ IrisMethod* IrisClass::GetMethod(const IrisInternString& strMethodName, bool& bI
 	return nullptr;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisClass::IrisClass(const string& strClassName, IrisClass* pSuperClass, IrisModule* pUpperModule, IIrisClass* pExternClass) : m_strClassName(strClassName), m_pSuperClass(pSuperClass), m_pUpperModule(pUpperModule), m_pExternClass(pExternClass) {
 #else
 IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClass, IrisModule* pUpperModule, IIrisClass* pExternClass) : m_strClassName(strClassName), m_pSuperClass(pSuperClass), m_pUpperModule(pUpperModule), m_pExternClass(pExternClass) {
@@ -375,7 +375,7 @@ IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClas
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
 #else
 IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
@@ -395,7 +395,7 @@ void IrisClass::ResetAllMethodsObject() {
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 IrisMethod* IrisClass::GetCurrentClassMethod(const string& strMethodName) {
 #else
 IrisMethod* IrisClass::GetCurrentClassMethod(const IrisInternString& strMethodName) {
@@ -413,7 +413,7 @@ IrisMethod* IrisClass::GetCurrentClassMethod(const IrisInternString& strMethodNa
 	return pResultMethod;
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue & IrisClass::GetCurrentClassClassVariable(const string & strVariableName, bool & bResult)
 #else
 const IrisValue & IrisClass::GetCurrentClassClassVariable(const IrisInternString & strVariableName, bool & bResult)
@@ -434,7 +434,7 @@ const IrisValue & IrisClass::GetCurrentClassClassVariable(const IrisInternString
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 const IrisValue & IrisClass::GetCurrentClassConstance(const string & strConstanceName, bool & bResult)
 #else
 const IrisValue & IrisClass::GetCurrentClassConstance(const IrisInternString & strConstanceName, bool & bResult)
@@ -455,7 +455,7 @@ const IrisValue & IrisClass::GetCurrentClassConstance(const IrisInternString & s
 	}
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClass::AddSetter(const string& strProperName, IrisNativeFunction pfMethod) {
 	string strMethodName = strProperName;
 #else
@@ -479,7 +479,7 @@ void IrisClass::AddSetter(const IrisInternString& strProperName, IrisNativeFunct
 	m_iwlInstanceMethodWLLock.WriteUnlock();
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 void IrisClass::AddGetter(const string& strProperName, IrisNativeFunction pfMethod) {
 	string strMethodName = strProperName;
 #else
@@ -523,7 +523,7 @@ void IrisClass::ResetNativeObject() {
 }
 
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
  void IrisClass::AddConstance(const string& strConstName, const IrisValue& ivInitialValue) {
 #else
  void IrisClass::AddConstance(const IrisInternString& strConstName, const IrisValue& ivInitialValue) {
@@ -550,7 +550,7 @@ void IrisClass::ResetNativeObject() {
 	m_iwlInstanceMethodWLLock.WriteUnlock();
 }
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
  void IrisClass::AddClassVariable(const string& strClassVariableName) {
 #else
  void IrisClass::AddClassVariable(const IrisInternString& strClassVariableName) {
@@ -559,7 +559,7 @@ void IrisClass::ResetNativeObject() {
 	m_hsClassVariables.insert(_VariablePair(strClassVariableName, IrisInterpreter::CurrentInterpreter()->Nil()));
 	m_iwlClassClassVariableWLLock.WriteUnlock();
 }
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
  void IrisClass::AddClassVariable(const string& strClassVariableName, const IrisValue& ivInitialValue) {
 #else
  void IrisClass::AddClassVariable(const IrisInternString& strClassVariableName, const IrisValue& ivInitialValue) {

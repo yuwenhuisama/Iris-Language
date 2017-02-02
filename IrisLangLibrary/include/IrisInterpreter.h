@@ -1,6 +1,8 @@
 #ifndef _H_IRISINTERPRETER_
 #define _H_IRISINTERPRETER_
 
+#include "IrisCompileConfigure.h"
+
 #include "IrisComponents/IrisVirtualCodeStructures.h"
 #include "IrisUnil/IrisValue.h"
 #include "IrisUnil/IrisTree.h"
@@ -38,7 +40,7 @@ class IrisInterpreter
 {
 private:
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef unordered_map<string, IrisValue> _ValueMap;
 	typedef pair<string, IrisValue> _ValuePair;
 	typedef unordered_map<string, IrisMethod*> _MethodMap;
@@ -118,9 +120,9 @@ private:
 
 private:
 	IrisInterpreter();
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	int _Split(const string& str, list<string>& ret_, string sep = ",");
-	int _Split(const string& str, list<string>& ret_, string sep = ",");
+	IrisModule* _GetLastModuleFromPath(const list<string>& lsPath);
 #else
 	int _Split(const string& str, list<IrisInternString>& ret_, string sep = ",");
 	IrisModule* _GetLastModuleFromPath(const list<IrisInternString>& lsPath);
@@ -138,7 +140,7 @@ public:
 	IrisModule* GetIrisModule(const string& strModuleFullFiledName);
 	IrisInterface* GetIrisInterface(const string& strInterfaceFullFiledName);
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	IrisClass* GetIrisClass(const list<string>& lsRoute);
 	IrisModule* GetIrisModule(const list<string>& lsRoute);
 	IrisInterface* GetIrisInterface(const list<string>& lsRoute);
@@ -152,7 +154,7 @@ public:
 	bool RegistModule(const string& strModuleFullFieldName, IIrisModule* pModule, bool bNative = true);
 	bool RegistInterface(const string& strInterfaceFullFieldName, IIrisInterface* pInterface, bool bNative = true);
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	bool RegistClass(list<string>& lsPath, IIrisClass* pClass, bool bNative = true);
 	bool RegistModule(list<string>& lsPath, IIrisModule* pModule, bool bNative = true);
 	bool RegistInterface(list<string>& lsPath, IIrisInterface* pInterface, bool bNative = true);
@@ -284,7 +286,7 @@ public:
 		return IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister;
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline void AddConstance(const string& strValueName, const IrisValue& ivValue) {
 #else
 	inline void AddConstance(const IrisInternString& strValueName, const IrisValue& ivValue) {
@@ -298,7 +300,7 @@ public:
 		m_iwlConstanceLock.WriteUnlock();
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline void AddGlobalValue(const string& strValueName, const IrisValue& ivValue) {
 #else
 	inline void AddGlobalValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
@@ -308,7 +310,7 @@ public:
 		m_iwlGlobalVariableLock.WriteUnlock();
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline void AddOtherValue(const string& strValueName, const IrisValue& ivValue) {
 #else
 	inline void AddOtherValue(const IrisInternString& strValueName, const IrisValue& ivValue) {
@@ -318,7 +320,7 @@ public:
 		m_iwlOtherVariableLock.WriteUnlock();
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const IrisValue& GetConstance(const string& strValueName, bool& bResult) {
 #else
 	inline const IrisValue& GetConstance(const IrisInternString& strValueName, bool& bResult) {
@@ -338,7 +340,7 @@ public:
 		}
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const IrisValue& GetGlobalValue(const string& strValueName, bool& bResult) {
 #else
 	inline const IrisValue& GetGlobalValue(const IrisInternString& strValueName, bool& bResult) {
@@ -358,7 +360,7 @@ public:
 		}
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline const IrisValue& GetOtherValue(const string& strValueName, bool& bResult) {
 #else
 	inline const IrisValue& GetOtherValue(const IrisInternString& strValueName, bool& bResult) {
@@ -378,13 +380,13 @@ public:
 		}
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline IrisMethod* GetMainMethod(const string& strMethodName);
 #else
 	inline IrisMethod* GetMainMethod(const IrisInternString& strMethodName);
 #endif // IR_USE_STL_STRING
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	inline void AddMainMethod(const string& strMethodName, IrisMethod* pMethod);
 #else
 	inline void AddMainMethod(const IrisInternString& strMethodName, IrisMethod* pMethod);
@@ -400,7 +402,7 @@ public:
 	// -------------- Instructors --------------
 
 private:
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName);
 #else
 	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName);

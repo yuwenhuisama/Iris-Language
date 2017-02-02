@@ -1,6 +1,8 @@
 #ifndef _H_IRISCLOSUREBLOCK_
 #define _H_IRISCLOSUREBLOCK_
 
+#include "../../IrisCompileConfigure.h"
+
 #include "IrisUnil/IrisValue.h"
 #include "IrisUnil/IrisList.h"
 #include "IrisComponents/IrisVirtualCodeStructures.h"
@@ -27,7 +29,7 @@ class IrisObject;
 class IrisIdentifier;
 class IrisStatement;
 class IrisContextEnvironment;
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisClosureBlock : public IIrisClosureBlock, public IrisObjectMemoryPoolInterface<IrisClosureBlock, POOLID_IrisClosureBlock>
 #else
 class IrisClosureBlock : public IIrisClosureBlock
@@ -39,7 +41,7 @@ private:
 	IrisContextEnvironment* m_pUpperContextEnvironment = nullptr;
 	IrisObject* m_pNativeObject = nullptr;
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	list<string> m_lsParameters;
 #else
 	list<IrisInternString> m_lsParameters;
@@ -48,7 +50,7 @@ private:
 	IrisCodeSegment m_icsCodes;
 
 private:
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	typedef unordered_map<string, IrisValue> _VariableMap;
 	typedef pair<string, IrisValue> _VariablePair;
 #else
@@ -69,7 +71,7 @@ public:
 		return m_pCurContextEnvironment;
 	}
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	const IrisValue& GetLocalVariable(const string& strVariableName, bool& bResult);
 	const IrisValue& GetInstanceVariable(const string& strVariableName, bool& bResult);
 	const IrisValue& GetClassVariable(const string& strVariableName, bool& bResult);
@@ -91,7 +93,7 @@ public:
 
 	IrisValue Excute(IIrisValues* pValues);
 
-#ifdef IR_USE_STL_STRING
+#if IR_USE_STL_STRING
 	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
 #else
 	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);

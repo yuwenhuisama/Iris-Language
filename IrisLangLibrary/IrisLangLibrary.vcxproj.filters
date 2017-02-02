@@ -450,6 +450,15 @@
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\IrisCompileConfigure.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForCpp.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForC.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp">
@@ -803,9 +812,6 @@
     <ClCompile Include="src\IrisUnil\IrisValue.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="src\IrisLangLibrary.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="src\dllmain.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -816,6 +822,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregular.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\IrisExportAPIs\IrisExportForCpp.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\IrisExportAPIs\IrisExportForC.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

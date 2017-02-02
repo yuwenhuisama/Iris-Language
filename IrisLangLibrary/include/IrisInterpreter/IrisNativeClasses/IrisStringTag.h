@@ -5,7 +5,7 @@
 #include <string>
 using namespace std;
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisStringTag : public IrisObjectMemoryPoolInterface<IrisStringTag, POOLID_IrisStringTag>
 #else
 class IrisStringTag

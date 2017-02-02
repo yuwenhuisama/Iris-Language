@@ -3,7 +3,7 @@
 
 
 IrisValue IrisRangeIterator::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisRangeTag* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(ivsValues->GetValue(0));
+	IrisRangeTag* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	IrisRangeIteratorTag* pRangeIter = IrisDevUtil::GetNativePointer<IrisRangeIteratorTag*>(ivObj);
 	pRangeIter->Initialize(pRange);
 	return ivObj;

@@ -8,7 +8,7 @@ IrisValue IrisGCModule::ForceStart(IrisValue & ivObj, IIrisValues * ivsValues, I
 }
 
 IrisValue IrisGCModule::SetFlag(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	const IrisValue& ivFlag = ivsValues->GetValue(0);
+	const IrisValue& ivFlag = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	IrisGC::CurrentGC()->SetGCFlag(ivFlag == IrisInterpreter::CurrentInterpreter()->True() ? true : false);
 	return IrisInterpreter::CurrentInterpreter()->Nil();;
 }

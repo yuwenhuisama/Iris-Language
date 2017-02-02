@@ -5,9 +5,9 @@ IrisValue IrisInteger::CmpOperation(Operation eOperationType, IrisValue & ivObj,
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	bool bResult = false;
 	// 如果右边为Float，则转化为Float之间的运算
-	if (IrisDevUtil::CheckClassIsFloat(ivsValues->GetValue(0))) {
+	if (IrisDevUtil::CheckClassIsFloat(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
 		// 获取被加数
-		IrisFloatTag* pRightFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(ivsValues->GetValue(0));
+		IrisFloatTag* pRightFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 将当前对象转换为Float
 		IrisFloatTag& iftLeftFloat = static_cast<IrisFloatTag>(*pInteger);
 		// 执行运算并保存数据
@@ -36,12 +36,12 @@ IrisValue IrisInteger::CmpOperation(Operation eOperationType, IrisValue & ivObj,
 		}
 	}
 	else {
-		if (!IrisDevUtil::CheckClassIsInteger(ivsValues->GetValue(0))) {
+		if (!IrisDevUtil::CheckClassIsInteger(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
 			IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
 			return IrisDevUtil::Nil();
 		}
 		// 获取被加数
-		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivsValues->GetValue(0));
+		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 执行并保存数据
 		switch (eOperationType)
 		{
@@ -79,9 +79,9 @@ IrisValue IrisInteger::CastOperation(Operation eOperationType, IrisValue & ivObj
 	IrisValue ivValue;
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	// 如果右边为Float，则转化为Float之间的运算
-	if (IrisDevUtil::CheckClassIsFloat(ivsValues->GetValue(0))) {
+	if (IrisDevUtil::CheckClassIsFloat(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
 		// 获取被加数
-		IrisFloatTag* pRightFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(ivsValues->GetValue(0));
+		IrisFloatTag* pRightFloat = IrisDevUtil::GetNativePointer<IrisFloatTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 将当前对象转换为Float
 		IrisFloatTag& iftLeftFloat = static_cast<IrisFloatTag>(*pInteger);
 		if (eOperationType != Operation::Mod) {
@@ -122,7 +122,7 @@ IrisValue IrisInteger::CastOperation(Operation eOperationType, IrisValue & ivObj
 	}
 	else {
 		// 获取被加数
-		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)ivsValues->GetValue(0));
+		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
 		// 新建临时Integer对象作为结果
 		//ivValue = IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Integer"), nullptr, pContextEnvironment);
 		ivValue = IrisDevUtil::CreateInt(0);
@@ -160,7 +160,7 @@ IrisValue IrisInteger::Operate(Operation eOperationType, IrisValue & ivObj, IIri
 	IrisValue ivValue;
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	// 获取Right
-	IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)ivsValues->GetValue(0));
+	IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	// 新建临时Integer对象作为结果
 	//ivValue = IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Integer"), nullptr, pContextEnvironment);
 	ivValue = IrisDevUtil::CreateInt(0);

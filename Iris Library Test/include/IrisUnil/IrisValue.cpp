@@ -11,6 +11,6 @@ IrisValue IrisValue::WrapObjectPointerToIrisValue(IIrisObject * pObjectPointer) 
 	return ivValue;
 }
 
-void * IrisValue::GetInstanceNativePointer() const {
-	return m_pObject->GetNativeObject();
-}
+//void * IrisValue::GetInstanceNativePointer() const {
+//	return m_pObject->GetNativeObject();
+//}

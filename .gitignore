@@ -212,4 +212,4 @@ _Pvt_Extensions/
 ModelManifest.xml
 
 *.opendb
-*.db
+Iris.VC.db

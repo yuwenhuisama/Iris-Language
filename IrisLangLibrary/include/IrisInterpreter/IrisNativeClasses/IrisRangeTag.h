@@ -4,7 +4,7 @@
 #include "IrisComponents/IrisComponentsDefines.h"
 #include "IrisDevHeader.h"
 
-#ifdef IR_USE_MEM_POOL
+#if IR_USE_MEM_POOL
 class IrisRangeTag : public IrisObjectMemoryPoolInterface<IrisRangeTag, POOLID_IrisRangeTag>
 #else
 class IrisRangeTag
