@@ -67,6 +67,32 @@ int IrisArrayTag::Size() {
 	return m_vcValues.size();
 }
 
+bool IrisArrayTag::Empty() {
+	return m_vcValues.empty();
+}
+
+int IrisArrayTag::IndexOf(IrisValue & pRef) {
+	int i = 0;
+	for (auto element : this->m_vcValues) {
+		if (pRef == element) return i;
+		i++;
+	}
+	return -1;
+}
+
+bool IrisArrayTag::Include(IrisValue& pRef) {
+	for (auto element : this->m_vcValues) {
+		if (pRef == element) return true;
+	}
+	return false;
+}
+
+IrisArrayTag & IrisArrayTag::Merge(IrisArrayTag& aRef) {
+	m_vcValues.reserve(m_vcValues.size() + aRef.m_vcValues.size());
+	m_vcValues.insert(m_vcValues.end(), aRef.m_vcValues.begin(), aRef.m_vcValues.end());
+	return *this;
+}
+
 IrisArrayTag::~IrisArrayTag()
 {
 }
