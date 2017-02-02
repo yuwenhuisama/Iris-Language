@@ -8,12 +8,13 @@ using namespace std;
 class IrisArrayIteratorTag
 {
 private:
-	vector<IrisValue>::iterator m_iIter;
+	typedef vector<IrisValue>::iterator Iterator;
+	Iterator m_iIter;
 	vector<IrisValue>* m_pArray = nullptr;
 
 public:
 	void Initialize(vector<IrisValue>* pArray);
-	void Next();
+	IrisArrayIteratorTag Next();
 	bool IsEnd();
 	const IrisValue GetValue();
 	const vector<IrisValue>::iterator& GetIter();

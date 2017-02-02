@@ -18,11 +18,53 @@ private:
 public:
 
 	void Initialize(IrisValues* pValues);
+
+	/**
+	 * return the object of index.
+	 */
 	IrisValue At(int nIndex);
+
+	/**
+	 * set an object to index of array
+	 */
 	IrisValue Set(int nIndex, const IrisValue& ivValue);
+	
+	/*
+	 * push an object to the end of this array
+	 */
 	IrisValue Push(const IrisValue& ivValue);
+	/*
+	 * pop the last object 
+	 */
 	IrisValue Pop();
+
+	/*
+	 *  return array size
+	 */
 	int Size();
+
+	/*
+	 * return if is empty array
+	 */
+	bool Empty();
+
+	/**
+	 * return the index of a elemet
+	 * if not exist , return -1
+	 */
+	int IndexOf(IrisValue & aRef);
+
+	/**
+	 * return if an Object exists in this Array
+	 */
+	bool Include(IrisValue & aRef);
+
+	/*
+	 * merge two array
+	 */
+	IrisArrayTag & Merge(IrisArrayTag & aRef);
+
+
 
 	IrisArrayTag();
 	~IrisArrayTag();
