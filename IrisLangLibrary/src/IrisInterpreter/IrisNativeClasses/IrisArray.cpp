@@ -148,22 +148,22 @@ IrisValue IrisArray::Empty(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues
 
 IrisValue IrisArray::IndexOf(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 	auto object = IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj);
-	IrisValue& ref = const_cast<IrisValue&>(ivsValues->GetValue(0));
+	IrisValue& ref = const_cast<IrisValue&>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	int index = object->IndexOf(ref);
 	return IrisDevUtil::CreateInt(index);
 }
 
 IrisValue IrisArray::Include(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 	auto object = IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj);
-	IrisValue& ref = const_cast<IrisValue&>(ivsValues->GetValue(0));
+	IrisValue& ref = const_cast<IrisValue&>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	return IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj)->Include(ref) ? IrisDevUtil::True() : IrisDevUtil::False();
 }
 
 IrisValue IrisArray::Merge(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 	auto object = IrisDevUtil::GetNativePointer<IrisArrayTag*>(ivObj);
-	IrisValue& ref = const_cast<IrisValue&>(ivsValues->GetValue(0));
+	IrisValue& ref = const_cast<IrisValue&>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	auto another = IrisDevUtil::GetNativePointer<IrisArrayTag*>(ref);
-	if (ref == IrisDev_Nil()) return IrisDev_Nil();
+	if (ref == IrisDevUtil::Nil()) return IrisDevUtil::Nil();
 	object->Merge(*another);
 	return ivObj;
 }
