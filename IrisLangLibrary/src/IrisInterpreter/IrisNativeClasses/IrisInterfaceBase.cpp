@@ -1,7 +1,6 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisInterfaceBase.h"
 
 
-
 IrisValue IrisInterfaceBase::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	return ivObj;
 }

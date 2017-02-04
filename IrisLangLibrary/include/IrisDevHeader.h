@@ -29,4 +29,6 @@
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"
 
+#include "IrisCompileConfigure.h"
+
 #endif

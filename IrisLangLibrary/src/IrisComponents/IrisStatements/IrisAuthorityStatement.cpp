@@ -4,10 +4,9 @@
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
 
-IrisAuthorityStatement::IrisAuthorityStatement(IrisAuthorityEnvironment eEnv, IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName) : m_eEnvironment(eEnv), m_eTarget(eTar), m_eType(eType), m_pMethodName(pMethodName)
+IrisAuthorityStatement::IrisAuthorityStatement(IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName) : m_eTarget(eTar), m_eType(eType), m_pMethodName(pMethodName)
 {
 }
-
 
 bool IrisAuthorityStatement::Generate()
 {
@@ -23,6 +22,11 @@ bool IrisAuthorityStatement::Generate()
 	pMaker->set_auth(pCompiler->GetIdentifierIndex(m_pMethodName->GetIdentifierString(), pCompiler->GetCurrentFileIndex()), (IR_BYTE)m_eEnvironment, (IR_BYTE)m_eType, (IR_BYTE)m_eType);
 
 	return true;
+}
+
+void IrisAuthorityStatement::SetAuthorityEnvironment(IrisAuthorityEnvironment eEnv)
+{
+	m_eEnvironment = eEnv;
 }
 
 IrisAuthorityStatement::~IrisAuthorityStatement()

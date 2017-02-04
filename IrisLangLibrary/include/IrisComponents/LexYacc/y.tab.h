@@ -250,7 +250,7 @@ extern int yydebug;
 typedef union YYSTYPE
 {
 /* Line 2058 of yacc.c  */
-#line 28 "iris.y"
+#line 26 "iris.y"
 
 	IrisIdentifier* m_pIdentifier = nullptr;
 	IrisList<IrisIdentifier*>* m_pIdentifierList;

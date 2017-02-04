@@ -14,22 +14,23 @@ public:
 	// Define native initialize method of this class
 	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 		// Get native pointer
-		auto pPointerTag = IrisDev_GetNativePointer<IrisPointerTag*>(ivObj);
+		auto pPointerTag = IrisDev::GetNativePointer<IrisPointerTag*>(ivObj);
 
 		// Get parameter
-		auto& ivLength = ivsValues->GetValue(0);
+		auto& ivLength = IrisDev::GetValue(ivsValues, 0);
 
 		// Type check - well, it is supposed that you use type checking when you are developing a extension that will not only be uesed by yourself.
-		if (!IrisDev_CheckClass(ivLength, "Integer")) {
+		if (!IrisDev::CheckClass(ivLength, "Integer")) {
 			// If parameter get is no an integer, groan an Irregular.
-			IrisDev_GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
-			return IrisDev_Nil();
+			IrisDev::GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
+			return IrisDev::Nil();
 		}
 
 		// Get Integer Object's native int value
-		int nLength = IrisDev_GetInt(ivLength);
+		int nLength = IrisDev::GetInt(ivLength);
 
 		// Do initialize
+		//IrisDev::addins(ivObj, "@length", IrisDev::CreateIntegerInstanceByInstantValue(nLength))
 		ivObj.GetIrisObject()->AddInstanceValue("@length", IrisDev_CreateIntegerInstanceByInstantValue(nLength));
 		pPointerTag->Initialize(nLength);
 
@@ -37,49 +38,49 @@ public:
 	}
 
 	static IrisValue Get(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		auto& ivPoint = ivsValues->GetValue(0);
-		auto& ivLength = ivsValues->GetValue(1);
+		auto& ivPoint = IrisDev::GetValue(ivsValues, 0);
+		auto& ivLength = IrisDev::GetValue(ivsValues, 1);
 
-		if (!IrisDev_CheckClass(ivPoint, "Integer")) {
-			IrisDev_GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
-			return IrisDev_Nil();
+		if (!IrisDev::CheckClass(ivPoint, "Integer")) {
+			IrisDev::GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
+			return IrisDev::Nil();
 		}
 
-		if (!IrisDev_CheckClass(ivLength, "Integer")) {
-			IrisDev_GroanIrregularWithString("Invaild parameter 2 : it must be a String or a Integer.");
-			return IrisDev_Nil();
+		if (!IrisDev::CheckClass(ivLength, "Integer")) {
+			IrisDev::GroanIrregularWithString("Invaild parameter 2 : it must be a String or a Integer.");
+			return IrisDev::Nil();
 		}
 
-		auto pPointer = IrisDev_GetNativePointer<IrisPointerTag*>(ivObj);
-		int nPoint = IrisDev_GetInt(ivPoint);
-		int nLength = IrisDev_GetInt(ivLength);
+		auto pPointer = IrisDev::GetNativePointer<IrisPointerTag*>(ivObj);
+		int nPoint = IrisDev::GetInt(ivPoint);
+		int nLength = IrisDev::GetInt(ivLength);
 		string strResult;
 		if (!pPointer->Get(nPoint, nLength, strResult)) {
-			return IrisDev_False();
+			return IrisDev::False();
 		}
 
-		return IrisDev_CreateStringInstanceByInstantValue(strResult.c_str());
+		return IrisDev::CreateStringInstanceByInstantValue(strResult.c_str());
 	}
 
 	static IrisValue Set(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		auto& ivPoint = ivsValues->GetValue(0);
-		auto& ivDataString = ivsValues->GetValue(1);
+		auto& ivPoint = IrisDev::GetValue(ivsValues, 0);
+		auto& ivDataString = IrisDev::GetValue(ivsValues, 1);
 
-		if (!IrisDev_CheckClass(ivPoint, "Integer")) {
-			IrisDev_GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
-			return IrisDev_Nil();
+		if (!IrisDev::CheckClass(ivPoint, "Integer")) {
+			IrisDev::GroanIrregularWithString("Invaild parameter 1 : it must be an Integer.");
+			return IrisDev::Nil();
 		}
 
-		if (!IrisDev_CheckClass(ivDataString, "String") && !IrisDev_CheckClass(ivDataString, "UniqueString")) {
-			IrisDev_GroanIrregularWithString("Invaild parameter 2 : it must be a String or a UniqueString.");
-			return IrisDev_Nil();
+		if (!IrisDev::CheckClass(ivDataString, "String") && !IrisDev::CheckClass(ivDataString, "UniqueString")) {
+			IrisDev::GroanIrregularWithString("Invaild parameter 2 : it must be a String or a UniqueString.");
+			return IrisDev::Nil();
 		}
 
-		auto pPointer = IrisDev_GetNativePointer<IrisPointerTag*>(ivObj);
-		int nPoint = IrisDev_GetInt(ivPoint);
-		const string& strData = IrisDev_GetString(ivDataString);
+		auto pPointer = IrisDev::GetNativePointer<IrisPointerTag*>(ivObj);
+		int nPoint = IrisDev::GetInt(ivPoint);
+		const string& strData = IrisDev::GetString(ivDataString);
 
-		return pPointer->Set(nPoint, strData.c_str(), strData.size()) ? IrisDev_True() : IrisDev_False();
+		return pPointer->Set(nPoint, strData.c_str(), strData.size()) ? IrisDev::True() : IrisDev::False();
 	}
 
 	static IrisValue GetLength(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
@@ -95,7 +96,7 @@ public:
 	}
 
 	IIrisClass* NativeSuperClassDefine() const {
-		return IrisDev_GetClass("Object");
+		return IrisDev::GetClass("Object");
 	}
 
 	// Overwrite virtual method GetTrustteeSize: To tell Iris how much memory has been malloced (GC will use this information).
@@ -115,10 +116,10 @@ public:
 
 	// Overwrite virtual method NativeClassDefine : To add instance method/class method/getter/setter and others into this class.
 	void NativeClassDefine() {
-		IrisDev_AddInstanceMethod(this, "__format", InitializeFunction, 1, false);
-		IrisDev_AddInstanceMethod(this, "get_data", Get, 2, false);
-		IrisDev_AddInstanceMethod(this, "set_data", Set, 2, false);
-		IrisDev_AddGetter(this, "@length", GetLength);
+		IrisDev::AddInstanceMethod(this, "__format", InitializeFunction, 1, false);
+		IrisDev::AddInstanceMethod(this, "get_data", Get, 2, false);
+		IrisDev::AddInstanceMethod(this, "set_data", Set, 2, false);
+		IrisDev::AddGetter(this, "@length", GetLength);
 	}
 
 	IrisPointer();

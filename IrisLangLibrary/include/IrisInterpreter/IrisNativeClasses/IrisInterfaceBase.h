@@ -3,7 +3,6 @@
 
 #include "IrisDevHeader.h"
 #include "IrisInterfaceBaseTag.h"
-#include "IrisString.h"
 
 class IrisInterfaceBase : public IIrisClass
 {

@@ -18,7 +18,9 @@ public:
 
 	virtual bool Generate();
 
-	IrisAuthorityStatement(IrisAuthorityEnvironment eEnv, IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName);
+	void SetAuthorityEnvironment(IrisAuthorityEnvironment eEnv);
+
+	IrisAuthorityStatement(IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName);
 	virtual ~IrisAuthorityStatement();
 };
 

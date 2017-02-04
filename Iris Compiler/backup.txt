@@ -1,8 +1,0 @@
-/*
-<INITIAL>. {
-	// ´íÎó´¦Àí
-	//IrisCompiler::CurrentCompiler()->GroanIrregular(IrisCompiler::CurrentCompiler()->GetCurrentLineNumber(), new IrisSyntaxIrregular());
-	//IrisCompiler::CurrentCompiler()->GroanFatalIrregular(IrisCompiler::FatalIrregular::SyntaxIrregular, IrisCompiler::CurrentCompiler()->GetCurrentLineNumber(), "");
-	IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType::SyntaxIrregular, IrisCompiler::CurrentCompiler()->GetCurrentLineNumber(), IrisCompiler::CurrentCompiler()->GetCurrentFileName(), "");
-}
-*/
