@@ -32,11 +32,12 @@ enum class IrisAMType {
 	InstanceValue,
 	LocalValue,
 	MemberValue,
-	SelfMemberValue,
+	//SelfMemberValue,
 	IndexValue,
 	RegistValue,
 	Identifier,
 	Extends,
+	CastValue,
 };
 
 struct IrisVirtualCode {				// IrisĞéÄâ»úÖ¸Áî

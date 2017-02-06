@@ -13,6 +13,7 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisClassBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisModuleBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisInterfaceBase.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisClosureBlockBase.h"
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 
 #include <string>
@@ -389,6 +390,24 @@ namespace IrisDevUtil {
 		pObject->SetClass(pClass);
 		IrisIntegerTag* pInteger = new IrisIntegerTag(nInteger);
 		pObject->SetNativeObject(pInteger);
+		ivValue.SetIrisObject(pObject);
+
+		IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));
+		IrisGC::CurrentGC()->Start();
+
+		// 将新对象保存到堆里
+		IrisInterpreter::CurrentInterpreter()->AddNewInstanceToHeap(ivValue);
+		return ivValue;
+	}
+
+	IrisValue CreateInstanceByInstantValue(IIrisClosureBlock * pBlock)
+	{
+		auto pClass = INNER_CLASS_GET_POINTER(Block);
+		IrisValue ivValue;
+		IrisObject* pObject = new IrisObject();
+		pObject->SetClass(pClass);
+		IrisClosureBlockBaseTag *pClosureBlock = new IrisClosureBlockBaseTag(pBlock);
+		pObject->SetNativeObject(pClosureBlock);
 		ivValue.SetIrisObject(pObject);
 
 		IrisGC::CurrentGC()->AddSize(sizeof(IrisObject) + pObject->GetClass()->GetTrustteeSize(pObject->GetNativeObject()));

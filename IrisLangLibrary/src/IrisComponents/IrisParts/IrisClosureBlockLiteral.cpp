@@ -22,7 +22,12 @@ bool IrisClosureBlockLiteral::Generate()
 	}
 
 	pCompiler->IncreamDefineIndex();
-	pMaker->cblk_def(lsParameters, pCompiler->GetDefineIndex());
+	if (!m_pVariableParameter) {
+		pMaker->cblk_def(lsParameters, -1, pCompiler->GetDefineIndex());
+	}
+	else {
+		pMaker->cblk_def(lsParameters, pCompiler->GetIdentifierIndex(m_pVariableParameter->GetIdentifierString(), pCompiler->GetCurrentFileIndex()), pCompiler->GetDefineIndex());
+	}
 
 	if(m_pStatements) {
 		if(!m_pStatements->Ergodic(
@@ -41,7 +46,8 @@ bool IrisClosureBlockLiteral::Generate()
 	return true;
 }
 
-IrisClosureBlockLiteral::IrisClosureBlockLiteral(IrisList<IrisIdentifier*>* pParameters, IrisList<IrisStatement*>* pStatements) : m_pParameters(pParameters), m_pStatements(pStatements)
+IrisClosureBlockLiteral::IrisClosureBlockLiteral(IrisList<IrisIdentifier*>* pParameters, IrisIdentifier* pVariableParameter, IrisList<IrisStatement*>* pStatements) 
+	: m_pParameters(pParameters), m_pVariableParameter(pVariableParameter), m_pStatements(pStatements)
 {
 }
 
@@ -57,5 +63,8 @@ IrisClosureBlockLiteral::~IrisClosureBlockLiteral()
 		m_pStatements->Ergodic(
 			[](IrisStatement*& pStatement) -> bool { delete pStatement; pStatement = nullptr; return true; }
 		);
+	}
+	if (m_pVariableParameter) {
+		delete m_pVariableParameter;
 	}
 }

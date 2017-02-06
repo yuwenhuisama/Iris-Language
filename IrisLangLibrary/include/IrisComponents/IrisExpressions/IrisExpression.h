@@ -5,7 +5,6 @@ class IrisExpression
 {
 protected:
 	int m_nLineNumber = 0;
-	bool m_bSelfExpressionFlag = false;
 
 public:
 

@@ -6,15 +6,17 @@ IrisValue IrisString::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsVal
 }
 
 IrisValue IrisString::Add(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisValue ivValue;
-	IrisStringTag* pString = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
-	if (!IrisDevUtil::CheckClassIsString(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
+	IrisValue ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
+	
+	if (!IrisDevUtil::CheckClassIsString(ivValue)) {
 		IrisDevUtil::GroanIrregularWithString("String CAN ONLY be added with a String object.");
 		return IrisDevUtil::Nil();
 	}
-	IrisStringTag* pAddedString = IrisDevUtil::GetNativePointer<IrisStringTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0));
-	//ivValue = IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("String"), nullptr, pContextEnvironment);
-	IrisDevUtil::CreateString("");
+
+	IrisStringTag* pString = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
+	IrisStringTag* pAddedString = IrisDevUtil::GetNativePointer<IrisStringTag*>(const_cast<IrisValue&>(static_cast<IrisValues*>(ivsValues)->GetValue(0)));
+
+	ivValue = IrisDevUtil::CreateString("");
 	IrisStringTag* pResultString = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivValue);
 	(*pResultString) = pString->Add(*pAddedString);
 	return ivValue;

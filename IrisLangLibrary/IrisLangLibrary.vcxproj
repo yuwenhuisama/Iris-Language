@@ -80,6 +80,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -116,7 +117,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IRISPROGRAMMINGLANGUAGE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;IRISLANGLIBRARY_EXPORTS;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -141,6 +142,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\IrisComponents\IrisExpressions\IrisCastExpression.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\IrisCompiler.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisArrayExpression.cpp" />
@@ -163,11 +165,10 @@
     <ClCompile Include="src\IrisComponents\IrisParts\IrisHashPair.cpp" />
     <ClCompile Include="src\IrisComponents\IrisParts\IrisSwitchBlock.cpp" />
     <ClCompile Include="src\IrisComponents\IrisParts\IrisWhen.cpp" />
-    <ClCompile Include="src\IrisComponents\IrisSelfExpression.cpp" />
+    <ClCompile Include="src\IrisComponents\IrisExpressions\IrisSelfExpression.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisAuthorityStatement.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisBlockStatement.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisBreakStatement.cpp" />
-    <ClCompile Include="src\IrisComponents\IrisStatements\IrisCastStatement.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisClassStatement.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisConditionIfStatement.cpp" />
     <ClCompile Include="src\IrisComponents\IrisStatements\IrisContinueStatement.cpp" />
@@ -267,6 +268,156 @@
     <ClCompile Include="src\IrisUnil\IrisVirtualCodeFile.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\stdafx.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\IrisCompileConfigure.h" />
+    <ClInclude Include="include\IrisCompiler.h" />
+    <ClInclude Include="include\IrisCompilerDev.h" />
+    <ClInclude Include="include\IrisComponents\IrisComponentsDefines.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisArrayExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisBinaryExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisCastExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisFieldExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisFunctionCallExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisHashExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisIdentifierExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisIndexExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisInstantValueExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisMemberExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisNativeObjectExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisRangeExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisSelfExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisExpressions\IrisUnaryExpression.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisClosureBlockLiteral.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisElseIf.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisFieldIdentifier.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisFunctionHeader.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisHashPair.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisSwitchBlock.h" />
+    <ClInclude Include="include\IrisComponents\IrisParts\IrisWhen.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisAuthorityStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisBlockStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisBreakStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisClassStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisConditionIfStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisContinueStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisForStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisFunctionStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisGetterStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisGroanStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisGSetterStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisInterfaceFunctionStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisInterfaceStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisLoopIfStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisModuleStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisNormalStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisOrderStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisReturnStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisSetterStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisSuperStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisStatements\IrisSwitchStatement.h" />
+    <ClInclude Include="include\IrisComponents\IrisVirtualCodeStructures.h" />
+    <ClInclude Include="include\IrisComponents\LexYacc\unistd.h" />
+    <ClInclude Include="include\IrisComponents\LexYacc\y.tab.h" />
+    <ClInclude Include="include\IrisDevelopUtil.h" />
+    <ClInclude Include="include\IrisDevHeader.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForC.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForCpp.h" />
+    <ClInclude Include="include\IrisExtentionUtil.h" />
+    <ClInclude Include="include\IrisFatalErrorHandler.h" />
+    <ClInclude Include="include\IrisInstructorMaker.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisClass.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisClosureBlock.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisContextEnvironment.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisInterface.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisInterString.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisModule.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisObject.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisValues.h" />
+    <ClInclude Include="include\IrisInterpreter.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisArray.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisArrayIterator.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisArrayIteratorTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisArrayTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisClassBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisClassBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisClosureBlockBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisClosureBlockBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisDummyClass.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisFalseClass.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisFalseClassTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisFloat.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisFloatTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisHash.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisHashIterator.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisHashIteratorTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisHashTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInteger.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIntegerTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisModuleBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisModuleBaseTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisNativeClasses.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisNilClass.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisNilClassTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisObjectBase.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisRange.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisRangeIterator.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisRangeIteratorTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisRangeTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisString.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisStringTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisTrueClass.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisTrueClassTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisUniqueString.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisUniqueStringTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisDummyModule.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisGC.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisGCModule.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisKernel.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisClass.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisClosureBlock.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisContextEnvironment.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisInterface.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisMethod.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisModule.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisStructure\IrisObject.h" />
+    <ClInclude Include="include\IrisLangLibrary.h" />
+    <ClInclude Include="include\IrisThread\IrisConditionVariable.h" />
+    <ClInclude Include="include\IrisThread\IrisConditionVariableTag.h" />
+    <ClInclude Include="include\IrisThread\IrisMutex.h" />
+    <ClInclude Include="include\IrisThread\IrisMutexTag.h" />
+    <ClInclude Include="include\IrisThread\IrisThread.h" />
+    <ClInclude Include="include\IrisThread\IrisThreadManager.h" />
+    <ClInclude Include="include\IrisThread\IrisThreadTag.h" />
+    <ClInclude Include="include\IrisThread\IrisThreadUtil.h" />
+    <ClInclude Include="include\IrisThread\IrisWLLock.h" />
+    <ClInclude Include="include\IrisUnil\IrisBlock.h" />
+    <ClInclude Include="include\IrisUnil\IrisCodeSegment.h" />
+    <ClInclude Include="include\IrisUnil\IrisHeap.h" />
+    <ClInclude Include="include\IrisUnil\IrisIdentifier.h" />
+    <ClInclude Include="include\IrisUnil\IrisInternString.h" />
+    <ClInclude Include="include\IrisUnil\IrisList.h" />
+    <ClInclude Include="include\IrisUnil\IrisMemoryPool\IrisAbstractMemoryPool.h" />
+    <ClInclude Include="include\IrisUnil\IrisMemoryPool\IrisMemoryPool.h" />
+    <ClInclude Include="include\IrisUnil\IrisMemoryPool\IrisMemoryPoolDefines.h" />
+    <ClInclude Include="include\IrisUnil\IrisMemoryPool\IrisObjectMemoryPoolInterface.h" />
+    <ClInclude Include="include\IrisUnil\IrisStack.h" />
+    <ClInclude Include="include\IrisUnil\IrisTree.h" />
+    <ClInclude Include="include\IrisUnil\IrisValue.h" />
+    <ClInclude Include="include\IrisUnil\IrisValues.h" />
+    <ClInclude Include="include\IrisUnil\IrisVirtualCodeFile.h" />
+    <ClInclude Include="include\resource.h" />
+    <ClInclude Include="include\stdafx.h" />
+    <ClInclude Include="include\targetver.h" />
+    <ClInclude Include="include\IrisVirtualCodeNumber.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

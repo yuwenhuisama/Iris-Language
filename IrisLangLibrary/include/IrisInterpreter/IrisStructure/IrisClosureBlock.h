@@ -29,6 +29,7 @@ class IrisObject;
 class IrisIdentifier;
 class IrisStatement;
 class IrisContextEnvironment;
+class IrisValues;
 #if IR_USE_MEM_POOL
 class IrisClosureBlock : public IIrisClosureBlock, public IrisObjectMemoryPoolInterface<IrisClosureBlock, POOLID_IrisClosureBlock>
 #else
@@ -43,8 +44,10 @@ private:
 
 #if IR_USE_STL_STRING
 	list<string> m_lsParameters;
+	string m_strVariableParameter;
 #else
 	list<IrisInternString> m_lsParameters;
+	IrisInternString m_strVariableParameter;
 #endif // IR_USE_STL_STRING
 
 	IrisCodeSegment m_icsCodes;
@@ -87,19 +90,23 @@ public:
 	void AddOtherVariable(const IrisInternString& strVariableName, const IrisValue& ivValue);
 #endif // IR_USE_STL_STRING
 
-
-
 	void Mark();
 
 	IrisValue Excute(IIrisValues* pValues);
 
+	void SetNativeObject(IrisObject* pObject);
+	IrisObject* GetNativeObject();
+
 #if IR_USE_STL_STRING
-	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
+	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, const string& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
 #else
-	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
+	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, const IrisInternString& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
 #endif // IR_USE_STL_STRING
 
 	~IrisClosureBlock();
+
+private:
+	bool _ParameterCheck(IrisValues* pParameters);
 
 	friend class IrisClosureBlockBase;
 	friend class IrisExpression;

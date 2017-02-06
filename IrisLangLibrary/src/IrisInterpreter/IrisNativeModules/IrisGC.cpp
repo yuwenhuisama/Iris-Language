@@ -1,6 +1,7 @@
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 #include "IrisInterpreter.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisMethodBase.h"
+#include "IrisInterpreter/IrisStructure/IrisClosureBlock.h"
 #include "IrisInterpreter/IrisStructure/IrisContextEnvironment.h"
 #include "IrisInterpreter/IrisStructure/IrisModule.h"
 #include "IrisUnil/IrisTree.h"
@@ -213,6 +214,13 @@ void IrisGC::_Mark() {
 				--env->m_nReferenced;
 			}
 		}
+
+		if (pThreadInfo->m_pEnvrionmentRegister) {
+			if (pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock) {
+				static_cast<IrisObject*>(pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetNativeObject())->Mark();
+			}
+		}
+
 		if (pThreadInfo->m_pEnvrionmentRegister) {
 			--pThreadInfo->m_pEnvrionmentRegister->m_nReferenced;
 		}

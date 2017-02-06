@@ -18,5 +18,49 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="include\IrisUnil\IrisValue.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForC.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForCpp.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisClass.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisClosureBlock.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisContextEnvironment.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisInterface.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisInterString.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisModule.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisObject.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisInterfaces\IIrisValues.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisUnil\IrisValue.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisCompileConfigure.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IrisLangLibrary.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

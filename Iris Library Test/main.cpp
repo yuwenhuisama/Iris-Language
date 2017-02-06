@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
-	if (!IR_LoadScriptFromPath("script.ir")) {
+	if (!IR_LoadScriptFromPath("test script/test_closure_block.ir")) {
 		cout << "Error when loading script!" << endl;
 		return 0;
 	}

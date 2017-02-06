@@ -11,7 +11,6 @@ bool IrisSelfExpression::Generate()
 
 IrisSelfExpression::IrisSelfExpression()
 {
-	m_bSelfExpressionFlag = true;
 }
 
 

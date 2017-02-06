@@ -41,6 +41,8 @@
 #include "IrisThread/IrisMutex.h"
 #include "IrisThread/IrisConditionVariable.h"
 
+#include "IrisVirtualCodeNumber.h"
+
 //#include "IrisExtentionUtil.h"
 
 IrisInterpreter* IrisInterpreter::s_pInstance = nullptr;
@@ -640,209 +642,212 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 
 		switch (bInstructor)
 		{
-		case 0: // push_env
+		case PUSH_ENV: // push_env
  			bResult = push_env(vcVector, nCodePointer);
 			break;
-		case 1: // pop_env
+		case POP_ENV: // pop_env
 			bResult = pop_env(vcVector, nCodePointer);
 			break;
-		case 2: // push
+		case PUSH: // push
 			bResult = push(vcVector, nCodePointer);
 			break;
-		case 3: // pop
+		case POP: // pop
 			bResult = pop(vcVector, nCodePointer);
 			break;
-		case 4: // cre_env
+		case CRE_ENV: // cre_env
 			bResult = cre_env(vcVector, nCodePointer);
 			break;
-		case 5: // load
+		case LOAD: // load
 			bResult = load(vcVector, nCodePointer);
 			break;
-		case 6: // nol_call
+		case NOL_CALL: // nol_call
 			bResult = nol_call(vcVector, nCodePointer);
 			break;
-		case 7: // assign
+		case ASSIGN: // assign
 			bResult = assign(vcVector, nCodePointer);
 			break;
-		case 8:	// hid_call
+		case HID_CALL:	// hid_call
 			bResult = hid_call(vcVector, nCodePointer);
 			break;
-		case 9:  // set_fld
+		case SET_FLD:  // set_fld
 			bResult = set_fld(vcVector, nCodePointer);
 			break;
-		case 10: // clr_fld
+		case CLR_FLD: // clr_fld
 			bResult = clr_fld(vcVector, nCodePointer);
 			break;
-		case 11: // fld_load
+		case FLD_LOAD: // fld_load
 			bResult = fld_load(vcVector, nCodePointer);
 			break;
-		case 12: // load_nil
+		case LOAD_NIL: // load_nil
 			bResult = load_nil(vcVector, nCodePointer);
 			break;
-		case 13: // load_true
+		case LOAD_TRUE: // load_true
 			bResult = load_true(vcVector, nCodePointer);
 			break;
-		case 14: // load_false
+		case LOAD_FALSE: // load_false
 			bResult = load_false(vcVector, nCodePointer);
 			break;
-		case 15: // load_self
+		case LOAD_SELF: // load_self
 			bResult = load_self(vcVector, nCodePointer);
 			break;
-		case 16: // imth_def
+		case IMTH_DEF: // imth_def
 			bResult = imth_def(vcVector, nCodePointer);
 			break;
-		case 17: // cmth_def
+		case CMTH_DEF: // cmth_def
 			bResult = cmth_def(vcVector, nCodePointer);
 			break;
-		case 18: // blk_def
+		case BLK_DEF: // blk_def
 			bResult = blk_def(vcVector, nCodePointer);
 			break;
-		case 19: // end_def
+		case END_DEF: // end_def
 			bResult = end_def(vcVector, nCodePointer);
 			break;
-		case 20: // jfon
+		case JFON: // jfon
 			bResult = jfon(vcVector, nCodePointer);
 			break;
-		case 21: // jmp
+		case JMP: // jmp
 			bResult = jmp(vcVector, nCodePointer);
 			break;
-		case 22: // ini_tm
+		case INI_TM: // ini_tm
 			bResult = ini_tm(vcVector, nCodePointer);
 			break;
-		case 23: // ini_cnt
+		case INI_CNT: // ini_cnt
 			bResult = ini_cnt(vcVector, nCodePointer);
 			break;
-		case 24: // cmp_tac
+		case CMP_TAC: // cmp_tac
 			bResult = cmp_tac(vcVector, nCodePointer);
 			break;
-		case 25: // inc_cnt
+		case INC_CNT: // inc_cnt
 			bResult = inc_cnt(vcVector, nCodePointer);
 			break;
-		case 26: // assign_log
+		case ASSIGN_LOG: // assign_log
 			bResult = assign_log(vcVector, nCodePointer);
 			break;
-		case 27: // brk
+		case BRK: // brk
   			bResult = brk(vcVector, nCodePointer);
 			break;
-		case 28: // push_deep
+		case PUSH_DEEP: // push_deep
 			bResult = push_deep(vcVector, nCodePointer);
 			break;
-		case 29: // pop_deep
+		case POP_DEEP: // pop_deep
 			bResult = pop_deep(vcVector, nCodePointer);
 			break;
-		case 30: // rtn
+		case RTN: // rtn
 			bResult = rtn(vcVector, nCodePointer, nEndPointer);
 			break;
-		case 31: // ctn;
+		case CTN: // ctn;
 			bResult = ctn(vcVector, nCodePointer);
 			break;
-		case 32: // assign_vsl
+		case ASSIGN_VSL: // assign_vsl
 			bResult = assign_vsl(vcVector, nCodePointer);
 			break;
-		case 33: // assign_iter
+		case ASSIGN_ITER: // assign_iter
 			bResult = assign_iter(vcVector, nCodePointer);
 			break;
-		case 34: //load_iter
+		case LOAD_ITER: //load_iter
 			bResult = load_iter(vcVector, nCodePointer);
 			break;
-		case 35: // jt
+		case JT: // jt
 			bResult = jt(vcVector, nCodePointer);
 			break;
-		case 36: // assign_cmp
+		case ASSIGN_CMP: // assign_cmp
 			bResult = assign_cmp(vcVector, nCodePointer);
 			break;
-		case 37: // cmp_cmp
+		case CMP_CMP: // cmp_cmp
 			bResult = cmp_cmp(vcVector, nCodePointer);
 			break;
-		case 38: // cr_cenv
+		case CRE_CENV: // cr_cenv
 			bResult = cre_cenv(vcVector, nCodePointer);
 			break;
-		case 39: // def_cls
+		case DEF_CLS: // def_cls
 			bResult = def_cls(vcVector, nCodePointer);
 			break;
-		case 40: // add_ext
+		case ADD_EXT: // add_ext
 			bResult = add_ext(vcVector, nCodePointer);
 			break;
-		case 41: // add_mld
+		case ADD_MLD: // add_mld
 			bResult = add_mld(vcVector, nCodePointer);
 			break;
-		case 42: // add_inf
+		case ADD_INF: // add_inf
 			bResult = add_inf(vcVector, nCodePointer);
 			break;
-		case 43: // push_cnt
+		case PUSH_CNT: // push_cnt
 			bResult = push_cnt(vcVector, nCodePointer);
 			break;
-		case 44: // push_tim
+		case PUSH_TIM: // push_tim
 			bResult = push_tim(vcVector, nCodePointer);
 			break;
-		case 45: // pop_cnt
+		case POP_CNT: // pop_cnt
 			bResult = pop_cnt(vcVector, nCodePointer);
 			break;
-		case 46: // pop_tim
+		case POP_TIM: // pop_tim
 			bResult = pop_tim(vcVector, nCodePointer);
 			break;
-		case 47: // push_unim
+		case PUSH_UNIM: // push_unim
 			bResult = push_unim(vcVector, nCodePointer);
 			break;
-		case 48: // pop_unim
+		case POP_UNIM: // pop_unim
 			bResult = pop_unim(vcVector, nCodePointer);
 			break;
-		case 49: // push_vsl
+		case PUSH_VSL: // push_vsl
 			bResult = push_vsl(vcVector, nCodePointer);
 			break;
-		case 50: // pop_vsl
+		case POP_VSL: // pop_vsl
 			bResult = pop_vsl(vcVector, nCodePointer);
 			break;
-		case 51: // push_iter
+		case PUSH_ITER: // push_iter
 			bResult = push_iter(vcVector, nCodePointer);
 			break;
-		case 52: // pop_iter
+		case POP_ITER: // pop_iter
 			bResult = pop_iter(vcVector, nCodePointer);
 			break;
-		case 53: // str_def
+		case STR_DEF: // str_def
 			bResult = str_def(vcVector, nCodePointer);
 			break;
-		case 54: // gtr_def
+		case GTR_DEF: // gtr_def
 			bResult = gtr_def(vcVector, nCodePointer);
 			break;
-		case 55: // gstr_def
+		case GSTR_DEF: // gstr_def
 			bResult = gstr_def(vcVector, nCodePointer);
 			break;
-		case 56: // set_auth
+		case SET_AUTH: // set_auth
 			bResult = set_auth(vcVector, nCodePointer);
 			break;
-		case 57: // def_mld
+		case DEF_MLD: // def_mld
 			bResult = def_mld(vcVector, nCodePointer);
 			break;
-		case 58: // def_inf
+		case DEF_INF: // def_inf
 			bResult = def_inf(vcVector, nCodePointer);
 			break;
-		case 59: // def_infs
+		case DEF_INFS: // def_infs
 			bResult = def_infs(vcVector, nCodePointer);
 			break;
-		case 60: // cblk_def
+		case CBLK_DEF: // cblk_def
 			bResult = cblk_def(vcVector, nCodePointer);
 			break;
-		case 61: // blk
+		case BLK: // blk
 			bResult = blk(vcVector, nCodePointer);
 			break;
-		case 62: // cast
-			bResult = cast(vcVector, nCodePointer);
-			break;
-		case 63: // reg_irp
+		//case 62: // cast
+		//	bResult = cast(vcVector, nCodePointer);
+		//	break;
+		case REG_IRP: // reg_irp
 			bResult = reg_irp(vcVector, nCodePointer);
 			break;
-		case 64: // ureg_irp
+		case UREG_IRP: // ureg_irp
 			bResult = ureg_irp(vcVector, nCodePointer);
 			break;
-		case 65: // assign_ir
+		case ASSIGN_IR: // assign_ir
 			bResult = assign_ir(vcVector, nCodePointer);
 			break;
-		case 66: // grn
+		case GRN: // grn
 			bResult = grn(vcVector, nCodePointer);
 			break;
-		case 67: // spr
+		case SPR: // spr
 			bResult = spr(vcVector, nCodePointer);
+		case LOAD_CAST:
+			bResult = load_cast(vcVector, nCodePointer);
+			break;
 		default:
 			break;
 		}
@@ -1044,8 +1049,8 @@ bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVec
 			pUserFunction->m_icsWithBlockCodes.m_nBelongingFileIndex = nCurrentFileIndex;
 			// without block
 			// skip blk_def
-			nCodePointer;
-			++nCodePointer;
+			nCodePointer += 2;
+
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			nIndex = iaAM.m_dwIndex;
 			GetCodesFromBlock(nIndex, vcVector, nCodePointer, pUserFunction->m_icsWithoutBlockCodes);
@@ -1325,21 +1330,21 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		pInfo->m_ivResultRegister = static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, nullptr, nullptr, CallerSide::Outside);
 	}
 		break;
-	case IrisAMType::SelfMemberValue:
-	{
-		bool bResult = false;
-		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-#if IR_USE_STL_STRING
-		string strInstanceVariableName = "@" + strIdentifier;
-#else
-		string strInstanceVariableName = "@" + strIdentifier.GetSTLString();
-#endif // IR_USE_STL_STRING
-		pInfo->m_ivResultRegister = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->GetInstanceValue(strInstanceVariableName, bResult);
-		if (!bResult) {
-			pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->AddInstanceValue(strInstanceVariableName, m_ivNil);
-		}
-	}
-		break;
+//	case IrisAMType::SelfMemberValue:
+//	{
+//		bool bResult = false;
+//		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+//#if IR_USE_STL_STRING
+//		string strInstanceVariableName = "@" + strIdentifier;
+//#else
+//		string strInstanceVariableName = "@" + strIdentifier.GetSTLString();
+//#endif // IR_USE_STL_STRING
+//		pInfo->m_ivResultRegister = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->GetInstanceValue(strInstanceVariableName, bResult);
+//		if (!bResult) {
+//			pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->AddInstanceValue(strInstanceVariableName, m_ivNil);
+//		}
+//	}
+//		break;
 	case IrisAMType::IndexValue:
 	{
 		bool bResult = false;
@@ -1363,6 +1368,10 @@ bool IrisInterpreter::nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	if (pInfo->m_pClosureBlockRegister) {
 		pInfo->m_pEnvrionmentRegister->m_pClosureBlock = pInfo->m_pClosureBlockRegister;
 		pInfo->m_pClosureBlockRegister = nullptr;
+
+		auto ivObj = IrisDevUtil::CreateInstanceByInstantValue(pInfo->m_pEnvrionmentRegister->m_pClosureBlock);
+		pInfo->m_pEnvrionmentRegister->m_pClosureBlock->SetNativeObject(static_cast<IrisObject*>(ivObj.GetIrisObject()));
+
 		IrisContextEnvironment* pTmpEnv = static_cast<IrisContextEnvironment*>(pInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetCurrentContextEnvironment());
 		while (pTmpEnv) {
 			++pTmpEnv->m_nReferenced;
@@ -1672,35 +1681,35 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		static_cast<IrisObject*>(pInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, nullptr, &ivsValues, CallerSide::Outside);
 	}
 		break;
-	case IrisAMType::SelfMemberValue:
-	{
-		bool bResult = false;
-		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pInfo->m_pEnvrionmentRegister || !pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject) {
-			// ** Error **
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
-				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
-				"Statement of self must be used in INSTANCE METHOD OF CLASS.");
-			return false;
-		}
-		else {
-			bool bResult = false;
-			IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-#if IR_USE_STL_STRING
-			string strIntanceVaraible = "@" + strIdentifier;
-#else
-			string strIntanceVaraible = "@" + strIdentifier.GetSTLString();
-#endif // IR_USE_STL_STRING
-			IrisValue& ivTmp = (IrisValue&)pObject->GetInstanceValue(strIntanceVaraible, bResult);
-			if (!bResult) {
-				pObject->AddInstanceValue(strIntanceVaraible, pInfo->m_ivResultRegister);
-			}
-			else {
-				ivTmp.SetIrisObject(pInfo->m_ivResultRegister.GetIrisObject());
-			}
-		}
-	}
-		break;
+//	case IrisAMType::SelfMemberValue:
+//	{
+//		bool bResult = false;
+//		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
+//		if (!pInfo->m_pEnvrionmentRegister || !pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject) {
+//			// ** Error **
+//			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
+//				pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex,
+//				"Statement of self must be used in INSTANCE METHOD OF CLASS.");
+//			return false;
+//		}
+//		else {
+//			bool bResult = false;
+//			IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
+//#if IR_USE_STL_STRING
+//			string strIntanceVaraible = "@" + strIdentifier;
+//#else
+//			string strIntanceVaraible = "@" + strIdentifier.GetSTLString();
+//#endif // IR_USE_STL_STRING
+//			IrisValue& ivTmp = (IrisValue&)pObject->GetInstanceValue(strIntanceVaraible, bResult);
+//			if (!bResult) {
+//				pObject->AddInstanceValue(strIntanceVaraible, pInfo->m_ivResultRegister);
+//			}
+//			else {
+//				ivTmp.SetIrisObject(pInfo->m_ivResultRegister.GetIrisObject());
+//			}
+//		}
+//	}
+//		break;
 	case IrisAMType::IndexValue:
 	{
 		bool bResult = false;
@@ -1730,6 +1739,10 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	if (pInfo->m_pClosureBlockRegister) {
 		pInfo->m_pEnvrionmentRegister->m_pClosureBlock = pInfo->m_pClosureBlockRegister;
 		pInfo->m_pClosureBlockRegister = nullptr;
+
+		auto ivObj = IrisDevUtil::CreateInstanceByInstantValue(pInfo->m_pEnvrionmentRegister->m_pClosureBlock);
+		pInfo->m_pEnvrionmentRegister->m_pClosureBlock->SetNativeObject(static_cast<IrisObject*>(ivObj.GetIrisObject()));
+
 		IrisContextEnvironment* pTmpEnv = static_cast<IrisContextEnvironment*>(pInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetCurrentContextEnvironment());
 		while (pTmpEnv) {
 			++pTmpEnv->m_nReferenced;
@@ -2965,7 +2978,7 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
-	unsigned int nPrametersCount = (vcVector[nCodePointer] & 0x00FF) - 1;
+	unsigned int nPrametersCount = (vcVector[nCodePointer] & 0x00FF) - 1 - 1;
 #if IR_USE_STL_STRING
 	list<string> lsParameters;
 #else
@@ -2979,8 +2992,11 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		iaAM = GetOneAM(vcVector, nCodePointer);
 		lsParameters.push_back(m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex));
 	}
-	iaAM = GetOneAM(vcVector, nCodePointer);
 
+	// variable parameter
+	auto iaAMVP = GetOneAM(vcVector, nCodePointer);
+
+	iaAM = GetOneAM(vcVector, nCodePointer);
 	unsigned int nIndex = iaAM.m_dwIndex;
 
 	GetCodesFromBlock(nIndex, vcVector, nCodePointer, icsCodeSegment);
@@ -2988,6 +3004,7 @@ bool IrisInterpreter::cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	IrisClosureBlock* pBlock = new IrisClosureBlock(
 		pInfo->m_pEnvrionmentRegister,
 		lsParameters, 
+		iaAMVP.m_dwIndex == -1 ? "" : m_pCurrentCompiler->GetIdentifier(iaAMVP.m_dwIndex, nCurrentFileIndex),
 		icsCodeSegment.m_nStartPointer, 
 		icsCodeSegment.m_nEndPointer,
 		*icsCodeSegment.m_pWholeCodes,
@@ -3007,27 +3024,6 @@ bool IrisInterpreter::blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 	else {
 		return RunCode(*pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_pWholeCodes, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nStartPointer, pInfo->m_pEnvrionmentRegister->m_pWithoutBlock->m_nEndPointer);
 	}
-}
-
-bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer) {
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	const int nParameters = iaAM.m_dwIndex;
-
-	IrisValues* pValues = nullptr;
-	IrisValues ivsValues(nParameters);
-	if (nParameters) {
-		int i = 0;
-		//for (auto it = m_stStack.m_lsStack.rbegin(); i < nParameters; ++i, ++it) {
-		//	ivsValues[nParameters - i - 1] = *it;
-		//}
-		ivsValues.GetVector().assign(pInfo->m_stStack.m_lsStack.begin() + pInfo->m_stStack.m_lsStack.size() - nParameters, pInfo->m_stStack.m_lsStack.end());
-		pValues = &ivsValues;
-	}
-
-	pInfo->m_pEnvrionmentRegister->m_pClosureBlock->Excute(pValues);
-	
-	return true;
 }
 
 bool IrisInterpreter::reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
@@ -3185,6 +3181,10 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 		if (pInfo->m_pClosureBlockRegister) {
 			pInfo->m_pEnvrionmentRegister->m_pClosureBlock = pInfo->m_pClosureBlockRegister;
 			pInfo->m_pClosureBlockRegister = nullptr;
+
+			auto ivObj = IrisDevUtil::CreateInstanceByInstantValue(pInfo->m_pEnvrionmentRegister->m_pClosureBlock);
+			pInfo->m_pEnvrionmentRegister->m_pClosureBlock->SetNativeObject(static_cast<IrisObject*>(ivObj.GetIrisObject()));
+
 			IrisContextEnvironment* pTmpEnv = static_cast<IrisContextEnvironment*>(pInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetCurrentContextEnvironment());
 			while (pTmpEnv) {
 				++pTmpEnv->m_nReferenced;
@@ -3221,3 +3221,39 @@ bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 
 	return true;
 }
+
+bool IrisInterpreter::load_cast(vector<IR_WORD>& vcVector, unsigned int & nCodePointer)
+{
+	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto pClosureBlock = pInfo->m_pEnvrionmentRegister->m_pClosureBlock;
+
+	if (pInfo->m_pEnvrionmentRegister->m_pClosureBlock) {
+		pInfo->m_ivResultRegister = IrisValue::WrapObjectPointerToIrisValue(pInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetNativeObject());
+	}
+	else {
+		pInfo->m_ivResultRegister = IrisDevUtil::Nil();
+	}
+
+	return true;
+}
+
+//bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer) {
+//	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+//	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
+//	const int nParameters = iaAM.m_dwIndex;
+//
+//	IrisValues* pValues = nullptr;
+//	IrisValues ivsValues(nParameters);
+//	if (nParameters) {
+//		int i = 0;
+//		//for (auto it = m_stStack.m_lsStack.rbegin(); i < nParameters; ++i, ++it) {
+//		//	ivsValues[nParameters - i - 1] = *it;
+//		//}
+//		ivsValues.GetVector().assign(pInfo->m_stStack.m_lsStack.begin() + pInfo->m_stStack.m_lsStack.size() - nParameters, pInfo->m_stStack.m_lsStack.end());
+//		pValues = &ivsValues;
+//	}
+//
+//	pInfo->m_pEnvrionmentRegister->m_pClosureBlock->Excute(pValues);
+//	
+//	return true;
+//}

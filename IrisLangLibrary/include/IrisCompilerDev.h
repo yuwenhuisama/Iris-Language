@@ -33,6 +33,7 @@ using namespace std;
 #include "IrisComponents/IrisExpressions/IrisSelfExpression.h"
 #include "IrisComponents/IrisExpressions/IrisUnaryExpression.h"
 #include "IrisComponents/IrisExpressions/IrisRangeExpression.h"
+#include "IrisComponents/IrisExpressions/IrisCastExpression.h"
 
 // Parts
 #include "IrisComponents/IrisParts/IrisClosureBlockLiteral.h"
@@ -47,7 +48,6 @@ using namespace std;
 #include "IrisComponents/IrisStatements/IrisAuthorityStatement.h"
 #include "IrisComponents/IrisStatements/IrisBlockStatement.h"
 #include "IrisComponents/IrisStatements/IrisBreakStatement.h"
-#include "IrisComponents/IrisStatements/IrisCastStatement.h"
 #include "IrisComponents/IrisStatements/IrisClassStatement.h"
 #include "IrisComponents/IrisStatements/IrisClassStatement.h"
 #include "IrisComponents/IrisStatements/IrisConditionIfStatement.h"
@@ -65,7 +65,6 @@ using namespace std;
 #include "IrisComponents/IrisStatements/IrisOrderStatement.h"
 #include "IrisComponents/IrisStatements/IrisReturnStatement.h"
 #include "IrisComponents/IrisStatements/IrisSetterStatement.h"
-//#include "IrisStatement.h"
 #include "IrisComponents/IrisStatements/IrisSuperStatement.h"
 #include "IrisComponents/IrisStatements/IrisSwitchStatement.h"
 

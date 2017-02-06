@@ -10,15 +10,10 @@ bool IrisMemberExpression::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-	if (m_pCaller->m_bSelfExpressionFlag) {
-		pMaker->load(IrisAMType::SelfMemberValue, pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+	if (!m_pCaller->Generate()) {
+		return false;
 	}
-	else {
-		if (!m_pCaller->Generate()) {
-			return false;
-		}
-		pMaker->load(IrisAMType::MemberValue, pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
-	}
+	pMaker->load(IrisAMType::MemberValue, pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 
 	return true;
 }
@@ -29,19 +24,12 @@ bool IrisMemberExpression::LeftValue(IrisAMType & eType, IR_DWORD & bIndex)
 	IrisInstructorMaker *pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-
-	if (m_pCaller->m_bSelfExpressionFlag) {
-		eType = IrisAMType::SelfMemberValue;
-		bIndex = pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
+	pMaker->push();
+	if (!m_pCaller->Generate()) {
+		return false;
 	}
-	else {
-		pMaker->push();
-		if (!m_pCaller->Generate()) {
-			return false;
-		}
-		eType = IrisAMType::MemberValue;
-		bIndex = pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
-	}
+	eType = IrisAMType::MemberValue;
+	bIndex = pCompiler->GetIdentifierIndex(m_pProperty->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 
 	return true;
 }

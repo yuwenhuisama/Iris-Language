@@ -1,0 +1,29 @@
+;print("Test start")
+
+;a = 2
+switch(a) {
+	when(1) {
+		;print("Wrong Result\n")
+	}
+	when(2) {
+		;print("Correct Result\n")
+	}
+	when(3) {
+		;print("Wrong Result\n")
+	}
+}
+
+;b = 4
+switch(b) {
+	when(1) {
+		;print("Wrong Result\n")
+	}
+	when(2) {
+		;print("Correct Result\n")
+	}
+	else {
+		;print("Correct Result\n")
+	}
+}
+
+;print("Test End")

@@ -72,20 +72,21 @@ public:
 	static void def_mld(IR_DWORD dwNameIndex, IR_DWORD dwIndex);
 	static void def_inf(IR_DWORD dwNameIndex, IR_DWORD dwIndex);
 	static void def_infs(IR_DWORD dwNameIndex, IR_DWORDS& lsParameters, IR_DWORD dwVariableParameterIndex);
-	static void cblk_def(IR_DWORDS& lsParameters, IR_DWORD dwIndex);
+	static void cblk_def(IR_DWORDS& lsParameters, IR_DWORD dwVariableParameterIndex, IR_DWORD dwIndex);
 	static void blk();
-	static void cast(IR_DWORD nParametersCount);
+	//static void cast(IR_DWORD nParametersCount);
 	static void reg_irp(IR_BYTE bWithIgnoreBlock, IR_DWORD nIndex);
 	static void ureg_irp(IR_DWORD nIndex);
 	static void assign_ir(IR_DWORD dwIndex);
 	static void grn();
 	static void spr(IR_BYTE bParameterCount);
+	static void load_cast();
 
 	inline static IR_BYTE AMCode(IrisAMType eType) { return (IR_BYTE)eType; }
 	inline static void AddInstructorCode(IR_BYTE bInstructor, IR_BYTE bOperatorCount) { IrisCompiler::CurrentCompiler()->AddCode(IrisVirtualCode(bInstructor, bOperatorCount));}
 	inline static void AddAMCode(IrisAMType eType, IR_DWORD dwIndex) { IrisCompiler::CurrentCompiler()->AddCode(IrisAM(AMCode(eType), dwIndex)); }
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 	static const string GetAMString(IrisAMType eType);
 #endif
 

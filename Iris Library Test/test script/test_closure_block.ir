@@ -1,0 +1,63 @@
+;print("Test start\n")
+
+fun block_method() {
+	;cast.call()
+}
+
+;block_method() {
+	;print("correct result 1\n")
+ }
+ 
+fun block_method2() {
+	;block
+}
+with {
+	;cast.call()
+}
+without {
+	;print("without block result\n")
+}
+ 
+;block_method2() {
+	;print("with block result\n")
+}
+
+;block_method2()
+
+fun block_method3() {
+	;cast.call("hello, world!\n")
+}
+
+;block_method3() {
+	iterator => [msg] :
+	;print("msg is " + msg)
+ }
+
+fun block_method4() {
+	;cast.call("1", "2", "3")
+}
+
+;block_method4() {
+	iterator => [*msg] :
+	;print("Array is ")
+	for(t in msg) {
+		;print(t, " ")
+	}
+	;print("\n")
+ }
+ 
+fun block_method5() {
+	;cast.call("Unique", "1", "2", "3", "4")
+}
+ 
+;block_method5() {
+	iterator => [head, *msg] :
+	;print("Head : ", head, "\n")
+	;print("Array : ")
+	for(t in msg) {
+		;print(t, " ")
+	}
+	;print("\n")
+ }
+ 
+;print("Test end\n")

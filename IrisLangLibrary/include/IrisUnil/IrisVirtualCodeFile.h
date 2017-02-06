@@ -18,7 +18,7 @@ private:
 private:
 	struct _FileHeader {
 		BYTE m_szMagicWord[4] = { 'i', 'r', 'c', 'f' };
-		DWORD m_nVersion = 0x00000001;
+		DWORD m_nVersion = 0x00000002;
 		time_t m_nTimeStamp = 0;
 		DWORD m_nStringFieldElemCount = 0;
 		DWORD m_nUniqueFieldElemCount = 0;

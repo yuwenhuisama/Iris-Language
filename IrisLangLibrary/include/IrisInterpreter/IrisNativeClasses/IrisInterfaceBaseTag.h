@@ -6,7 +6,7 @@
 #if IR_USE_MEM_POOL
 class IrisInterfaceBaseTag : public IrisObjectMemoryPoolInterface<IrisInterfaceBaseTag, POOLID_IrisInterfaceBaseTag>
 #else
-class IrisInterfaceBaseTagCCCCC
+class IrisInterfaceBaseTag
 #endif
 
 {

@@ -11,13 +11,13 @@ class IrisClosureBlockLiteral :
 public:
 	IrisList<IrisIdentifier*>* m_pParameters = nullptr;
 	IrisList<IrisStatement*>* m_pStatements = nullptr;
-
+	IrisIdentifier* m_pVariableParameter = nullptr;
 
 public:
 
 	virtual bool Generate();
 
-	IrisClosureBlockLiteral(IrisList<IrisIdentifier*>* pParameters, IrisList<IrisStatement*>* pStatements);
+	IrisClosureBlockLiteral(IrisList<IrisIdentifier*>* pParameters, IrisIdentifier* pVariableParameter, IrisList<IrisStatement*>* pStatements);
 	virtual ~IrisClosureBlockLiteral();
 };
 

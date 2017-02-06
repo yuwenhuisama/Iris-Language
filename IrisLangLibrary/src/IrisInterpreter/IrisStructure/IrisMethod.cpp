@@ -108,8 +108,8 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 
 	// With Block and Without Block
 	if (m_eMethodType == MethodType::UserMethod) {
-		pNewEnvironment->m_pWithBlock = m_uFunction.m_pUserFunction->m_icsWithBlockCodes.m_pWholeCodes ? nullptr : &m_uFunction.m_pUserFunction->m_icsWithBlockCodes;
-		pNewEnvironment->m_pWithoutBlock = m_uFunction.m_pUserFunction->m_icsWithoutBlockCodes.m_pWholeCodes ? nullptr : &m_uFunction.m_pUserFunction->m_icsWithoutBlockCodes;
+		pNewEnvironment->m_pWithBlock = !m_uFunction.m_pUserFunction->m_icsWithBlockCodes.m_pWholeCodes ? nullptr : &m_uFunction.m_pUserFunction->m_icsWithBlockCodes;
+		pNewEnvironment->m_pWithoutBlock = !m_uFunction.m_pUserFunction->m_icsWithoutBlockCodes.m_pWholeCodes ? nullptr : &m_uFunction.m_pUserFunction->m_icsWithoutBlockCodes;
 	}
 
 	// 如果该方法是UserFunction则将参数作为局部变量添加进来
@@ -300,10 +300,10 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 
 	--pNewEnvironment->m_nReferenced;
 
-	if (pNewEnvironment->m_pClosureBlock) {
-		delete pNewEnvironment->m_pClosureBlock;
-		pNewEnvironment->m_pClosureBlock = nullptr;
-	}
+	//if (!pNewEnvironment->m_pClosureBlock) {
+	//	delete pNewEnvironment->m_pClosureBlock;
+	//	pNewEnvironment->m_pClosureBlock = nullptr;
+	//}
 
 	return ivValue;
 }
@@ -334,7 +334,7 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
 	bool bIsGetNew = false;
 	IrisContextEnvironment* pNewEnvironment = _CreateContextEnvironment(nullptr, pParameters, IrisInterpreter::CurrentInterpreter()->GetCurrentContextEnvrionment(), bIsGetNew);	
 	++pNewEnvironment->m_nReferenced;
-	pNewEnvironment->m_pUpperContextEnvironment = nullptr;
+	//pNewEnvironment->m_pUpperContextEnvironment = nullptr;
 
 	// 将参数加入环境中
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
@@ -359,10 +359,10 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
 
 	--pNewEnvironment->m_nReferenced;
 
-	if (pNewEnvironment->m_pClosureBlock) {
-		delete pNewEnvironment->m_pClosureBlock;
-		pNewEnvironment->m_pClosureBlock = nullptr;
-	}
+	//if (!pNewEnvironment->m_nReferenced && pNewEnvironment->m_pClosureBlock) {
+	//	delete pNewEnvironment->m_pClosureBlock;
+	//	pNewEnvironment->m_pClosureBlock = nullptr;
+	//}
 
 	return IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
 }

@@ -1,7 +1,8 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
+#include "IrisVirtualCodeNumber.h"
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 #include <iostream>
 #include <iomanip>
 using namespace std;
@@ -9,7 +10,7 @@ using namespace std;
 
 IrisInstructorMaker* IrisInstructorMaker::s_pInstance = nullptr;
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 const string IrisInstructorMaker::GetAMString(IrisAMType eType)
 {
 	switch (eType)
@@ -41,9 +42,9 @@ const string IrisInstructorMaker::GetAMString(IrisAMType eType)
 	case IrisAMType::MemberValue:
 		return "mv";
 		break;
-	case IrisAMType::SelfMemberValue:
-		return "sv";
-		break;
+	//case IrisAMType::SelfMemberValue:
+	//	return "sv";
+	//	break;
 	case IrisAMType::IndexValue:
 		return "inv";
 		break;
@@ -82,59 +83,59 @@ IrisInstructorMaker::~IrisInstructorMaker()
 
 void IrisInstructorMaker::push_env()
 {
-	AddInstructorCode(0, 0);
+	AddInstructorCode(PUSH_ENV, 0);
 }
 
 void IrisInstructorMaker::pop_env()
 {
-	AddInstructorCode(1, 0);
+	AddInstructorCode(POP_ENV, 0);
 }
 
 void IrisInstructorMaker::push()
 {
-	AddInstructorCode(2, 0);
+	AddInstructorCode(PUSH, 0);
 }
 
 void IrisInstructorMaker::pop(IR_DWORD dwIndex)
 {
-	AddInstructorCode(3, 1);
+	AddInstructorCode(POP, 1);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::cre_env()
 {
-	AddInstructorCode(4, 0);
+	AddInstructorCode(CRE_ENV, 0);
 }
 
 void IrisInstructorMaker::load(IrisAMType eType, IR_DWORD dwIndex)
 {
-	AddInstructorCode(5, 1);
+	AddInstructorCode(LOAD, 1);
 	AddAMCode(eType, dwIndex);
 }
 
 void IrisInstructorMaker::nol_call(IR_DWORD dwIndex, IR_BYTE bParameterCount)
 {
-	AddInstructorCode(6, 2);
+	AddInstructorCode(NOL_CALL, 2);
 	AddAMCode(IrisAMType::Identifier, dwIndex);
 	AddAMCode(IrisAMType::Extends, bParameterCount);
 }
 
 void IrisInstructorMaker::assign(IrisAMType eType, IR_DWORD dwIndex)
 {
-	AddInstructorCode(7, 1);
+	AddInstructorCode(ASSIGN, 1);
 	AddAMCode(eType, dwIndex);
 }
 
 void IrisInstructorMaker::hid_call(IR_DWORD dwIndex, IR_BYTE bParameterCount)
 {
-	AddInstructorCode(8, 2);
+	AddInstructorCode(HID_CALL, 2);
 	AddAMCode(IrisAMType::Identifier, dwIndex);
 	AddAMCode(IrisAMType::Extends, bParameterCount);
 }
 
 void IrisInstructorMaker::set_fld(IR_DWORDS& lsFieldMember)
 {
-	AddInstructorCode(9, (IR_BYTE)lsFieldMember.size());
+	AddInstructorCode(SET_FLD, (IR_BYTE)lsFieldMember.size());
  	for (auto elem : lsFieldMember) {
 		AddAMCode(IrisAMType::Identifier, elem);
 	}
@@ -142,39 +143,39 @@ void IrisInstructorMaker::set_fld(IR_DWORDS& lsFieldMember)
 
 void IrisInstructorMaker::clr_fld()
 {
-	AddInstructorCode(10, 0);
+	AddInstructorCode(CLR_FLD, 0);
 }
 
 void IrisInstructorMaker::fld_load(IR_DWORD dwIndex, IR_BYTE bEmptyFlag)
 {
-	AddInstructorCode(11, 2);
+	AddInstructorCode(FLD_LOAD, 2);
 	AddAMCode(IrisAMType::Constance, dwIndex);
 	AddAMCode(IrisAMType::Extends, bEmptyFlag);
 }
 
 void IrisInstructorMaker::load_nil()
 {
-	AddInstructorCode(12, 0);
+	AddInstructorCode(LOAD_NIL, 0);
 }
 
 void IrisInstructorMaker::load_true()
 {
-	AddInstructorCode(13, 0);
+	AddInstructorCode(LOAD_TRUE, 0);
 }
 
 void IrisInstructorMaker::load_false()
 {
-	AddInstructorCode(14, 0);
+	AddInstructorCode(LOAD_FALSE, 0);
 }
 
 void IrisInstructorMaker::load_self()
 {
-	AddInstructorCode(15, 0);
+	AddInstructorCode(LOAD_SELF, 0);
 }
 
 void IrisInstructorMaker::imth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_BYTE bWithCastBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(16, (IR_BYTE)lsParameters.size() + 4);
+	AddInstructorCode(IMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
 	for (auto elem : lsParameters) {
@@ -188,7 +189,7 @@ void IrisInstructorMaker::imth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameter
 
 void IrisInstructorMaker::cmth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_BYTE bWithCastBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(17, (IR_BYTE)lsParameters.size() + 4);
+	AddInstructorCode(CMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
 	for (auto elem : lsParameters) {
@@ -202,200 +203,200 @@ void IrisInstructorMaker::cmth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameter
 
 void IrisInstructorMaker::blk_def(IR_DWORD dwIndex)
 {
-	AddInstructorCode(18, 1);
+	AddInstructorCode(BLK_DEF, 1);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::end_def(IR_DWORD dwIndex)
 {
-	AddInstructorCode(19, 1);
+	AddInstructorCode(END_DEF, 1);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::jfon(IR_DWORD dwOffset)
 {
-	AddInstructorCode(20, 1);
+	AddInstructorCode(JFON, 1);
 	AddAMCode(IrisAMType::Extends, dwOffset);
 }
 
 void IrisInstructorMaker::jmp(IR_DWORD dwOffset)
 {
-	AddInstructorCode(21, 1);
+	AddInstructorCode(JMP, 1);
 	AddAMCode(IrisAMType::Extends, dwOffset);
 }
 
 void IrisInstructorMaker::ini_tm()
 {
-	AddInstructorCode(22, 0);
+	AddInstructorCode(INI_TM, 0);
 }
 
 void IrisInstructorMaker::ini_cnt()
 {
-	AddInstructorCode(23, 0);
+	AddInstructorCode(INI_CNT, 0);
 }
 
 void IrisInstructorMaker::cmp_tac()
 {
-	AddInstructorCode(24, 0);
+	AddInstructorCode(CMP_TAC, 0);
 }
 
 void IrisInstructorMaker::inc_cnt()
 {
-	AddInstructorCode(25, 0);
+	AddInstructorCode(INC_CNT, 0);
 }
 
 void IrisInstructorMaker::assign_log(IR_DWORD dwParameterCount)
 {
-	AddInstructorCode(26, 1);
+	AddInstructorCode(ASSIGN_LOG, 1);
 	AddAMCode(IrisAMType::LocalValue, dwParameterCount);
 }
 
 void IrisInstructorMaker::brk()
 {
-	AddInstructorCode(27, 0);
+	AddInstructorCode(BRK, 0);
 }
 
 void IrisInstructorMaker::push_deep(IR_DWORD dwParameterCount)
 {
-	AddInstructorCode(28, 1);
+	AddInstructorCode(PUSH_DEEP, 1);
 	AddAMCode(IrisAMType::Extends, dwParameterCount);
 }
 
 void IrisInstructorMaker::pop_deep()
 {
-	AddInstructorCode(29, 0);
+	AddInstructorCode(POP_DEEP, 0);
 }
 
 void IrisInstructorMaker::rtn()
 {
-	AddInstructorCode(30, 0);
+	AddInstructorCode(RTN, 0);
 }
 
 void IrisInstructorMaker::ctn()
 {
-	AddInstructorCode(31, 0);
+	AddInstructorCode(CTN, 0);
 }
 
 void IrisInstructorMaker::assign_vsl()
 {
-	AddInstructorCode(32, 0);
+	AddInstructorCode(ASSIGN_VSL, 0);
 
 }
 
 void IrisInstructorMaker::assign_iter()
 {
-	AddInstructorCode(33, 0);
+	AddInstructorCode(ASSIGN_ITER, 0);
 
 }
 
 void IrisInstructorMaker::load_iter()
 {
-	AddInstructorCode(34, 0);
+	AddInstructorCode(LOAD_ITER, 0);
 
 }
 
 void IrisInstructorMaker::jt(IR_DWORD dwOffset)
 {
-	AddInstructorCode(35, 1);
+	AddInstructorCode(JT, 1);
 	AddAMCode(IrisAMType::Extends, dwOffset);
 }
 
 void IrisInstructorMaker::assign_cmp()
 {
-	AddInstructorCode(36, 0);
+	AddInstructorCode(ASSIGN_CMP, 0);
 }
 
 void IrisInstructorMaker::cmp_cmp()
 {
-	AddInstructorCode(37, 0);
+	AddInstructorCode(CMP_CMP, 0);
 }
 
 void IrisInstructorMaker::cre_cenv(IR_BYTE bType)
 {
-	AddInstructorCode(38, 1);
+	AddInstructorCode(CRE_CENV, 1);
 	AddAMCode(IrisAMType::Extends, bType);
 }
 
 void IrisInstructorMaker::def_cls(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(39, 2);
+	AddInstructorCode(DEF_CLS, 2);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::add_ext()
 {
-	AddInstructorCode(40, 0);
+	AddInstructorCode(ADD_EXT, 0);
 }
 
 void IrisInstructorMaker::add_mld()
 {
-	AddInstructorCode(41, 0);
+	AddInstructorCode(ADD_MLD, 0);
 }
 
 void IrisInstructorMaker::add_inf()
 {
-	AddInstructorCode(42, 0);
+	AddInstructorCode(ADD_INF, 0);
 }
 
 void IrisInstructorMaker::push_cnt()
 {
-	AddInstructorCode(43, 0);
+	AddInstructorCode(PUSH_CNT, 0);
 }
 
 void IrisInstructorMaker::push_tim()
 {
-	AddInstructorCode(44, 0);
+	AddInstructorCode(PUSH_TIM, 0);
 }
 
 void IrisInstructorMaker::pop_cnt(IR_BYTE bDeep)
 {
-	AddInstructorCode(45, 1);
+	AddInstructorCode(POP_CNT, 1);
 	AddAMCode(IrisAMType::Extends, bDeep);
 }
 
 void IrisInstructorMaker::pop_tim(IR_BYTE bDeep)
 {
-	AddInstructorCode(46, 1);
+	AddInstructorCode(POP_TIM, 1);
 	AddAMCode(IrisAMType::Extends, bDeep);
 }
 
 void IrisInstructorMaker::push_unim()
 {
-	AddInstructorCode(47, 0);
+	AddInstructorCode(PUSH_UNIM, 0);
 }
 
 void IrisInstructorMaker::pop_unim(IR_BYTE bDeep)
 {
-	AddInstructorCode(48, 1);
+	AddInstructorCode(POP_UNIM, 1);
 	AddAMCode(IrisAMType::Extends, bDeep);
 }
 
 void IrisInstructorMaker::push_vsl()
 {
-	AddInstructorCode(49, 0);
+	AddInstructorCode(PUSH_VSL, 0);
 }
 
 void IrisInstructorMaker::pop_vsl(IR_BYTE bDeep)
 {
-	AddInstructorCode(50, 1);
+	AddInstructorCode(POP_VSL, 1);
 	AddAMCode(IrisAMType::Extends, bDeep);
 }
 
 void IrisInstructorMaker::push_iter()
 {
-	AddInstructorCode(51, 0);
+	AddInstructorCode(PUSH_ITER, 0);
 }
 
 void IrisInstructorMaker::pop_iter(IR_BYTE bDeep)
 {
-	AddInstructorCode(52, 1);
+	AddInstructorCode(POP_ITER, 1);
 	AddAMCode(IrisAMType::Extends, bDeep);
 }
 
 void IrisInstructorMaker::str_def(IR_DWORD dwNameIndex, IR_DWORD dwParamIndex, IR_BYTE bIsWithBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(53, 4);
+	AddInstructorCode(STR_DEF, 4);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Identifier, dwParamIndex);
 	AddAMCode(IrisAMType::Extends, bIsWithBlock);
@@ -404,7 +405,7 @@ void IrisInstructorMaker::str_def(IR_DWORD dwNameIndex, IR_DWORD dwParamIndex, I
 
 void IrisInstructorMaker::gtr_def(IR_DWORD dwNameIndex, IR_BYTE bIsWithBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(54, 3);	
+	AddInstructorCode(GTR_DEF, 3);	
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Extends, bIsWithBlock);
 	AddAMCode(IrisAMType::Extends, dwIndex);
@@ -412,13 +413,13 @@ void IrisInstructorMaker::gtr_def(IR_DWORD dwNameIndex, IR_BYTE bIsWithBlock, IR
 
 void IrisInstructorMaker::gstr_def(IR_DWORD dwNameIndex)
 {
-	AddInstructorCode(55, 1);
+	AddInstructorCode(GSTR_DEF, 1);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 }
 
 void IrisInstructorMaker::set_auth(IR_DWORD dwNameIndex, IR_BYTE bEnv, IR_BYTE bTar, IR_BYTE bType)
 {
-	AddInstructorCode(56, 4);
+	AddInstructorCode(SET_AUTH, 4);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Extends, bEnv);
 	AddAMCode(IrisAMType::Extends, bTar);
@@ -427,21 +428,21 @@ void IrisInstructorMaker::set_auth(IR_DWORD dwNameIndex, IR_BYTE bEnv, IR_BYTE b
 
 void IrisInstructorMaker::def_mld(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(57, 2);
+	AddInstructorCode(DEF_MLD, 2);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::def_inf(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(58, 2);
+	AddInstructorCode(DEF_INF, 2);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::def_infs(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex)
 {
-	AddInstructorCode(59, (IR_BYTE)lsParameters.size() + 2);
+	AddInstructorCode(DEF_INFS, (IR_BYTE)lsParameters.size() + 2);
 	AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
 	for (auto elem : lsParameters) {
@@ -451,52 +452,58 @@ void IrisInstructorMaker::def_infs(IR_DWORD dwNameIndex, IR_DWORDS & lsParameter
 	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
 }
 
-void IrisInstructorMaker::cblk_def(IR_DWORDS & lsParameters, IR_DWORD dwIndex)
+void IrisInstructorMaker::cblk_def(IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(60, (IR_BYTE)lsParameters.size() + 1);
+	AddInstructorCode(CBLK_DEF, (IR_BYTE)lsParameters.size() + 1 + 1);
 	for (auto elem : lsParameters) {
 		AddAMCode(IrisAMType::Identifier, elem);
 	}
+	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
 	AddAMCode(IrisAMType::Extends, dwIndex);
 }
 
 void IrisInstructorMaker::blk()
 {
-	AddInstructorCode(61, 0);
+	AddInstructorCode(BLK, 0);
 }
 
-void IrisInstructorMaker::cast(IR_DWORD nParametersCount)
-{
-	AddInstructorCode(62, 1);
-	AddAMCode(IrisAMType::Extends, nParametersCount);
-}
+//void IrisInstructorMaker::cast(IR_DWORD nParametersCount)
+//{
+//	AddInstructorCode(62, 1);
+//	AddAMCode(IrisAMType::Extends, nParametersCount);
+//}
 
 void IrisInstructorMaker::reg_irp(IR_BYTE bWithIgnoreBlock, IR_DWORD nIndex)
 {
-	AddInstructorCode(63, 2);
+	AddInstructorCode(REG_IRP, 2);
 	AddAMCode(IrisAMType::Extends, bWithIgnoreBlock);
 	AddAMCode(IrisAMType::Extends, nIndex);
 }
 
 void IrisInstructorMaker::ureg_irp(IR_DWORD nIndex)
 {
-	AddInstructorCode(64, 1);
+	AddInstructorCode(UREG_IRP, 1);
 	AddAMCode(IrisAMType::Extends, nIndex);
 }
 
 void IrisInstructorMaker::assign_ir(IR_DWORD dwIndex)
 {
-	AddInstructorCode(65, 1);
+	AddInstructorCode(ASSIGN_IR, 1);
 	AddAMCode(IrisAMType::LocalValue, dwIndex);
 }
 
 void IrisInstructorMaker::grn()
 {
-	AddInstructorCode(66, 0);
+	AddInstructorCode(GRN, 0);
 }
 
 void IrisInstructorMaker::spr(IR_BYTE bParameterCount)
 {
-	AddInstructorCode(67, 1);
+	AddInstructorCode(SPR, 1);
 	AddAMCode(IrisAMType::Extends, bParameterCount);
+}
+
+void IrisInstructorMaker::load_cast()
+{
+	AddInstructorCode(LOAD_CAST, 0);
 }

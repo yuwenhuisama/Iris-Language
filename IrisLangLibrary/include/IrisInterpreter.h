@@ -409,6 +409,7 @@ private:
 #endif // IR_USE_STL_STRING
 	void GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisCodeSegment& icsCodeSegment);
 
+	// virtual bytecode
 public:
 	bool push_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
@@ -472,12 +473,13 @@ public:
 	bool def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
+	//bool cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 	bool spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
+	bool load_cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 
 	friend class IrisKernel;
 };

@@ -1,6 +1,7 @@
 #include "IrisCompiler.h"
 #include "IrisComponents/IrisStatements/IrisStatement.h"
 #include "IrisUnil/IrisVirtualCodeFile.h"
+#include "IrisVirtualCodeNumber.h"
 #include <iostream>
 #include <iomanip>
 using namespace std;
@@ -9,7 +10,7 @@ char* g_pCurrentString = NULL;
 int g_nCurrentStringLength = 0;
 int g_nReadLength = 0;
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 #include "IrisInstructorMaker.h"
 #endif
 
@@ -203,7 +204,7 @@ bool IrisCompiler::Generate()
 
 	m_bEvalFlag = false;
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 
 	!m_bEvalFlag ? OutputCode(*m_pCurrentStatementInfo->m_pCodes) : OutputCode(m_vcEvalCodes);
 
@@ -218,7 +219,7 @@ bool IrisCompiler::Generate()
 #else
 		StringReplace((string&)(str.GetSTLString()), "\n", "\\n");
 		StringReplace((string&)(str.GetSTLString()), "\t", "\\t");
-		cout << setw(6) << str.GetSTLString() << "\t";
+		cout << setw(6) << str.GetSTLString() << "\t"; 
 #endif // IR_USE_STL_STRING
 	}
 	cout << endl;
@@ -262,7 +263,7 @@ bool IrisCompiler::Generate()
 	return true;
 }
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 void IrisCompiler::StringReplace(string& s1, const string& s2, const string& s3)
 {
 	string::size_type pos = 0;
@@ -277,7 +278,7 @@ void IrisCompiler::StringReplace(string& s1, const string& s2, const string& s3)
 #endif
 
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 {
 
@@ -292,43 +293,43 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 		bInstructor =  vcVector[nCodePointer] >> 8;
 		switch (bInstructor)
 		{
-		case 0: // push_env
+		case PUSH_ENV: // push_env
 			cout << std::left << setw(15) << setfill(' ') << "push_env" << endl;
 			break;
-		case 1: // pop_env
+		case POP_ENV: // pop_env
 			cout << std::left << setw(15) << "pop_env" << endl;
 			break;
-		case 2: // push
+		case PUSH: // push
 			cout << std::left << setw(15) << "push" << endl;
 			break;
-		case 3: // pop
+		case POP: // pop
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "pop" << "\t" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 4: // cre_env
+		case CRE_ENV: // cre_env
 			cout << std::left << setw(15) << "cre_env" << endl;
 			break;
-		case 5: // load
+		case LOAD: // load
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "load" << "\t" << pMaker->GetAMString((IrisAMType)iaAM.m_bType) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 6: // nol_call
+		case NOL_CALL: // nol_call
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "nol_call" << "\t" << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 7: // assign
+		case ASSIGN: // assign
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "assign" << "\t" << pMaker->GetAMString((IrisAMType)iaAM.m_bType) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 8:	// hid_call
+		case HID_CALL:// hid_call
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "hid_call" << "\t" << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 9:  // set_fld
+		case SET_FLD: // set_fld
 		{
 			cout << std::left << setw(15) << "set_fld" << "\t";
 			unsigned int nFieldCount = vcVector[nCodePointer] & 0x00FF;
@@ -341,28 +342,28 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << endl;
 		}
 			break;
-		case 10: // clr_fld
+		case CLR_FLD: // clr_fld
 			cout << std::left << setw(15) << "clr_fld" << endl;
 			break;
-		case 11: // fld_load
+		case FLD_LOAD: // fld_load
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "fld_load" << "\t" << pMaker->GetAMString(IrisAMType::Constance) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << "," << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 12: // load_nil
-			cout << std::left << setw(15) << "fld_load" << endl;
+		case LOAD_NIL: // load_nil
+			cout << std::left << setw(15) << "load_nil" << endl;
 			break;
-		case 13: // load_true
+		case LOAD_TRUE: // load_true
 			cout << std::left << setw(15) << "load_true" << endl;
 			break;
-		case 14: // load_false
+		case LOAD_FALSE: // load_false
 			cout << std::left << setw(15) << "load_false" << endl;
 			break;
-		case 15: // load_self
+		case LOAD_SELF: // load_self
 			cout << std::left << setw(15) << "load_self" << endl;
 			break;
-		case 16: // imth_def
+		case IMTH_DEF: // imth_def
 		{
 			unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 4;
 			iaAM = GetOneAM(vcVector, nCodePointer);
@@ -379,7 +380,7 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 		}
 			break;
-		case 17: // cmth_def
+		case CMTH_DEF: // cmth_def
 		{
 			unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 4;
 			iaAM = GetOneAM(vcVector, nCodePointer);
@@ -396,134 +397,134 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 		}
 		break;
-		case 18: // blk_def
+		case BLK_DEF: // blk_def
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "blk_def" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 19: // end_def
+		case END_DEF: // end_def
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "end_def" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 20: // jfon
+		case JFON: // jfon
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "jfon" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 21: // jmp
+		case JMP: // jmp
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "jmp" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 22: // ini_tm
+		case INI_TM: // ini_tm
 			cout << std::left << setw(15) << "ini_tm" << endl;
 			break;
-		case 23: // ini_cnt
+		case INI_CNT: // ini_cnt
 			cout << std::left << setw(15) << "ini_cnt" << endl;
 			break;
-		case 24: // cmp_tac
+		case CMP_TAC: // cmp_tac
 			cout << std::left << setw(15) << "cmp_tac" << endl;
 			break;
-		case 25: // inc_cnt
+		case INC_CNT: // inc_cnt
 			cout << std::left << setw(15) << "inc_cnt" << endl;
 			break;
-		case 26: // assign_log
+		case ASSIGN_LOG: // assign_log
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "assign_log" << pMaker->GetAMString(IrisAMType::LocalValue) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 27: // brk
+		case BRK: // brk
 			cout << std::left << setw(15) << "brk" << endl;
 			break;
-		case 28: // push_deep
+		case PUSH_DEEP: // push_deep
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "push_deep" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 29: // pop_deep 
+		case POP_DEEP: // pop_deep 
 			cout << std::left << setw(15) << "pop_deep" << endl;
 			break;
-		case 30: // rtn
+		case RTN: // rtn
 			cout << std::left << setw(15) << "rtn" << endl;
 			break;
-		case 31: // ctn
+		case CTN: // ctn
 			cout << std::left << setw(15) << "ctn" << endl;
 			break;
-		case 32: // assign_vsl
+		case ASSIGN_VSL: // assign_vsl
 			cout << std::left << setw(15) << "assign_vsl" << endl;
 			break;
-		case 33: // assign_iter
+		case ASSIGN_ITER: // assign_iter
 			cout << std::left << setw(15) << "assign_iter" << endl;
 			break;
-		case 34: // load_iter
+		case LOAD_ITER: // load_iter
 			cout << std::left << setw(15) << "load_iter" << endl;
 			break;
-		case 35: // jt
+		case JT: // jt
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "jt" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 36: // assign_cmp
+		case ASSIGN_CMP: // assign_cmp
 			cout << std::left << setw(15) << "assign_cmp" << endl;
 			break;
-		case 37: // cmp_cmp
+		case CMP_CMP: // cmp_cmp
 			cout << std::left << setw(15) << "cmp_cmp" << endl;
 			break;
-		case 38: // cre_cenv
+		case CRE_CENV: // cre_cenv
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "cre_cenv" <<  pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 39: // def_cls
+		case DEF_CLS: // def_cls
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "def_cls";
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << "," << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 40: // add_ext
+		case ADD_EXT: // add_ext
 			cout << std::left << setw(15) << "add_ext" << endl;
 			break;
-		case 41: // add_mld
+		case ADD_MLD: // add_mld
 			cout << std::left << setw(15) << "add_mld" << endl;
 			break;
-		case 42: // add_inf
+		case ADD_INF: // add_inf
 			cout << std::left << setw(15) << "add_inf" << endl;
 			break;
-		case 43: // push_cnt
+		case PUSH_CNT: // push_cnt
 			cout << std::left << setw(15) << "push_cnt" << endl;
 			break;
-		case 44: // push_tim
+		case PUSH_TIM: // push_tim
 			cout << std::left << setw(15) << "push_tim" << endl;
 			break;
-		case 45: // pop_cnt
+		case POP_CNT: // pop_cnt
 			cout << std::left << setw(15) << "pop_cnt";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 46: // pop_tim
+		case POP_TIM: // pop_tim
 			cout << std::left << setw(15) << "pop_tim";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 47: // push_unim
+		case PUSH_UNIM: // push_unim
 			cout << std::left << setw(15) << "push_unim" << endl;
 			break;
-		case 48: // pop_unim
+		case POP_UNIM: // pop_unim
 			cout << std::left << setw(15) << "pop_unim";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 49: // push_vsl
+		case PUSH_VSL: // push_vsl
 			cout << std::left << setw(15) << "push_vsl" << endl;
 			break;
-		case 50: // pop_vsl
+		case POP_VSL: // pop_vsl
 			cout << std::left << setw(15) << "pop_vsl";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 51: // push_iter
+		case PUSH_ITER: // push_iter
 			cout << std::left << setw(15) << "push_iter" << endl;
 			break;
-		case 52: // pop_iter
+		case POP_ITER: // pop_iter
 			cout << std::left << setw(15) << "pop_iter";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 53: // str_def
+		case STR_DEF: // str_def
 			cout << std::left << setw(15) << "str_def";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
@@ -534,7 +535,7 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 54: // gtr_def
+		case GTR_DEF: // gtr_def
 			cout << std::left << setw(15) << "gtr_def";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
@@ -543,12 +544,12 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 55: // gstr_def
+		case GSTR_DEF: // gstr_def
 			cout << std::left << setw(15) << "gstr_def";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << endl;
 			break;
-		case 56: // set_auth
+		case SET_AUTH: // set_auth
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "set_auth";
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
@@ -559,21 +560,21 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << "," << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 57: // def_mld
+		case DEF_MLD: // def_mld
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "def_mld";
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << "," << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 58: // def_inf
+		case DEF_INF: // def_inf
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "def_inf";
 			cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << "," << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 59: // def_infs
+		case DEF_INFS: // def_infs
 		{
 			unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 2;
 			iaAM = GetOneAM(vcVector, nCodePointer);
@@ -586,9 +587,9 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << ", " << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]" << endl;
 		}
 			break;
-		case 60: // cblk_def
+		case CBLK_DEF: // cblk_def
 		{
-			unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 1;
+			unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 1 - 1;
 			if (nParameterCount >= 1) {
 				iaAM = GetOneAM(vcVector, nCodePointer);
 				cout << std::left << setw(15) << "cblk_def" << "\t" << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
@@ -596,41 +597,50 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 					iaAM = GetOneAM(vcVector, nCodePointer);
 					cout << ", " << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
 				}
+				iaAM = GetOneAM(vcVector, nCodePointer);
+				cout << ", " << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
+				iaAM = GetOneAM(vcVector, nCodePointer);
+				cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			}
 			else {
 				cout << std::left << setw(15) << "cblk_def" << "\t";
 				iaAM = GetOneAM(vcVector, nCodePointer);
-				cout << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
+				cout << pMaker->GetAMString(IrisAMType::Identifier) << "[" << iaAM.m_dwIndex << "]";
+				iaAM = GetOneAM(vcVector, nCodePointer);
+				cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			}
 		}
 			break;
-		case 61: // blk
+		case BLK: // blk
 			cout << std::left << setw(15) << "blk" << endl;
 			break;
-		case 62: // cast
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			cout << std::left << setw(15) << "cast" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex<< "]" << endl;
-			break;
-		case 63: // reg_irg 
+		//case LOAD_CAST: // cast
+		//	iaAM = GetOneAM(vcVector, nCodePointer);
+		//	cout << std::left << setw(15) << "cast" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex<< "]" << endl;
+		//	break;
+		case REG_IRP: // reg_irg 
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "reg_irg" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]";
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << ", " << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 64: // ureg_irp
+		case UREG_IRP: // ureg_irp
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "ureg_irp" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 65: // assign_ir
+		case ASSIGN_IR: // assign_ir
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "assign_ir" << pMaker->GetAMString(IrisAMType::LocalValue) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
-		case 66: // grn
+		case GRN: // grn
 			cout << std::left << setw(15) << "grn" << endl;
 			break;
-		case 67: // spr
+		case SPR: // spr
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			cout << std::left << setw(15) << "spr" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl;
+			break;
+		case LOAD_CAST: //load_cast
+			cout << std::left << setw(15) << "load_cast" << endl;
 			break;
 		default:
 			break;

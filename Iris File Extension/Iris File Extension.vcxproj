@@ -139,6 +139,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="FileTag.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="FileTag.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

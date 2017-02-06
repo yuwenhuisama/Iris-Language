@@ -118,6 +118,7 @@ namespace IrisDevUtil {
 	IrisValue CreateInstanceByInstantValue(const char* szString);
 	IrisValue CreateInstanceByInstantValue(double dFloat);
 	IrisValue CreateInstanceByInstantValue(int nInteger);
+	IrisValue CreateInstanceByInstantValue(IIrisClosureBlock* pBlock);
 	IrisValue CreateUniqueStringInstanceByUniqueIndex(size_t nIndex);
 
 	bool IrregularHappened();

@@ -160,7 +160,7 @@ bool IrisVirtualCodeFile::SaveToFile(const string& strOrgFileName, const IrisCom
 			fTryDestFile.read((char*)&fhTmp, sizeof(_FileHeader));
 			fTryDestFile.close();
 
-			if (string(fhTmp.m_szMagicWord, 4) == string("ircf") && fhTmp.m_nVersion == 0x00000001) {
+			if (string(fhTmp.m_szMagicWord, 4) == string("ircf") && fhTmp.m_nVersion == 0x00000002) {
 				//if not modified
 				if (fhTmp.m_nTimeStamp == sState.st_mtime) {
 					return true;

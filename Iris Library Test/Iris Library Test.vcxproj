@@ -80,6 +80,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);include</IncludePath>
+    <LibraryPath>$(SolutionDir)Debug;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -141,12 +143,28 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="include\IrisUnil\IrisValue.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\IrisLangLibrary\IrisLangLibrary.vcxproj">
       <Project>{ef8f87b1-e76d-4beb-95d4-96b3694f622d}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\IrisCompileConfigure.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForC.h" />
+    <ClInclude Include="include\IrisExportAPIs\IrisExportForCpp.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisClass.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisClosureBlock.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisContextEnvironment.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisInterface.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisInterString.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisModule.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisObject.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisValues.h" />
+    <ClInclude Include="include\IrisLangLibrary.h" />
+    <ClInclude Include="include\IrisUnil\IrisValue.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -9,7 +9,7 @@
 #include <vector>
 using namespace std;
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 #include <iostream>
 #include <iomanip>
 #endif

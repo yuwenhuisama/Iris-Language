@@ -243,7 +243,7 @@ public:
 		}
 	}
 
-#ifdef IR_DEBUG_PRINT
+#if IR_DEBUG_PRINT
 	void StringReplace(string& s1, const string& s2, const string& s3);
 	void OutputCode(vector<IR_WORD>& vcVector);
 	IrisAM GetOneAM(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
