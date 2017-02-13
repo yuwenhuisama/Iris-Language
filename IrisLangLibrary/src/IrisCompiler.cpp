@@ -751,24 +751,48 @@ IrisCompiler::~IrisCompiler()
 {
 }
 
-bool IrisCompiler::UpperWithLoop()
+bool IrisCompiler::UpperWithBlock()
 {
-	auto riIter = m_skUpperStack.rbegin();
-	for (; riIter != m_skUpperStack.rend(); ++riIter) {
-		if (*riIter == UpperType::Loop) {
-			return true;
-		}
-	}
-	return false;
+	return find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::ClosureBlock) != m_stUpperType.end()
+		|| find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::MethodBlock) != m_stUpperType.end();
 }
 
-bool IrisCompiler::UpperWithMethod()
+bool IrisCompiler::UpperWithClass()
 {
-	auto riIter = m_skUpperStack.rbegin();
-	for (; riIter != m_skUpperStack.rend(); ++riIter) {
-		if (*riIter == UpperType::Method) {
-			return true;
-		}
-	}
-	return false;
+	return find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::ClassBlock) != m_stUpperType.end();
+}
+
+bool IrisCompiler::UpperWithModule()
+{
+	return find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::ModuleBlock) != m_stUpperType.end();
+}
+
+bool IrisCompiler::UpperWithInterface()
+{
+	return find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::InterfaceBlock) != m_stUpperType.end();
+}
+
+bool IrisCompiler::UpperWithLoop()
+{
+	return find(m_stUpperType.begin(), m_stUpperType.end(), UpperType::LoopBlock) != m_stUpperType.end();
+}
+
+bool IrisCompiler::UpperStackEmpty()
+{
+	return m_stUpperType.empty();
+}
+
+IrisCompiler::UpperType IrisCompiler::GetTopUpperType()
+{
+	return m_stUpperType.back();
+}
+
+void IrisCompiler::PushUpperType(UpperType eType)
+{
+	m_stUpperType.push_back(eType);
+}
+
+void IrisCompiler::PopUpperType()
+{
+	m_stUpperType.pop_back();
 }

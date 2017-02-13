@@ -1,6 +1,10 @@
 #ifndef _H_IRISSTATEMENT
 #define _H_IRISSTATEMENT
-class IrisStatement
+
+#include "IrisValidator/IIrisStatementValidator.h"
+
+
+class IrisStatement : public IIrisStatementValidator
 {
 protected:
 	int m_nLineNumber = 0;
@@ -13,6 +17,10 @@ public:
 
 	virtual bool Generate() = 0;
 	virtual ~IrisStatement() = 0;
+
+	// Í¨¹ý IIrisStatementValidator ¼Ì³Ð
+	virtual bool Accept(IrisAbstractStatementValidateVisitor * pVisitor) override;
+	virtual bool Validate() override;
 };
 
 #endif

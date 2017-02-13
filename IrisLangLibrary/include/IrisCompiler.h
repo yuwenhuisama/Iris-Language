@@ -110,15 +110,6 @@ private:
 	typedef vector<_StatementInfo*> _StatementsVector;
 	typedef pair<string, _StatementInfo*> _StatementsPair;
 
-public:
-	enum UpperType {
-		Loop = 0,
-		Method,
-	};
-
-private:
-	typedef vector<UpperType> _UpperStack;
-
 private:
 	int m_nCurLineNumber = 1;
 	string m_strParseString = "";
@@ -135,8 +126,6 @@ private:
 
 	_StringField m_mpFiles;
 	_StringSpace m_vcFiles;
-
-	_UpperStack m_skUpperStack;
 
 	unsigned int m_nCurrentDefineIndex = 0;
 
@@ -168,11 +157,6 @@ public:
 
 	inline _CodeVector& GetEvalCodes() { return m_vcEvalCodes; }
 	inline _CodeVector& GetCodes() { return *m_pCurrentStatementInfo->m_pCodes; };
-
-	inline void PushUpperType(UpperType eType) { m_skUpperStack.push_back(eType); }
-	inline void PopUpperType() { m_skUpperStack.pop_back(); }
-	bool UpperWithLoop();
-	bool UpperWithMethod();
 
 	inline void SetCurrentCodeList(_CodeVector* pCodeList) { m_pCurrentCodeVector = pCodeList; }
 	inline _CodeVector* GetCurrentCodeVector() { return m_pCurrentCodeVector; }
@@ -314,6 +298,34 @@ public:
 
 	inline const string& GetCurrentFileName() { return m_strCurFileName; }
 	inline int GetCurrentFileIndex() { return m_nCurFileIndex; }
+
+
+public:
+	enum class UpperType {
+		ClosureBlock = 0,
+		MethodBlock,
+		ClassBlock,
+		ModuleBlock,
+		InterfaceBlock,
+		LoopBlock,
+	};
+private:
+	typedef vector<UpperType> _UpperTypeStack;
+	_UpperTypeStack m_stUpperType;
+	
+public:
+	bool UpperWithBlock();
+	bool UpperWithClass();
+	bool UpperWithModule();
+	bool UpperWithInterface();
+	bool UpperWithLoop();
+
+	bool UpperStackEmpty();
+
+	UpperType GetTopUpperType();
+
+	void PushUpperType(UpperType eType);
+	void PopUpperType(); 
 
 	friend class IrisInterpreter;
 	friend class IrisVirtualCodeFile;
