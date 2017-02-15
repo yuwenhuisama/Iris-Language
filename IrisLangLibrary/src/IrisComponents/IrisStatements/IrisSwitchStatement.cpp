@@ -5,6 +5,9 @@
 #include "IrisCompiler.h"
 #include "IrisComponents/IrisParts/IrisWhen.h"
 #include "IrisUnil/IrisBlock.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+
 #include <vector>
 using namespace std;
 
@@ -135,4 +138,40 @@ IrisSwitchStatement::~IrisSwitchStatement()
 		delete m_pCondition;
 	if (m_pSwitchBlock)
 		delete m_pSwitchBlock;
+}
+
+bool IrisSwitchStatement::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (!m_pCondition->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pSwitchBlock) {
+		if (!m_pSwitchBlock->m_pWhenList->Ergodic([&](IrisWhen*& pWhen) -> bool {
+			if (!pWhen->m_pExpressions->Ergodic([&](IrisExpression*& pExpression) -> bool {
+				if (!pExpression->Accept(&ievvExpressionVisitor)) {
+					return false;
+				}
+				return true;
+			})) {
+				return false;
+			}
+
+			if (!pWhen->m_pBlock->Accept(&isvvStatementVisitor)) {
+				return false;
+			}
+			return true;
+		})) {
+			return false;
+		}
+
+		if (!m_pSwitchBlock->m_pElseBlock && !m_pSwitchBlock->m_pElseBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+	}
+
+	return true;
 }

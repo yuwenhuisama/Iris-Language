@@ -4,6 +4,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 
 
 IrisOrderStatement::IrisOrderStatement(IrisBlock* pOrderBlock, IrisIdentifier* pIrregularObject, IrisBlock* pServeBlock, IrisBlock* pIgnoreBlock) : m_pOrderBlock(pOrderBlock), m_pIrregularObject(pIrregularObject), m_pServeBlock(pServeBlock), m_pIgnoreBlock(pIgnoreBlock)
@@ -36,11 +37,6 @@ bool IrisOrderStatement::Generate()
 	vector<IR_WORD> lsAssignIrregular;
 
 	pCompiler->SetCurrentCodeList(&lsAssignIrregular);
-
-	if (m_pIrregularObject->GetType() != IrisIdentifilerType::LocalVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIrregularObject->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
-		return false;
-	}
 
 	pMaker->assign_ir(pCompiler->GetIdentifierIndex(m_pIrregularObject->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 
@@ -76,4 +72,29 @@ IrisOrderStatement::~IrisOrderStatement()
 		delete m_pServeBlock;
 	if (m_pIgnoreBlock)
 		delete m_pIgnoreBlock;
+}
+
+bool IrisOrderStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (m_pOrderBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	if (m_pIrregularObject->GetType() != IrisIdentifierType::LocalVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIrregularObject->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		return false;
+	}
+
+	if (m_pServeBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	if (m_pIgnoreBlock && m_pIgnoreBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	return true;
 }

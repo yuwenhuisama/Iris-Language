@@ -16,6 +16,8 @@ public:
 
 	IrisSuperStatement(IrisList<IrisExpression*>* pParameters);
 	virtual ~IrisSuperStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

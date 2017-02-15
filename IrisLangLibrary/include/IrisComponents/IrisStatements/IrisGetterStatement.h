@@ -18,6 +18,8 @@ public:
 
 	IrisGetterStatement(IrisIdentifier* pGetteredVariable, IrisBlock* pBlock);
 	virtual ~IrisGetterStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

@@ -16,6 +16,8 @@ public:
 
 	IrisGSetterStatement(IrisIdentifier* pGSetteredVariable);
 	virtual ~IrisGSetterStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

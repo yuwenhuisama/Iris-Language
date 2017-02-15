@@ -5,6 +5,8 @@
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 IrisClassStatement::IrisClassStatement(IrisIdentifier* pClasssName, IrisExpression* pSuperClassName, IrisList<IrisExpression*>* pModules, IrisList<IrisExpression*>* pInterfaces, IrisBlock* pBlock) : m_pClassName(pClasssName), m_pSuperClassName(pSuperClassName), m_pModules(pModules), m_pInterfaces(pInterfaces), m_pBlock(pBlock)
 {
@@ -21,11 +23,6 @@ bool IrisClassStatement::Generate()
 	pMaker->cre_cenv(0);
 
 	pCompiler->IncreamDefineIndex();
-
-	if (m_pClassName->GetType() != IrisIdentifilerType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pClassName->GetIdentifierString() + " is not a CONSTANCE.");
-		return false;
-	}
 
 	pMaker->def_cls(pCompiler->GetIdentifierIndex(m_pClassName->GetIdentifierString(), pCompiler->GetCurrentFileIndex()), pCompiler->GetDefineIndex());
 
@@ -98,4 +95,56 @@ IrisClassStatement::~IrisClassStatement()
 	}
 	if (m_pBlock)
 		delete m_pBlock;
+}
+
+bool IrisClassStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "class of " + m_pClassName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		return false;
+	}
+
+	if (m_pClassName->GetType() != IrisIdentifierType::Constance) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pClassName->GetIdentifierString() + " is not a CONSTANCE.");
+		return false;
+	}
+
+	if (m_pSuperClassName && !m_pSuperClassName->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pModules && !m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pInterfaces && !!m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::ClassBlock);
+
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
+	}
+
+	return true;
 }

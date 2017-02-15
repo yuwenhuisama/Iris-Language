@@ -2,9 +2,10 @@
 #define _H_IRISBLOCK_
 
 #include "IrisComponents/IrisStatements/IrisStatement.h"
+#include "IrisValidator/IIrisStatementValidator.h"
 #include "IrisList.h"
 
-class IrisBlock
+class IrisBlock : public IIrisStatementValidator
 {
 private:
 	IrisList<IrisStatement*>* m_pStatements = nullptr;
@@ -15,6 +16,10 @@ public:
 	bool Generate();
 
 	~IrisBlock();
+
+	virtual bool Accept(IrisAbstractStatementValidateVisitor* pVisitor) override;
+	virtual bool Validate() override;
+
 };
 
 #endif

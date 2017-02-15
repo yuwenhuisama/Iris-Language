@@ -15,6 +15,8 @@ public:
 
 	IrisReturnStatement(IrisExpression* pReturnExpression);
 	virtual ~IrisReturnStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

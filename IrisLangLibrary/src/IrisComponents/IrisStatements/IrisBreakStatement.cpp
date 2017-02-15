@@ -15,11 +15,6 @@ bool IrisBreakStatement::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-	if (!pCompiler->UpperWithLoop()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Continue Statement CAN ONLY be used in loop if statement/for statement.");
-		return false;
-	}
-
 	pMaker->brk();
 
 	return true;
@@ -29,4 +24,16 @@ IrisBreakStatement::~IrisBreakStatement()
 {
 	if (m_pLabel)
 		delete m_pLabel;
+}
+
+bool IrisBreakStatement::Validate()
+{
+	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+	
+	if (!pCompiler->UpperWithLoop()) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Continue Statement CAN ONLY be used in loop if statement/for statement.");
+		return false;
+	}
+
+	return true;
 }

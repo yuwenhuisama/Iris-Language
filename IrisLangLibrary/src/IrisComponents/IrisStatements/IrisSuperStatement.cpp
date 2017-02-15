@@ -2,6 +2,8 @@
 #include "IrisComponents/IrisExpressions/IrisExpression.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 
 bool IrisSuperStatement::Generate()
@@ -45,4 +47,28 @@ IrisSuperStatement::~IrisSuperStatement()
 			[](IrisExpression*& pExpression) { delete pExpression; pExpression = nullptr; return true; }
 		);
 	}
+}
+
+bool IrisSuperStatement::Validate()
+{
+	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!pCompiler->UpperWithBlock()) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SuperStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "super Statement can only be used in Method Block or Closure Block.");
+		return false;
+	}
+
+	if (m_pParameters) {
+		if (!m_pParameters->Ergodic([&](IrisExpression*& pExpression) -> bool {
+			if (!pExpression->Accept(&ievvExpressionVisitor)) {
+				return false;
+			}
+			return true;
+		})) {
+			return false;
+		}
+	}
+
+	return true;
 }

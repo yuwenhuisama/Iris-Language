@@ -1,6 +1,7 @@
 #include "IrisComponents/IrisStatements/IrisNormalStatement.h"
 #include "IrisComponents/IrisExpressions/IrisExpression.h"
 #include "IrisCompiler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 
 bool IrisNormalStatement::Generate()
@@ -19,4 +20,15 @@ IrisNormalStatement::~IrisNormalStatement()
 {
 	if (m_pExpression)
 		delete m_pExpression;
+}
+
+bool IrisNormalStatement::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!m_pExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

@@ -4,6 +4,10 @@
 #include "IrisComponents/IrisParts/IrisElseIf.h"
 #include "IrisInstructorMaker.h"
 #include "IrisUnil/IrisIdentifier.h"
+
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+
 #include <vector>
 using namespace std;
 
@@ -166,4 +170,37 @@ IrisConditionIfStatement::~IrisConditionIfStatement()
 	}
 	if (m_pElseBlock)
 		delete m_pElseBlock;
+}
+
+bool IrisConditionIfStatement::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (!m_pCondition->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pBlock && m_pBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	if (m_pIrisElseIf && !m_pIrisElseIf->Ergodic([&](IrisElseIf*& pElseIf) -> bool {
+
+		if (!pElseIf->m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+		if (!pElseIf->m_pCondition->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pElseBlock && !m_pElseBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	return true;
 }

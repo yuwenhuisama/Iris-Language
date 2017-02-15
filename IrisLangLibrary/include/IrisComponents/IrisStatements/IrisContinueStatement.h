@@ -15,6 +15,8 @@ public:
 
 	IrisContinueStatement(IrisIdentifier* pLabel);
 	virtual ~IrisContinueStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif;

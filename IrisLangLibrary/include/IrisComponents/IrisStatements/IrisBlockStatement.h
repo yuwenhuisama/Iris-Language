@@ -11,6 +11,8 @@ public:
 
 	IrisBlockStatement();
 	virtual ~IrisBlockStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

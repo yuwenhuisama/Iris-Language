@@ -15,6 +15,8 @@ public:
 
 	IrisNormalStatement(IrisExpression* pExpression);
 	virtual ~IrisNormalStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

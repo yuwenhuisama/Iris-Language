@@ -21,6 +21,8 @@ public:
 
 	IrisModuleStatement(IrisIdentifier* pModuleName, IrisList<IrisExpression*>* pModules, IrisList<IrisExpression*>* pInterfaces, IrisBlock* pBlock);
 	virtual ~IrisModuleStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

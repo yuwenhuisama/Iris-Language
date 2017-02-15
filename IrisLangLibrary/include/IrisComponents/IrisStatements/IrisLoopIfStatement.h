@@ -20,6 +20,8 @@ public:
 
 	IrisLoopIfStatement(IrisExpression* pCondition, IrisExpression* pLoopTime, IrisIdentifier* pLogVariable, IrisBlock* pBlock);
 	virtual ~IrisLoopIfStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif;

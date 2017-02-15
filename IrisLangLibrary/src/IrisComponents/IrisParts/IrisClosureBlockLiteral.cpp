@@ -81,7 +81,7 @@ bool IrisClosureBlockLiteral::Validate()
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
 	if (m_pParameters && !m_pParameters->Ergodic([&](IrisIdentifier*& pIdentifier) -> bool {
-		if (pIdentifier->GetType() != IrisIdentifilerType::LocalVariable) {
+		if (pIdentifier->GetType() != IrisIdentifierType::LocalVariable) {
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
 			return false;
 		}
@@ -99,7 +99,7 @@ bool IrisClosureBlockLiteral::Validate()
 		return false;
 	}
 
-	if (m_pVariableParameter && m_pVariableParameter->GetType() != IrisIdentifilerType::LocalVariable) {
+	if (m_pVariableParameter && m_pVariableParameter->GetType() != IrisIdentifierType::LocalVariable) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
 		return false;
 	}

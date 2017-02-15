@@ -19,6 +19,8 @@ public:
 
 	IrisSetterStatement(IrisIdentifier* pSetteredVariable, IrisIdentifier* pParamName, IrisBlock* pBlock);
 	virtual ~IrisSetterStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

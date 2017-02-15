@@ -20,6 +20,8 @@ public:
 
 	IrisForStatement(IrisIdentifier* pIter1, IrisIdentifier* pIter2, IrisExpression* pSource, IrisBlock* pBlock);
 	virtual ~IrisForStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

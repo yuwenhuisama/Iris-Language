@@ -4,6 +4,9 @@
 #include "IrisUnil/IrisBlock.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisFatalErrorHandler.h"
 
 
 bool IrisInterfaceStatement::Generate()
@@ -67,4 +70,33 @@ IrisInterfaceStatement::~IrisInterfaceStatement()
 	if (m_pBlock) {
 		delete m_pBlock;
 	}
+}
+
+bool IrisInterfaceStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisStatementValidateVisitor isvvStatementVisitor;
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (m_pInterfaceName->GetType() != IrisIdentifierType::Constance) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pInterfaceName->GetIdentifierString() + " is not a CONSTANCE.");
+		return false;
+	}
+
+	if (m_pInterfaceName && !m_pInterfaces->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	}))
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::InterfaceBlock);
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+		pCompiler->PopUpperType();
+	}
+
+	return true;
 }

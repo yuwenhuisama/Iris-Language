@@ -5,6 +5,8 @@
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 
 
 bool IrisModuleStatement::Generate()
@@ -18,7 +20,7 @@ bool IrisModuleStatement::Generate()
 
 	pCompiler->IncreamDefineIndex();
 
-	if (m_pModuleName->GetType() != IrisIdentifilerType::Constance) {
+	if (m_pModuleName->GetType() != IrisIdentifierType::Constance) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.");
 		return false;
 	}
@@ -92,4 +94,52 @@ IrisModuleStatement::~IrisModuleStatement()
 	if (m_pBlock) {
 		delete m_pBlock;
 	}
+}
+
+bool IrisModuleStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "module of " + m_pModuleName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		return false;
+	}
+
+	if (m_pModuleName->GetType() != IrisIdentifierType::Constance) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.");
+		return false;
+	}
+
+	if (m_pModules && !m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pInterfaces && !!m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::ModuleBlock);
+
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
+	}
+
+
+	return true;
 }

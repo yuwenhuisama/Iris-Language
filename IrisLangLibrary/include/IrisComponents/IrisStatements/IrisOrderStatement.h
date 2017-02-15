@@ -19,6 +19,8 @@ public:
 
 	IrisOrderStatement(IrisBlock* pOrderBlock, IrisIdentifier* pIrregularObject, IrisBlock* pServeBlock, IrisBlock* pIgnoreBlock);
 	virtual ~IrisOrderStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

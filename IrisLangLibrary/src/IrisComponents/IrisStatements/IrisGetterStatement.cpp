@@ -4,6 +4,7 @@
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 
 
 bool IrisGetterStatement::Generate()
@@ -11,11 +12,6 @@ bool IrisGetterStatement::Generate()
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
-
-	if (m_pGetteredVariable->GetType() != IrisIdentifilerType::InstanceVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pGetteredVariable->GetIdentifierString() + " is not a INSTANCE VARIABLE.");
-		return false;
-	}
 
 	const string& strMethodName = m_pGetteredVariable->GetIdentifierString();
 
@@ -25,11 +21,9 @@ bool IrisGetterStatement::Generate()
 	pMaker->gtr_def(pCompiler->GetIdentifierIndex(strMethodName, pCompiler->GetCurrentFileIndex()), bWithBlock, pCompiler->GetDefineIndex());
 
 	if (m_pBlock) {
-		pCompiler->PushUpperType(IrisCompiler::UpperType::Method);
 		if (!m_pBlock->Generate()) {
 			return false;
 		}
-		pCompiler->PopUpperType();
 	}
 
 	pMaker->end_def(pCompiler->GetDefineIndex());
@@ -50,4 +44,32 @@ IrisGetterStatement::~IrisGetterStatement()
 	if (m_pBlock) {
 		delete m_pBlock;
 	}
+}
+
+bool IrisGetterStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ClassBlock && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::AccessorStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "accessor Statement can only be used in Class or Module body.");
+		return false;
+	}
+
+	if (m_pGetteredVariable->GetType() != IrisIdentifierType::InstanceVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pGetteredVariable->GetIdentifierString() + " is not a INSTANCE VARIABLE.");
+		return false;
+	}
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::MethodBlock);
+		
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
+	}
+
+	return true;
 }

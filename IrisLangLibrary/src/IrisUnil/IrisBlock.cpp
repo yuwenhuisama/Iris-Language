@@ -2,6 +2,8 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 #include "IrisInterpreter.h"
+#include "IrisValidator/IrisAbstractStatementValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 
 IrisBlock::IrisBlock(IrisList<IrisStatement*>* pStatements) : m_pStatements(pStatements)
 {
@@ -14,10 +16,6 @@ bool IrisBlock::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->IncreamDefineIndex();
 	pMaker->blk_def(pCompiler->GetDefineIndex());
-
-	//for (auto stmt : m_pStatements->m_lsList) {
-	//	stmt->Generate();
-	//}
 
 	if (m_pStatements) {
 		if(!m_pStatements->Ergodic(
@@ -39,4 +37,32 @@ bool IrisBlock::Generate()
 
 IrisBlock::~IrisBlock()
 {
+	if (m_pStatements) {
+		m_pStatements->Ergodic([](IrisStatement*& pStatement) -> bool {
+			delete pStatement;
+			pStatement = nullptr;
+			return true;
+		});
+	}
 }
+
+bool IrisBlock::Accept(IrisAbstractStatementValidateVisitor* pVisitor) {
+	return pVisitor->Visit(this);
+}
+
+bool IrisBlock::Validate()
+{
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (m_pStatements && !!m_pStatements->Ergodic([&](IrisStatement*& pStatement) -> bool {
+		if (!pStatement->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	return true;
+}
+

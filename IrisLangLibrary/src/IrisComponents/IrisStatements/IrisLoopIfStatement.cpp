@@ -6,6 +6,8 @@
 #include "IrisInstructorMaker.h"
 #include "IrisComponents/IrisVirtualCodeStructures.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 #include <vector>
 using namespace std;
 
@@ -20,7 +22,6 @@ bool IrisLoopIfStatement::Generate()
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
-	pCompiler->PushUpperType(IrisCompiler::UpperType::Loop);
 
 	vector<IR_WORD> vcNewVector;
 	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
@@ -53,10 +54,6 @@ bool IrisLoopIfStatement::Generate()
 	vcNewVector.clear();
 
 	if (m_pLogVariable) {
-		if (m_pLogVariable->GetType() != IrisIdentifilerType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pLogVariable->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
-			return false;
-		}
 		pMaker->assign_log(pCompiler->GetIdentifierIndex(m_pLogVariable->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	}
 	pMaker->inc_cnt();
@@ -114,4 +111,36 @@ IrisLoopIfStatement::~IrisLoopIfStatement()
 		delete m_pLogVariable;
 	if (m_pBlock)
 		delete m_pBlock;
+}
+
+bool IrisLoopIfStatement::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (m_pCondition->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pLoopTime->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pLogVariable && m_pLogVariable->GetType() != IrisIdentifierType::LocalVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pLogVariable->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		return false;
+	}
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::LoopBlock);
+
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
+	}
+
+	return true;
 }

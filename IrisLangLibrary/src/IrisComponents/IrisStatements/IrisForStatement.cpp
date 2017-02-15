@@ -5,6 +5,9 @@
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
+
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+
 #include <vector>
 using namespace std;
 
@@ -13,24 +16,6 @@ bool IrisForStatement::Generate()
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
-	pCompiler->PushUpperType(IrisCompiler::UpperType::Loop);
-
-	if (m_pIter1 && !m_pIter2) {
-		if (m_pIter1->GetType() != IrisIdentifilerType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a CONSTANCE.");
-			return false;
-		}
-	}
-	else if (m_pIter1 && m_pIter2) {
-		if (m_pIter1->GetType() != IrisIdentifilerType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a LOCAL VARIABLE.");
-			return false;
-		}
-		else if (m_pIter2->GetType() != IrisIdentifilerType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter2->GetIdentifierString() + " is not a LOCAL VARIABLE.");
-			return false;
-		}
-	}
 
 	pMaker->push_vsl();
 	pMaker->push_iter();
@@ -118,9 +103,6 @@ bool IrisForStatement::Generate()
 	pMaker->pop_vsl(pCompiler->GetDefineIndex() + 1);
 	pMaker->pop_iter(pCompiler->GetDefineIndex() + 1);
 	pMaker->pop_deep();
-
-	pCompiler->PopUpperType();
-
 	return true;
 }
 
@@ -139,4 +121,40 @@ IrisForStatement::~IrisForStatement()
 		delete m_pSource;
 	if (m_pBlock)
 		delete m_pBlock;
+}
+
+bool IrisForStatement::Validate()
+{
+	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+
+	if (m_pIter1 && !m_pIter2) {
+		if (m_pIter1->GetType() != IrisIdentifierType::LocalVariable) {
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a CONSTANCE.");
+			return false;
+		}
+	}
+	else if (m_pIter1 && m_pIter2) {
+		if (m_pIter1->GetType() != IrisIdentifierType::LocalVariable) {
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a LOCAL VARIABLE.");
+			return false;
+		}
+		else if (m_pIter2->GetType() != IrisIdentifierType::LocalVariable) {
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter2->GetIdentifierString() + " is not a LOCAL VARIABLE.");
+			return false;
+		}
+	}
+
+	if (m_pBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::LoopBlock);
+
+		IrisStatementValidateVisitor isvvStatementVisitor;
+
+		if (!m_pBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
+	}
+
+	return true;
 }

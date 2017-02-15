@@ -21,6 +21,8 @@ public:
 
 	IrisFunctionStatement(IrisFunctionHeader* pFunctionHeader, IrisBlock* pWithBlock, IrisBlock* pWithoutBlock, IrisBlock* pBlock);
 	virtual ~IrisFunctionStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

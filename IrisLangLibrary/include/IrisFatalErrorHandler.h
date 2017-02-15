@@ -35,6 +35,12 @@ public:
 		InvalidLeftExpressionIrregular,
 		CastExpressionIrregular,
 		SelfExpressionIrregular,
+		AuthorityStatementIrregular,
+		BlockStatementIrregular,
+		AccessorStatementIrregular,
+		ClassStatementIrregular,
+		InterfaceFunctionStatementIrregular,
+		SuperStatementIrregular,
 	};
 
 private:

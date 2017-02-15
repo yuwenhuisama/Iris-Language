@@ -22,6 +22,8 @@ public:
 
 	IrisAuthorityStatement(IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName);
 	virtual ~IrisAuthorityStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

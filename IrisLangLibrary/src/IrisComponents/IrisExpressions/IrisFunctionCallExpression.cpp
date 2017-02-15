@@ -105,8 +105,14 @@ bool IrisFunctionCallExpression::Validate()
 		return false;
 	}
 
-	if (m_pClosureBlock && !m_pClosureBlock->Accept(&isvvStatementVisitor)) {
-		return false;
+	if (m_pClosureBlock) {
+		pCompiler->PushUpperType(IrisCompiler::UpperType::ClosureBlock);
+
+		if (!m_pClosureBlock->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+
+		pCompiler->PopUpperType();
 	}
 
 	return true;

@@ -21,6 +21,8 @@ public:
 
 	IrisConditionIfStatement(IrisExpression* pCondition, IrisBlock* pBlock, IrisList<IrisElseIf*>* pIrisElseIf, IrisBlock* pElseBlock);
 	virtual ~IrisConditionIfStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

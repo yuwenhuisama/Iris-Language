@@ -20,6 +20,9 @@ public:
 
 	IrisSwitchStatement(IrisExpression* pCondition, IrisSwitchBlock* pSwitchBlock);
 	virtual ~IrisSwitchStatement();
+	
+	virtual bool Validate() override;
+
 };
 
 #endif

@@ -18,6 +18,8 @@ public:
 
 	IrisInterfaceFunctionStatement(IrisIdentifier* pFunctionName, IrisList<IrisIdentifier*>* pParameters, IrisIdentifier* pVariableParameters);
 	virtual ~IrisInterfaceFunctionStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

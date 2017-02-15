@@ -9,8 +9,8 @@ public:
 	IrisStatementValidateVisitor();
 	~IrisStatementValidateVisitor();
 
-	// Í¨¹ý IrisAbstractStatementValidateVisitor ¼Ì³Ð
 	virtual bool Visit(IrisStatement * pStatement) override;
+	virtual bool Visit(IrisBlock * pBlock) override;
 };
 
 #endif
