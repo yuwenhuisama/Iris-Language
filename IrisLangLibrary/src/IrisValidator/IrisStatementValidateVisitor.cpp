@@ -1,4 +1,5 @@
-#include "IrisStatementValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisComponents/IrisStatements/IrisStatement.h"
 
 
 
@@ -13,5 +14,5 @@ IrisStatementValidateVisitor::~IrisStatementValidateVisitor()
 
 bool IrisStatementValidateVisitor::Visit(IrisStatement * pStatement)
 {
-	return false;
+	return pStatement->Validate();
 }

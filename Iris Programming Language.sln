@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26127.3
+VisualStudioVersion = 15.0.26206.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Iris Library Test", "Iris Library Test\Iris Library Test.vcxproj", "{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}"
 	ProjectSection(ProjectDependencies) = postProject

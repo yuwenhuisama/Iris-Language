@@ -21,6 +21,8 @@ public:
 	virtual bool Generate();
 	IrisBinaryExpression(IrisBinaryExpressionType eType, IrisExpression* pLeftExpression, IrisExpression* pRightExpression);
 	virtual ~IrisBinaryExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

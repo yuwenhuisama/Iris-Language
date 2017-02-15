@@ -4,7 +4,9 @@
 #include "IrisComponents/IrisParts/IrisClosureBlockLiteral.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
-
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisFatalErrorHandler.h"
 
 bool IrisFunctionCallExpression::Generate()
 {
@@ -77,4 +79,35 @@ IrisFunctionCallExpression::~IrisFunctionCallExpression()
 	if (m_pClosureBlock) {
 		delete m_pClosureBlock;
 	}
+}
+
+bool IrisFunctionCallExpression::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (m_pObject && !m_pObject->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pFunctionName->GetType() != IrisIdentifierType::Constance && m_pFunctionName->GetType() != IrisIdentifierType::LocalVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionName->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		return false;
+	}
+	
+	if (m_pParameters && !m_pParameters->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pClosureBlock && !m_pClosureBlock->Accept(&isvvStatementVisitor)) {
+		return false;
+	}
+
+	return true;
 }

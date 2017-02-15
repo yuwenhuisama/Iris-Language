@@ -19,6 +19,8 @@ public:
 
 	IrisRangeExpression(IrisRangeType eType, IrisExpression* pLeftExpression, IrisExpression* pRightExpression);
 	~IrisRangeExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

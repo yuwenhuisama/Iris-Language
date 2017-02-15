@@ -1,6 +1,7 @@
 #include "IrisComponents/IrisExpressions/IrisUnaryExpression.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 
 bool IrisUnaryExpression::Generate()
@@ -47,4 +48,16 @@ IrisUnaryExpression::~IrisUnaryExpression()
 {
 	if (m_pExpression)
 		delete m_pExpression;
+}
+
+bool IrisUnaryExpression::Validate()
+{
+
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!m_pExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

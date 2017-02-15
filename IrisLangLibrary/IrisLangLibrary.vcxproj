@@ -142,6 +142,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\IrisValidator\IrisExpressionValidateVisitor.cpp" />
+    <ClCompile Include="src\IrisValidator\IrisStatementValidateVisitor.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisCastExpression.cpp" />
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\IrisCompiler.cpp" />
@@ -414,10 +416,16 @@
     <ClInclude Include="include\IrisUnil\IrisValue.h" />
     <ClInclude Include="include\IrisUnil\IrisValues.h" />
     <ClInclude Include="include\IrisUnil\IrisVirtualCodeFile.h" />
+    <ClInclude Include="include\IrisValidator\IIrisExpressionValidator.h" />
+    <ClInclude Include="include\IrisValidator\IIrisStatementValidator.h" />
+    <ClInclude Include="include\IrisValidator\IrisAbstractStatementValidateVisitor.h" />
+    <ClInclude Include="include\IrisValidator\IrisAbstractExpressionValidateVisitor.h" />
     <ClInclude Include="include\resource.h" />
     <ClInclude Include="include\stdafx.h" />
     <ClInclude Include="include\targetver.h" />
     <ClInclude Include="include\IrisVirtualCodeNumber.h" />
+    <ClInclude Include="include\IrisValidator\IrisExpressionValidateVisitor.h" />
+    <ClInclude Include="include\IrisValidator\IrisStatementValidateVisitor.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

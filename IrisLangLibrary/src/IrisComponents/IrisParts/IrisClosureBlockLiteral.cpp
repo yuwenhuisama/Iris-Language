@@ -5,6 +5,10 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
+#include "IrisFatalErrorHandler.h"
+
 bool IrisClosureBlockLiteral::Generate()
 {
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
@@ -67,4 +71,38 @@ IrisClosureBlockLiteral::~IrisClosureBlockLiteral()
 	if (m_pVariableParameter) {
 		delete m_pVariableParameter;
 	}
+}
+
+bool IrisClosureBlockLiteral::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+
+	IrisExpressionValidateVisitor isvvExpressionVisitor;
+	IrisStatementValidateVisitor isvvStatementVisitor;
+
+	if (m_pParameters && !m_pParameters->Ergodic([&](IrisIdentifier*& pIdentifier) -> bool {
+		if (pIdentifier->GetType() != IrisIdentifilerType::LocalVariable) {
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pStatements && !m_pStatements->Ergodic([&](IrisStatement*& pStatement) -> bool {
+		if (!pStatement->Accept(&isvvStatementVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	if (m_pVariableParameter && m_pVariableParameter->GetType() != IrisIdentifilerType::LocalVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		return false;
+	}
+
+	return true;
 }

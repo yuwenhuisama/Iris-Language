@@ -16,6 +16,8 @@ public:
 
 	IrisHashExpression(IrisList<IrisHashPair*>* pHashPairs);
 	virtual ~IrisHashExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

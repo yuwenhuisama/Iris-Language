@@ -17,6 +17,7 @@ public:
 
 	IrisMemberExpression(IrisExpression* pCaller, IrisIdentifier* pPropery);
 	virtual ~IrisMemberExpression();
+	virtual bool Validate() override;
 };
 
 #endif

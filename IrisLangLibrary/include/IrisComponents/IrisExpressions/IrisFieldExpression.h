@@ -16,6 +16,8 @@ public:
 
 	IrisFieldExpression(IrisFieldIdentifier* pFieldIdentifier);
 	virtual ~IrisFieldExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

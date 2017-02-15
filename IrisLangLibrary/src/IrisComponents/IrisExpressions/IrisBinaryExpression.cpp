@@ -1,6 +1,8 @@
 #include "IrisComponents/IrisExpressions/IrisBinaryExpression.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisFatalErrorHandler.h"
 
 bool IrisBinaryExpression::OperateGenerate(unsigned int nOperatorIndex)
 {
@@ -251,4 +253,25 @@ IrisBinaryExpression::~IrisBinaryExpression()
 		delete m_pLeftExpression;
 	if (m_pRightExpression)
 		delete m_pRightExpression;
+}
+
+bool IrisBinaryExpression::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!m_pLeftExpression->ValidLeftValue()) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::InvalidLeftExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Invalid left expression.");
+		return false;
+	}
+
+	if (!m_pLeftExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (!m_pRightExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

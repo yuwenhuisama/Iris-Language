@@ -31,6 +31,10 @@ public:
 		ContinueIrregular,
 		BreakIrregular,
 		UnkownIrregular,
+
+		InvalidLeftExpressionIrregular,
+		CastExpressionIrregular,
+		SelfExpressionIrregular,
 	};
 
 private:

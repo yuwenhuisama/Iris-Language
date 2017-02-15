@@ -11,6 +11,8 @@ public:
 
 	IrisSelfExpression();
 	~IrisSelfExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

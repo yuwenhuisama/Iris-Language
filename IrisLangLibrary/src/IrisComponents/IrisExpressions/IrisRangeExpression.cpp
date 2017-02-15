@@ -1,6 +1,7 @@
 #include "IrisComponents/IrisExpressions/IrisRangeExpression.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 
 bool IrisRangeExpression::Generate()
@@ -56,4 +57,26 @@ IrisRangeExpression::IrisRangeExpression(IrisRangeType eType, IrisExpression* pL
 
 IrisRangeExpression::~IrisRangeExpression()
 {
+	if (m_pLeftExpression) {
+		delete m_pLeftExpression;
+	}
+
+	if (m_pRightExpression) {
+		delete m_pRightExpression;
+	}
+}
+
+bool IrisRangeExpression::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!m_pLeftExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (!m_pRightExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

@@ -11,6 +11,8 @@ public:
 
 	IrisCastExpression();
 	~IrisCastExpression();
+
+	bool Validate() override;
 };
 
 #endif // !_H_IRISCASTEXPRESSION_

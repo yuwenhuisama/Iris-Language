@@ -2,6 +2,7 @@
 #include "IrisComponents/IrisParts/IrisHashPair.h"
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 bool IrisHashExpression::Generate()
 {
@@ -54,4 +55,24 @@ IrisHashExpression::~IrisHashExpression()
 			[](IrisHashPair*& pPair) -> bool { delete pPair; pPair = nullptr; return true; }
 		);
 	}
+}
+
+bool IrisHashExpression::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (m_pHashPairs &&
+		!m_pHashPairs->Ergodic([&](IrisHashPair*& pHashPair) -> bool {
+			if (!pHashPair->m_pKey->Accept(&ievvExpressionVisitor)) {
+				return false;
+			}
+			if (!pHashPair->m_pValue->Accept(&ievvExpressionVisitor)) {
+			 	return false;
+			}
+			return true;
+		})){
+		return false;
+	}
+
+	return true;
 }

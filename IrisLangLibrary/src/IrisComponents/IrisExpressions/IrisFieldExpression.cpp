@@ -16,24 +16,12 @@ bool IrisFieldExpression::Generate()
 
   	if (m_pFieldIdentifier->m_pList) {
 		list<IR_DWORD> lsFieldMembers;
-		//m_pFieldIdentifier->m_pList->Ergodic(
-		//	[&](IrisIdentifier*& pIdentifier) -> bool {
 
-		//	if (pIdentifier->GetType() != IrisIdentifilerType::Constance) {
-		//		// ** Error **
-		//		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " +  pIdentifier->GetIdentifierString()  + " is not a CONSTANCE.");
-		//		return false;
-		//	}
-
-		//	lsFieldMembers.push_back(pCompiler->GetIdentifierIndex(pIdentifier->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
-		//	return true;
-		//}
-		//);
 		auto& lsField = m_pFieldIdentifier->m_pList->m_lsList;
 
 		auto iFirstField = lsField.begin();
 
-		//lsFieldMembers.push_back(pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+		lsFieldMembers.push_back(pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 
 		unsigned int nIndex = pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 
@@ -59,12 +47,6 @@ bool IrisFieldExpression::Generate()
 
 		for (; iFirstField != lsField.end(); ++iFirstField) {
 			auto& pIdentifier = *iFirstField;
-			if (pIdentifier->GetType() != IrisIdentifilerType::Constance) {
-				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " +  pIdentifier->GetIdentifierString()  + " is not a CONSTANCE.");
-				return false;
-			}
-
 			lsFieldMembers.push_back(pCompiler->GetIdentifierIndex(pIdentifier->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 		}
 
@@ -93,4 +75,27 @@ IrisFieldExpression::~IrisFieldExpression()
 	if (m_pFieldIdentifier) {
 		delete m_pFieldIdentifier;
 	}
+}
+
+bool IrisFieldExpression::Validate()
+{
+	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+
+	if (m_pFieldIdentifier->m_pList) {
+		size_t nIndex = 0;
+		if (!m_pFieldIdentifier->m_pList->Ergodic([&](IrisIdentifier*& pIdentifier)->bool {
+			if (nIndex != 0) {
+				if (pIdentifier->GetType() != IrisIdentifilerType::Constance) {
+					// ** Error **
+					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " is not a CONSTANCE.");
+					return false;
+				}
+			}
+			++nIndex;
+		})) {
+			return false;
+		}
+	}
+
+	return true;
 }

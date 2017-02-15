@@ -16,6 +16,8 @@ public:
 
 	IrisUnaryExpression(IrisUnaryExpressionType eType, IrisExpression* pExpression);
 	virtual ~IrisUnaryExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

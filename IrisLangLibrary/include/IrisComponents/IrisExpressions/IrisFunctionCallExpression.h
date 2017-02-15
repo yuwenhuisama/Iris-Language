@@ -21,6 +21,8 @@ public:
 
 	IrisFunctionCallExpression(IrisExpression* pObject, IrisIdentifier* pFunctionName, IrisList<IrisExpression*>* pParameters, IrisClosureBlockLiteral* pClosureBlock);
 	virtual ~IrisFunctionCallExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

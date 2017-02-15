@@ -3,6 +3,8 @@
 #include "IrisUnil/IrisIdentifier.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisFatalErrorHandler.h"
 
 bool IrisMemberExpression::Generate()
 {
@@ -48,4 +50,20 @@ IrisMemberExpression::~IrisMemberExpression()
 		delete m_pProperty;
 	}
 
+}
+
+bool IrisMemberExpression::Validate()
+{
+	auto pCompiler = IrisCompiler::CurrentCompiler();
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (m_pCaller->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (m_pProperty->GetType() != IrisIdentifierType::Constance && m_pProperty->GetType() != IrisIdentifierType::LocalVariable) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pProperty->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		return false;
+	}
+	return true;
 }

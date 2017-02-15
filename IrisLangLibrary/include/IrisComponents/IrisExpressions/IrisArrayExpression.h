@@ -16,6 +16,8 @@ public:
 
 	IrisArrayExpression(IrisList<IrisExpression*>* pElementList);
 	virtual ~IrisArrayExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

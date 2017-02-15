@@ -19,6 +19,8 @@ public:
 
 	IrisClosureBlockLiteral(IrisList<IrisIdentifier*>* pParameters, IrisIdentifier* pVariableParameter, IrisList<IrisStatement*>* pStatements);
 	virtual ~IrisClosureBlockLiteral();
+
+	virtual bool Validate() override;
 };
 
 #endif

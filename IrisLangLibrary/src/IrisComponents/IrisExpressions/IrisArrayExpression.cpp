@@ -2,6 +2,7 @@
 #include "IrisComponents/IrisExpressions/IrisExpression.h"
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 bool IrisArrayExpression::Generate()
 {
@@ -52,4 +53,22 @@ IrisArrayExpression::~IrisArrayExpression()
 		delete m_pElementList;
 	}
 
+}
+
+
+
+bool IrisArrayExpression::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (m_pElementList && !m_pElementList->Ergodic([&](IrisExpression*& pExpression) -> bool {
+		if (!pExpression->Accept(&ievvExpressionVisitor)) {
+			return false;
+		}
+		return true;
+	})) {
+		return false;
+	}
+
+	return true;
 }
