@@ -54,7 +54,7 @@ bool IrisBlock::Validate()
 {
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
-	if (m_pStatements && !!m_pStatements->Ergodic([&](IrisStatement*& pStatement) -> bool {
+	if (m_pStatements && !m_pStatements->Ergodic([&](IrisStatement*& pStatement) -> bool {
 		if (!pStatement->Accept(&isvvStatementVisitor)) {
 			return false;
 		}

@@ -79,7 +79,7 @@ bool IrisOrderStatement::Validate()
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
-	if (m_pOrderBlock->Accept(&isvvStatementVisitor)) {
+	if (!m_pOrderBlock->Accept(&isvvStatementVisitor)) {
 		return false;
 	}
 
@@ -88,11 +88,11 @@ bool IrisOrderStatement::Validate()
 		return false;
 	}
 
-	if (m_pServeBlock->Accept(&isvvStatementVisitor)) {
+	if (!m_pServeBlock->Accept(&isvvStatementVisitor)) {
 		return false;
 	}
 
-	if (m_pIgnoreBlock && m_pIgnoreBlock->Accept(&isvvStatementVisitor)) {
+	if (m_pIgnoreBlock && !m_pIgnoreBlock->Accept(&isvvStatementVisitor)) {
 		return false;
 	}
 

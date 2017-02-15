@@ -17,5 +17,5 @@ bool IrisStatement::Accept(IrisAbstractStatementValidateVisitor * pVisitor)
 
 bool IrisStatement::Validate()
 {
-	return true;
+	return false;
 }

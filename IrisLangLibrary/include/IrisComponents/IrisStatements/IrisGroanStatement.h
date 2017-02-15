@@ -16,6 +16,8 @@ public:
 
 	IrisGroanStatement(IrisExpression* pGroanExpression);
 	virtual ~IrisGroanStatement();
+
+	virtual bool Validate() override;
 };
 
 #endif

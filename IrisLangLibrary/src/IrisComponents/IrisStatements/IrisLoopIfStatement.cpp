@@ -119,11 +119,11 @@ bool IrisLoopIfStatement::Validate()
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
-	if (m_pCondition->Accept(&ievvExpressionVisitor)) {
+	if (!m_pCondition->Accept(&ievvExpressionVisitor)) {
 		return false;
 	}
 
-	if (m_pLoopTime->Accept(&ievvExpressionVisitor)) {
+	if (!m_pLoopTime->Accept(&ievvExpressionVisitor)) {
 		return false;
 	}
 

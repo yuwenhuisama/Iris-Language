@@ -168,7 +168,7 @@ bool IrisSwitchStatement::Validate()
 			return false;
 		}
 
-		if (!m_pSwitchBlock->m_pElseBlock && !m_pSwitchBlock->m_pElseBlock->Accept(&isvvStatementVisitor)) {
+		if (m_pSwitchBlock->m_pElseBlock && !m_pSwitchBlock->m_pElseBlock->Accept(&isvvStatementVisitor)) {
 			return false;
 		}
 	}

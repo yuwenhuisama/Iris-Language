@@ -162,6 +162,51 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t n
 		strMessage += strIrregularMessage + "ContinueIrregular," + "\n" + strLinenoMessage;
 		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
 		break;
+	case IrisFatalErrorHandler::FatalErrorType::InvalidLeftExpressionIrregular:
+		strMessage = strIrregularTitle + "InvalidLeftExpressionIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "InvalidLeftExpressionIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::CastExpressionIrregular:
+		strMessage = strIrregularTitle + "CastExpressionIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "CastExpressionIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::SelfExpressionIrregular:
+		strMessage = strIrregularTitle + "SelfExpressionIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "SelfExpressionIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::AuthorityStatementIrregular:
+		strMessage = strIrregularTitle + "AuthorityStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "AuthorityStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::BlockStatementIrregular:
+		strMessage = strIrregularTitle + "BlockStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "BlockStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::AccessorStatementIrregular:
+		strMessage = strIrregularTitle + "AccessorStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "AccessorStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::ClassStatementIrregular:
+		strMessage = strIrregularTitle + "ClassStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "ClassStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::InterfaceFunctionStatementIrregular:
+		strMessage = strIrregularTitle + "InterfaceFunctionStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "InterfaceFunctionStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
+	case IrisFatalErrorHandler::FatalErrorType::SuperStatementIrregular:
+		strMessage = strIrregularTitle + "SuperStatementIrregular>" + strMessage;
+		strMessage += strIrregularMessage + "SuperStatementIrregular," + "\n" + strLinenoMessage;
+		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
+		break;
 	default:
 		break;
 	}

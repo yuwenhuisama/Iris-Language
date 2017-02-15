@@ -26,19 +26,19 @@ bool IrisFieldExpression::Generate()
 		unsigned int nIndex = pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 
 		switch ((*iFirstField)->GetType()) {
-		case IrisIdentifilerType::Constance:
+		case IrisIdentifierType::Constance:
 			pMaker->load(IrisAMType::Constance, nIndex);
 			break;
-		case IrisIdentifilerType::ClassVariable:
+		case IrisIdentifierType::ClassVariable:
 			pMaker->load(IrisAMType::ClassValue, nIndex);
 			break;
-		case IrisIdentifilerType::GlobalVariable:
+		case IrisIdentifierType::GlobalVariable:
 			pMaker->load(IrisAMType::GlobalValue, nIndex);
 			break;
-		case IrisIdentifilerType::InstanceVariable:
+		case IrisIdentifierType::InstanceVariable:
 			pMaker->load(IrisAMType::InstanceValue, nIndex);
 			break;
-		case IrisIdentifilerType::LocalVariable:
+		case IrisIdentifierType::LocalVariable:
 			pMaker->load(IrisAMType::LocalValue, nIndex);
 			break;
 		}
@@ -67,6 +67,7 @@ bool IrisFieldExpression::Generate()
 
 IrisFieldExpression::IrisFieldExpression(IrisFieldIdentifier* pFieldIdentifier) : m_pFieldIdentifier(pFieldIdentifier)
 {
+	m_bValidLeftValue = true;
 }
 
 
@@ -85,17 +86,24 @@ bool IrisFieldExpression::Validate()
 		size_t nIndex = 0;
 		if (!m_pFieldIdentifier->m_pList->Ergodic([&](IrisIdentifier*& pIdentifier)->bool {
 			if (nIndex != 0) {
-				if (pIdentifier->GetType() != IrisIdentifilerType::Constance) {
+				if (pIdentifier->GetType() != IrisIdentifierType::Constance) {
 					// ** Error **
 					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " is not a CONSTANCE.");
 					return false;
 				}
 			}
 			++nIndex;
+			return true;
 		})) {
 			return false;
 		}
 	}
+	if (m_pFieldIdentifier->m_pIdentifier->GetType() != IrisIdentifierType::Constance) {
+		// ** Error **
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFieldIdentifier->m_pIdentifier->GetIdentifierString() + " is not a CONSTANCE.");
+		return false;
+	}
+
 
 	return true;
 }

@@ -2,9 +2,11 @@
 #include "IrisComponents/IrisExpressions/IrisExpression.h"
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 IrisIndexExpression::IrisIndexExpression(IrisExpression* pTarget, IrisExpression* pIndexer) : m_pTarget(pTarget), m_pIndexer(pIndexer)
 {
+	m_bValidLeftValue = true;
 }
 
 
@@ -68,4 +70,19 @@ IrisIndexExpression::~IrisIndexExpression()
 	if (m_pIndexer) {
 		delete m_pIndexer;
 	}
+}
+
+bool IrisIndexExpression::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (!m_pTarget->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	if (!m_pIndexer->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

@@ -17,19 +17,19 @@ bool IrisIdentifierExpression::Generate()
 	unsigned int nIndex = pCompiler->GetIdentifierIndex(m_pIdentifier->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 
 	switch (m_pIdentifier->GetType()) {
-	case IrisIdentifilerType::Constance:
+	case IrisIdentifierType::Constance:
 		pMaker->load(IrisAMType::Constance, nIndex);
 		break;
-	case IrisIdentifilerType::ClassVariable:
+	case IrisIdentifierType::ClassVariable:
 		pMaker->load(IrisAMType::ClassValue, nIndex);
 		break;
-	case IrisIdentifilerType::GlobalVariable:
+	case IrisIdentifierType::GlobalVariable:
 		pMaker->load(IrisAMType::GlobalValue, nIndex);
 		break;
-	case IrisIdentifilerType::InstanceVariable:
+	case IrisIdentifierType::InstanceVariable:
 		pMaker->load(IrisAMType::InstanceValue, nIndex);
 		break;
-	case IrisIdentifilerType::LocalVariable:
+	case IrisIdentifierType::LocalVariable:
 		pMaker->load(IrisAMType::LocalValue, nIndex);
 		break;
 	}
@@ -46,19 +46,19 @@ bool IrisIdentifierExpression::LeftValue(IrisAMType & eType, IR_DWORD & bIndex)
 	bIndex = pCompiler->GetIdentifierIndex(m_pIdentifier->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 
 	switch (m_pIdentifier->GetType()) {
-	case IrisIdentifilerType::Constance:
+	case IrisIdentifierType::Constance:
 		eType = IrisAMType::Constance;
 		break;
-	case IrisIdentifilerType::ClassVariable:
+	case IrisIdentifierType::ClassVariable:
 		eType = IrisAMType::ClassValue;
 		break;
-	case IrisIdentifilerType::GlobalVariable:
+	case IrisIdentifierType::GlobalVariable:
 		eType = IrisAMType::GlobalValue;
 		break;
-	case IrisIdentifilerType::InstanceVariable:
+	case IrisIdentifierType::InstanceVariable:
 		eType = IrisAMType::InstanceValue;
 		break;
-	case IrisIdentifilerType::LocalVariable:
+	case IrisIdentifierType::LocalVariable:
 		eType = IrisAMType::LocalValue;
 		break;
 	}
@@ -67,6 +67,7 @@ bool IrisIdentifierExpression::LeftValue(IrisAMType & eType, IR_DWORD & bIndex)
 
 IrisIdentifierExpression::IrisIdentifierExpression(IrisIdentifier* pIdentifier) : m_pIdentifier(pIdentifier)
 {
+	m_bValidLeftValue = true;
 }
 
 

@@ -122,27 +122,28 @@ extern int yydebug;
      ASSIGN_MUL = 331,
      ASSIGN_DIV = 332,
      ASSIGN_MOD = 333,
-     ASSIGN_BIT_AND = 334,
-     ASSIGN_BIT_OR = 335,
-     ASSIGN_BIT_XOR = 336,
-     BIT_SHR = 337,
-     EQ = 338,
-     NE = 339,
-     GT = 340,
-     GE = 341,
-     LT = 342,
-     LE = 343,
-     BIT_SHL = 344,
-     BIT_SAR = 345,
-     BIT_SAL = 346,
-     ASSIGN_BIT_SHR = 347,
-     ASSIGN_BIT_SHL = 348,
-     ASSIGN_BIT_SAR = 349,
-     ASSIGN_BIT_SAL = 350,
-     ITER = 351,
-     FILED = 352,
-     SHARP = 353,
-     CONLON = 354
+     ASSIGN_POWER = 334,
+     ASSIGN_BIT_AND = 335,
+     ASSIGN_BIT_OR = 336,
+     ASSIGN_BIT_XOR = 337,
+     BIT_SHR = 338,
+     EQ = 339,
+     NE = 340,
+     GT = 341,
+     GE = 342,
+     LT = 343,
+     LE = 344,
+     BIT_SHL = 345,
+     BIT_SAR = 346,
+     BIT_SAL = 347,
+     ASSIGN_BIT_SHR = 348,
+     ASSIGN_BIT_SHL = 349,
+     ASSIGN_BIT_SAR = 350,
+     ASSIGN_BIT_SAL = 351,
+     ITER = 352,
+     FILED = 353,
+     SHARP = 354,
+     CONLON = 355
    };
 #endif
 /* Tokens.  */
@@ -222,27 +223,28 @@ extern int yydebug;
 #define ASSIGN_MUL 331
 #define ASSIGN_DIV 332
 #define ASSIGN_MOD 333
-#define ASSIGN_BIT_AND 334
-#define ASSIGN_BIT_OR 335
-#define ASSIGN_BIT_XOR 336
-#define BIT_SHR 337
-#define EQ 338
-#define NE 339
-#define GT 340
-#define GE 341
-#define LT 342
-#define LE 343
-#define BIT_SHL 344
-#define BIT_SAR 345
-#define BIT_SAL 346
-#define ASSIGN_BIT_SHR 347
-#define ASSIGN_BIT_SHL 348
-#define ASSIGN_BIT_SAR 349
-#define ASSIGN_BIT_SAL 350
-#define ITER 351
-#define FILED 352
-#define SHARP 353
-#define CONLON 354
+#define ASSIGN_POWER 334
+#define ASSIGN_BIT_AND 335
+#define ASSIGN_BIT_OR 336
+#define ASSIGN_BIT_XOR 337
+#define BIT_SHR 338
+#define EQ 339
+#define NE 340
+#define GT 341
+#define GE 342
+#define LT 343
+#define LE 344
+#define BIT_SHL 345
+#define BIT_SAR 346
+#define BIT_SAL 347
+#define ASSIGN_BIT_SHR 348
+#define ASSIGN_BIT_SHL 349
+#define ASSIGN_BIT_SAR 350
+#define ASSIGN_BIT_SAL 351
+#define ITER 352
+#define FILED 353
+#define SHARP 354
+#define CONLON 355
 
 
 
@@ -274,7 +276,7 @@ typedef union YYSTYPE
 
 
 /* Line 2058 of yacc.c  */
-#line 278 "y.tab.h"
+#line 280 "y.tab.h"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */

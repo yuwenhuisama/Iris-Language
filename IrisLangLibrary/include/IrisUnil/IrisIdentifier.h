@@ -9,13 +9,13 @@ class IrisIdentifier
 {
 private:
 	string m_strIdentifier;
-	IrisIdentifilerType m_eType = IrisIdentifilerType::Constance;
+	IrisIdentifierType m_eType = IrisIdentifierType::Constance;
 
 public:
-	IrisIdentifier(IrisIdentifilerType eType, char* szIdentifier);
+	IrisIdentifier(IrisIdentifierType eType, char* szIdentifier);
 	~IrisIdentifier();
 
-	inline IrisIdentifilerType GetType() { return m_eType; }
+	inline IrisIdentifierType GetType() { return m_eType; }
 	const string& GetIdentifierString() { return m_strIdentifier; }
 
 	//friend class IrisMethod;

@@ -22,5 +22,5 @@ bool IrisExpression::Accept(IrisAbstractExpressionValidateVisitor * pVisitor)
 
 bool IrisExpression::Validate()
 {
-	return true;
+	return false;
 }

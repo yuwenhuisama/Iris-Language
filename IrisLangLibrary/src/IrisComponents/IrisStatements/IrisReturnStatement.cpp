@@ -44,7 +44,7 @@ bool IrisReturnStatement::Validate()
 		return false;
 	}
 
-	if (m_pReturnExpression && m_pReturnExpression->Accept(&ievvExpressionVisitor)) {
+	if (m_pReturnExpression && !m_pReturnExpression->Accept(&ievvExpressionVisitor)) {
 		return false;
 	}
 

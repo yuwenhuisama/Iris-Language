@@ -15,6 +15,8 @@ public:
 
 	IrisIndexExpression(IrisExpression* pTarget, IrisExpression* pIndexer);
 	virtual ~IrisIndexExpression();
+
+	virtual bool Validate() override;
 };
 
 #endif

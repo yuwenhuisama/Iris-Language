@@ -120,6 +120,10 @@ bool IrisBinaryExpression::Generate()
 		nOperatorIndex = pCompiler->GetIdentifierIndex("/", pCompiler->GetCurrentFileIndex());
 		bResult = OperateAssignGenerate(nOperatorIndex);
 		break;
+	case IrisBinaryExpressionType::AssignPower:
+		nOperatorIndex = pCompiler->GetIdentifierIndex("**", pCompiler->GetCurrentFileIndex());
+		bResult = OperateAssignGenerate(nOperatorIndex);
+		break;
 	case IrisBinaryExpressionType::AssignMod:
 		nOperatorIndex = pCompiler->GetIdentifierIndex("%", pCompiler->GetCurrentFileIndex());
 		bResult = OperateAssignGenerate(nOperatorIndex);
@@ -260,7 +264,21 @@ bool IrisBinaryExpression::Validate()
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
-	if (!m_pLeftExpression->ValidLeftValue()) {
+	if (!m_pLeftExpression->ValidLeftValue() 
+		&& (m_eType == IrisBinaryExpressionType::Assign
+			|| m_eType == IrisBinaryExpressionType::AssignBitAnd
+			|| m_eType == IrisBinaryExpressionType::AssignBitOr
+			|| m_eType == IrisBinaryExpressionType::AssignBitSal
+			|| m_eType == IrisBinaryExpressionType::AssignBitSar
+			|| m_eType == IrisBinaryExpressionType::AssignBitShl
+			|| m_eType == IrisBinaryExpressionType::AssignBitShr
+			|| m_eType == IrisBinaryExpressionType::AssignBitXor
+			|| m_eType == IrisBinaryExpressionType::AssignAdd
+			|| m_eType == IrisBinaryExpressionType::AssignDiv
+			|| m_eType == IrisBinaryExpressionType::AssignMod
+			|| m_eType == IrisBinaryExpressionType::AssignMul
+			|| m_eType == IrisBinaryExpressionType::AssignSub
+			|| m_eType == IrisBinaryExpressionType::AssignPower)) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::InvalidLeftExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Invalid left expression.");
 		return false;
 	}

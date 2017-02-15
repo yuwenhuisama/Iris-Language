@@ -127,7 +127,7 @@ bool IrisClassStatement::Validate()
 		return false;
 	}
 
-	if (m_pInterfaces && !!m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+	if (m_pInterfaces && !m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
 		if (!pExpression->Accept(&ievvExpressionVisitor)) {
 			return false;
 		}

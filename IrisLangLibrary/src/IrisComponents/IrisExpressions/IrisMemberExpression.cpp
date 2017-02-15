@@ -38,6 +38,7 @@ bool IrisMemberExpression::LeftValue(IrisAMType & eType, IR_DWORD & bIndex)
 
 IrisMemberExpression::IrisMemberExpression(IrisExpression* pCaller, IrisIdentifier* pPropery) : m_pCaller(pCaller), m_pProperty(pPropery)
 {
+	m_bValidLeftValue = true;
 }
 
 
@@ -57,7 +58,7 @@ bool IrisMemberExpression::Validate()
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
-	if (m_pCaller->Accept(&ievvExpressionVisitor)) {
+	if (!m_pCaller->Accept(&ievvExpressionVisitor)) {
 		return false;
 	}
 

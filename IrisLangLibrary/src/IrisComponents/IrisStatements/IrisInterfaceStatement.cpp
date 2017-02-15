@@ -78,6 +78,11 @@ bool IrisInterfaceStatement::Validate()
 	IrisStatementValidateVisitor isvvStatementVisitor;
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
+	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "interface of " + m_pInterfaceName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		return false;
+	}
+
 	if (m_pInterfaceName->GetType() != IrisIdentifierType::Constance) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pInterfaceName->GetIdentifierString() + " is not a CONSTANCE.");
 		return false;

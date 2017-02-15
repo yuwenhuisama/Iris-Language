@@ -2,6 +2,7 @@
 #include "IrisComponents/IrisStatements/IrisStatement.h"
 #include "IrisUnil/IrisVirtualCodeFile.h"
 #include "IrisVirtualCodeNumber.h"
+#include "IrisValidator/IrisStatementValidateVisitor.h"
 #include <iostream>
 #include <iomanip>
 using namespace std;
@@ -172,13 +173,22 @@ bool IrisCompiler::Generate()
 {
 	
 	if (!m_bEvalFlag) {
-		for (auto stmt : *m_pCurrentStatementInfo->m_pStatementList) {
+		IrisStatementValidateVisitor isvvStatementVisitor;
+
+		for (auto& stmt : *m_pCurrentStatementInfo->m_pStatementList)
+		{
+			if (!stmt->Accept(&isvvStatementVisitor)) {
+				return false;
+			}
+		}
+
+		for (auto& stmt : *m_pCurrentStatementInfo->m_pStatementList) {
 			if (!stmt->Generate()) {
 				return false;
 			}
 		}
 		// Release
-		for (auto stmt : *m_pCurrentStatementInfo->m_pStatementList) {
+		for (auto& stmt : *m_pCurrentStatementInfo->m_pStatementList) {
 			delete stmt;
 		}
 		delete m_pCurrentStatementInfo->m_pStatementList;
@@ -190,13 +200,22 @@ bool IrisCompiler::Generate()
 		ivcfIRCFile.SaveToFile(strCurFileName, pInfo);
 	}
 	else {
-		for (auto stmt : m_pEvalStatements) {
+		IrisStatementValidateVisitor isvvStatementVisitor;
+
+		for (auto& stmt : m_pEvalStatements)
+		{
+			if (!stmt->Accept(&isvvStatementVisitor)) {
+				return false;
+			}
+		}
+
+		for (auto& stmt : m_pEvalStatements) {
 			if (!stmt->Generate()) {
 				return false;
 			}
 		}
 		// Release
-		for (auto stat : m_pEvalStatements) {
+		for (auto& stat : m_pEvalStatements) {
 			delete stat;
 		}
 		m_pEvalStatements.clear();

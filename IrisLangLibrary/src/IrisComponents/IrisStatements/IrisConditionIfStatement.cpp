@@ -181,7 +181,7 @@ bool IrisConditionIfStatement::Validate()
 		return false;
 	}
 
-	if (m_pBlock && m_pBlock->Accept(&isvvStatementVisitor)) {
+	if (m_pBlock && !m_pBlock->Accept(&isvvStatementVisitor)) {
 		return false;
 	}
 

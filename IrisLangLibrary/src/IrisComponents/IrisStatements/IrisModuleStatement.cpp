@@ -42,6 +42,7 @@ bool IrisModuleStatement::Generate()
 	}
 
 	// Interfaces
+	/*
 	if (m_pInterfaces) {
 		if(!m_pInterfaces->Ergodic(
 			[&](IrisExpression*& pExpression) -> bool {
@@ -54,7 +55,7 @@ bool IrisModuleStatement::Generate()
 			))
 			return false;
 	}
-
+	*/
 	// Block
 	if(m_pBlock) {
 		m_pBlock->Generate();
@@ -121,7 +122,8 @@ bool IrisModuleStatement::Validate()
 		return false;
 	}
 
-	if (m_pInterfaces && !!m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
+	/*
+	if (m_pInterfaces && !m_pModules->Ergodic([&](IrisExpression*& pExpression) -> bool {
 		if (!pExpression->Accept(&ievvExpressionVisitor)) {
 			return false;
 		}
@@ -129,6 +131,7 @@ bool IrisModuleStatement::Validate()
 	})) {
 		return false;
 	}
+	*/
 
 	if (m_pBlock) {
 		pCompiler->PushUpperType(IrisCompiler::UpperType::ModuleBlock);

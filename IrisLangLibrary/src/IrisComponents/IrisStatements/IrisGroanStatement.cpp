@@ -2,6 +2,7 @@
 #include "IrisComponents/IrisExpressions/IrisExpression.h"
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
+#include "IrisValidator/IrisExpressionValidateVisitor.h"
 
 
 bool IrisGroanStatement::Generate()
@@ -29,4 +30,15 @@ IrisGroanStatement::~IrisGroanStatement()
 	if (m_pGroanExpression)
 		delete m_pGroanExpression;
 
+}
+
+bool IrisGroanStatement::Validate()
+{
+	IrisExpressionValidateVisitor ievvExpressionVisitor;
+
+	if (m_pGroanExpression && !m_pGroanExpression->Accept(&ievvExpressionVisitor)) {
+		return false;
+	}
+
+	return true;
 }

@@ -8,6 +8,7 @@ enum class IrisBinaryExpressionType {
 	AssignMul,
 	AssignDiv,
 	AssignMod,
+	AssignPower,
 	AssignBitAnd,
 	AssignBitOr,
 	AssignBitXor,
@@ -52,7 +53,7 @@ enum IrisUnaryExpressionType {
 	Plus,
 };
 
-enum class IrisIdentifilerType {
+enum class IrisIdentifierType {
 	Constance = 0,
 	LocalVariable,
 	GlobalVariable,

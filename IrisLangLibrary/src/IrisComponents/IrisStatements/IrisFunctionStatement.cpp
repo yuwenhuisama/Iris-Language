@@ -117,11 +117,11 @@ bool IrisFunctionStatement::Validate()
 
 	pCompiler->PushUpperType(IrisCompiler::UpperType::MethodBlock);
 
-	if (m_pBlock && m_pBlock->Accept(&isvvStatementVisitor)) {
+	if (m_pBlock && !m_pBlock->Accept(&isvvStatementVisitor)) {
 		return false;
 	}
 
-	if (m_pWithBlock && !m_pBlock->Accept(&isvvStatementVisitor) && !m_pWithoutBlock->Accept(&isvvStatementVisitor)) {
+	if (m_pWithBlock && (!m_pBlock->Accept(&isvvStatementVisitor) || !m_pWithoutBlock->Accept(&isvvStatementVisitor))) {
 		return false;
 	}
 
