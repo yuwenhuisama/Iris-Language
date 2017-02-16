@@ -1,0 +1,4 @@
+;print(!true, '\n')
+;print(-5, '\n')
+;print(+10, '\n')
+;print(~0xff, '\n')

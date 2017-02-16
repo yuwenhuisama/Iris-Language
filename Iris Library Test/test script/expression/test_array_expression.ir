@@ -1,0 +1,8 @@
+;array1 = []
+;print(array1.size, "\n")
+
+
+;array2 = [1, 2, 3]
+for(e in array2) {
+	;print(e, "\n")
+}

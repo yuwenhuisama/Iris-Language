@@ -1,0 +1,65 @@
+fun function() {
+	;print("Hello 1.\n")
+}
+
+fun function2(p1, p2) {
+	;print("Hello 2, ", p1, " , ", p2, "\n")
+}
+
+fun function3(*params) {
+	;print("Hello 3, ")
+	for(e in params) {
+		;print(e, ", ")
+	}
+	;print("\n")
+}
+
+fun function4(p1, p2, *params) {
+	;print("Hello 4, ", p1, " , ", p2, ",")
+	for(e in params) {
+		;print(e, ", ")
+	}
+	;print("\n")
+}
+
+fun function5() {
+	;cast.call()
+}
+
+fun function6() {
+	;cast.call("token")
+}
+
+fun function7() {
+	;block
+}
+with {
+	;cast.call()
+}
+without {
+	;print("no block.\n")
+}
+
+fun function8() {
+	;cast.call(1, 2, 3, 4, 5)
+}
+
+;function()
+;function2("a", 2)
+;function3(1, 2, 3, 4, 5)
+;function4("a", "b", 7, 8, 9)
+;function5() { ;print("chachacha\n") }
+;function6() { iterator => [msg]: ;print(msg, "\n") }
+;function7()
+;function7() { ;print("hahaha\n")}
+;function8() {
+	iterator => [*params] :
+	;params.each() { iterator => [e] : ;print(e, ", ") }
+	;print("\n")
+ }
+;function8() {
+	iterator => [p1, *params] :
+	;print(p1, ", ")
+	;params.each() { iterator => [e] : ;print(e, ", ") }
+	;print("\n")
+ }

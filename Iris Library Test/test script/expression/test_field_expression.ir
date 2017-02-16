@@ -1,0 +1,23 @@
+module A {
+	module B {
+		class  C {
+			fun self.test_method() {
+				;print("field expression test.\n")
+			}
+		}
+	}
+	module D {
+		fun self.test_method() {
+			;(::A.test_method())
+		}
+	}
+	
+	fun self.test_method() {
+		;print("field expression test 2.\n")
+	}
+}
+
+;A::B::C.test_method()
+;field = A::B
+;field::C.test_method()
+;A::D.test_method()

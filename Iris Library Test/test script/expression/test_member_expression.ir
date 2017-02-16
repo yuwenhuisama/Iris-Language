@@ -1,0 +1,12 @@
+class TestClass {
+	;gset [@msg]
+
+	fun __format(msg) {
+		;@msg = msg
+	}
+}
+
+;obj = TestClass.new("Hello")
+;print(obj.msg, '\n')
+;obj.msg = "World"
+;print(obj.msg, '\n')

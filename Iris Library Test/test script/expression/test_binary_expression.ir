@@ -1,0 +1,43 @@
+;a = 1
+;print("a = 1, then a = ", a, "\n")
+;a += 2
+;print("a += 2, then a = ", a, "\n")
+;a -= 1
+;print("a -= 3, then a = ", a, "\n")
+;a *= 4.0
+;print("a *= 4.0, then a = ", a, "\n")
+;a /= 2
+;print("a /= 2, then a = ", a, "\n")
+;a = 2
+;a **= 3
+;print("a = 2, a **= 3, then a = ", a, "\n")
+
+;print("\n")
+;a = 0xf0
+;b = 0x0f
+;print("a = 0xf0, b = 0x0f\n")
+;print("a & b = ", a & b, "\n")
+;print("a | b = ", a | b, "\n")
+;print("a ^ b = ", a ^ b, "\n")
+;print("a >> 3 = ", a >> 3, "\n")
+;print("b >> 2 = ", b >> 2, "\n")
+;print("a >>> 3 = ", a >>> 3, "\n")
+;print("b <<< 2 = ", b <<< 2, "\n")
+
+;print("\n")
+;a = false
+;b = true
+;print("a = false, b = true\n")
+;print("a && b = ", a && b, "\n")
+;print("a || b = ", a || b, "\n")
+
+;print("\n")
+;a = 10
+;b = 20.0
+;print("a = 10, b = 20.0\n")
+;print("a == b ? ", a == b, "\n")
+;print("a != b ? ", a != b, "\n")
+;print("a > b ? ", a > b, "\n")
+;print("a >= b ? ", a >= b, "\n")
+;print("a < b ? ", a < b, "\n")
+;print("a <= b ? ", a <= b, "\n")

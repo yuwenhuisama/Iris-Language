@@ -1,0 +1,10 @@
+;print("String\n")
+;print(@"row
+string
+")
+;print('UniqueString\n')
+;print(123, '\n')
+;print(0x123, '\n')
+;print(0123, '\n')
+;print(1.24, '\n')
+;print(1.5e+10, '\n')

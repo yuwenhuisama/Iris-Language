@@ -1,0 +1,16 @@
+for(i in (1 => 10)) {
+	;print(i, " ")
+}
+;print("\n")
+for(i in [1 => 10)) {
+	;print(i, " ")
+}
+;print("\n")
+for(i in ("a" => "z"]) {
+	;print(i, " ")
+}
+;print("\n")
+for(i in ["Z" => "A"]) {
+	;print(i, " ")
+}
+;print("\n")

@@ -1,0 +1,5 @@
+;arr = [1, 2, "Hello"]
+;hash = { 'a' => 1, 'c' => true }
+
+;print(arr[2], "\n")
+;print(hash['a'], "\n")

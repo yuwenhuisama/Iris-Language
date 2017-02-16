@@ -1,0 +1,5 @@
+;CONSTANCE = 10
+;@@class_var = "a"
+;$global_var = 5.0
+;@instance_var = Object.new()
+;local_var = nil

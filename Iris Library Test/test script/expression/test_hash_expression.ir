@@ -1,0 +1,7 @@
+;hash1 = {}
+;print(hash1.size, "\n")
+
+;hash2 = { 1 => "abc", 2 => "cde" }
+for((key, value) in hash2) {
+	;print(key, "=>", value, "\n")
+}

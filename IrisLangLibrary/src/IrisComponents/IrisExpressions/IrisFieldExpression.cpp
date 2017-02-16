@@ -16,12 +16,9 @@ bool IrisFieldExpression::Generate()
 
   	if (m_pFieldIdentifier->m_pList) {
 		list<IR_DWORD> lsFieldMembers;
-
 		auto& lsField = m_pFieldIdentifier->m_pList->m_lsList;
 
 		auto iFirstField = lsField.begin();
-
-		lsFieldMembers.push_back(pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 
 		unsigned int nIndex = pCompiler->GetIdentifierIndex((*iFirstField)->GetIdentifierString(), pCompiler->GetCurrentFileIndex());
 

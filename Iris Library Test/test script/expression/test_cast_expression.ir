@@ -1,0 +1,8 @@
+fun test_method() {
+	;cast.call("test_method")
+}
+
+;test_method() {
+	iterator => [msg]:
+	;print("Message from ", msg, "\n")
+ }

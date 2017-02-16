@@ -1,0 +1,24 @@
+class TestClass {
+
+	;gset[@var]
+
+	fun __format() {
+		;@var = "MMM"
+	}
+	
+	fun foo() {
+		;self.bar()
+	}
+	
+	fun foo2() {
+		;print(self.var, "\n")
+	}
+	
+	fun bar() {
+		;print("bar\n")
+	}
+}
+
+;obj = TestClass.new()
+;obj.foo()
+;obj.foo2()

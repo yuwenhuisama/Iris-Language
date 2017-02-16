@@ -1,0 +1,4 @@
+;a = true
+;b = false
+;c = nil
+;print(a, '\n', b, '\n', c, '\n')

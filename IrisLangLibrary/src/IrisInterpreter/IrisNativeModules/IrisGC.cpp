@@ -181,6 +181,9 @@ void IrisGC::_Mark() {
 		for (auto& env : pThreadInfo->m_skEnvironmentStack) {
 			if (env) {
 				++env->m_nReferenced;
+				if (env->m_pClosureBlock) {
+					static_cast<IrisObject*>(env->m_pClosureBlock->GetNativeObject())->Mark();
+				}
 			}
 		}
 		if (pThreadInfo->m_pEnvrionmentRegister) {

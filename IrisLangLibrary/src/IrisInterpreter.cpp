@@ -10,7 +10,7 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisClassBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisObjectBase.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisClassBase.h"
-#include "IrisInterpreter/IrisNativeClasses/IrisModuleBase.h"
+#include "IrisInterpreter/IrisNativeClasses/IrisModuleBase.h" 
 #include "IrisInterpreter/IrisNativeClasses/IrisFalseClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisTrueClass.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisNilClass.h"
@@ -1870,7 +1870,7 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 #if IR_USE_STL_STRING
 				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + *iField + "not found.");
 #else
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + "not found.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Identifier of " + (*iField).GetSTLString() + " not found.");
 #endif // IR_USE_STL_STRING
 				return false;
 			}
