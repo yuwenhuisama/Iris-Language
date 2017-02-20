@@ -65,7 +65,7 @@ bool IrisSetterStatement::Validate()
 		return false;
 	}
 
-	if (m_pParamName->GetType() != IrisIdentifierType::LocalVariable) {
+	if (m_pParamName && m_pParamName->GetType() != IrisIdentifierType::LocalVariable) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pParamName->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
 		return false;
 	}

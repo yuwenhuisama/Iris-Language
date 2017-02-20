@@ -37,8 +37,8 @@ IrisValue IrisInteger::CmpOperation(Operation eOperationType, IrisValue & ivObj,
 	}
 	else {
 		if (!IrisDevUtil::CheckClassIsInteger(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
-			IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
-			return IrisDevUtil::Nil();
+			//IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
+			return IrisDevUtil::False();
 		}
 		// 获取被加数
 		IrisIntegerTag* pRightInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));

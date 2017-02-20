@@ -10,6 +10,8 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 
+//#include "IrisInterpreter/IrisNativeClasses/IrisIrregularTag.h"
+
 #if IR_USE_STL_STRING
 IrisMethod::IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority) {
 #else
@@ -293,7 +295,11 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	if (pInterpreter->IrregularHappened()) {
+		auto p = IrisThreadManager::CurrentThreadManager();
 		if(pParameters) {
+			//auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			//auto strString = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(pInfo->m_ivIrregularObjectRegister);
+
 			pInterpreter->PopStack(pParameters->GetVector().size());
 		}
 	}

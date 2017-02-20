@@ -1,0 +1,37 @@
+module A {
+	module B {
+		fun self.module_print() {
+			;print("Module Func of A::B\n")
+		}		
+	}
+	
+	class C {
+		fun __format() {
+			;print("A::C's __format\n")
+		}
+	}
+	
+	interface D {
+		;fun bar()
+	}
+	
+	fun self.module_print() {
+		;print("Module Func\n")
+	}
+	
+	fun foo() {
+		;print("Fooooo...\n")
+	}
+}
+
+class E involves A joints A::D {
+	fun bar() {
+		;print("Barrrr...\n")
+	}
+}
+
+;A.module_print()
+;E.new().foo()
+;E.new().bar()
+;A::B.module_print()
+;A::C.new()

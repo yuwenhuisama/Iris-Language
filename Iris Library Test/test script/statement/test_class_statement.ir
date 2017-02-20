@@ -1,0 +1,42 @@
+class Base {
+	
+	fun foo1() {
+		;print("From Base 1\n")
+	}
+	
+	fun foo2() {
+		;print("From Base 2\n")
+	}
+	
+	fun self.class_foo() {
+		;print("class foo\n")
+	}
+	
+	fun print_msg() {
+		;print(@msg, "\n")
+	}
+
+}
+
+class Sub extends Base {
+
+	fun __format(msg) {
+		;@msg = msg
+	}
+
+	fun foo1() {
+		;print("From Sub 1\n")
+	}
+	
+}
+
+;obj1 = Base.new()
+;obj1.foo1()
+;obj1.foo2()
+
+;obj2 = Sub.new("Hello")
+;obj2.foo1()
+;obj2.foo2()
+;obj2.print_msg()
+
+;Base.class_foo()

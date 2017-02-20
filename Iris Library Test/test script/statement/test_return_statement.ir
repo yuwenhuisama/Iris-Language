@@ -1,0 +1,26 @@
+fun max(a, b) {
+	if(a > b) {
+		;return a
+	}
+	else {
+		;return b
+	}
+}
+
+;print(max(1,2), '\n')
+
+fun get_nil_index(*params) {
+	;index = 0
+	for(i in params) {
+		if(i == nil) {
+			;return index
+		}
+		;index += 1
+	}
+}
+
+;print(get_nil_index(1, 2, 3, 4, nil, 5), '\n')
+
+
+;max = Block.new() { iterator => [a, b] : if(a > b) { ;return a } else { ;return b } }
+;print(max.call(3, 4), '\n')

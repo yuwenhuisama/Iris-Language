@@ -1,0 +1,21 @@
+;a = 1
+if(true, 0) {
+	;print('a = ', a, ' ')
+	;a += 1
+	if(a > 10) {
+		;break
+	}
+}
+;print('\n')
+
+;a = 1
+if(a < 10, 100) {
+	;a += 1
+	;print('a = ', a, ' ')
+}
+;print('\n')
+
+if(true, 10, i) {
+	;print('i = ', i, ' ')
+}
+;print('\n')

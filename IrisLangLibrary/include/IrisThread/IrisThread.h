@@ -38,7 +38,7 @@ public:
 			--pTmpEnv->m_nReferenced;
 			pTmpEnv = pTmpEnv->m_pUpperContextEnvironment;
 		}
-		delete pBlock;
+		//delete pBlock;
 		pThreadObject->SetPermanent(false);
 
 		if (IrisThreadManager::CurrentThreadManager()->IsAllThreadBlocked()) {

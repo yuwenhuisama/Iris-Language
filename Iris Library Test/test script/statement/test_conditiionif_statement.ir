@@ -1,0 +1,23 @@
+for(i in [1 => 10]){
+	if(i == 6) {
+		;continue
+	}
+	;print('i = ', i, " ")
+	;print('\n')
+	for(j in [1 => 10]){
+		if(j == 5) {
+			;continue
+		}
+		;print('\tj = ', j, '\n')
+	}
+}
+;print('\n')
+
+;a = 0
+if(true, 10) {
+	;a += 1
+	if(a == 5) {
+		;continue
+	}
+	;print("a = ", a, "\n")
+}

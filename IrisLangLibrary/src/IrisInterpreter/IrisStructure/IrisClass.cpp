@@ -8,6 +8,7 @@
 #include "IrisInterpreter/IrisStructure/IrisContextEnvironment.h"
 #include "IrisFatalErrorHandler.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisUniqueString.h"
+#include "IrisUnil/IrisValues.h"
 
 void IrisClass::_FunctionCollect(IrisInterface* pInterface, _InterfaceFunctionDeclareMap& mpFunctionDeclare) {
 	// 出口
@@ -54,7 +55,7 @@ bool IrisClass::_FunctionAchieved() {
 		}
 		else {
 			// 如果找到了但是参数不对，还是退出
-			auto pMethodDeclare = funcdec.second;
+			auto& pMethodDeclare = funcdec.second;
 			if (pMethod->IsWithVariableParameter() != pMethodDeclare.m_bHaveVariableParameter
 				|| pMethod->GetParameterAmount() != pMethodDeclare.m_nParameterAmount) {
 				m_iwlInterfaceAddingWLLock.ReadUnlock();
@@ -240,9 +241,25 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	IrisGC::CurrentGC()->Start();
 	ivValue.SetIrisObject(pObject);
 	if(IsNormalClass()){
-		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(pObject);
-		pObject->CallInstanceFunction("__format", pContexEnvironment, static_cast<IrisValues*>(ivsParams), CallerSide::Outside);
-		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+
+		IrisDevUtil::CallMethod(IrisValue::WrapObjectPointerToIrisValue(pObject), "__format",  ivsParams, pContexEnvironment);
+
+		//IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(pObject);
+
+		//if (ivsParams) {
+		//	auto& vcVictor = static_cast<IrisValues*>(ivsParams)->GetVector();
+		//	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+		//	for (auto& value : vcVictor) {
+		//		pInfo->m_stStack.Push(value);
+		//	}
+		//}
+
+		//pObject->CallInstanceFunction("__format", pContexEnvironment, static_cast<IrisValues*>(ivsParams), CallerSide::Outside);
+
+		//if (ivsParams && !IrisDevUtil::IrregularHappened()) {
+		//	IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(ivsParams)->GetSize());
+		//}
+		//IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
 	}
 
 	// 将新对象保存到堆里

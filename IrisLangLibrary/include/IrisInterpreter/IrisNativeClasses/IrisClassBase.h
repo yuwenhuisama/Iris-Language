@@ -32,7 +32,7 @@ public:
 
 	void NativeClassDefine() {
 		IrisDevUtil::AddInstanceMethod(this, "__format", InitializeFunction, 0, false);		
-		IrisDevUtil::AddClassMethod(this, "new", New, 0, true);
+		IrisDevUtil::AddInstanceMethod(this, "new", New, 0, true);
 
 		IrisDevUtil::AddGetter(this, "@class_name", GetClassName);
 	}

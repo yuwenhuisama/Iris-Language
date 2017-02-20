@@ -14,7 +14,7 @@ bool IrisAuthorityStatement::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-	pMaker->set_auth(pCompiler->GetIdentifierIndex(m_pMethodName->GetIdentifierString(), pCompiler->GetCurrentFileIndex()), (IR_BYTE)m_eEnvironment, (IR_BYTE)m_eType, (IR_BYTE)m_eType);
+	pMaker->set_auth(pCompiler->GetIdentifierIndex(m_pMethodName->GetIdentifierString(), pCompiler->GetCurrentFileIndex()), (IR_BYTE)m_eEnvironment, (IR_BYTE)m_eTarget, (IR_BYTE)m_eType);
 
 	return true;
 }

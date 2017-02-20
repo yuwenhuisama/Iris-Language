@@ -1,0 +1,19 @@
+fun groan_irregular() {
+	;print("before groan\n")
+	;groan("Irregular groaned\n")
+	;print("after groan\n")
+}
+
+fun catch_irregular() {
+	order {
+		;groan_irregular()
+	}
+	serve(e) {
+		;print(e)
+	}
+	ignore {
+		;print("Ignore\n")
+	}
+}
+
+;catch_irregular()

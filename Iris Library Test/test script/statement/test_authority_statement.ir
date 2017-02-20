@@ -1,0 +1,51 @@
+class TestClass {
+	fun __personal_method(){
+		;print("personal\n")
+	}
+	
+	fun _relative_method() {
+		;print("relative\n")
+	}
+	
+	fun everyone_method() {
+		;print("everyone\n")
+	}
+	
+	fun call_personal() {
+		;__personal_method()
+	}
+	
+	;everyone [everyone_method]
+	;relative [_relative_method]
+	;personal [__personal_method]
+}
+
+class SubTestClass extends TestClass {
+	fun call_relative() {
+		;_relative_method()
+	}
+	
+	fun self.__personal_class_method() {
+		;print("class_personal\n")
+	}
+	
+	fun self._relative_class_method() {
+		;print("class_relative\n")
+	}
+	
+	fun self.call_class_personal() {
+		;__personal_class_method()
+	}
+	
+	;personal [self.__personal_class_method]
+	;relative [self._relative_class_method]
+}
+
+;obj = TestClass.new()
+;obj.everyone_method()
+// ;obj._relative_method()  // Error
+// ;obj.__personal_method() // Error
+;sub_obj = SubTestClass.new()
+;sub_obj.call_relative()
+
+;SubTestClass.call_class_personal()

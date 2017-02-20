@@ -21,7 +21,7 @@ IrisValue IrisRange::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValu
 
 	ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(1);
 	auto ivValue2 = static_cast<IrisValues*>(ivsValues)->GetValue(2);
-	if (IrisDevUtil::CheckClassIsString((IrisValue&)ivValue) && IrisDevUtil::CheckClassIsString(ivValue2)) {
+	if (IrisDevUtil::CheckClassIsStringOrUniqueString(const_cast<IrisValue&>(ivValue)) && IrisDevUtil::CheckClassIsStringOrUniqueString(ivValue2)) {
 		auto strFrom = IrisDevUtil::GetString(ivValue);
 		auto strTo = IrisDevUtil::GetString(ivValue2);
 		if (strnlen_s(strFrom, 0xFFFFFFFF) != 1 || strnlen_s(strTo, 0xFFFFFFFF) != 1) {

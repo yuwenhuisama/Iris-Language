@@ -1,0 +1,26 @@
+class TestClass {
+	;get [@foo]
+	;set [@foo]
+	
+	get [@bar] () {
+		;return "Hello, World!"
+	}
+	
+	set [@bar] (value) {
+		;@moo = value
+	}
+	
+	;gset [@moo]
+	
+	fun __format(foo) {
+		;@foo = foo
+	}
+}
+
+;obj = TestClass.new("Test String")
+;print(obj.foo, '\n')
+;print(obj.bar, '\n')
+;obj.bar = 100
+;print(obj.moo, '\n')
+;obj.moo = "AA"
+;print(obj.moo, '\n')

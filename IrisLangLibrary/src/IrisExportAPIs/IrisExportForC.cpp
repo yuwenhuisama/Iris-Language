@@ -76,7 +76,7 @@ IRISLANGLIBRARY_API char * IrisDev_GetString(CIrisValue ivValue)
 
 IRISLANGLIBRARY_API CIrisValue IrisDev_CallMethod(CIrisValue ivObj, char * szMethodName, CIIrisValues pParameters)
 {
-	return CAST_AS_CIrisValue((IrisDevUtil::CallMethod(CAST_AS_IrisValue(ivObj), CAST_AS_IIrisValues(pParameters), szMethodName)));
+	return CAST_AS_CIrisValue((IrisDevUtil::CallMethod(CAST_AS_IrisValue(ivObj), szMethodName, CAST_AS_IIrisValues(pParameters))));
 }
 
 IRISLANGLIBRARY_API CIrisValue IrisDev_CallClassClassMethod(CIIrisClass pClass, char * szMethodName, CIIrisValues * pParameters)

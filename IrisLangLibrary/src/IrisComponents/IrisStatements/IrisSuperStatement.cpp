@@ -27,7 +27,12 @@ bool IrisSuperStatement::Generate()
 
 	pMaker->push_env();
 	pMaker->cre_env();
-	pMaker->spr(m_pParameters->GetSize());
+	if (m_pParameters) {
+		pMaker->spr(m_pParameters->GetSize());
+	} 
+	else {
+		pMaker->spr(0);
+	}
 	pMaker->pop_env();
 	if (m_pParameters) {
 		pMaker->pop(m_pParameters->GetSize());

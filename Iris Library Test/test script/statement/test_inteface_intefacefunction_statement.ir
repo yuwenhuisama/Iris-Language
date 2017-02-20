@@ -1,0 +1,17 @@
+interface TestInterface {
+	;fun foo1()
+	;fun foo2(arg)
+	;fun foo3(arg1, arg2)
+	;fun foo4(arg, *parmas)
+	;fun foo5(*params)
+}
+
+interface SubTestInterface joints TestInterface  {
+	;fun bar()
+}
+
+class A joints SubTestInterface {
+	fun bar() {}
+}
+
+;obj = A.new()

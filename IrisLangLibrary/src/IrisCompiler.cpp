@@ -4,6 +4,7 @@
 #include "IrisVirtualCodeNumber.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 #include <iostream>
+#include <sstream>
 #include <iomanip>
 using namespace std;
 
@@ -307,9 +308,18 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	IR_BYTE bInstructor = 0;
 	IrisAM iaAM;
+
+	stringstream sstream;
+
 	while (nCodePointer != nCodeEnder) {
 		nCodePointer += 1;
 		bInstructor =  vcVector[nCodePointer] >> 8;
+
+		sstream.str("");
+		sstream << nCodePointer;
+
+		cout << sstream.str() << "\t";
+
 		switch (bInstructor)
 		{
 		case PUSH_ENV: // push_env

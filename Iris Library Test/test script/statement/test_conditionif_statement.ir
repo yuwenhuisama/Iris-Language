@@ -1,0 +1,41 @@
+;a = 1
+
+if(a == 1) {
+	;print("a = 1\n")
+}
+
+if(a != 1) {
+	;print("a != 1\n")
+} else {
+	;print("a = 1\n")
+}
+
+;a = 3
+
+if(a == 1) {
+	;print("a = 1\n")
+}
+elseif (a == 2) {
+	;print("a = 2\n")
+}
+elseif (a == 3) {
+	;print("a = 3\n")
+}
+else {
+	;print("a = ", a ,"\n")
+}
+
+;a = 4
+
+if(a == 1) {
+	;print("a = 1\n")
+}
+elseif (a == 2) {
+	;print("a = 2\n")
+}
+elseif (a == 3) {
+	;print("a = 3\n")
+}
+else {
+	;print("a = ", a ,"\n")
+}

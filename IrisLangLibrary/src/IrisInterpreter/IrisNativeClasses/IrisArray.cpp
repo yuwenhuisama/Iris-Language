@@ -102,7 +102,7 @@ IrisValue IrisArray::Sort(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValue
 				[&](IrisValue& ivA, IrisValue& ivB)-> bool {
 				ivBlockParam.SetValue(0, ivB);
 
-				auto bResult = IrisDevUtil::CallMethod(ivA, &ivBlockParam, ">");
+				auto bResult = IrisDevUtil::CallMethod(ivA, ">", &ivBlockParam);
 
 				if (IrisDevUtil::IrregularHappened()
 					|| IrisDevUtil::FatalErrorHappened()) {

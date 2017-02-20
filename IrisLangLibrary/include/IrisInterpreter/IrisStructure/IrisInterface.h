@@ -101,6 +101,8 @@ public:
 	void AddInterfaceFunctionDeclare(const IrisInternString& strFunctionName, int m_nParameterAmount, bool bHaveHaveVariableParameter = false);
 #endif // IR_USE_STL_STRING
 
+	inline IrisModule* GetUpperModule() { return m_pUpperModule; }
+
 	friend class IrisClass;
 	friend class IrisModule;
 	friend class IrisObject;

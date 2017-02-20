@@ -88,7 +88,7 @@ bool IrisInterfaceStatement::Validate()
 		return false;
 	}
 
-	if (m_pInterfaceName && !m_pInterfaces->Ergodic([&](IrisExpression*& pExpression) -> bool {
+	if (m_pInterfaces && !m_pInterfaces->Ergodic([&](IrisExpression*& pExpression) -> bool {
 		if (!pExpression->Accept(&ievvExpressionVisitor)) {
 			return false;
 		}

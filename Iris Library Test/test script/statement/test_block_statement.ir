@@ -1,0 +1,15 @@
+fun block_method() {
+	;block
+}
+with {
+	;cast.call("with block")
+}
+without {
+	;print("without block\n")
+}
+
+;block_method() {
+	iterator => [msg] :
+	;print(msg, '\n')
+ }
+;block_method()

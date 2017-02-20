@@ -91,8 +91,6 @@ bool IrisLoopIfStatement::Generate()
 	pMaker->pop_unim(pCompiler->GetDefineIndex() + 1);
 	pMaker->pop_deep();
 	
-	pCompiler->PopUpperType();
-
 	return true;
 }
 

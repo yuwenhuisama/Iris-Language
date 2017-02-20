@@ -66,20 +66,9 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t n
 		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
 		{
 			auto& ivIrregularObj = IrisDevUtil::GetCurrentThreadInfo()->m_ivIrregularObjectRegister;
-			auto nLineNumber = IrisDevUtil::GetInt(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@line_number"));
-			auto szFileName = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@file_name"));
-			auto szMsg = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivIrregularObj, "@message"));
-			strMessage += "> file name : ";
-			strMessage += szFileName;
-			strMessage += "\n";
-			strMessage += "> line number : ";
-			stringstream ssStream;
-			ssStream << nLineNumber;
-			strMessage += ssStream.str();
-			strMessage += "\n";
-			strMessage += "> message : ";
-			strMessage += szMsg;
-			strMessage += "\n";
+			auto ivStringValue = IrisDevUtil::CallMethod(ivIrregularObj, "to_string", nullptr, IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister);
+			auto strMsg = IrisDevUtil::GetString(ivStringValue);
+			strMessage += strMsg;
 		}
 		break;
 	case FatalErrorType::SourceObjectIrregular:

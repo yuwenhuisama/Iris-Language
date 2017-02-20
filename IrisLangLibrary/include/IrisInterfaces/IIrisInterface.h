@@ -2,6 +2,7 @@
 #define _H_IIRISINTERFACE_
 
 class IrisInterface;
+class IIrisModule;
 class IIrisInterface
 {
 private:
@@ -15,7 +16,12 @@ public:
 
 	virtual ~IIrisInterface() = 0 {};
 
+	virtual const char* NativeInterfaceNameDefine() const = 0;
+	virtual IIrisModule* NativeUpperModuleDefine() const = 0;
+	virtual void NativeInterfaceDefine() = 0;
+
 	friend class IrisInterface;
+	friend class IrisInterpreter;
 };
 
 #endif

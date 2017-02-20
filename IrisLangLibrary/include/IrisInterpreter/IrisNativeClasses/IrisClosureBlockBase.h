@@ -25,6 +25,7 @@ public:
 	void Mark(void* pNativeObjectPointer) {
 		IrisClosureBlockBaseTag* pClosureBlock = static_cast<IrisClosureBlockBaseTag*>(pNativeObjectPointer);
 		IrisDevUtil::MarkClosureBlock(pClosureBlock->GetClosureBlock());
+		//static_cast<IrisClosureBlock*>(pClosureBlock->GetClosureBlock())->GetNativeObject()->Mark();
 	}
 
 	int GetTrustteeSize(void* pNativePointer) {
@@ -36,8 +37,10 @@ public:
 	}
 
 	void NativeFree(void* pNativePointer) {
-		delete static_cast<IrisClosureBlockBaseTag*>(pNativePointer)->GetClosureBlock();
-		delete static_cast<IrisClosureBlockBaseTag*>(pNativePointer);
+		if (pNativePointer) {
+			delete static_cast<IrisClosureBlockBaseTag*>(pNativePointer)->GetClosureBlock();
+			delete static_cast<IrisClosureBlockBaseTag*>(pNativePointer);
+		}
 	}
 
 	void NativeClassDefine() {

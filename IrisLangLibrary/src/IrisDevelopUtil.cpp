@@ -33,6 +33,10 @@ namespace IrisDevUtil {
 	IMPLEMENT_CLASS_CHECK(Range)
 	IMPLEMENT_CLASS_CHECK(Block)
 
+	bool CheckClassIsStringOrUniqueString(const IrisValue& ivValue) {
+		return CheckClassIsString(ivValue) || CheckClassIsUniqueString(ivValue);
+	}
+
 	IrisThreadUniqueInfo * GetCurrentThreadInfo()
 	{
 		return IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
@@ -94,19 +98,73 @@ namespace IrisDevUtil {
 
 	}
 
-	IrisValue CallMethod(const IrisValue & ivObj, IIrisValues * pParameters, const char* strMethodName)
+	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment)
 	{
-		return static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, nullptr, pParameters, CallerSide::Outside);
+		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(ivObj.GetIrisObject()));
+
+		if (pParameters) {
+			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			for (auto& value : vcVictor) {
+				pInfo->m_stStack.Push(value);
+			}
+		}
+
+		auto ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, pEnvironment, pParameters, CallerSide::Outside);
+
+		if (pParameters && !IrregularHappened()) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		}
+		
+		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+
+		return ivResult;
 	}
 
-	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters)
+	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment)
 	{
-		return pClass->GetInternClass()->CallClassMethod(szMethodName, nullptr, static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pClass->GetInternClass()->GetClassObject()));
+
+		if (pParameters) {
+			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			for (auto& value : vcVictor) {
+				pInfo->m_stStack.Push(value);
+			}
+		}
+
+		auto ivResult = pClass->GetInternClass()->CallClassMethod(szMethodName, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+
+		if (pParameters && !IrregularHappened()) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		}
+
+		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+
+		return ivResult;
 	}
 
-	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters)
+	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment)
 	{
-		return pModule->GetInternModule()->CallClassMethod(szMethodName, nullptr, static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pModule->GetInternModule()->GetModuleObject()));
+
+		if (pParameters) {
+			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
+			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+			for (auto& value : vcVictor) {
+				pInfo->m_stStack.Push(value);
+			}
+		}
+
+		auto ivResult = pModule->GetInternModule()->CallClassMethod(szMethodName, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+
+		if (pParameters && !IrregularHappened()) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		}
+
+		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+
+		return ivResult;
 	}
 
 	IrisValue CreateInt(int nInteger)

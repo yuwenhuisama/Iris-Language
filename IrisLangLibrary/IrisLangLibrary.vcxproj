@@ -142,6 +142,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\IrisInterpreter\IrisNativeInterfaces\IrisDummyInterface.cpp" />
     <ClCompile Include="src\IrisValidator\IrisExpressionValidateVisitor.cpp" />
     <ClCompile Include="src\IrisValidator\IrisStatementValidateVisitor.cpp" />
     <ClCompile Include="src\IrisComponents\IrisExpressions\IrisCastExpression.cpp" />
@@ -222,7 +223,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregular.cpp" />
-    <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.cpp" />
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisMethodBase.cpp" />
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisMethodBaseTag.cpp" />
     <ClCompile Include="src\IrisInterpreter\IrisNativeClasses\IrisModuleBase.cpp" />
@@ -361,7 +361,6 @@
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBase.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisInterfaceBaseTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregular.h" />
-    <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisIrregularTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBase.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisMethodBaseTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisModuleBase.h" />
@@ -380,6 +379,7 @@
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisTrueClassTag.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisUniqueString.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisUniqueStringTag.h" />
+    <ClInclude Include="include\IrisInterpreter\IrisNativeInterfaces\IrisDummyInterface.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisDummyModule.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisGC.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeModules\IrisGCModule.h" />

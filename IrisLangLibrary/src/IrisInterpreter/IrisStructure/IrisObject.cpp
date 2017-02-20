@@ -34,69 +34,11 @@ IrisValue IrisObject::CallInstanceFunction(const IrisInternString& strFunctionNa
 	IrisMethod* pMethod = nullptr;
 	bool bIsCurClassMethod = false;
 
-	// 特殊处理：如果是类对象或者模块对象，则沿着继承链往上查找一直到Class类为止
-	if (m_pClass->GetInternClass()->IsClassClass()) {
-		bIsCurClassMethod = false;
-		IrisObject* pClassObject = this;
-		IrisClass* pClass = static_cast<IrisClassBaseTag*>(pClassObject->m_pNativeObject)->GetClass();
-
-		do {
-			pClassObject = static_cast<IrisObject*>(pClass->GetClassObject());
-
-			pMethod = pClassObject->GetInstanceMethod(strFunctionName);
-
-			// 根据“类的单例方法可继承”的原则，所有的类都能够调用Class类的单件方法；而又由于所有的类都是Class类的实例，因此所有的类都能调用Class类的实例方法。
-			// Class类
-			if (!pMethod) {
-				pMethod = static_cast<IrisObject*>(m_pClass->GetInternClass()->GetClassObject())->GetInstanceMethod(strFunctionName);
-			}
-
-			if (!pMethod) {
-				bool bDummy = false;
-				pMethod = m_pClass->GetInternClass()->GetMethod(strFunctionName, bDummy);
-			}
-
-			// 检查父类包含的模块
-			if (!pMethod) {
-				auto& hsModules = pClass->GetModules();
-				for (auto& module : hsModules) {
-					auto pModule = module;
-					if (pMethod = pModule->GetModuleInstanceMethod(strFunctionName)) {
-						break;
-					}
-				}
-			}
-
-			pClass = static_cast<IrisClassBaseTag*>(pClassObject->m_pNativeObject)->GetClass()->GetSuperClass();
-
-		} while (pClass && !pClass->IsClassClass() && !pMethod);
-	}
-	else if (m_pClass->GetInternClass()->IsModuleClass()) {
-		bIsCurClassMethod = false;
-
-		IrisModule* pModule = static_cast<IrisModuleBaseTag*>(m_pNativeObject)->GetModule();
-
-		pMethod = static_cast<IrisObject*>(pModule->GetModuleObject())->GetInstanceMethod(strFunctionName);
-
-		if(!pMethod) {
-			auto& hsModules = pModule->GetModules();
-			for (auto& module : hsModules) {
-				auto pTmpModule = module;
-				if (pMethod = pTmpModule->GetModuleInstanceMethod(strFunctionName)) {
-					break;
-				}
-			}
-		}
-	}
-	else {
-		decltype(m_mpInstanceMethods)::iterator iMethod = m_mpInstanceMethods.find(strFunctionName);
-		if (!(iMethod == m_mpInstanceMethods.end())) {
-			pMethod = iMethod->second;
-			bIsCurClassMethod = true;
-		}
-	}
-
-	if (!pMethod) {
+	auto iMethod = m_mpInstanceMethods.find(strFunctionName);
+	if (iMethod != m_mpInstanceMethods.end()){
+		pMethod = iMethod->second;
+		bIsCurClassMethod = true;
+	} else {
 		pMethod = m_pClass->GetInternClass()->GetMethod(strFunctionName, bIsCurClassMethod);
 	}
 

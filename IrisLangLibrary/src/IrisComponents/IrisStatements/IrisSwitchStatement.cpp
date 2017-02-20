@@ -85,12 +85,14 @@ bool IrisSwitchStatement::Generate()
 
 	// Calc
 	unsigned int Offset = 0;
+	//size_t nCmpIndex = 0;
 	for (auto when : vcWhenStructures) {
 		Offset = when->m_nComparerSize;
+		//nCmpIndex = when->m_lsComparerCodes.size();
 		for (auto cmp : when->m_lsComparerCodes) {
 			pCompiler->LinkCodesToRealCodes(*cmp);
 			if (cmp != when->m_lsComparerCodes.back()) {
-				pMaker->jt(Offset - cmp->size() + 5); // - jmp
+				pMaker->jt(Offset -= cmp->size() + 5); // - jmp
 			}
 			else {
 				if (when != vcWhenStructures.back()) {

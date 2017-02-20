@@ -1,0 +1,28 @@
+fun foo() {
+	;print('foo1\n')
+}
+
+fun foo2(arg) {
+	;print(arg, '\n')
+}
+
+fun foo3(arg1, arg2) {
+	;print(arg1, '\n', arg2, '\n')
+}
+
+fun foo4(arg, *params) {
+	;print(arg, '\n')
+	for(obj in params) {
+		;print(obj, '\n')
+	}
+}
+
+fun foo5(*params) {
+	;params.each() { iterator => [e] : ;print(e, '\n') }
+}
+
+;foo()
+;foo2("foo2")
+;foo3("arg1", "arg2")
+;foo4("arg1", "arg2", "arg3", "arg4")
+;foo5("arg1", "arg2")

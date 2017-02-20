@@ -16,7 +16,7 @@ IrisValue IrisKernel::Print(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVal
 				cout << IrisDevUtil::GetNativePointer<IrisUniqueStringTag*>(elem)->GetString();
 			}
 			else {
-				ivString = IrisDevUtil::CallMethod(elem, nullptr, "to_string");
+				ivString = IrisDevUtil::CallMethod(elem, "to_string", nullptr);
 				cout << IrisDevUtil::GetNativePointer<IrisStringTag*>(ivString)->GetString();
 			}
 		}

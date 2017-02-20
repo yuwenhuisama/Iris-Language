@@ -1,0 +1,15 @@
+class A {
+	fun foo(arg) {
+		;print("A' foo ", arg, '\n')
+	}
+}
+
+class B extends A {
+	fun foo() {
+		;super("B's msg")
+		;print("B' foo\n")
+	}
+}
+
+;obj = B.new()
+;obj.foo()

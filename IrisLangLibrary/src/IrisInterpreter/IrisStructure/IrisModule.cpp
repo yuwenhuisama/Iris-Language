@@ -45,7 +45,7 @@ void IrisModule::_SearchClassVariable(const IrisInternString& strVariableName, I
 	bool bResult = false;
 	auto& ivResultValue = pCurModule->GetCurrentModuleClassVariable(strVariableName, bResult);
 	if (bResult) {
-		*pValue = (IrisValue*)&ivResultValue;
+		*pValue = const_cast<IrisValue*>(&ivResultValue);
 	}
 
 	for (auto& module : pCurModule->m_hsModules) {
@@ -68,7 +68,7 @@ const IrisValue& IrisModule::SearchConstance(const IrisInternString& strConstNam
 		return *pValue;
 	}
 	else{
-		pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strConstName, bResult);
+		pValue = const_cast<IrisValue*>(&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strConstName, bResult));
 		if (bResult) {
 			return *pValue;
 		}

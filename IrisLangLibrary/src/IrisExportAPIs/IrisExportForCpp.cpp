@@ -73,7 +73,7 @@ namespace IrisDev {
 
 	IRISLANGLIBRARY_API IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters)
 	{
-		return IrisDevUtil::CallMethod(ivObj, pParameters, strMethodName);
+		return IrisDevUtil::CallMethod(ivObj, strMethodName, pParameters);
 	}
 
 	IRISLANGLIBRARY_API IrisValue CallClassClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters)

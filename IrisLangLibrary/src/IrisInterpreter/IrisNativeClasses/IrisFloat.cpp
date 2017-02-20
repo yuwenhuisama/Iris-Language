@@ -16,8 +16,8 @@ IrisValue IrisFloat::CmpOperation(Operation eOperationType, IrisValue & ivObj, I
 			iftRightFloat = *(IrisDevUtil::GetNativePointer<IrisFloatTag*>((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0)));
 		}
 		else {
-			IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
-			return IrisDevUtil::Nil();
+			//IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
+			return IrisDevUtil::False();
 		}
 	}
 	bool bResult = false;

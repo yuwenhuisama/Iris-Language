@@ -29,6 +29,9 @@
 #include "IrisInterpreter/IrisNativeModules/IrisKernel.h"
 #include "IrisInterpreter/IrisNativeClasses/IrisClosureBlockBase.h"
 #include "IrisInterpreter/IrisNativeModules/IrisDummyModule.h"
+
+#include "IrisInterpreter/IrisNativeInterfaces/IrisDummyInterface.h"
+
 #include "IrisFatalErrorHandler.h"
 
 #include "IrisComponents/IrisComponentsDefines.h"
@@ -1088,8 +1091,14 @@ bool IrisInterpreter::pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	for (int i = 0; i < iaAM.m_dwIndex; ++i) {
-		pInfo->m_stStack.Pop();
+
+	if (IrisDevUtil::IrregularHappened() && iaAM.m_dwIndex > static_cast<int>(pInfo->m_stStack.m_lsStack.size())) {
+		pInfo->m_stStack.m_lsStack.clear();
+	}
+	else {
+		for (int i = 0; i < iaAM.m_dwIndex; ++i) {
+			pInfo->m_stStack.Pop();
+		}
 	}
 	return true;
 }
@@ -1959,9 +1968,13 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 				break;
 			case IrisContextEnvironment::EnvironmentType::InterfaceDefineTime:
 			{
-				// ** Error **
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::FieldCannotRoutedIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Field CANNOT be routed in interface.");
-				return false;
+				IrisInterface* pInterface = pInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
+				if (pInterface->GetUpperModule()) {
+					pInfo->m_ivResultRegister = pInterface->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+				}
+				else {
+					pInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+				}
 			}
 			default:
 				break;
@@ -2314,16 +2327,15 @@ bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 
 bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {	// Get Current Deep Index
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	unsigned int nDeepIndex = GetTopDeepIndex();
 	unsigned int nInstructor = 0;
 	unsigned int nOperators = 0;
 	IrisAM iaAM;
-	nCodePointer -= 2;
+	//nCodePointer -= 2;
 	while (true) {
 		// end_def
 		++nCodePointer;
-		nInstructor = vcVector[nCodePointer] >> 8;
+		nInstructor = vcVector[++nCodePointer] >> 8; 
 		nOperators = vcVector[nCodePointer] & 0x00FF;
 		if (nInstructor == 19) {
 			iaAM = GetOneAM(vcVector, nCodePointer);
@@ -2335,7 +2347,7 @@ bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 			nCodePointer += nOperators * 3;
 		}
 	}
-	nCodePointer -= 6;
+	nCodePointer -= 10;
 	return true;
 }
 
@@ -2531,6 +2543,10 @@ bool IrisInterpreter::add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		IrisModule* pModule = pInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
 		pModule->AddInvolvedInterface(IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(pInfo->m_ivResultRegister)->GetInterface());
 	}
+	else if (pInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::InterfaceDefineTime) {
+		auto pInterface = pInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
+		pInterface->AddInterface(IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(pInfo->m_ivResultRegister)->GetInterface());
+	}
 	return true;
 }
 
@@ -2626,14 +2642,13 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 	if (bWithBlock) {
 		IrisMethod::UserFunction* pUserFunction = new IrisMethod::UserFunction();
-		pUserFunction->m_lsParameters.push_back("value");
 		pUserFunction->m_strVariableParameter = "";
 		pUserFunction->m_lsParameters.push_back(strParameterName);
 		pUserFunction->m_dwIndex = iaAM.m_dwIndex;
 
 		// Block
 		// 如果下一条指令不为blk_def则报错
-		IR_BYTE bInstructor = vcVector[++nCodePointer] >> 8;
+		IR_BYTE bInstructor = vcVector[nCodePointer += 2] >> 8;
 		if (bInstructor != 18) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
@@ -2647,6 +2662,7 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		GetCodesFromBlock(nIndex, vcVector, nCodePointer, pUserFunction->m_icsBlockCodes);
 
 		pMethod = new IrisMethod(strSetterName, pUserFunction);
+		pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex = nCurrentFileIndex;
 	}
 	else {
 		IrisMethod::UserFunction* pUserFunction = new IrisMethod::UserFunction();
@@ -2698,7 +2714,7 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 
 		// Block
 		// 如果下一条指令不为blk_def则报错
-		IR_BYTE bInstructor = vcVector[++nCodePointer] >> 8;
+		IR_BYTE bInstructor = vcVector[nCodePointer += 2] >> 8;
 		if (bInstructor != 18) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
@@ -2710,6 +2726,7 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		unsigned int nIndex = iaAM.m_dwIndex;
 
 		GetCodesFromBlock(nIndex, vcVector, nCodePointer, pUserFunction->m_icsBlockCodes);
+		pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex = nCurrentFileIndex;
 
 		pMethod = new IrisMethod(strGetterName, pUserFunction);
 	}
@@ -2794,7 +2811,7 @@ bool IrisInterpreter::set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		}
 		else {
 			//pMethod = pClass->GetCurrentClassMethod(IrisClass::SearchMethodType::InstanceMethod, strMethodName);
-			pClass->GetCurrentClassMethod(strMethodName);
+			pMethod = pClass->GetCurrentClassMethod(strMethodName);
 		}
 		if (!pMethod) {
 			// **Error**
@@ -2933,6 +2950,10 @@ bool IrisInterpreter::def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	IrisInterface* pInterface = GetIrisInterface(lsModules);
 	if (!pInterface) {
 		pInterface = new IrisInterface(strInterfaceName, pUpperEnvironment ? pUpperEnvironment->m_uType.m_pModule : nullptr);
+		//pModule->m_pExternModule = new IrisDummyModule();
+		pInterface->m_pExternInterface = new IrisDummyInterface();
+		pInterface->m_pExternInterface->m_pInternInterface = pInterface;
+
 		if (!RegistInterface(lsModules, pInterface->GetExternInterface(), false)) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
@@ -2956,20 +2977,20 @@ bool IrisInterpreter::def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto nCurrentFileIndex = IrisDevUtil::GetCurrentThreadInfo()->m_nCurrentFileIndex;
 	IrisInterface* pInterface = pInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
-	unsigned int nParameterCount = vcVector[nCodePointer] & 0x00FF - 2;
+	unsigned int nParameterCount = (vcVector[nCodePointer] & 0x00FF) - 2;
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	auto& strMethodName = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
-	iaAM = GetOneAM(vcVector, nCodePointer);
-	int nParamSize = nParameterCount;
+	//iaAM = GetOneAM(vcVector, nCodePointer);
+	//int nParamSize = nParameterCount;
 	
-	nCodePointer = nParamSize * 3;
+	nCodePointer += nParameterCount * 3;
 
 	iaAM = GetOneAM(vcVector, nCodePointer);
 	bool bHaveVariableParams = iaAM.m_dwIndex == 1 ? true : false;
 
-	pInterface->AddInterfaceFunctionDeclare(strMethodName, nParamSize, bHaveVariableParams);
+	pInterface->AddInterfaceFunctionDeclare(strMethodName, nParameterCount, bHaveVariableParams);
 
 	return true;
 }
@@ -3114,20 +3135,22 @@ bool IrisInterpreter::grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 bool IrisInterpreter::spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer)
 {
 	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-	if (pInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
+	if (pInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
 		return false;
 	}
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
 	size_t nParameters = iaAM.m_dwIndex;
 
-	IrisMethod* pMethod = pInfo->m_pEnvrionmentRegister->m_pCurMethod;
-	IrisObject* pObject = pInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
+	auto pUpperEnvironment = pInfo->m_skEnvironmentStack.back();
+
+	IrisMethod* pMethod = pUpperEnvironment->m_pCurMethod;
+	IrisObject* pObject = pUpperEnvironment->m_uType.m_pCurObject;
 	//查找父类的同名方法
 	auto& strMethodName = pMethod->GetMethodName();
 
 	if (!pObject
-		|| pObject->GetClass()->GetInternClass()->IsNormalClass()
+		|| pObject->GetClass()->GetInternClass()->IsClassClass()
 		|| pObject->GetClass()->GetInternClass()->IsModuleClass()
 		|| pObject->GetClass()->GetInternClass()->IsInterfaceClass()) {
 		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::NoMethodCanSuperIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Super can only used in an instance method whose super class has the one with the same name.");

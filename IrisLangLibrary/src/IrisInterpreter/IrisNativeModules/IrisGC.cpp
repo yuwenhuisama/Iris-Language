@@ -124,7 +124,7 @@ void IrisGC::_Mark() {
 		if (pThreadInfo->m_ivCompareRegister.GetIrisObject()) {
 			static_cast<IrisObject*>((pThreadInfo->m_ivCompareRegister.GetIrisObject()))->Mark();
 		}
-		if (pThreadInfo->m_bIrregularHappenedRegister) {
+		if (pThreadInfo->m_ivIrregularObjectRegister.GetIrisObject()) {
 			static_cast<IrisObject*>((pThreadInfo->m_ivIrregularObjectRegister.GetIrisObject()))->Mark();
 		}
 
@@ -192,7 +192,7 @@ void IrisGC::_Mark() {
 
 		// Environment
 		unordered_set<IrisContextEnvironment*>& stEnvironments = pThreadInfo->m_ehEnvironmentHeap;
-		auto pData = sm_mpThreadGCDataMap[pThreadInfoIter.first];
+		auto& pData = sm_mpThreadGCDataMap[pThreadInfoIter.first];
 		for (unordered_set<IrisContextEnvironment*>::iterator iter = stEnvironments.begin(); iter != stEnvironments.end(); )
 		{
 			if ((*iter)->m_nReferenced == 0) {
@@ -236,6 +236,7 @@ void IrisGC::_Sweep() {
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	IrisHeap& ihHeap = pInterpreter->m_hpHeap;
 	unordered_set<IrisObject*>& stObjects = ihHeap.GetHeapSet();
+	IrisValue ivValue;
 	for (unordered_set<IrisObject*>::iterator iter = stObjects.begin(); iter != stObjects.end(); )
 	{
 		if (!(*iter)->m_bIsMaked && !(*iter)->IsPermanent()) {
@@ -243,7 +244,8 @@ void IrisGC::_Sweep() {
 				++iter;
 			}
 			else {
-				if ((*iter)->GetClass()->GetInternClass()->GetClassName() != "Object") {
+				ivValue.SetIrisObject(*iter);
+				if (!IrisDevUtil::CheckClassIsObject(IrisValue::WrapObjectPointerToIrisValue(*iter))) {
 					sm_nCurrentHeapSize -= (*iter)->GetClass()->GetTrustteeSize((*iter)->GetNativeObject()) + sizeof(IrisObject);
 				}
 				else {

@@ -49,14 +49,16 @@ namespace IrisDevUtil {
 	DECLARE_CLASS_CHECK(Range)
 	DECLARE_CLASS_CHECK(Block)
 
+	bool CheckClassIsStringOrUniqueString(const IrisValue& ivValue);
+
 	void GroanIrregularWithString(const char* szIrregularString);
 
 	int GetInt(const IrisValue& ivValue);
 	double GetFloat(const IrisValue& ivValue);
 	const char* GetString(const IrisValue& ivValue);
-	IrisValue CallMethod(const IrisValue& ivObj, IIrisValues* pParameters, const char* szMethodName);
-	IrisValue CallClassMethod(IIrisClass* pClass, const char* szMethodName, IIrisValues* pParameters);
-	IrisValue CallClassMethod(IIrisModule* pModule, const char* szMethodName, IIrisValues* pParameters);
+	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment = nullptr);
+	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment = nullptr);
+	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment = nullptr);
 	IrisValue CreateInt(int nInteger);
 	IrisValue CreateFloat(double dDouble);
 	IrisValue CreateString(const char* nInteger);

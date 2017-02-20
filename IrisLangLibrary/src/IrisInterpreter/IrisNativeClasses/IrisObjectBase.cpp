@@ -17,7 +17,7 @@ IrisValue IrisObjectBase::GetObjectID(IrisValue & ivObj, IIrisValues * ivsValues
 IrisValue IrisObjectBase::ToString(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	//const string& strClassName = static_cast<IrisObject*>(ivObj.GetIrisObject())->GetClass()->GetInternClass()->GetClassName();
 	const string& strClassName = IrisDevUtil::GetNameOfClass(IrisDevUtil::GetClassOfObject(ivObj));
-	IrisValue ivStringObjectID = IrisDevUtil::CallMethod(ivObj, nullptr, "__get_object_id");
+	IrisValue ivStringObjectID = IrisDevUtil::CallMethod(ivObj, "__get_object_id", nullptr);
 	const string& strObjectID = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivStringObjectID)->ToString();
 	string strOutString = "<" + strClassName + ":" + strObjectID + ">";
 	return IrisDevUtil::CreateString(strOutString.c_str());
@@ -34,7 +34,7 @@ IrisValue IrisObjectBase::Equal(IrisValue & ivObj, IIrisValues * ivsValues, IIri
 }
 
 IrisValue IrisObjectBase::NotEqual(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	IrisValue ivResult = IrisDevUtil::CallMethod(ivObj, ivsValues, "==");
+	IrisValue ivResult = IrisDevUtil::CallMethod(ivObj, "==", ivsValues);
 	if (ivResult == IrisDevUtil::True()) {
 		return IrisDevUtil::False();
 	}

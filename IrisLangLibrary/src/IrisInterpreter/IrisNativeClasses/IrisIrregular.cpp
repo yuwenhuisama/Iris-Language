@@ -1,5 +1,5 @@
 #include "IrisInterpreter\IrisNativeClasses\IrisIrregular.h"
-
+#include <sstream>
 
 
 IrisIrregular::IrisIrregular()
@@ -13,7 +13,7 @@ IrisIrregular::~IrisIrregular()
 
 IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
-	auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
+	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 
 	auto& ivLineNumber = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	auto& ivFileName = static_cast<IrisValues*>(ivsValues)->GetValue(1);
@@ -39,7 +39,7 @@ IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivs
 	IrisDevUtil::SetObjectInstanceVariable(ivObj, "@file_name", ivFileName);
 	IrisDevUtil::SetObjectInstanceVariable(ivObj, "@message", ivMsg);
 	
-	pIrregular->Initialize(nLineNumber, strFileName, strMsg);
+	//pIrregular->Initialize(nLineNumber, strFileName, strMsg);
 
 	return ivObj;
 }
@@ -90,5 +90,29 @@ IrisValue IrisIrregular::GetFileName(IrisValue & ivObj, IIrisValues * ivsValues,
 IrisValue IrisIrregular::GetMessage(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@message");
+}
+
+IrisValue IrisIrregular::ToString(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+{
+	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
+
+	auto nLineNumber = IrisDevUtil::GetInt(IrisDevUtil::GetObjectInstanceVariable(ivObj, "@line_number"));
+	auto szFileName = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivObj, "@file_name"));
+	auto szMsg = IrisDevUtil::GetString(IrisDevUtil::GetObjectInstanceVariable(ivObj, "@message"));
+
+	string strMessage = "";
+	strMessage += "> file name : ";
+	strMessage += szFileName;
+	strMessage += "\n";
+	strMessage += "> line number : ";
+	stringstream ssStream;
+	ssStream << nLineNumber;
+	strMessage += ssStream.str();
+	strMessage += "\n";
+	strMessage += "> message : ";
+	strMessage += szMsg;
+	strMessage += "\n";
+
+	return IrisDevUtil::CreateString(strMessage.c_str());
 }
  

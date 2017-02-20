@@ -26,4 +26,17 @@ switch(b) {
 	}
 }
 
+;a = 10
+switch(a) {
+	when(1, 2, 3, 4) {
+		;print("1 <= a <= 4\n")
+	}
+	when(5, 6, 7, 8) {
+		;print("5 <= a <= 8\n")	
+	}
+	else {
+		;print("else\n")
+	}
+}
+
 ;print("Test End")
