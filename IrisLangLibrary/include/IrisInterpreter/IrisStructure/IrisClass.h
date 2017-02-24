@@ -60,7 +60,7 @@ private:
 	typedef pair<IrisInternString, IrisInterface::InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
 #endif // IR_USE_STL_STRING
 
-	typedef IrisValue(*IrisNativeFunction)(IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
 
 public:
 	enum class SearchVariableType {

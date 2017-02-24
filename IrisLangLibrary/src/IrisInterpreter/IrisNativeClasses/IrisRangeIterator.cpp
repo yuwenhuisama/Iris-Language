@@ -2,24 +2,24 @@
 
 
 
-IrisValue IrisRangeIterator::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRangeIterator::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisRangeTag* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(static_cast<IrisValues*>(ivsValues)->GetValue(0));
 	IrisRangeIteratorTag* pRangeIter = IrisDevUtil::GetNativePointer<IrisRangeIteratorTag*>(ivObj);
 	pRangeIter->Initialize(pRange);
 	return ivObj;
 }
 
-IrisValue IrisRangeIterator::Next(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRangeIterator::Next(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisDevUtil::GetNativePointer<IrisRangeIteratorTag*>(ivObj)->Next();
 	return ivObj;
 }
 
-IrisValue IrisRangeIterator::IsEnd(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRangeIterator::IsEnd(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	return IrisDevUtil::GetNativePointer<IrisRangeIteratorTag*>(ivObj)->IsEnd()
 		? IrisDevUtil::True() : IrisDevUtil::False();
 }
 
-IrisValue IrisRangeIterator::GetValue(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRangeIterator::GetValue(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	return IrisDevUtil::GetNativePointer<IrisRangeIteratorTag*>(ivObj)->GetValue();
 }
 

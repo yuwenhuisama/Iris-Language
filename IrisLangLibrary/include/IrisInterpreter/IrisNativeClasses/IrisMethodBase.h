@@ -10,8 +10,8 @@ class IrisMethodBase : public IIrisClass
 {
 
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue GetMethodName(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue GetMethodName(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
 
 public:
 

@@ -23,7 +23,7 @@
 #include "IrisInterfaces/IIrisValues.h"
 
 namespace IrisDev {
-	typedef IrisValue(*IrisNativeFunction)(IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
 
 #define DECLARE_IRISDEV_CLASS_CHECK(klass) IRISLANGLIBRARY_API bool CheckClassIs##klass(const IrisValue& ivValue);
 
@@ -119,8 +119,8 @@ namespace IrisDev {
 	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(int nInteger);
 	IRISLANGLIBRARY_API IrisValue CreateUniqueStringInstanceByUniqueIndex(size_t nIndex);
 
-	IRISLANGLIBRARY_API void	  SetObjectInstanceVariable(IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);
-	IRISLANGLIBRARY_API IrisValue GetObjectInstanceVariable(IrisValue& ivObj, char* szInstanceVariableName);
+	IRISLANGLIBRARY_API void	  SetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);
+	IRISLANGLIBRARY_API IrisValue GetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName);
 
 	IRISLANGLIBRARY_API bool IrregularHappened();
 	IRISLANGLIBRARY_API bool FatalErrorHappened();

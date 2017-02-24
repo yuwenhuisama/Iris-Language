@@ -2,7 +2,7 @@
 
 
 
-IrisValue IrisRange::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRange::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	auto* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(ivObj);
 	auto ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 
@@ -47,7 +47,7 @@ IrisValue IrisRange::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValu
 	return ivObj;
 }
 
-IrisValue IrisRange::GetIterator(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRange::GetIterator(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisValues ivsParameter = { ivObj };
 	return IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("RangeIterator"), &ivsParameter, pContextEnvironment);
 }

@@ -2,11 +2,11 @@
 #include "IrisInterpreter/IrisStructure/IrisClosureBlock.h"
 
 
-IrisValue IrisMutex::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisMutex::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	return ivObj;
 }
 
-IrisValue IrisMutex::Lock(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisMutex::Lock(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 
 	if (!static_cast<IrisClosureBlock*>(static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock())) {
 		IrisDevUtil::GroanIrregularWithString("Method of lock of a Mutex object need a block to run.");

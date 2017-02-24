@@ -13,7 +13,7 @@ class IIrisContextEnvironment;
 class IIrisClosureBlock;
 struct IrisThreadUniqueInfo;
 
-typedef IrisValue(*IrisNativeFunction)(IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
 
 #define DECLARE_CLASS_CHECK(klass) bool CheckClassIs##klass(const IrisValue& ivValue);
 #define IMPLEMENT_CLASS_CHECK(klass) bool CheckClassIs##klass(const IrisValue& ivValue) { return INNER_CLASS_GET_POINTER(klass) == static_cast<IrisObject*>(ivValue.GetIrisObject())->GetClass();  }
@@ -77,8 +77,8 @@ namespace IrisDevUtil {
 	const char* GetNameOfModule(IIrisModule* pModule);
 	const char* GetNameOfInterface(IIrisInterface* pInterface);
 
-	void SetObjectInstanceVariable(IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);
-	IrisValue GetObjectInstanceVariable(IrisValue& ivObj, char* szInstanceVariableName);
+	void SetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);
+	IrisValue GetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName);
 
 	void MarkObject(const IrisValue& ivObject);
 	void MarkClosureBlock(IIrisClosureBlock* pClosureBlock);

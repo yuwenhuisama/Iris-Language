@@ -281,12 +281,12 @@ namespace IrisDev {
 		return IrisDevUtil::CreateUniqueStringInstanceByUniqueIndex(nIndex);
 	}
 
-	IRISLANGLIBRARY_API void SetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
+	IRISLANGLIBRARY_API void SetObjectInstanceVariable(const IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
 	{
 		IrisDevUtil::SetObjectInstanceVariable(ivObj, szInstanceVariableName, ivValue);
 	}
 
-	IRISLANGLIBRARY_API IrisValue GetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName)
+	IRISLANGLIBRARY_API IrisValue GetObjectInstanceVariable(const IrisValue & ivObj, char * szInstanceVariableName)
 	{
 		return IrisDevUtil::GetObjectInstanceVariable(ivObj, szInstanceVariableName);
 	}

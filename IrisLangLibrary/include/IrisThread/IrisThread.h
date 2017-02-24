@@ -47,7 +47,7 @@ public:
 	}
 
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
 		IrisContextEnvironment* pTmpContextEnvironment = static_cast<IrisContextEnvironment*>(pContextEnvironment);
 		if (!pTmpContextEnvironment->m_pClosureBlock) {
 			IrisDevUtil::GroanIrregularWithString("A Thread Object needs a block to run.");
@@ -63,7 +63,7 @@ public:
 		return ivObj;
 	}
 
-	static IrisValue Join(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Join(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		IrisThreadManager::CurrentThreadManager()->SetThreadBlock(this_thread::get_id(), true);
 		if (IrisThreadManager::CurrentThreadManager()->IsAllThreadBlocked()) {
@@ -74,13 +74,13 @@ public:
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue Detach(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Detach(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		pThreadTag->Detach();
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue GetID(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue GetID(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		return IrisDevUtil::CreateInt(pThreadTag->GetThreadId());
 	}

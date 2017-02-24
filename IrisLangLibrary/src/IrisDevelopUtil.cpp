@@ -261,19 +261,19 @@ namespace IrisDevUtil {
 #endif // IR_USE_STL_STRING
 	}
 
-	void SetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
+	void SetObjectInstanceVariable(const IrisValue & ivObj, char * szInstanceVariableName, const IrisValue & ivValue)
 	{
 		bool bResult = false;
 		auto& ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->GetInstanceValue(szInstanceVariableName, bResult);
 		if (bResult) {
-			((IrisValue&)ivResult).SetIrisObject(ivValue.GetIrisObject());
+			const_cast<IrisValue&>(ivResult).SetIrisObject(ivValue.GetIrisObject());
 		}
 		else {
 			static_cast<IrisObject*>(ivObj.GetIrisObject())->AddInstanceValue(szInstanceVariableName, ivValue);
 		}
 	}
 
-	IrisValue GetObjectInstanceVariable(IrisValue & ivObj, char * szInstanceVariableName)
+	IrisValue GetObjectInstanceVariable(const IrisValue & ivObj, char * szInstanceVariableName)
 	{
 		bool bResult = false;
 		auto& ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->GetInstanceValue(szInstanceVariableName, bResult);

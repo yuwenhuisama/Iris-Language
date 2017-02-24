@@ -11,7 +11,7 @@ IrisIrregular::~IrisIrregular()
 {
 }
 
-IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 
@@ -44,7 +44,7 @@ IrisValue IrisIrregular::InitializeFunction(IrisValue & ivObj, IIrisValues * ivs
 	return ivObj;
 }
 
-IrisValue IrisIrregular::SetLineNumber(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	auto& ivLineNumber = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsInteger(ivLineNumber)) {
@@ -55,7 +55,7 @@ IrisValue IrisIrregular::SetLineNumber(IrisValue & ivObj, IIrisValues * ivsValue
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::SetFileName(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	auto& ivFileName = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivFileName) && !IrisDevUtil::CheckClassIsUniqueString(ivFileName)) {
@@ -66,7 +66,7 @@ IrisValue IrisIrregular::SetFileName(IrisValue & ivObj, IIrisValues * ivsValues,
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::SetMessage(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	auto& ivMsg = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivMsg) && !IrisDevUtil::CheckClassIsUniqueString(ivMsg)) {
@@ -77,22 +77,22 @@ IrisValue IrisIrregular::SetMessage(IrisValue & ivObj, IIrisValues * ivsValues, 
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::GetLineNumber(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@line_number");
 }
 
-IrisValue IrisIrregular::GetFileName(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@file_name");
 }
 
-IrisValue IrisIrregular::GetMessage(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@message");
 }
 
-IrisValue IrisIrregular::ToString(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 

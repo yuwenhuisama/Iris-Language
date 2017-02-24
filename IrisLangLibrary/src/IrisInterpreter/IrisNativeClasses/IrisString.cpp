@@ -1,11 +1,11 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisString.h"
 
 
-IrisValue IrisString::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	return ivObj;
 }
 
-IrisValue IrisString::Add(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisValue ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	
 	if (!IrisDevUtil::CheckClassIsString(ivValue)) {
@@ -22,7 +22,7 @@ IrisValue IrisString::Add(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValue
 	return ivValue;
 }
 
-IrisValue IrisString::Equal(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::Equal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	auto pSelf = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
 	auto& ivTarget = (IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsClass(ivTarget)) {

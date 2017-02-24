@@ -10,7 +10,7 @@
 class IrisConditionVariable : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 
 		if (!IrisDevUtil::CheckClass((IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0), "Mutex")) {
 			IrisDevUtil::GroanIrregularWithString("Invalid Parameter.");
@@ -24,19 +24,19 @@ public:
 		return ivObj;
 	}
 
-	static IrisValue NotifyAll(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue NotifyAll(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 		auto pConditionVariable = IrisDevUtil::GetNativePointer<IrisConditionVariableTag*>(ivObj);
 		pConditionVariable->NotifyAll();
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue NotifyOne(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue NotifyOne(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 		auto pConditionVariable = IrisDevUtil::GetNativePointer<IrisConditionVariableTag*>(ivObj);
 		pConditionVariable->NotifyOne();
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue Wait(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Wait(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
 		auto pConditionVariable = IrisDevUtil::GetNativePointer<IrisConditionVariableTag*>(ivObj);
 		pConditionVariable->Wait();
 		return IrisDevUtil::Nil();

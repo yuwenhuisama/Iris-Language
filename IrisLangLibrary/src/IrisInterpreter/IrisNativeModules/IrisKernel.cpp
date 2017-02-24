@@ -4,7 +4,7 @@
 recursive_mutex IrisKernel::sm_rmEvalMutex;
 
 
-IrisValue IrisKernel::Print(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Print(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	IrisValue ivString;
 	if (ivsVariableValues) {
 		for (size_t i = 0; i < static_cast<IrisValues*>(ivsVariableValues)->GetSize(); ++i) {
@@ -24,7 +24,7 @@ IrisValue IrisKernel::Print(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVal
 	return IrisInterpreter::CurrentInterpreter()->Nil();
 }
 
-IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 
 	if (!IrisThreadManager::CurrentThreadManager()->IsMainThread()) {
 		IrisDevUtil::GroanIrregularWithString("require CAN ONLY be used in MAIN Thread!");
@@ -81,7 +81,7 @@ IrisValue IrisKernel::Require(IrisValue & ivObj, IIrisValues * ivsValues, IIrisV
 	return pInterpreter->Nil();
 }
 
-IrisValue IrisKernel::Import(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Import(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	if (!IrisThreadManager::CurrentThreadManager()->IsMainThread()) {
 		IrisDevUtil::GroanIrregularWithString("import CAN ONLY be used in MAIN Thread!");
 		return IrisDevUtil::Nil();
@@ -104,7 +104,7 @@ IrisValue IrisKernel::Import(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVa
 	return IrisDevUtil::True();
 }
 
-IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Eval(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 
 	lock_guard<recursive_mutex> lgLock(sm_rmEvalMutex);
 
@@ -142,7 +142,7 @@ IrisValue IrisKernel::Eval(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValu
 	return IrisInterpreter::CurrentInterpreter()->Nil();
 }
 
-IrisValue IrisKernel::SRand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisKernel::SRand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	if (ivsVariableValues) {
 		if (static_cast<IrisValues*>(ivsVariableValues)->GetSize() == 1) {
@@ -165,7 +165,7 @@ IrisValue IrisKernel::SRand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisVal
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisKernel::Rand(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisKernel::Rand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
 {
 	auto& ivFrom = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	auto& ivTo = static_cast<IrisValues*>(ivsValues)->GetValue(1);

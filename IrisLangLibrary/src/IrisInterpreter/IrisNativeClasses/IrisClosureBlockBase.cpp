@@ -2,7 +2,7 @@
 
 
 
-IrisValue IrisClosureBlockBase::InitializeFunction(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisClosureBlockBase::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	auto pClosureBlock = IrisDevUtil::GetClosureBlock(pContextEnvironment);
 	IrisDevUtil::GetNativePointer<IrisClosureBlockBaseTag*>(ivObj)->SetClosureBlock(pClosureBlock);
 
@@ -13,7 +13,7 @@ IrisValue IrisClosureBlockBase::InitializeFunction(IrisValue & ivObj, IIrisValue
 	return ivObj;
 }
 
-IrisValue IrisClosureBlockBase::Call(IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisClosureBlockBase::Call(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
 	auto pClosureBlock = IrisDevUtil::GetNativePointer<IrisClosureBlockBaseTag*>(ivObj)->GetClosureBlock();
 	return IrisDevUtil::ExcuteClosureBlock(pClosureBlock, ivsVariableValues);
 }

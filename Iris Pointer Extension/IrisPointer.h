@@ -12,7 +12,7 @@ class IrisPointer : public IIrisClass
 {
 public:
 	// Define native initialize method of this class
-	static IrisValue InitializeFunction(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContexEnvironment) {
 		// Get native pointer
 		auto pPointerTag = IrisDev::GetNativePointer<IrisPointerTag*>(ivObj);
 
@@ -37,7 +37,7 @@ public:
 		return ivObj;
 	}
 
-	static IrisValue Get(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Get(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContexEnvironment) {
 		auto& ivPoint = IrisDev::GetValue(ivsValues, 0);
 		auto& ivLength = IrisDev::GetValue(ivsValues, 1);
 
@@ -62,7 +62,7 @@ public:
 		return IrisDev::CreateInstanceByInstantValue(strResult.c_str());
 	}
 
-	static IrisValue Set(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Set(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContexEnvironment) {
 		auto& ivPoint = IrisDev::GetValue(ivsValues, 0);
 		auto& ivDataString = IrisDev::GetValue(ivsValues, 1);
 
@@ -83,7 +83,7 @@ public:
 		return pPointer->Set(nPoint, strData.c_str(), strData.size()) ? IrisDev::True() : IrisDev::False();
 	}
 
-	static IrisValue GetLength(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue GetLength(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContexEnvironment) {
 		return IrisDev::GetObjectInstanceVariable(ivObj, "@length");
 	}
 
