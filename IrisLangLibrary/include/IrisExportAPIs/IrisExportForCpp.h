@@ -58,6 +58,8 @@ namespace IrisDev {
 
 	IRISLANGLIBRARY_API bool CheckClass(const IrisValue& ivValue, const char* szClassName);
 
+	IRISLANGLIBRARY_API bool CheckClassIsStringOrUniqueString(const IrisValue& ivValue);
+
 	IRISLANGLIBRARY_API void GroanIrregularWithString(const char* szIrregularString);
 
 	IRISLANGLIBRARY_API int				GetInt(const IrisValue& ivValue);
@@ -112,9 +114,9 @@ namespace IrisDev {
 	IRISLANGLIBRARY_API void AddModule(IIrisModule* pModule, IIrisModule* pTargetModule);
 
 	IRISLANGLIBRARY_API IrisValue CreateNormalInstance(IIrisClass* pClass, IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment);
-	IRISLANGLIBRARY_API IrisValue CreateStringInstanceByInstantValue(const char* szString);
-	IRISLANGLIBRARY_API IrisValue CreateFloatInstanceByInstantValue(double dFloat);
-	IRISLANGLIBRARY_API IrisValue CreateIntegerInstanceByInstantValue(int nInteger);
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(const char* szString);
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(double dFloat);
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(int nInteger);
 	IRISLANGLIBRARY_API IrisValue CreateUniqueStringInstanceByUniqueIndex(size_t nIndex);
 
 	IRISLANGLIBRARY_API void	  SetObjectInstanceVariable(IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);

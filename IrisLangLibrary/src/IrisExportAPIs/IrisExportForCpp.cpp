@@ -51,6 +51,11 @@ namespace IrisDev {
 		return IrisDevUtil::CheckClass(ivValue, strClassName);
 	}
 
+	bool CheckClassIsStringOrUniqueString(const IrisValue & ivValue)
+	{
+		return IrisDevUtil::CheckClassIsStringOrUniqueString(ivValue);
+	}
+
 	IRISLANGLIBRARY_API void GroanIrregularWithString(const char* strIrregularString)
 	{
 		IrisDevUtil::GroanIrregularWithString(strIrregularString);
@@ -256,17 +261,17 @@ namespace IrisDev {
 		return IrisDevUtil::CreateInstance(pClass, ivsParams, pContexEnvironment);
 	}
 
-	IRISLANGLIBRARY_API IrisValue CreateStringInstanceByInstantValue(const char * szString)
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(const char * szString)
 	{
 		return IrisDevUtil::CreateString(szString);
 	}
 
-	IRISLANGLIBRARY_API IrisValue CreateFloatInstanceByInstantValue(double dFloat)
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(double dFloat)
 	{
 		return IrisDevUtil::CreateFloat(dFloat);
 	}
 
-	IRISLANGLIBRARY_API IrisValue CreateIntegerInstanceByInstantValue(int nInteger)
+	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(int nInteger)
 	{
 		return IrisDevUtil::CreateInt(nInteger);
 	}

@@ -10,8 +10,6 @@
 #define IRISPOINTEREXTENSION_API __declspec(dllimport)
 #endif
 
-#include "IrisLangLibrary.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif

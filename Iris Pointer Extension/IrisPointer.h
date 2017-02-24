@@ -2,7 +2,7 @@
 #define _H_IRISPOINTER_
 
 //* Always Needed
-#include "IrisLangLibrary.h"
+#include "..\IrisLangLibrary\include\IrisLangLibrary.h"
 #pragma comment(lib, "IrisLangLibrary.lib")
 
 //* User's Extention Class
@@ -31,7 +31,7 @@ public:
 
 		// Do initialize
 		//IrisDev::addins(ivObj, "@length", IrisDev::CreateIntegerInstanceByInstantValue(nLength))
-		ivObj.GetIrisObject()->AddInstanceValue("@length", IrisDev_CreateIntegerInstanceByInstantValue(nLength));
+		IrisDev::SetObjectInstanceVariable(ivObj, "@length", IrisDev::CreateInstanceByInstantValue(nLength));
 		pPointerTag->Initialize(nLength);
 
 		return ivObj;
@@ -59,7 +59,7 @@ public:
 			return IrisDev::False();
 		}
 
-		return IrisDev::CreateStringInstanceByInstantValue(strResult.c_str());
+		return IrisDev::CreateInstanceByInstantValue(strResult.c_str());
 	}
 
 	static IrisValue Set(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
@@ -84,8 +84,7 @@ public:
 	}
 
 	static IrisValue GetLength(IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment) {
-		bool bResult = false;
-		return ivObj.GetIrisObject()->GetInstanceValue("@length", bResult);
+		return IrisDev::GetObjectInstanceVariable(ivObj, "@length");
 	}
 
 public:

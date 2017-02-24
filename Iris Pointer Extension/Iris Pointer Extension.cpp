@@ -7,7 +7,7 @@
 
 IRISPOINTEREXTENSION_API bool IR_Initialize()
 {
-	IrisDev_RegistClass("Pointer", new IrisPointer());
+	IrisDev::RegistClass("Pointer", new IrisPointer());
 
 	return true;
 }

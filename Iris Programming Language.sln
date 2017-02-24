@@ -3,16 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26206.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Iris Library Test", "Iris Library Test\Iris Library Test.vcxproj", "{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}"
-	ProjectSection(ProjectDependencies) = postProject
-		{EF8F87B1-E76D-4BEB-95D4-96B3694F622D} = {EF8F87B1-E76D-4BEB-95D4-96B3694F622D}
-	EndProjectSection
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IrisLangLibrary", "IrisLangLibrary\IrisLangLibrary.vcxproj", "{EF8F87B1-E76D-4BEB-95D4-96B3694F622D}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Iris File Extension", "Iris File Extension\Iris File Extension.vcxproj", "{17D90289-BA6F-4BC1-9D9C-ED1EB7798B3B}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Iris Pointer Extension", "Iris Pointer Extension\Iris Pointer Extension.vcxproj", "{51092CED-95B5-4E16-8A57-5AB38ABA3D16}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Iris Library Test", "Iris Library Test\Iris Library Test.vcxproj", "{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -22,14 +19,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x64.ActiveCfg = Debug|x64
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x64.Build.0 = Debug|x64
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x86.ActiveCfg = Debug|Win32
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x86.Build.0 = Debug|Win32
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x64.ActiveCfg = Release|x64
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x64.Build.0 = Release|x64
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x86.ActiveCfg = Release|Win32
-		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x86.Build.0 = Release|Win32
 		{EF8F87B1-E76D-4BEB-95D4-96B3694F622D}.Debug|x64.ActiveCfg = Debug|x64
 		{EF8F87B1-E76D-4BEB-95D4-96B3694F622D}.Debug|x64.Build.0 = Debug|x64
 		{EF8F87B1-E76D-4BEB-95D4-96B3694F622D}.Debug|x86.ActiveCfg = Debug|Win32
@@ -54,6 +43,18 @@ Global
 		{51092CED-95B5-4E16-8A57-5AB38ABA3D16}.Release|x64.Build.0 = Release|x64
 		{51092CED-95B5-4E16-8A57-5AB38ABA3D16}.Release|x86.ActiveCfg = Release|Win32
 		{51092CED-95B5-4E16-8A57-5AB38ABA3D16}.Release|x86.Build.0 = Release|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x64.ActiveCfg = Debug|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x64.Build.0 = Debug|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x64.Deploy.0 = Debug|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x86.ActiveCfg = Debug|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x86.Build.0 = Debug|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Debug|x86.Deploy.0 = Debug|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x64.ActiveCfg = Release|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x64.Build.0 = Release|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x64.Deploy.0 = Release|x64
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x86.ActiveCfg = Release|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x86.Build.0 = Release|Win32
+		{C9B5E281-301A-4F3F-B8A6-035E4AA23F58}.Release|x86.Deploy.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

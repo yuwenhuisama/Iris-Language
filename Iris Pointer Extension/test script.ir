@@ -1,0 +1,6 @@
+;import("Iris Pointer Extension.dll")
+;my_pointer = Pointer.new(26)
+;my_pointer.set_data(0, "abcdefghijklmnopqrstuvwxyz")
+;print(my_pointer.get_data(0, 26), "\n")
+;print(my_pointer.length, "\n")
+;my_pointer = nil
