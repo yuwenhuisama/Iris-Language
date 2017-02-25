@@ -7,7 +7,7 @@
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 #include "IrisFatalErrorHandler.h"
-
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisInterfaceStatement::Generate()
 {
@@ -79,12 +79,12 @@ bool IrisInterfaceStatement::Validate()
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
 	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "interface of " + m_pInterfaceName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "interface of " + m_pInterfaceName->GetIdentifierString() + " must be defined in Main environment or Module body.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pInterfaceName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pInterfaceName->GetIdentifierString() + " is not a CONSTANCE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pInterfaceName->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

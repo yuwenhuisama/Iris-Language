@@ -21,6 +21,7 @@ class IrisMethod;
 class IIrisClass;
 class IIrisValues;
 class IIrisContextEnvironment;
+class IIrisThreadInfo;
 
 enum class CallerSide {
 	Inside = 0,
@@ -74,9 +75,9 @@ public:
 	IrisObject();
 	
 #if IR_USE_STL_STRING
-	IrisValue CallInstanceFunction(const string& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide);
+	IrisValue CallInstanceFunction(const string& strFunctionName, IIrisValues* ivsValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo, CallerSide eSide);
 #else
-	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisContextEnvironment* pContextEnvironment, IIrisValues* ivsValues, CallerSide eSide);
+	IrisValue CallInstanceFunction(const IrisInternString& strFunctionName, IIrisValues* ivsValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo, CallerSide eSide);
 #endif
 
 	inline bool IsUsed() { return m_nUsedCount > 0; }

@@ -337,6 +337,7 @@
     <ClInclude Include="include\IrisInterfaces\IIrisInterString.h" />
     <ClInclude Include="include\IrisInterfaces\IIrisModule.h" />
     <ClInclude Include="include\IrisInterfaces\IIrisObject.h" />
+    <ClInclude Include="include\IrisInterfaces\IIrisThreadInfo.h" />
     <ClInclude Include="include\IrisInterfaces\IIrisValues.h" />
     <ClInclude Include="include\IrisInterpreter.h" />
     <ClInclude Include="include\IrisInterpreter\IrisNativeClasses\IrisArray.h" />
@@ -399,7 +400,7 @@
     <ClInclude Include="include\IrisThread\IrisThread.h" />
     <ClInclude Include="include\IrisThread\IrisThreadManager.h" />
     <ClInclude Include="include\IrisThread\IrisThreadTag.h" />
-    <ClInclude Include="include\IrisThread\IrisThreadUtil.h" />
+    <ClInclude Include="include\IrisThread\IrisThreadInfo.h" />
     <ClInclude Include="include\IrisThread\IrisWLLock.h" />
     <ClInclude Include="include\IrisUnil\IrisBlock.h" />
     <ClInclude Include="include\IrisUnil\IrisCodeSegment.h" />

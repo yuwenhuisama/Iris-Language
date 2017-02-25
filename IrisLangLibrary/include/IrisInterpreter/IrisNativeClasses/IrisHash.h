@@ -9,12 +9,12 @@
 class IrisHash : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue At(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Set(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Each(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Size(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue GetIterator(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue At(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Set(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Each(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Size(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue GetIterator(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
 
 public:
 

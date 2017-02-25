@@ -25,6 +25,7 @@
 #include "IrisInterfaces/IIrisInterface.h"
 #include "IrisInterfaces/IIrisClosureBlock.h"
 #include "IrisInterfaces/IIrisObject.h"
+#include "IrisInterfaces/IIrisThreadInfo.h"
 
 #include "IrisUnil/IrisMemoryPool/IrisObjectMemoryPoolInterface.h"
 #include "IrisUnil/IrisMemoryPool/IrisMemoryPoolDefines.h"

@@ -3,6 +3,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisContinueStatement::Generate()
 {
@@ -31,7 +32,7 @@ bool IrisContinueStatement::Validate()
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 
 	if (!pCompiler->UpperWithLoop()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "continue Statement CAN ONLY be used in loop if statement/for statement.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "continue Statement CAN ONLY be used in loop if statement/for statement.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

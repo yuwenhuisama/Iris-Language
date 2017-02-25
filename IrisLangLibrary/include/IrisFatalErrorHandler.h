@@ -4,6 +4,7 @@
 #include <string>
 using namespace std;
 
+class IrisThreadInfo;
 class IrisFatalErrorHandler
 {
 public:
@@ -55,7 +56,7 @@ public:
 
 public:
 	void SetFatalErrorMessageFuncton(FatalErrorMessageFunction pfFunction);
-	void ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage);
+	void ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage, IrisThreadInfo* pThreadInfo);
 	void ShowFatalErrorDirectly(const string& strFatalErrorMessage);
 
 private:

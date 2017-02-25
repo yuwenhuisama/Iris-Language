@@ -7,8 +7,8 @@
 class IrisGCModule : public IIrisModule
 {
 public:
-	static IrisValue ForceStart(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue SetFlag(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue ForceStart(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue SetFlag(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 	

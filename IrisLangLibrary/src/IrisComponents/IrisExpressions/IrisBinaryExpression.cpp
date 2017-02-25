@@ -3,6 +3,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisBinaryExpression::OperateGenerate(unsigned int nOperatorIndex)
 {
@@ -279,7 +280,7 @@ bool IrisBinaryExpression::Validate()
 			|| m_eType == IrisBinaryExpressionType::AssignMul
 			|| m_eType == IrisBinaryExpressionType::AssignSub
 			|| m_eType == IrisBinaryExpressionType::AssignPower)) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::InvalidLeftExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Invalid left expression.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::InvalidLeftExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Invalid left expression.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

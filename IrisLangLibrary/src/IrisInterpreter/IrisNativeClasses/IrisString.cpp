@@ -1,15 +1,15 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisString.h"
 
 
-IrisValue IrisString::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	return ivObj;
 }
 
-IrisValue IrisString::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	
 	if (!IrisDevUtil::CheckClassIsString(ivValue)) {
-		IrisDevUtil::GroanIrregularWithString("String CAN ONLY be added with a String object.");
+		IrisDevUtil::GroanIrregularWithString("String CAN ONLY be added with a String object.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
@@ -22,7 +22,7 @@ IrisValue IrisString::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIri
 	return ivValue;
 }
 
-IrisValue IrisString::Equal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisString::Equal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	auto pSelf = IrisDevUtil::GetNativePointer<IrisStringTag*>(ivObj);
 	auto& ivTarget = (IrisValue&)static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsClass(ivTarget)) {

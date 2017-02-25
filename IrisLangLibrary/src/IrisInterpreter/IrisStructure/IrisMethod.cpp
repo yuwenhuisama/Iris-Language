@@ -26,7 +26,7 @@ IrisMethod::IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction
 
 	IrisClass* pMethodClass = nullptr;
 	if (pMethodClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")) {
-		IrisValue ivValue = pMethodClass->CreateInstance(nullptr, nullptr);
+		IrisValue ivValue = pMethodClass->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 		IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 		m_pMethodObject = ivValue.GetIrisObject();
 	}
@@ -43,7 +43,7 @@ IrisMethod::IrisMethod(const IrisInternString& strMethodName, UserFunction* pUse
 	m_bIsWithVariableParameter = (pUserFunction->m_strVariableParameter != "");
 	m_eAuthority = eAuthority;
 
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 	m_nParameterAmount = pUserFunction->m_lsParameters.size();
@@ -61,7 +61,7 @@ IrisMethod::IrisMethod(const IrisInternString & strMethodName, UserFunction* pUs
 	m_bIsWithVariableParameter = false;
 	m_eAuthority = eAuthority;
 
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue.GetIrisObject())->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 	m_nParameterAmount = pUserFunction->m_lsParameters.size();
@@ -84,7 +84,7 @@ bool IrisMethod::_ParameterCheck(IrisValues* pParameters) {
 	}
 }
 
-IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, bool& bIsGetNew) {
+IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, IrisThreadInfo* pThreadInfo, bool& bIsGetNew) {
 
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
@@ -98,7 +98,7 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 		pNewEnvironment->m_eType = IrisContextEnvironment::EnvironmentType::Runtime;
 		pNewEnvironment->m_uType.m_pCurObject = pCaller;
 
-		pNewEnvironment->m_pUpperContextEnvironment = IrisInterpreter::CurrentInterpreter()->GetCurrentContextEnvrionment();
+		pNewEnvironment->m_pUpperContextEnvironment = IrisInterpreter::CurrentInterpreter()->GetCurrentContextEnvrionment(pThreadInfo);
 
 		bInitialize = true;
 		bIsGetNew = true;
@@ -126,7 +126,7 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 			IrisValues ivsValues;
 			ivsValues.GetVector().assign(it, pParameters->GetVector().end());
 			auto pClass = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Array");
-			IrisValue ivArray = pClass->CreateInstance(&ivsValues, nullptr);
+			IrisValue ivArray = pClass->CreateInstance(&ivsValues, nullptr, pThreadInfo);
 			pNewEnvironment->AddLocalVariable(m_uFunction.m_pUserFunction->m_strVariableParameter, ivArray);
 		}
 	}
@@ -134,7 +134,7 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 
 	if (bInitialize) {
 		IrisGC::CurrentGC()->AddContextEnvironmentSize();
-		auto pEnvRegister = IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister;
+		auto pEnvRegister = pThreadInfo->m_pEnvrionmentRegister;
 		if(pEnvRegister) {
 			++pEnvRegister->m_nReferenced;
 			IrisGC::CurrentGC()->ContextEnvironmentGC();
@@ -143,29 +143,28 @@ IrisContextEnvironment* IrisMethod::_CreateContextEnvironment(IrisObject* pCalle
 		else {
 			IrisGC::CurrentGC()->ContextEnvironmentGC();
 		}
-		IrisInterpreter::CurrentInterpreter()->PushEnvironment();
-		IrisInterpreter::CurrentInterpreter()->SetEnvironment(pNewEnvironment);
-		IrisInterpreter::CurrentInterpreter()->AddNewEnvironmentToHeap(pNewEnvironment);
+		IrisInterpreter::CurrentInterpreter()->PushEnvironment(pThreadInfo);
+		IrisInterpreter::CurrentInterpreter()->SetEnvironment(pNewEnvironment, pThreadInfo);
+		IrisInterpreter::CurrentInterpreter()->AddNewEnvironmentToHeap(pNewEnvironment, pThreadInfo);
 	}
 	return pNewEnvironment;
 }
 
 // 按照类型的不同分别调用不同的函数（直接调用 or 解释运行）
-IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContextEnvironment ,IrisValues* pParameters) {
+IrisValue IrisMethod::Call(IrisValue& ivObject, IrisValues* pParameters, IrisContextEnvironment* pContexEnvironment, IrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->Nil();
 	IrisValues ivsNormalPrameters;
 	IrisValues ivsVariableValues;
 	bool bHaveVariableParameters = false;
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 
 	// 参数检查错误
 	// 特殊情况 new 不检查，丢给__format检查
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
 #if IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit."， pThreadInfo);
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.", pThreadInfo);
 #endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
@@ -211,30 +210,29 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	}
 
 	bool bIsGetNew = false;
-	IrisContextEnvironment* pNewEnvironment = _CreateContextEnvironment(static_cast<IrisObject*>(ivObject.GetIrisObject()), pParameters, pContextEnvironment, bIsGetNew);
+	IrisContextEnvironment* pNewEnvironment = _CreateContextEnvironment(static_cast<IrisObject*>(ivObject.GetIrisObject()), pParameters, pContexEnvironment, pThreadInfo, bIsGetNew);
 	++pNewEnvironment->m_nReferenced;
 	//pNewEnvironment->m_pUpperContextEnvironment = pContextEnvironment;
 	
 	//如果参数为空，直接调用
 	if (!pParameters){
 		if (m_eMethodType == MethodType::NativeMethod) {
-			ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, nullptr, pNewEnvironment);
+			ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, nullptr, pNewEnvironment, pThreadInfo);
 		}
 		else {
 			// 将参数加入环境中
 			//ivValue = m_uFunction.m_pUserFunction->m_pBlock->Execute(pNewEnvironment).m_ivValue;
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
-			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
+			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
-			pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
-			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
-			pInfo->m_nCurrentFileIndex = nOldFileIndex;
+			auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
+			pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, pThreadInfo);
+			pThreadInfo->m_nCurrentFileIndex = nOldFileIndex;
 
-			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
-			pInterpreter->PopMethodTopDeepIndex();
+			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pThreadInfo);
+			pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 		}
 	}
 	else {
@@ -248,59 +246,58 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 		}
 
 		if (m_eMethodType == MethodType::NativeMethod) {
-			++IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference;
+			++pThreadInfo->m_nNativeReference;
 			if (bHaveVariableParameters) {
 				if (m_nParameterAmount > 0) {
-					ivValue = m_uFunction.m_pfNativeFunction(ivObject, &ivsNormalPrameters, &ivsVariableValues, pNewEnvironment);
+					ivValue = m_uFunction.m_pfNativeFunction(ivObject, &ivsNormalPrameters, &ivsVariableValues, pNewEnvironment, pThreadInfo);
 				}
 				else {
-					ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, &ivsVariableValues, pNewEnvironment);
+					ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, &ivsVariableValues, pNewEnvironment, pThreadInfo);
 				}
 			}
 			else {
 				if (m_nParameterAmount > 0) {
-					ivValue = m_uFunction.m_pfNativeFunction(ivObject, &ivsNormalPrameters, nullptr, pNewEnvironment);
+					ivValue = m_uFunction.m_pfNativeFunction(ivObject, &ivsNormalPrameters, nullptr, pNewEnvironment, pThreadInfo);
 				}
 				else {
-					ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, nullptr, pNewEnvironment);
+					ivValue = m_uFunction.m_pfNativeFunction(ivObject, nullptr, nullptr, pNewEnvironment, pThreadInfo);
 				}
 			}
-			--IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference;
-			if (IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference == 0) {
+			--pThreadInfo->m_nNativeReference;
+			if (pThreadInfo->m_nNativeReference == 0) {
 				//for (auto& obj : IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap) {
 				//	obj->SetIsCreateInNativeFunction(false);
 				//}
-				IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap.clear();
+				pThreadInfo->m_hpObjectInNativeFunctionHeap.clear();
 			}
 		}
 		else {
 			// 将参数加入环境中
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			
-			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
+			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
-			pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
-			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
-			pInfo->m_nCurrentFileIndex = nOldFileIndex;
+			auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
+			pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+			pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, pThreadInfo);
+			pThreadInfo->m_nCurrentFileIndex = nOldFileIndex;
 
-			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
-			pInterpreter->PopMethodTopDeepIndex();
+			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pThreadInfo);
+			pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 		}
 	}
 	if (bIsGetNew) {
-		IrisInterpreter::CurrentInterpreter()->PopEnvironment();
+		IrisInterpreter::CurrentInterpreter()->PopEnvironment(pThreadInfo);
 	}
 
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
-	if (pInterpreter->IrregularHappened()) {
+	if (pInterpreter->IrregularHappened(pThreadInfo)) {
 		auto p = IrisThreadManager::CurrentThreadManager();
 		if(pParameters) {
 			//auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 			//auto strString = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(pInfo->m_ivIrregularObjectRegister);
 
-			pInterpreter->PopStack(pParameters->GetVector().size());
+			pInterpreter->PopStack(pParameters->GetVector().size(), pThreadInfo);
 		}
 	}
 
@@ -314,7 +311,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisContextEnvironment* pContext
 	return ivValue;
 }
 
-IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
+IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, IrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue;
 
 	IrisValues ivsNormalPrameters;
@@ -325,41 +322,39 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
 	//	strBelongingFileName = &IrisDevUtil::GetCurrentThreadInfo()->m_strCurrentFileName;
 	//}
 
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-
 	// 参数检查错误
 	if (!_ParameterCheck(pParameters)) {
 		// **Error**
 #if IR_USE_STL_STRING
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName + " assigned is not fit.", pThreadInfo);
 #else
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex, "Parameters of method " + m_strMethodName.GetSTLString() + " assigned is not fit.", pThreadInfo);
 #endif // IR_USE_STL_STRING
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 	bool bIsGetNew = false;
-	IrisContextEnvironment* pNewEnvironment = _CreateContextEnvironment(nullptr, pParameters, IrisInterpreter::CurrentInterpreter()->GetCurrentContextEnvrionment(), bIsGetNew);	
+	IrisContextEnvironment* pNewEnvironment = _CreateContextEnvironment(nullptr, pParameters, IrisInterpreter::CurrentInterpreter()->GetCurrentContextEnvrionment(pThreadInfo), pThreadInfo, bIsGetNew);
 	++pNewEnvironment->m_nReferenced;
 	//pNewEnvironment->m_pUpperContextEnvironment = nullptr;
 
 	// 将参数加入环境中
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	
-	pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex);
+	pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
-	auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
-	pInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
-	pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer);
-	pInfo->m_nCurrentFileIndex = nOldFileIndex;
+	auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
+	pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
+	pInterpreter->RunCode(*m_uFunction.m_pUserFunction->m_icsBlockCodes.m_pWholeCodes, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nStartPointer, m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nEndPointer, pThreadInfo);
+	pThreadInfo->m_nCurrentFileIndex = nOldFileIndex;
 
 	if (bIsGetNew) {
-		IrisInterpreter::CurrentInterpreter()->PopEnvironment();
+		IrisInterpreter::CurrentInterpreter()->PopEnvironment(pThreadInfo);
 	}
-	pInterpreter->PopMethodTopDeepIndex();
+	pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 
-	if (pInterpreter->IrregularHappened()) {
+	if (pInterpreter->IrregularHappened(pThreadInfo)) {
 		if (pParameters) {
-			pInterpreter->PopStack(pParameters->GetVector().size());
+			pInterpreter->PopStack(pParameters->GetVector().size(), pThreadInfo);
 		}
 	}
 
@@ -370,11 +365,11 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters) {
 	//	pNewEnvironment->m_pClosureBlock = nullptr;
 	//}
 
-	return IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
+	return IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pThreadInfo);
 }
 
 void IrisMethod::ResetObject() {
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Method")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 	IrisDevUtil::GetNativePointer<IrisMethodBaseTag*>(ivValue)->SetMethod(this);
 	m_pMethodObject = ivValue.GetIrisObject();
 }

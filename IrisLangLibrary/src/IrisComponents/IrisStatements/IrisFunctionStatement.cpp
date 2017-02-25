@@ -6,6 +6,9 @@
 #include "IrisUnil/IrisIdentifier.h"
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
+
+#include "IrisThread/IrisThreadManager.h"
+
 #include <list>
 using namespace std;
 
@@ -93,7 +96,7 @@ bool IrisFunctionStatement::Validate()
 		if (!m_pFunctionHeader->m_pParameters->Ergodic(
 			[&](IrisIdentifier*& pIdentifier) -> bool {
 			if (pIdentifier->GetType() != IrisIdentifierType::LocalVariable) {
-				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+				IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 				return false;
 			}
 			return true;
@@ -104,13 +107,13 @@ bool IrisFunctionStatement::Validate()
 
 	if (m_pFunctionHeader->m_pFunctionName->GetType() != IrisIdentifierType::LocalVariable
 		&& m_pFunctionHeader->m_pFunctionName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionHeader->m_pFunctionName->GetIdentifierString() + " is NOT a valid method name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionHeader->m_pFunctionName->GetIdentifierString() + " is NOT a valid method name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pFunctionHeader->m_pVariableParameter) {
 		if (m_pFunctionHeader->m_pVariableParameter->GetType() != IrisIdentifierType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionHeader->m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionHeader->m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 			return false;
 		}
 	}

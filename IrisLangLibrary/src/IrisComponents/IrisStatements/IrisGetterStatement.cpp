@@ -6,6 +6,7 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisGetterStatement::Generate()
 {
@@ -52,12 +53,12 @@ bool IrisGetterStatement::Validate()
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
 	if (pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ClassBlock && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::AccessorStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "accessor Statement can only be used in Class or Module body.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::AccessorStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "accessor Statement can only be used in Class or Module body.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pGetteredVariable->GetType() != IrisIdentifierType::InstanceVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pGetteredVariable->GetIdentifierString() + " is not a INSTANCE VARIABLE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pGetteredVariable->GetIdentifierString() + " is not a INSTANCE VARIABLE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

@@ -59,7 +59,7 @@ private:
 	struct IrisValueCmp {
 		bool operator()(const IrisValue& ivValue1, const IrisValue& ivValue2) const {
 			IrisValues ivValues = { ivValue2 };
-			return IrisDevUtil::CallMethod((IrisValue&)ivValue1, "==", &ivValues) == IrisDevUtil::True();
+			return IrisDevUtil::CallMethod(ivValue1, "==", &ivValues, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id())) == IrisDevUtil::True();
 		}
 	};
 

@@ -11,20 +11,23 @@
 class IrisThread : public IIrisClass
 {
 public:
-	static void ThreadBlockRun(IrisClosureBlock* pBlock, IrisThreadTag* pNativeThreadObject, IrisObject* pThreadObject) {
+	static void ThreadBlockRun(IrisClosureBlock* pBlock, IrisThreadTag* pNativeThreadObject, IrisObject* pThreadObject, IIrisThreadInfo* pThreadInfo) {
 		unique_lock<mutex> ulLock(pNativeThreadObject->GetMutex());
 		pThreadObject->SetPermanent(true);
 		thread::id nId = this_thread::get_id();
 		IrisThreadManager::CurrentThreadManager()->CurrentThreadManager()->AddNewThread(nId, pNativeThreadObject->GetThread());
-		IrisThreadManager::CurrentThreadManager()->CurrentThreadManager()->AddNewThreadInfo(nId, new IrisThreadUniqueInfo());
+
+		auto pNewThreadInfo = new IrisThreadInfo();
+
+		IrisThreadManager::CurrentThreadManager()->CurrentThreadManager()->AddNewThreadInfo(nId, pNewThreadInfo);
 		IrisGC::CurrentGC()->AddThreadGCData(nId, new IrisGC::ThreadGCData());
 		static_cast<IrisContextEnvironment*>(pBlock->GetCurrentContextEnvironment())->m_bIsThreadMainContext = true;
 
-		pBlock->Excute(nullptr);
+		pBlock->Excute(nullptr, pNewThreadInfo);
 
 		// Ignore Irregular having happened in thread.
-		if (IrisInterpreter::CurrentInterpreter()->IrregularHappened()) {
-			IrisInterpreter::CurrentInterpreter()->UnregistIrregular();
+		if (IrisInterpreter::CurrentInterpreter()->IrregularHappened(static_cast<IrisThreadInfo*>(pThreadInfo))) {
+			IrisInterpreter::CurrentInterpreter()->UnregistIrregular(static_cast<IrisThreadInfo*>(pThreadInfo));
 		}
 
 		static_cast<IrisContextEnvironment*>(pBlock->GetCurrentContextEnvironment())->m_bIsThreadMainContext = false;
@@ -47,23 +50,23 @@ public:
 	}
 
 public:
-	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 		IrisContextEnvironment* pTmpContextEnvironment = static_cast<IrisContextEnvironment*>(pContextEnvironment);
 		if (!pTmpContextEnvironment->m_pClosureBlock) {
-			IrisDevUtil::GroanIrregularWithString("A Thread Object needs a block to run.");
+			IrisDevUtil::GroanIrregularWithString("A Thread Object needs a block to run.", pThreadInfo);
 			return IrisDevUtil::Nil();
 		}
 		
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		static_cast<IrisContextEnvironment*>(static_cast<IrisClosureBlock*>(pTmpContextEnvironment->GetClosureBlock())->GetCurrentContextEnvironment())->m_bIsThreadMainContext = true;
 		unique_lock<mutex> ulLock(pThreadTag->GetMutex());
-		auto pThread = new thread(ThreadBlockRun, static_cast<IrisClosureBlock*>(static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock()), pThreadTag, static_cast<IrisObject*>(ivObj.GetIrisObject()));
+		auto pThread = new thread(ThreadBlockRun, static_cast<IrisClosureBlock*>(static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock()), pThreadTag, static_cast<IrisObject*>(ivObj.GetIrisObject()), pThreadInfo);
 		pTmpContextEnvironment->m_pClosureBlock = nullptr;
 		pThreadTag->Initialize(pThread);
 		return ivObj;
 	}
 
-	static IrisValue Join(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Join(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		IrisThreadManager::CurrentThreadManager()->SetThreadBlock(this_thread::get_id(), true);
 		if (IrisThreadManager::CurrentThreadManager()->IsAllThreadBlocked()) {
@@ -74,13 +77,13 @@ public:
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue Detach(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue Detach(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		pThreadTag->Detach();
 		return IrisDevUtil::Nil();
 	}
 
-	static IrisValue GetID(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment) {
+	static IrisValue GetID(const IrisValue& ivObj, IIrisValues* pParameters, IIrisValues* pVariableParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 		auto pThreadTag = IrisDevUtil::GetNativePointer<IrisThreadTag*>(ivObj);
 		return IrisDevUtil::CreateInt(pThreadTag->GetThreadId());
 	}

@@ -9,6 +9,8 @@
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 #include "IrisFatalErrorHandler.h"
 
+#include "IrisThread/IrisThreadManager.h"
+
 bool IrisClosureBlockLiteral::Generate()
 {
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
@@ -82,7 +84,7 @@ bool IrisClosureBlockLiteral::Validate()
 
 	if (m_pParameters && !m_pParameters->Ergodic([&](IrisIdentifier*& pIdentifier) -> bool {
 		if (pIdentifier->GetType() != IrisIdentifierType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 			return false;
 		}
 		return true;
@@ -100,7 +102,7 @@ bool IrisClosureBlockLiteral::Validate()
 	}
 
 	if (m_pVariableParameter && m_pVariableParameter->GetType() != IrisIdentifierType::LocalVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pVariableParameter->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

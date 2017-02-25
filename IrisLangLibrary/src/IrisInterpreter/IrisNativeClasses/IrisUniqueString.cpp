@@ -17,11 +17,11 @@ void IrisUniqueString::AddUniqueString(size_t nIndex, const IrisValue & ivUnique
 	s_mpUniqueStringMap[nIndex] = ivUniqueString;
 }
 
-IrisValue IrisUniqueString::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisUniqueString::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	return ivObj;
 }
 
-IrisValue IrisUniqueString::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisUniqueString::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	auto pUniqueString = IrisDevUtil::GetNativePointer<IrisUniqueStringTag*>(ivObj);
 	return IrisDevUtil::CreateString(pUniqueString->GetString().c_str());
 }

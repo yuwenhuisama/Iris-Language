@@ -5,6 +5,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisMemberExpression::Generate()
 {
@@ -63,7 +64,7 @@ bool IrisMemberExpression::Validate()
 	}
 
 	if (m_pProperty->GetType() != IrisIdentifierType::Constance && m_pProperty->GetType() != IrisIdentifierType::LocalVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pProperty->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pProperty->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 	return true;

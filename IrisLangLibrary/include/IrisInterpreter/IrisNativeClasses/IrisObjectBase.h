@@ -10,17 +10,17 @@
 class IrisObjectBase : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue GetClass(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue GetObjectID(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue ToString(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Equal(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue NotEqual(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue LogicOr(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue LogicAnd(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Fix(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Unfix(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue IsFixed(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue GetClass(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue GetObjectID(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue ToString(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Equal(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue NotEqual(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue LogicOr(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue LogicAnd(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Fix(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Unfix(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue IsFixed(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 

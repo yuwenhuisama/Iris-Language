@@ -23,6 +23,8 @@ class IrisValues;
 
 class IIrisValues;
 class IIrisContextEnvironment;
+class IIrisThreadInfo;
+class IrisThreadInfo;
 
 #if IR_USE_MEM_POOL
 class IrisMethod : public IrisObjectMemoryPoolInterface<IrisMethod, POOLID_IrisMethod> 
@@ -45,7 +47,7 @@ public:
 	};
 
 public:
-	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 	struct UserFunction {
@@ -86,14 +88,14 @@ private:
 	IIrisObject* m_pMethodObject = nullptr;
 
 	bool _ParameterCheck(IrisValues* pParameters);
-	IrisContextEnvironment* _CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, bool& bIsGetNew);
+	IrisContextEnvironment* _CreateContextEnvironment(IrisObject* pCaller, IrisValues* pParameters, IrisContextEnvironment* pContextEnvrioment, IrisThreadInfo* pThreadInfo, bool& bIsGetNew);
 
 public:
 
 #if IR_USE_STL_STRING
-	IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
-	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
-	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodType eType, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const string& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, IrisThreadInfo* pThreadInfo, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, IrisThreadInfo* pThreadInfo, MethodAuthority eAuthority = MethodAuthority::Everyone);
+	IrisMethod(const string& strMethodName, UserFunction* pUserFunction, MethodType eType, IrisThreadInfo* pThreadInfo, MethodAuthority eAuthority = MethodAuthority::Everyone);
 #else
 	IrisMethod(const IrisInternString& strMethodName, IrisNativeFunction pfNativeFunction, int nParameterAmount, bool bIsWithVariableParameter, MethodAuthority eAuthority = MethodAuthority::Everyone);
 	IrisMethod(const IrisInternString& strMethodName, UserFunction* pUserFunction, MethodAuthority eAuthority = MethodAuthority::Everyone);
@@ -108,8 +110,8 @@ public:
 	IrisValue FunctionName(IrisValue ivObject, IrisValue ivParam1, IrisValue ivParam2, ...);
 	*/
 	// 按照类型的不同分别调用不同的函数（直接调用 or 解释运行）
-	IrisValue Call(IrisValue& ivObject, IrisContextEnvironment* pContexEnvironment, IrisValues* pParameters = nullptr);
-	IrisValue CallMainMethod(IrisValues* pParameters = nullptr);
+	IrisValue Call(IrisValue& ivObject, IrisValues* pParameters, IrisContextEnvironment* pContexEnvironment, IrisThreadInfo* pThreadInfo);
+	IrisValue CallMainMethod(IrisValues* pParameters, IrisThreadInfo* pThreadInfo);
 
 	~IrisMethod();
 

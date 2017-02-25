@@ -333,7 +333,7 @@ void IrisGC::AddContextEnvironmentSize() {
 void IrisGC::ContextEnvironmentGC() {
 	if (sm_bFlag) {
 		auto pData = GetCurrentThreadGCData();
-		auto pThreadInfo = IrisDevUtil::GetCurrentThreadInfo();
+		auto pThreadInfo = IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
 		if (pData->m_nCurrentContextEnvironmentHeapSize > pData->m_nNextContextEnvironmentThresholdSize) {
 			// Environment
 			unordered_set<IrisContextEnvironment*>& stEnvironments = pThreadInfo->m_ehEnvironmentHeap;

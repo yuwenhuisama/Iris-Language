@@ -6,6 +6,7 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
 
 IrisOrderStatement::IrisOrderStatement(IrisBlock* pOrderBlock, IrisIdentifier* pIrregularObject, IrisBlock* pServeBlock, IrisBlock* pIgnoreBlock) : m_pOrderBlock(pOrderBlock), m_pIrregularObject(pIrregularObject), m_pServeBlock(pServeBlock), m_pIgnoreBlock(pIgnoreBlock)
 {
@@ -84,7 +85,7 @@ bool IrisOrderStatement::Validate()
 	}
 
 	if (m_pIrregularObject->GetType() != IrisIdentifierType::LocalVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIrregularObject->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIrregularObject->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

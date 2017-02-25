@@ -20,12 +20,12 @@ private:
 	static recursive_mutex sm_rmEvalMutex;
 
 public:
-	static IrisValue Print(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Require(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Import(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Eval(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue SRand(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Rand(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue Print(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Require(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Import(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Eval(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue SRand(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
+	static IrisValue Rand(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 	IrisKernel();

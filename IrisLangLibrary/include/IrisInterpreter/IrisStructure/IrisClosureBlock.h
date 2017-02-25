@@ -13,7 +13,10 @@
 
 #include "IrisInterfaces/IIrisClosureBlock.h"
 #include "IrisInterfaces/IIrisContextEnvironment.h"
+#include "IrisInterfaces/IIrisThreadInfo.h"
 #include "IrisInterpreter/IrisStructure/IrisContextEnvironment.h"
+
+#include "IrisThread/IrisThreadInfo.h"
 
 #include "IrisUnil/IrisInternString.h"
 
@@ -62,7 +65,7 @@ private:
 #endif // IR_USE_STL_STRING
 
 private:
-	IrisContextEnvironment* _CreateNewContextEnvironment();
+	IrisContextEnvironment* _CreateNewContextEnvironment(IIrisThreadInfo* pThreadInfo);
 
 private:
 	_VariableMap m_mpOtherVariables;
@@ -92,15 +95,15 @@ public:
 
 	void Mark();
 
-	IrisValue Excute(IIrisValues* pValues);
+	IrisValue Excute(IIrisValues* pValues, IIrisThreadInfo* pThreadInfo);
 
 	void SetNativeObject(IrisObject* pObject);
 	IrisObject* GetNativeObject();
 
 #if IR_USE_STL_STRING
-	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, const string& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
+	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, const string& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex, IrisThreadInfo* pThreadInfo);
 #else
-	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, const IrisInternString& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex);
+	IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, const IrisInternString& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex, IrisThreadInfo* pThreadInfo);
 #endif // IR_USE_STL_STRING
 
 	~IrisClosureBlock();

@@ -8,10 +8,10 @@
 class IrisArrayIterator : public IIrisClass
 {
 public:
-	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue Next(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue IsEnd(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
-	static IrisValue GetValue(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	static IrisValue InitializeFunction(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Next(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue IsEnd(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
+	static IrisValue GetValue(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo* pThreadInfo);
 
 public:
 	int GetTrustteeSize(void* pNativePointer) {

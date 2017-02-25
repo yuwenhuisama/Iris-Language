@@ -39,4 +39,4 @@ switch(a) {
 	}
 }
 
-;print("Test End")
+;print("Test End\n")

@@ -207,17 +207,17 @@ const IrisValue& IrisClass::SearchClassVariable(const IrisInternString& strClass
 	return IrisInterpreter::CurrentInterpreter()->Nil();
 }
 
-IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment) {
+IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo) {
 	// 检查是否有没有实现的接口
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
+	auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
 	IrisValue ivValue;
 	if (!m_bIsCompleteClass){
 		if (!(m_bIsCompleteClass = _FunctionAchieved())) {
 			// **Error**
 #if IR_USE_STL_STRING
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName + " is still having some methods not defined but declared in the interfaces jointed.", pInfo);
 #else
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ClassNotCompleteIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Class " + m_strClassName.GetSTLString() + " is still having some methods not defined but declared in the interfaces jointed.", pInfo);
 #endif // IR_USE_STL_STRING
 
 			return IrisInterpreter::CurrentInterpreter()->Nil();
@@ -226,9 +226,9 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	// 生成对象
 	IrisObject* pObject = new IrisObject();
 	pObject->SetClass(m_pExternClass);
-	if (IrisDevUtil::GetCurrentThreadInfo()->m_nNativeReference > 0) {
+	if (pInfo->m_nNativeReference > 0) {
 		//pObject->SetIsCreateInNativeFunction(true);
-		IrisDevUtil::GetCurrentThreadInfo()->m_hpObjectInNativeFunctionHeap.insert(pObject);
+		pInfo->m_hpObjectInNativeFunctionHeap.insert(pObject);
 	}
 	if (IsObjectClass()) {
 		pObject->SetNativeObject(m_pExternClass->NativeAlloc());
@@ -242,7 +242,7 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 	ivValue.SetIrisObject(pObject);
 	if(IsNormalClass()){
 
-		IrisDevUtil::CallMethod(IrisValue::WrapObjectPointerToIrisValue(pObject), "__format",  ivsParams, pContexEnvironment);
+		IrisDevUtil::CallMethod(IrisValue::WrapObjectPointerToIrisValue(pObject), "__format",  ivsParams, pContexEnvironment, pThreadInfo);
 
 		//IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(pObject);
 
@@ -256,7 +256,7 @@ IrisValue IrisClass::CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironm
 
 		//pObject->CallInstanceFunction("__format", pContexEnvironment, static_cast<IrisValues*>(ivsParams), CallerSide::Outside);
 
-		//if (ivsParams && !IrisDevUtil::IrregularHappened()) {
+		//if (ivsParams && !IrisDevUtil::IrregularHappened(pThreadInfo)) {
 		//	IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(ivsParams)->GetSize());
 		//}
 		//IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
@@ -368,7 +368,7 @@ IrisClass::IrisClass(const string& strClassName, IrisClass* pSuperClass, IrisMod
 IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClass, IrisModule* pUpperModule, IIrisClass* pExternClass) : m_strClassName(strClassName), m_pSuperClass(pSuperClass), m_pUpperModule(pUpperModule), m_pExternClass(pExternClass) {
 #endif // IR_USE_STL_STRING
 	if (IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")) {
-		IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr);
+		IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 		IrisDevUtil::GetNativePointer<IrisClassBaseTag*>(ivValue)->SetClass(this);
 		m_pClassObject = ivValue.GetIrisObject();
 	}
@@ -393,11 +393,11 @@ IrisClass::IrisClass(const IrisInternString& strClassName, IrisClass* pSuperClas
 }
 
 #if IR_USE_STL_STRING
-IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
+IrisValue IrisClass::CallClassMethod(const string& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide) {
 #else
-IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
+IrisValue IrisClass::CallClassMethod(const IrisInternString& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide) {
 #endif // IR_USE_STL_STRING
-	return static_cast<IrisObject*>(m_pClassObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide);
+	return static_cast<IrisObject*>(m_pClassObject)->CallInstanceFunction(strMethodName, ivParameters, pContextEnvironment, pThreadInfo, eSide);
 }
 
 void IrisClass::ResetAllMethodsObject() {
@@ -521,7 +521,7 @@ void IrisClass::AddGetter(const IrisInternString& strProperName, IrisNativeFunct
 }
 
 void IrisClass::ResetNativeObject() {
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Class")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 	IrisDevUtil::GetNativePointer<IrisClassBaseTag*>(ivValue)->SetClass(this);
 	m_pClassObject = static_cast<IrisObject*>(ivValue.GetIrisObject());
 }

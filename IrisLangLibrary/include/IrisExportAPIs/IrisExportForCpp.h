@@ -21,9 +21,10 @@
 #include "IrisInterfaces/IIrisModule.h"
 #include "IrisInterfaces/IIrisObject.h"
 #include "IrisInterfaces/IIrisValues.h"
+#include "IrisInterfaces/IIrisThreadInfo.h"
 
 namespace IrisDev {
-	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 #define DECLARE_IRISDEV_CLASS_CHECK(klass) IRISLANGLIBRARY_API bool CheckClassIs##klass(const IrisValue& ivValue);
 
@@ -60,21 +61,21 @@ namespace IrisDev {
 
 	IRISLANGLIBRARY_API bool CheckClassIsStringOrUniqueString(const IrisValue& ivValue);
 
-	IRISLANGLIBRARY_API void GroanIrregularWithString(const char* szIrregularString);
+	IRISLANGLIBRARY_API void GroanIrregularWithString(const char* szIrregularString, IIrisThreadInfo* pThreadInfo);
 
 	IRISLANGLIBRARY_API int				GetInt(const IrisValue& ivValue);
 	IRISLANGLIBRARY_API double			GetFloat(const IrisValue& ivValue);
 	IRISLANGLIBRARY_API const char*		GetString(const IrisValue& ivValue);
-	IRISLANGLIBRARY_API IrisValue		CallMethod(const IrisValue& ivObj, const char* szMethodName, IIrisValues* pParameters);
-	IRISLANGLIBRARY_API IrisValue		CallClassClassMethod(IIrisClass* pClass, const char* szMethodName, IIrisValues* pParameters);
-	IRISLANGLIBRARY_API IrisValue		CallClassModuleMethod(IIrisModule* pModule, const char* szMethodName, IIrisValues* pParameters);
+	IRISLANGLIBRARY_API IrisValue		CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
+	IRISLANGLIBRARY_API IrisValue		CallClassClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
+	IRISLANGLIBRARY_API IrisValue		CallClassModuleMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
 	IRISLANGLIBRARY_API IIrisClass*		GetClass(const char* strClassPathName);
 	IRISLANGLIBRARY_API IIrisModule*	GetModule(const char* strClassPathName);
 	IRISLANGLIBRARY_API IIrisInterface* GetInterface(const char* strClassPathName);
 
 	IRISLANGLIBRARY_API bool				ObjectIsFixed(const IrisValue& ivObj);
 	IRISLANGLIBRARY_API IIrisClosureBlock*	GetClosureBlock(IIrisContextEnvironment* pContextEnvironment);
-	IRISLANGLIBRARY_API IrisValue			ExcuteClosureBlock(IIrisClosureBlock* pClosureBlock, IIrisValues* pParameters);
+	IRISLANGLIBRARY_API IrisValue			ExcuteClosureBlock(IIrisClosureBlock* pClosureBlock, IIrisValues* pParameters, IIrisThreadInfo* pThreadInfo);
 	IRISLANGLIBRARY_API void				ContextEnvironmentSetClosureBlock(IIrisContextEnvironment* pContextEnvironment, IIrisClosureBlock* pBlock);
 	IRISLANGLIBRARY_API IIrisObject*		GetNativeObjectPointer(const IrisValue& ivObj);
 	IRISLANGLIBRARY_API int					GetObjectID(const IrisValue& ivObj);
@@ -113,7 +114,7 @@ namespace IrisDev {
 	IRISLANGLIBRARY_API void AddModule(IIrisClass* pClass, IIrisModule* pTargetModule);
 	IRISLANGLIBRARY_API void AddModule(IIrisModule* pModule, IIrisModule* pTargetModule);
 
-	IRISLANGLIBRARY_API IrisValue CreateNormalInstance(IIrisClass* pClass, IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment);
+	IRISLANGLIBRARY_API IrisValue CreateNormalInstance(IIrisClass* pClass, IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
 	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(const char* szString);
 	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(double dFloat);
 	IRISLANGLIBRARY_API IrisValue CreateInstanceByInstantValue(int nInteger);
@@ -122,8 +123,8 @@ namespace IrisDev {
 	IRISLANGLIBRARY_API void	  SetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName, const IrisValue& ivValue);
 	IRISLANGLIBRARY_API IrisValue GetObjectInstanceVariable(const IrisValue& ivObj, char* szInstanceVariableName);
 
-	IRISLANGLIBRARY_API bool IrregularHappened();
-	IRISLANGLIBRARY_API bool FatalErrorHappened();
+	IRISLANGLIBRARY_API bool IrregularHappened(IIrisThreadInfo* pThreadInfo);
+	IRISLANGLIBRARY_API bool FatalErrorHappened(IIrisThreadInfo* pThreadInfo);
 
 	IRISLANGLIBRARY_API IIrisValues*		CreateIrisValuesList(size_t nSize);
 	IRISLANGLIBRARY_API const IrisValue&	GetValue(IIrisValues* pValues, size_t nIndex);

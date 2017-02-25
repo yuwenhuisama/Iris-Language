@@ -4,7 +4,7 @@
 recursive_mutex IrisKernel::sm_rmEvalMutex;
 
 
-IrisValue IrisKernel::Print(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Print(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValue ivString;
 	if (ivsVariableValues) {
 		for (size_t i = 0; i < static_cast<IrisValues*>(ivsVariableValues)->GetSize(); ++i) {
@@ -16,7 +16,7 @@ IrisValue IrisKernel::Print(const IrisValue & ivObj, IIrisValues * ivsValues, II
 				cout << IrisDevUtil::GetNativePointer<IrisUniqueStringTag*>(elem)->GetString();
 			}
 			else {
-				ivString = IrisDevUtil::CallMethod(elem, "to_string", nullptr);
+				ivString = IrisDevUtil::CallMethod(elem, "to_string", nullptr, pContextEnvironment, pThreadInfo);
 				cout << IrisDevUtil::GetNativePointer<IrisStringTag*>(ivString)->GetString();
 			}
 		}
@@ -24,10 +24,10 @@ IrisValue IrisKernel::Print(const IrisValue & ivObj, IIrisValues * ivsValues, II
 	return IrisInterpreter::CurrentInterpreter()->Nil();
 }
 
-IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 
 	if (!IrisThreadManager::CurrentThreadManager()->IsMainThread()) {
-		IrisDevUtil::GroanIrregularWithString("require CAN ONLY be used in MAIN Thread!");
+		IrisDevUtil::GroanIrregularWithString("require CAN ONLY be used in MAIN Thread!", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
@@ -45,16 +45,15 @@ IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, 
 			}
 
 			//IrisGC::CurrentGC()->SetGCFlag(false);
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 
 			if (!pCompiler->LoadScript(strFileName)) {
-				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
+				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str(), pThreadInfo);
 				return IrisDevUtil::Nil();
 			}
 
 			bool bCompileResult = pCompiler->Generate();
 			if (!bCompileResult) {
-				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str());
+				IrisDevUtil::GroanIrregularWithString(string("Error when requiring the script : " + strFileName + "!").c_str(), pThreadInfo);
 				return IrisDevUtil::Nil();
 			}
 
@@ -63,15 +62,17 @@ IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, 
 
 			auto& vcCodes = pCompiler->GetCodes();
 
+			auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
+
 			auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
 			pInfo->m_nCurrentFileIndex = IrisCompiler::CurrentCompiler()->GetCurrentFileIndex();
 
-			pInterpreter->PushEnvironment();
-			pInterpreter->SetEnvironment(nullptr);
+			pInterpreter->PushEnvironment(pInfo);
+			pInterpreter->SetEnvironment(nullptr, pInfo);
 
-			pInterpreter->RunCode(vcCodes, 0, vcCodes.size());
+			pInterpreter->RunCode(vcCodes, 0, vcCodes.size(), pInfo);
 
-			pInterpreter->PopEnvironment();
+			pInterpreter->PopEnvironment(pInfo);
 			pInfo->m_nCurrentFileIndex = nOldFileIndex;
 		}
 	}
@@ -81,9 +82,9 @@ IrisValue IrisKernel::Require(const IrisValue & ivObj, IIrisValues * ivsValues, 
 	return pInterpreter->Nil();
 }
 
-IrisValue IrisKernel::Import(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Import(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	if (!IrisThreadManager::CurrentThreadManager()->IsMainThread()) {
-		IrisDevUtil::GroanIrregularWithString("import CAN ONLY be used in MAIN Thread!");
+		IrisDevUtil::GroanIrregularWithString("import CAN ONLY be used in MAIN Thread!", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
@@ -95,7 +96,7 @@ IrisValue IrisKernel::Import(const IrisValue & ivObj, IIrisValues * ivsValues, I
 			const string& strFileName = IrisDevUtil::GetNativePointer<IrisStringTag*>(elem)->GetString();
 			if (!pInterpreter->LoadExtension(strFileName.c_str())) {
 				string strErrorMsg("Error when loading extention from " + strFileName);
-				IrisDevUtil::GroanIrregularWithString(strErrorMsg.c_str());
+				IrisDevUtil::GroanIrregularWithString(strErrorMsg.c_str(), pThreadInfo);
 				return IrisDevUtil::False();
 			}
 		}
@@ -104,7 +105,7 @@ IrisValue IrisKernel::Import(const IrisValue & ivObj, IIrisValues * ivsValues, I
 	return IrisDevUtil::True();
 }
 
-IrisValue IrisKernel::Eval(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisKernel::Eval(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 
 	lock_guard<recursive_mutex> lgLock(sm_rmEvalMutex);
 
@@ -116,13 +117,13 @@ IrisValue IrisKernel::Eval(const IrisValue & ivObj, IIrisValues * ivsValues, IIr
 	//IrisGC::CurrentGC()->SetGCFlag(false);
 
 	if (!pCompiler->LoadScriptString(strScript)) {
-		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str());
+		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str(), pThreadInfo);
 		return pInterpreter->Nil();
 	}
 
 	bool bCompileResult = pCompiler->Generate();
 	if (!bCompileResult) {
-		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str());
+		IrisDevUtil::GroanIrregularWithString((string("Error when eval the script string of ") + strScript).c_str(), pThreadInfo);
 		return pInterpreter->Nil();
 	}
 
@@ -131,18 +132,20 @@ IrisValue IrisKernel::Eval(const IrisValue & ivObj, IIrisValues * ivsValues, IIr
 
 	auto& vcCodes = pCompiler->GetEvalCodes();
 
-	pInterpreter->PushEnvironment();
-	auto& skStack = IrisDevUtil::GetCurrentThreadInfo()->m_skEnvironmentStack;
-	pInterpreter->SetEnvironment(skStack[skStack.size() - 2]);
+	auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
 
-	pInterpreter->RunCode(vcCodes, 0, vcCodes.size());
+	pInterpreter->PushEnvironment(pInfo);
+	auto& skStack = pInfo->m_skEnvironmentStack;
+	pInterpreter->SetEnvironment(skStack[skStack.size() - 2], pInfo);
 
-	pInterpreter->PopEnvironment();
+	pInterpreter->RunCode(vcCodes, 0, vcCodes.size(), pInfo);
+
+	pInterpreter->PopEnvironment(pInfo);
 
 	return IrisInterpreter::CurrentInterpreter()->Nil();
 }
 
-IrisValue IrisKernel::SRand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisKernel::SRand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	if (ivsVariableValues) {
 		if (static_cast<IrisValues*>(ivsVariableValues)->GetSize() == 1) {
@@ -152,11 +155,11 @@ IrisValue IrisKernel::SRand(const IrisValue & ivObj, IIrisValues * ivsValues, II
 				srand(nSRand);
 			}
 			else {
-				IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
+				IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.", pThreadInfo);
 			}
 		}
 		else {
-			IrisDevUtil::GroanIrregularWithString("Invaild parameter list.");
+			IrisDevUtil::GroanIrregularWithString("Invaild parameter list.", pThreadInfo);
 		}
 	}
 	else {
@@ -165,18 +168,18 @@ IrisValue IrisKernel::SRand(const IrisValue & ivObj, IIrisValues * ivsValues, II
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisKernel::Rand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisKernel::Rand(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	auto& ivFrom = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	auto& ivTo = static_cast<IrisValues*>(ivsValues)->GetValue(1);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivFrom) && !IrisDevUtil::CheckClassIsFloat(ivFrom)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer or a Float");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer or a Float", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivTo) && !IrisDevUtil::CheckClassIsFloat(ivTo)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be an Integer or a Float");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be an Integer or a Float", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 

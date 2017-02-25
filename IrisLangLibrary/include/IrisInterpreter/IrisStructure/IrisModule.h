@@ -117,9 +117,9 @@ public:
 #endif // IR_USE_STL_STRING
 
 #if IR_USE_STL_STRING
-	virtual IrisValue CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide);
+	virtual IrisValue CallClassMethod(const string& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide);
 #else
-	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide);
+	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide);
 #endif // IR_USE_STL_STRING
 
 	virtual void ResetAllMethodsObject();

@@ -9,7 +9,7 @@ IrisInterface::IrisInterface(const string& strInterfaceName, IrisModule* pUpperM
 #else
 IrisInterface::IrisInterface(const IrisInternString& strInterfaceName, IrisModule* pUpperModule) : m_strInterfaceName(strInterfaceName), m_pUpperModule(pUpperModule) {
 #endif // IR_USE_STL_STRING
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Interface")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Interface")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 	IrisDevUtil::GetNativePointer<IrisInterfaceBaseTag*>(ivValue)->SetInterface(this);
 	m_pInterfaceObject = ivValue.GetIrisObject();
 }

@@ -7,6 +7,7 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
+#include "IrisThread/IrisThreadManager.h"
 
 IrisClassStatement::IrisClassStatement(IrisIdentifier* pClasssName, IrisExpression* pSuperClassName, IrisList<IrisExpression*>* pModules, IrisList<IrisExpression*>* pInterfaces, IrisBlock* pBlock) : m_pClassName(pClasssName), m_pSuperClassName(pSuperClassName), m_pModules(pModules), m_pInterfaces(pInterfaces), m_pBlock(pBlock)
 {
@@ -105,12 +106,12 @@ bool IrisClassStatement::Validate()
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
 	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "class of " + m_pClassName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "class of " + m_pClassName->GetIdentifierString() + " must be defined in Main environment or Module body.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pClassName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pClassName->GetIdentifierString() + " is not a CONSTANCE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pClassName->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

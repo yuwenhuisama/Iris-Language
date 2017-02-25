@@ -10,12 +10,14 @@
 #include "IrisUnil/IrisStack.h"
 #include "IrisUnil/IrisInternString.h"
 
+#include "IrisInterfaces/IIrisThreadInfo.h"
+
 #include <unordered_map>
 #include <vector>
 #include <list>
 using namespace std;
 
-struct IrisThreadUniqueInfo {
+class IrisThreadInfo : public IIrisThreadInfo {
 private:
 	typedef unordered_map<IrisInternString, IrisValue, IrisInternString::IrisInerStringHash> _ValueMap;
 	typedef pair<IrisInternString, IrisValue> _ValuePair;
@@ -48,7 +50,7 @@ public:
 	_ObjectStack m_skTempNewObjectStack;  					  // 线程新生对象临时栈
 	_ObjectHeap m_hpObjectInNativeFunctionHeap;				  // 线程本地方法调用生成临时对象栈
 	size_t m_nNativeReference = 0;							  // 线程本地方法调用次数统计
-		
+	
 	IrisValue m_ivResultRegister;							  // 结果寄存器
 	IrisValue m_ivCounterRegister;							  // 计数寄存器
 	IrisValue m_ivTimerRegister;							  // 次数寄存器
@@ -69,6 +71,9 @@ public:
 	bool m_bFatalErrorHappendRegister = false;			      // FatalError发生寄存器
 
 	size_t m_nCurrentLineNumber = 0;						  // 当前线程所在代码行号
+
+	IrisThreadInfo() = default;
+	~IrisThreadInfo() = default;
 };
 
 #endif

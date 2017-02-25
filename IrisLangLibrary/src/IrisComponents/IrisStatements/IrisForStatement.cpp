@@ -8,6 +8,8 @@
 
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
+
 #include <vector>
 using namespace std;
 
@@ -129,17 +131,17 @@ bool IrisForStatement::Validate()
 
 	if (m_pIter1 && !m_pIter2) {
 		if (m_pIter1->GetType() != IrisIdentifierType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a CONSTANCE.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 			return false;
 		}
 	}
 	else if (m_pIter1 && m_pIter2) {
 		if (m_pIter1->GetType() != IrisIdentifierType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a LOCAL VARIABLE.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter1->GetIdentifierString() + " is not a LOCAL VARIABLE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 			return false;
 		}
 		else if (m_pIter2->GetType() != IrisIdentifierType::LocalVariable) {
-			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter2->GetIdentifierString() + " is not a LOCAL VARIABLE.");
+			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pIter2->GetIdentifierString() + " is not a LOCAL VARIABLE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 			return false;
 		}
 	}

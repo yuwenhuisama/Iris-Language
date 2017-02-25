@@ -5,7 +5,7 @@
 //
 //thread::id IrisThreadManager::s_nMainThreadID;
 //
-//unordered_map<thread::id, IrisThreadUniqueInfo*> IrisThreadManager::s_mpThreadInfoMap;
+//unordered_map<thread::id, IrisThreadInfo*> IrisThreadManager::s_mpThreadInfoMap;
 //unordered_map<thread::id, thread*> IrisThreadManager::s_mpThreadMap;
 //unordered_map<thread::id, bool> IrisThreadManager::s_mpThreadBlockedMap;
 //
@@ -19,7 +19,7 @@ IrisThreadManager* IrisThreadManager::sm_pInstance = nullptr;
 
 IrisThreadManager* IrisThreadManager::CurrentThreadManager() {
 	if (!sm_pInstance) {
-		sm_pInstance = new IrisThreadManager;
+		sm_pInstance = new IrisThreadManager();
 	}
 	return sm_pInstance;
 }
@@ -31,7 +31,10 @@ void IrisThreadManager::SetCurrentThreadManager(IrisThreadManager * pManager) {
 void IrisThreadManager::Initialize()
 {
 	s_nMainThreadID = this_thread::get_id();
-	AddNewThreadInfo(s_nMainThreadID, new IrisThreadUniqueInfo());
+
+	m_pMainThreadInfo = new IrisThreadInfo();
+
+	AddNewThreadInfo(s_nMainThreadID, m_pMainThreadInfo);
 	s_mpThreadBlockedMap.insert(pair<thread::id, bool>(this_thread::get_id(), false));
 }
 
@@ -42,13 +45,13 @@ void IrisThreadManager::AddNewThread(const thread::id& nThreadID, thread* pThrea
 	s_mpThreadBlockedMap.insert(pair<thread::id, bool>(nThreadID, false));
 }
 
-void IrisThreadManager::AddNewThreadInfo(const thread::id& nThreadID, IrisThreadUniqueInfo * pInfo)
+void IrisThreadManager::AddNewThreadInfo(const thread::id& nThreadID, IrisThreadInfo * pInfo)
 {
 	lock_guard<recursive_mutex> lgLock(s_rmNewThreadInfoMT);
-	s_mpThreadInfoMap.insert(pair<thread::id, IrisThreadUniqueInfo*>(nThreadID, pInfo));
+	s_mpThreadInfoMap.insert(pair<thread::id, IrisThreadInfo*>(nThreadID, pInfo));
 }
 
-IrisThreadUniqueInfo * IrisThreadManager::GetThreadInfo(const thread::id& nThreadID)
+IrisThreadInfo * IrisThreadManager::GetThreadInfo(const thread::id& nThreadID)
 {
 	return s_mpThreadInfoMap[nThreadID];
 }
@@ -118,6 +121,11 @@ void IrisThreadManager::ReleaseAllThreadData()
 	for (auto& pData : s_mpThreadInfoMap) {
 		delete pData.second;
 	}
+}
+
+IrisThreadInfo * IrisThreadManager::GetMainThreadInfo()
+{
+	return m_pMainThreadInfo;
 }
 
 IrisThreadManager::IrisThreadManager()

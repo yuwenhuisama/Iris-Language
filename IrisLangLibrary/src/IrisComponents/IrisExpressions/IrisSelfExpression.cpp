@@ -3,6 +3,8 @@
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
 
+#include "IrisThread/IrisThreadManager.h"
+
 bool IrisSelfExpression::Generate()
 {
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
@@ -25,7 +27,7 @@ bool IrisSelfExpression::Validate()
 
 	if (!pCompiler->UpperWithBlock()) {
 
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "self Expression can only be used in Closure Block or Method Block.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "self Expression can only be used in Closure Block or Method Block.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 
 		return false;
 	}

@@ -21,6 +21,7 @@ extern "C" {
 	typedef void* CIIrisClosureBlock;
 	typedef void* CIIrisContextEnvironment;
 	typedef void* CIrisNativeFunction;
+	typedef void* CIIrisThreadInfo;
 
 #define DECLARE_IRISDEV_CLASS_CHECK(klass) IRISLANGLIBRARY_API bool CheckClassIs##klass(CIrisValue ivValue);
 
@@ -44,21 +45,21 @@ extern "C" {
 	IRISLANGLIBRARY_API void* _IrisDev_InnerGetNativePointerWithObject(CIIrisObject pObject);
 
 	IRISLANGLIBRARY_API int IrisDev_CheckClass(CIrisValue ivValue, char* szClassName);
-	IRISLANGLIBRARY_API void IrisDev_GroanIrregularWithString(char* szIrregularString);
+	IRISLANGLIBRARY_API void IrisDev_GroanIrregularWithString(char* szIrregularString, CIIrisThreadInfo pThreadInfo);
 
 	IRISLANGLIBRARY_API int					IrisDev_GetInt(CIrisValue ivValue);
 	IRISLANGLIBRARY_API double				IrisDev_GetFloat(CIrisValue ivValue);
 	IRISLANGLIBRARY_API char*				IrisDev_GetString(CIrisValue ivValue);
-	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallMethod(CIrisValue ivObj, char* szMethodName, CIIrisValues pParameters);
-	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallClassClassMethod(CIIrisClass pClass, char* szMethodName, CIIrisValues* pParameters);
-	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallClassModuleMethod(CIIrisModule pModule, char* szMethodName, CIIrisValues* pParameters);
+	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallMethod(CIrisValue ivObj, char* szMethodName, CIIrisValues pParameters, CIIrisContextEnvironment pContextEnvironment, CIIrisThreadInfo pThreadInfo);
+	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallClassClassMethod(CIIrisClass pClass, char* szMethodName, CIIrisValues pParameters, CIIrisContextEnvironment pContextEnvironment, CIIrisThreadInfo pThreadInfo);
+	IRISLANGLIBRARY_API CIrisValue			IrisDev_CallClassModuleMethod(CIIrisModule pModule, char* szMethodName, CIIrisValues pParameters, CIIrisContextEnvironment pContextEnvironment, CIIrisThreadInfo pThreadInfo);
 	IRISLANGLIBRARY_API CIIrisClass			IrisDev_GetClass(char* strClassPathName);
 	IRISLANGLIBRARY_API CIIrisModule		IrisDev_GetModule(char* strClassPathName);
 	IRISLANGLIBRARY_API CIIrisInterface		IrisDev_GetInterface(char* strClassPathName);
 
 	IRISLANGLIBRARY_API int					IrisDev_ObjectIsFixed(CIrisValue ivObj);
 	IRISLANGLIBRARY_API CIIrisClosureBlock	IrisDev_GetClosureBlock(CIIrisContextEnvironment pContextEnvironment);
-	IRISLANGLIBRARY_API CIrisValue			IrisDev_ExcuteClosureBlock(CIIrisClosureBlock pClosureBlock, CIIrisValues* pParameters);
+	IRISLANGLIBRARY_API CIrisValue			IrisDev_ExcuteClosureBlock(CIIrisClosureBlock pClosureBlock, CIIrisValues pParameters, CIIrisThreadInfo pThreadInfo);
 	IRISLANGLIBRARY_API void				IrisDev_ContextEnvironmentSetClosureBlock(CIIrisContextEnvironment pContextEnvironment, CIIrisClosureBlock pBlock);
 	IRISLANGLIBRARY_API CIIrisObject		IrisDev_GetNativeObjectPointer(CIrisValue ivObj);
 	IRISLANGLIBRARY_API int					IrisDev_GetObjectID(CIrisValue ivObj);
@@ -95,7 +96,7 @@ extern "C" {
 	IRISLANGLIBRARY_API void IrisDev_ClassAddModule(CIIrisClass pClass, CIIrisModule pTargetModule);
 	IRISLANGLIBRARY_API void IrisDev_ModuleAddModule(CIIrisModule pModule, CIIrisModule pTargetModule);
 
-	IRISLANGLIBRARY_API CIrisValue IrisDev_CreateNormalInstance(CIIrisClass pClass, CIIrisValues ivsParams, CIIrisContextEnvironment pContexEnvironment);
+	IRISLANGLIBRARY_API CIrisValue IrisDev_CreateNormalInstance(CIIrisClass pClass, CIIrisValues ivsParams, CIIrisContextEnvironment pContexEnvironment, CIIrisThreadInfo pThreadInfo);
 	IRISLANGLIBRARY_API CIrisValue IrisDev_CreateStringInstanceByInstantValue(char* szString);
 	IRISLANGLIBRARY_API CIrisValue IrisDev_CreateFloatInstanceByInstantValue(double dFloat);
 	IRISLANGLIBRARY_API CIrisValue IrisDev_CreateIntegerInstanceByInstantValue(int nInteger);
@@ -104,8 +105,8 @@ extern "C" {
 	IRISLANGLIBRARY_API void	   IrisDev_SetObjectInstanceVariable(CIrisValue& ivObj, char* szInstanceVariableName, CIrisValue ivValue);
 	IRISLANGLIBRARY_API CIrisValue IrisDev_GetObjectInstanceVariable(CIrisValue& ivObj, char* szInstanceVariableName);
 
-	IRISLANGLIBRARY_API int IrisDev_IrregularHappened();
-	IRISLANGLIBRARY_API int IrisDev_FatalErrorHappened();
+	IRISLANGLIBRARY_API int IrisDev_IrregularHappened(CIIrisThreadInfo pThreadInfo);
+	IRISLANGLIBRARY_API int IrisDev_FatalErrorHappened(CIIrisThreadInfo pThreadInfo);
 
 	IRISLANGLIBRARY_API CIIrisValues		IrisDev_CreateIrisValuesList(size_t nSize);
 	IRISLANGLIBRARY_API CIrisValue			IrisDev_GetValue(CIIrisValues pValues, size_t nIndex);

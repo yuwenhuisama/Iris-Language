@@ -60,7 +60,7 @@ private:
 	typedef pair<IrisInternString, IrisInterface::InterfaceFunctionDeclare> _InterfaceFunctionDeclarePair;
 #endif // IR_USE_STL_STRING
 
-	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 	enum class SearchVariableType {
@@ -176,12 +176,12 @@ public:
 #else
 	virtual const IrisValue& SearchClassVariable(const IrisInternString& strClassVariableName, bool& bResult);
 	virtual const IrisInternString& GetClassName() { return m_strClassName; }
-	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContexEnvironment, IrisValues* ivParameters, CallerSide eSide);
+	virtual IrisValue CallClassMethod(const IrisInternString& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContexEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide);
 	virtual IrisMethod* GetMethod(const IrisInternString& strMethodName, bool& bIsCurClassMethod);
 	virtual IrisMethod* GetCurrentClassMethod(const IrisInternString& strMethodName);
 #endif // IR_USE_STL_STRING
 	
-	virtual IrisValue CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment);
+	virtual IrisValue CreateInstance(IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
 
 #if IR_USE_STL_STRING
 	virtual const IrisValue& GetCurrentClassClassVariable(const string& strVariableName, bool& bResult);

@@ -2,6 +2,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisCastExpression::Generate()
 {
@@ -23,7 +24,7 @@ bool IrisCastExpression::Validate()
 {
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 	if (!pCompiler->UpperWithBlock()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::CastExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "cast Expression can only be used in a Closure Block or Method Block.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::CastExpressionIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "cast Expression can only be used in a Closure Block or Method Block.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 	

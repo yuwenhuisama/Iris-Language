@@ -3,6 +3,7 @@
 #include "IrisCompiler.h"
 #include "IrisInstructorMaker.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 IrisAuthorityStatement::IrisAuthorityStatement(IrisAuthorityTarget eTar, IrisAuthorityType eType, IrisIdentifier* pMethodName) : m_eTarget(eTar), m_eType(eType), m_pMethodName(pMethodName)
 {
@@ -37,12 +38,12 @@ bool IrisAuthorityStatement::Validate()
 	
 	if (pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ClassBlock
 		&& pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::AuthorityStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "authority Statement can only be used in Class or Module body.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::AuthorityStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "authority Statement can only be used in Class or Module body.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pMethodName->GetType() != IrisIdentifierType::LocalVariable && m_pMethodName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pMethodName->GetIdentifierString() + " must be a local variable name or a constance variable name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pMethodName->GetIdentifierString() + " must be a local variable name or a constance variable name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

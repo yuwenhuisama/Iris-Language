@@ -6,6 +6,8 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
+
 IrisReturnStatement::IrisReturnStatement(IrisExpression* pReturnExpression) : m_pReturnExpression(pReturnExpression)
 {
 }
@@ -40,7 +42,7 @@ bool IrisReturnStatement::Validate()
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
 	if (!pCompiler->UpperWithBlock()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Return Statement CAN ONLY be used in Method block or Closure block.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ContinueIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Return Statement CAN ONLY be used in Method block or Closure block.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

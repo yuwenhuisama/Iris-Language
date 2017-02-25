@@ -165,7 +165,7 @@ public:
 #endif // IR_USE_STL_STRING
 
 	bool AddNewInstanceToHeap(IrisValue& ivValue);
-	bool AddNewEnvironmentToHeap(IrisContextEnvironment* pEnvironment);
+	bool AddNewEnvironmentToHeap(IrisContextEnvironment* pEnvironment, IrisThreadInfo* pThreadInfo);
 
 	bool Initialize();
 	bool ShutDown();
@@ -175,7 +175,7 @@ public:
 	inline void SetCompiler(IrisCompiler* pCompiler) { m_pCurrentCompiler = pCompiler; };
 	bool Run();
 	//bool RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPointer, unsigned int nEndPointer);
-	bool RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPointer, unsigned int nEndPointer);
+	bool RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPointer, unsigned int nEndPointer, IrisThreadInfo* pThreadInfo);
 	inline void SetExitConditionFunction(ExitConditonFunction pfFunction) { m_pfExitConditionFunction = pfFunction; }
 
 	bool LoadExtension(const string& strExtensionPath);
@@ -190,100 +190,87 @@ public:
 	//	m_pClosureBlockRegister = pBlock;
 	//}
 
-	void PopStack(unsigned int nTimes);
+	void PopStack(unsigned int nTimes, IrisThreadInfo* pThreadInfo);
 
-	inline bool FatalErrorHappened() { return IrisDevUtil::GetCurrentThreadInfo()->m_bFatalErrorHappendRegister; }
-	inline void HappenFatalError() { IrisDevUtil::GetCurrentThreadInfo()->m_bFatalErrorHappendRegister = true; }
+	inline bool FatalErrorHappened(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_bFatalErrorHappendRegister; }
+	inline void HappenFatalError(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_bFatalErrorHappendRegister = true; }
 
-	inline bool IrregularHappened() { return IrisDevUtil::GetCurrentThreadInfo()->m_bIrregularHappenedRegister; }
-	inline void RegistIrregular(IrisValue& ivValue) {
-		IrisDevUtil::GetCurrentThreadInfo()->m_ivIrregularObjectRegister = ivValue; 
-		IrisDevUtil::GetCurrentThreadInfo()->m_bIrregularHappenedRegister = true;
+	inline bool IrregularHappened(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_bIrregularHappenedRegister; }
+	inline void RegistIrregular(IrisValue& ivValue, IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_ivIrregularObjectRegister = ivValue;
+		pThreadInfo->m_bIrregularHappenedRegister = true;
 	}
-	inline void UnregistIrregular() { IrisDevUtil::GetCurrentThreadInfo()->m_bIrregularHappenedRegister = false; }
+	inline void UnregistIrregular(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_bIrregularHappenedRegister = false; }
 
-	inline bool ForceStop() { return IrisDevUtil::GetCurrentThreadInfo()->m_bIrregularHappenedRegister; }
+	inline bool ForceStop(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_bIrregularHappenedRegister; }
 
-	inline bool PushEnvironment() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skEnvironmentStack.push_back(pInfo->m_pEnvrionmentRegister);
+	inline bool PushEnvironment(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skEnvironmentStack.push_back(pThreadInfo->m_pEnvrionmentRegister);
 		return true;
 	}
-	inline bool SetEnvironment(IrisContextEnvironment* pEnvironment) {
-		IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister = pEnvironment;
+	inline bool SetEnvironment(IrisContextEnvironment* pEnvironment, IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_pEnvrionmentRegister = pEnvironment;
 		return true;
 	}
-	inline bool PopEnvironment() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_pEnvrionmentRegister = pInfo->m_skEnvironmentStack.back();
-		pInfo->m_skEnvironmentStack.pop_back();
+	inline bool PopEnvironment(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_pEnvrionmentRegister = pThreadInfo->m_skEnvironmentStack.back();
+		pThreadInfo->m_skEnvironmentStack.pop_back();
 		return true;
 	}
 
-	inline void PushVessle() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skVessleRegister.push_back(pInfo->m_ivVessleRegister); 
+	inline void PushVessle(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skVessleRegister.push_back(pThreadInfo->m_ivVessleRegister);
 	}
-	inline void PopVessle() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_ivVessleRegister = pInfo->m_skVessleRegister.back();
-		pInfo->m_skVessleRegister.pop_back(); 
+	inline void PopVessle(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_ivVessleRegister = pThreadInfo->m_skVessleRegister.back();
+		pThreadInfo->m_skVessleRegister.pop_back();
 	}
 
-	inline void PushIterator() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skIteratorRegister.push_back(pInfo->m_ivIteratorRegister); }
-	inline void PopIterator() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_ivIteratorRegister = pInfo->m_skIteratorRegister.back();
-		pInfo->m_skIteratorRegister.pop_back();
+	inline void PushIterator(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skIteratorRegister.push_back(pThreadInfo->m_ivIteratorRegister); }
+	inline void PopIterator(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_ivIteratorRegister = pThreadInfo->m_skIteratorRegister.back();
+		pThreadInfo->m_skIteratorRegister.pop_back();
 	}
 
-	inline void PushCounter() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skCounterRegister.push_back(pInfo->m_ivCounterRegister);
+	inline void PushCounter(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skCounterRegister.push_back(pThreadInfo->m_ivCounterRegister);
 	}
-	inline void PopCounter() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_ivCounterRegister = pInfo->m_skCounterRegister.back(); 
-		pInfo->m_skCounterRegister.pop_back(); 
+	inline void PopCounter(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_ivCounterRegister = pThreadInfo->m_skCounterRegister.back(); 
+		pThreadInfo->m_skCounterRegister.pop_back(); 
 	}
 
-	inline void PushTimer() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skTimerRegister.push_back(pInfo->m_ivTimerRegister); }
-	inline void PopTimer() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_ivTimerRegister = pInfo->m_skTimerRegister.back();
-		pInfo->m_skTimerRegister.pop_back();
+	inline void PushTimer(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skTimerRegister.push_back(pThreadInfo->m_ivTimerRegister); }
+	inline void PopTimer(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_ivTimerRegister = pThreadInfo->m_skTimerRegister.back();
+		pThreadInfo->m_skTimerRegister.pop_back();
 	}
 
-	inline void PushUnlimitedLoopFlag() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_skUnimitedLoopFlag.push_back(pInfo->m_bUnimitedLoopFlagRegister); }
-	inline void PopUnlimitedLoopFlag() { 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		pInfo->m_bUnimitedLoopFlagRegister = pInfo->m_skUnimitedLoopFlag.back();
-		pInfo->m_skUnimitedLoopFlag.pop_back(); 
+	inline void PushUnlimitedLoopFlag(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_skUnimitedLoopFlag.push_back(pThreadInfo->m_bUnimitedLoopFlagRegister); }
+	inline void PopUnlimitedLoopFlag(IrisThreadInfo* pThreadInfo) {
+		pThreadInfo->m_bUnimitedLoopFlagRegister = pThreadInfo->m_skUnimitedLoopFlag.back();
+		pThreadInfo->m_skUnimitedLoopFlag.pop_back(); 
 	}
 
-	inline unsigned int GetTopDeepIndex() {
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-		return pInfo->m_skDeepStack.empty() ? -1 : pInfo->m_skDeepStack.back(); 
+	inline unsigned int GetTopDeepIndex(IrisThreadInfo* pThreadInfo) {
+		return pThreadInfo->m_skDeepStack.empty() ? -1 : pThreadInfo->m_skDeepStack.back(); 
 	}
-	inline void PushDeepIndex(unsigned int nIndex) { IrisDevUtil::GetCurrentThreadInfo()->m_skDeepStack.push_back(nIndex); }
-	inline void PopTopDeepIndex() { IrisDevUtil::GetCurrentThreadInfo()->m_skDeepStack.pop_back(); }
-	inline void ClearDeepStack() { IrisDevUtil::GetCurrentThreadInfo()->m_skDeepStack.clear(); }
+	inline void PushDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.push_back(nIndex); }
+	inline void PopTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.pop_back(); }
+	inline void ClearDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.clear(); }
 
-	inline unsigned int GetTopMethodDeepIndex() { return IrisDevUtil::GetCurrentThreadInfo()->m_skMethodDeepStack.back(); }
-	inline void PushMethodDeepIndex(unsigned int nIndex) { IrisDevUtil::GetCurrentThreadInfo()->m_skMethodDeepStack.push_back(nIndex); }
-	inline void PopMethodTopDeepIndex() { IrisDevUtil::GetCurrentThreadInfo()->m_skMethodDeepStack.pop_back(); }
-	inline void ClearMethodDeepStack() { IrisDevUtil::GetCurrentThreadInfo()->m_skMethodDeepStack.clear(); }
+	inline unsigned int GetTopMethodDeepIndex(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_skMethodDeepStack.back(); }
+	inline void PushMethodDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.push_back(nIndex); }
+	inline void PopMethodTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.pop_back(); }
+	inline void ClearMethodDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.clear(); }
 
-	inline const IrisValue& GetCurrentResultRegister() { return IrisDevUtil::GetCurrentThreadInfo()->m_ivResultRegister; }
+	inline const IrisValue& GetCurrentResultRegister(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_ivResultRegister; }
 
-	inline IrisContextEnvironment* GetCurrentContextEnvrionment() {
-		return IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister;
+	inline IrisContextEnvironment* GetCurrentContextEnvrionment(IrisThreadInfo* pThreadInfo) {
+		return pThreadInfo->m_pEnvrionmentRegister;
 	}
 
 #if IR_USE_STL_STRING
@@ -403,83 +390,83 @@ public:
 
 private:
 #if IR_USE_STL_STRING
-	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName);
+	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, string& strMethodName, IrisThreadInfo* pThreadInfo);
 #else
-	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName);
+	bool BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisInternString& strMethodName, IrisThreadInfo* pThreadInfo);
 #endif // IR_USE_STL_STRING
 	void GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisCodeSegment& icsCodeSegment);
 
 	// virtual bytecode
 public:
-	bool push_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool set_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool clr_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_nil(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_true(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_false(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool blk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool end_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool jmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool ini_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cmp_tac(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool inc_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nEnder);
-	bool ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cmp_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cre_cenv(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool push_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool pop_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	//bool cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
-	bool load_cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
+	bool push_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool nol_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool set_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool clr_fld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_nil(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_true(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_false(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool blk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool end_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool jmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool ini_tm(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool ini_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cmp_tac(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool inc_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, unsigned int nEnder, IrisThreadInfo* pThreadInfo);
+	bool ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cmp_cmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cre_cenv(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool def_cls(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool add_ext(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool add_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool add_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_cnt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_tim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_unim(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_vsl(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool push_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool pop_iter(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool gstr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool set_auth(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool def_mld(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool def_inf(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	//bool cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool grn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool spr(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
+	bool load_cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 
 	friend class IrisKernel;
 };

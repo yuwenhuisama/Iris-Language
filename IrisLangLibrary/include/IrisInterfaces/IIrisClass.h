@@ -8,6 +8,7 @@ class IIrisModule;
 class IIrisInterface;
 class IIrisContextEnvironment;
 class IIrisValues;
+class IIrisThreadInfo;
 
 class IrisClass;
 
@@ -18,7 +19,7 @@ private:
 
 public:
 
-	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+	typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 public:
 

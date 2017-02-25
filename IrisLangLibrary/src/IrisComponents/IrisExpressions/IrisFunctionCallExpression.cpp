@@ -8,6 +8,9 @@
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 #include "IrisFatalErrorHandler.h"
 
+#include "IrisThread/IrisThreadManager.h"
+
+
 bool IrisFunctionCallExpression::Generate()
 {
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
@@ -92,7 +95,7 @@ bool IrisFunctionCallExpression::Validate()
 	}
 
 	if (m_pFunctionName->GetType() != IrisIdentifierType::Constance && m_pFunctionName->GetType() != IrisIdentifierType::LocalVariable) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionName->GetIdentifierString() + " must be a LOCAL VARIABLE name.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFunctionName->GetIdentifierString() + " must be a LOCAL VARIABLE name.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 	

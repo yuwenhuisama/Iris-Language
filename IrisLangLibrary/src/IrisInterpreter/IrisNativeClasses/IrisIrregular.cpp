@@ -11,7 +11,7 @@ IrisIrregular::~IrisIrregular()
 {
 }
 
-IrisValue IrisIrregular::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 
@@ -20,15 +20,15 @@ IrisValue IrisIrregular::InitializeFunction(const IrisValue & ivObj, IIrisValues
 	auto& ivMsg = static_cast<IrisValues*>(ivsValues)->GetValue(2);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivLineNumber)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.", pThreadInfo);
 		return ivObj;
 	}
 	if (!IrisDevUtil::CheckClassIsString(ivFileName) && !IrisDevUtil::CheckClassIsUniqueString(ivFileName)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be a String or an UniqueString.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be a String or an UniqueString.", pThreadInfo);
 		return ivObj;
 	}
 	if (!IrisDevUtil::CheckClassIsString(ivMsg) && !IrisDevUtil::CheckClassIsUniqueString(ivMsg)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be an Integer or an UniqueString.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 2 which must be an Integer or an UniqueString.", pThreadInfo);
 		return ivObj;
 	}
 	auto nLineNumber = IrisDevUtil::GetInt(ivLineNumber);
@@ -44,55 +44,55 @@ IrisValue IrisIrregular::InitializeFunction(const IrisValue & ivObj, IIrisValues
 	return ivObj;
 }
 
-IrisValue IrisIrregular::SetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	auto& ivLineNumber = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsInteger(ivLineNumber)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be an Integer.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 	IrisDevUtil::SetObjectInstanceVariable(ivObj, "@line_number", ivLineNumber);
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::SetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	auto& ivFileName = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivFileName) && !IrisDevUtil::CheckClassIsUniqueString(ivFileName)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 	IrisDevUtil::SetObjectInstanceVariable(ivObj, "@file_name", ivFileName);
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::SetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::SetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	auto& ivMsg = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 	if (!IrisDevUtil::CheckClassIsString(ivMsg) && !IrisDevUtil::CheckClassIsUniqueString(ivMsg)) {
-		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.");
+		IrisDevUtil::GroanIrregularWithString("Invaild parameter 1 which must be a String or an Integer.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 	IrisDevUtil::SetObjectInstanceVariable(ivObj, "@message", ivMsg);
 	return IrisDevUtil::Nil();
 }
 
-IrisValue IrisIrregular::GetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetLineNumber(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@line_number");
 }
 
-IrisValue IrisIrregular::GetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetFileName(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@file_name");
 }
 
-IrisValue IrisIrregular::GetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::GetMessage(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	return IrisDevUtil::GetObjectInstanceVariable(ivObj, "@message");
 }
 
-IrisValue IrisIrregular::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisIrregular::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	//auto pIrregular = IrisDevUtil::GetNativePointer<IrisIrregularTag*>(ivObj);
 

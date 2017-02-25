@@ -2,6 +2,7 @@
 #include "IrisInstructorMaker.h"
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
+#include "IrisThread/IrisThreadManager.h"
 
 
 bool IrisBlockStatement::Generate()
@@ -29,7 +30,7 @@ bool IrisBlockStatement::Validate()
 	auto pCompiler = IrisCompiler::CurrentCompiler();
 
 	if (!pCompiler->UpperWithBlock()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::BlockStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "block Statement must be used in Closure Block or Method Block.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::BlockStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "block Statement must be used in Closure Block or Method Block.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

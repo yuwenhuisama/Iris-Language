@@ -1,7 +1,7 @@
 #include "IrisInterpreter/IrisNativeClasses/IrisInteger.h"
 
 
-IrisValue IrisInteger::CmpOperation(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::CmpOperation(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	bool bResult = false;
 	// 如果右边为Float，则转化为Float之间的运算
@@ -37,7 +37,7 @@ IrisValue IrisInteger::CmpOperation(Operation eOperationType, const IrisValue & 
 	}
 	else {
 		if (!IrisDevUtil::CheckClassIsInteger(static_cast<IrisValues*>(ivsValues)->GetValue(0))) {
-			//IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.");
+			//IrisDevUtil::GroanIrregularWithString("Invaid parameter was sent.", pThreadInfo);
 			return IrisDevUtil::False();
 		}
 		// 获取被加数
@@ -75,7 +75,7 @@ IrisValue IrisInteger::CmpOperation(Operation eOperationType, const IrisValue & 
 	}
 }
 
-IrisValue IrisInteger::CastOperation(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::CastOperation(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue;
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	// 如果右边为Float，则转化为Float之间的运算
@@ -156,7 +156,7 @@ IrisValue IrisInteger::CastOperation(Operation eOperationType, const IrisValue &
 	return ivValue;
 }
 
-IrisValue IrisInteger::Operate(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::Operate(Operation eOperationType, const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue;
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	// 获取Right
@@ -196,63 +196,63 @@ IrisValue IrisInteger::Operate(Operation eOperationType, const IrisValue & ivObj
 	return ivValue;
 }
 
-IrisValue IrisInteger::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	return ivObj;
 }
 
-IrisValue IrisInteger::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Add, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Add(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Add, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Sub(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Sub, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Sub(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Sub, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Mul(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Mul, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Mul(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Mul, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Div(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Div, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Div(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Div, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Power(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Power, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Power(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Power, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Mod(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Mod, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Mod(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Mod, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Shl(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return CastOperation(Operation::Shl, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Shl(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CastOperation(Operation::Shl, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Shr(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::Shr, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Shr(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::Shr, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Sar(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::Sar, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Sar(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::Sar, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Sal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::Sal, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::Sal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::Sal, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BitXor(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::BitXor, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::BitXor(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::BitXor, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BitAnd(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::BitAnd, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::BitAnd(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::BitAnd, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BitOr(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
-	return Operate(Operation::BitOr, ivObj, ivsValues, ivsVariableValues, pContextEnvironment);
+IrisValue IrisInteger::BitOr(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return Operate(Operation::BitOr, ivObj, ivsValues, ivsVariableValues, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BitNot(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::BitNot(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValue ivValue;
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	// 新建临时Integer对象作为结果
@@ -264,48 +264,48 @@ IrisValue IrisInteger::BitNot(const IrisValue & ivObj, IIrisValues * ivsValues, 
 	return ivValue;
 }
 
-IrisValue IrisInteger::Equal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::Equal, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::Equal(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::Equal, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::NotEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::NotEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::NotEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::NotEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BigThan(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::BigThan, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::BigThan(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::BigThan, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::BigThanOrEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::BigThanOrEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::BigThanOrEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::BigThanOrEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::LessThan(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::LessThan, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::LessThan(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::LessThan, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::LessThanOrEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment) {
-	return CmpOperation(Operation::LessThanOrEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment);
+IrisValue IrisInteger::LessThanOrEqual(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValuse, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
+	return CmpOperation(Operation::LessThanOrEqual, ivObj, ivsValues, ivsVariableValuse, pContextEnvironment, pThreadInfo);
 }
 
-IrisValue IrisInteger::Plus(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::Plus(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	IrisValue ivValue = IrisDevUtil::CreateInt(pInteger->m_nInteger);
 	return ivValue;
 }
 
-IrisValue IrisInteger::Minus(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::Minus(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	IrisValue ivValue = IrisDevUtil::CreateInt(-pInteger->m_nInteger);
 	return ivValue;
 }
 
-IrisValue IrisInteger::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisInteger::ToString(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisIntegerTag* pInteger = IrisDevUtil::GetNativePointer<IrisIntegerTag*>(ivObj);
 	return IrisDevUtil::CreateString(pInteger->ToString().c_str());
 }
 
-IrisValue IrisInteger::ToFloat(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment)
+IrisValue IrisInteger::ToFloat(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 {
 	auto nInteger = IrisDevUtil::GetInt(ivObj);
 	return IrisDevUtil::CreateFloat(static_cast<int>(nInteger));

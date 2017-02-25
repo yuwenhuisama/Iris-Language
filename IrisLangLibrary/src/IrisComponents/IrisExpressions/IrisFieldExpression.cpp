@@ -6,7 +6,7 @@
 #include "IrisUnil/IrisIdentifier.h"
 #include "IrisCompiler.h"
 #include "IrisFatalErrorHandler.h"
-
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisFieldExpression::Generate()
 {
@@ -85,7 +85,7 @@ bool IrisFieldExpression::Validate()
 			if (nIndex != 0) {
 				if (pIdentifier->GetType() != IrisIdentifierType::Constance) {
 					// ** Error **
-					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " is not a CONSTANCE.");
+					IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + pIdentifier->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 					return false;
 				}
 			}
@@ -97,7 +97,7 @@ bool IrisFieldExpression::Validate()
 	}
 	if (m_pFieldIdentifier->m_pIdentifier->GetType() != IrisIdentifierType::Constance) {
 		// ** Error **
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFieldIdentifier->m_pIdentifier->GetIdentifierString() + " is not a CONSTANCE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pFieldIdentifier->m_pIdentifier->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

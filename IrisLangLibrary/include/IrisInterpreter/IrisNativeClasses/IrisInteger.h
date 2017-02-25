@@ -33,37 +33,37 @@ private:
 		LessThanOrEqual,
 	};
 
-	static IrisValue CmpOperation(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue CastOperation(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Operate(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue CmpOperation(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue CastOperation(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Operate(Operation eOperationType, const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
 
 public:
 
-	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Add(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Sub(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Mul(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Div(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Power(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Mod(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Shl(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Shr(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Sar(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Sal(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BitXor(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BitAnd(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BitOr(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BitNot(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Equal(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue NotEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BigThan(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue BigThanOrEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue LessThan(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue LessThanOrEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Plus(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue Minus(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue ToString(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
-	static IrisValue ToFloat(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment);
+	static IrisValue InitializeFunction(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Add(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Sub(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Mul(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Div(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Power(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Mod(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Shl(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Shr(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Sar(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Sal(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BitXor(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BitAnd(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BitOr(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BitNot(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Equal(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue NotEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BigThan(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue BigThanOrEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue LessThan(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue LessThanOrEqual(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValuse, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Plus(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue Minus(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue ToString(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	static IrisValue ToFloat(const IrisValue& ivObj, IIrisValues* ivsValues, IIrisValues* ivsVariableValues, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
 
 public:
 	IrisInteger();

@@ -8,6 +8,7 @@
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 #include "IrisValidator/IrisStatementValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisModuleStatement::Generate()
 {
@@ -21,7 +22,7 @@ bool IrisModuleStatement::Generate()
 	pCompiler->IncreamDefineIndex();
 
 	if (m_pModuleName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
@@ -104,12 +105,12 @@ bool IrisModuleStatement::Validate()
 	IrisStatementValidateVisitor isvvStatementVisitor;
 
 	if (!pCompiler->UpperStackEmpty() && pCompiler->GetTopUpperType() != IrisCompiler::UpperType::ModuleBlock) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "module of " + m_pModuleName->GetIdentifierString() + " must be defined in Main environment or Module body.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "module of " + m_pModuleName->GetIdentifierString() + " must be defined in Main environment or Module body.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 
 	if (m_pModuleName->GetType() != IrisIdentifierType::Constance) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::IdenfierTypeIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "Identifier of " + m_pModuleName->GetIdentifierString() + " is not a CONSTANCE.", IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

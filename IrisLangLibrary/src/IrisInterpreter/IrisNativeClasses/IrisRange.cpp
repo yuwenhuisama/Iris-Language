@@ -2,18 +2,18 @@
 
 
 
-IrisValue IrisRange::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRange::InitializeFunction(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	auto* pRange = IrisDevUtil::GetNativePointer<IrisRangeTag*>(ivObj);
 	auto ivValue = static_cast<IrisValues*>(ivsValues)->GetValue(0);
 
 	if (!IrisDevUtil::CheckClassIsInteger(ivValue)) {
-		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.");
+		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
 	auto nType = IrisDevUtil::GetInt(ivValue);
 	if (nType < 0 || nType > 3) {
-		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.");
+		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
@@ -25,7 +25,7 @@ IrisValue IrisRange::InitializeFunction(const IrisValue & ivObj, IIrisValues * i
 		auto strFrom = IrisDevUtil::GetString(ivValue);
 		auto strTo = IrisDevUtil::GetString(ivValue2);
 		if (strnlen_s(strFrom, 0xFFFFFFFF) != 1 || strnlen_s(strTo, 0xFFFFFFFF) != 1) {
-			IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.");
+			IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.", pThreadInfo);
 			return IrisDevUtil::Nil();
 		}
 		else {
@@ -40,16 +40,16 @@ IrisValue IrisRange::InitializeFunction(const IrisValue & ivObj, IIrisValues * i
 		pRange->Initialize(eType, nFrom, nTo);
 	}
 	else {
-		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.");
+		IrisDevUtil::GroanIrregularWithString("Invaid parameter of method __format of class Range.", pThreadInfo);
 		return IrisDevUtil::Nil();
 	}
 
 	return ivObj;
 }
 
-IrisValue IrisRange::GetIterator(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment) {
+IrisValue IrisRange::GetIterator(const IrisValue & ivObj, IIrisValues * ivsValues, IIrisValues * ivsVariableValues, IIrisContextEnvironment * pContextEnvironment, IIrisThreadInfo* pThreadInfo) {
 	IrisValues ivsParameter = { ivObj };
-	return IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("RangeIterator"), &ivsParameter, pContextEnvironment);
+	return IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("RangeIterator"), &ivsParameter, pContextEnvironment, pThreadInfo);
 }
 
 IrisRange::IrisRange()

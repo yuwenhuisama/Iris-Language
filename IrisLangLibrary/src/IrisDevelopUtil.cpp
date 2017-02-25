@@ -37,10 +37,10 @@ namespace IrisDevUtil {
 		return CheckClassIsString(ivValue) || CheckClassIsUniqueString(ivValue);
 	}
 
-	IrisThreadUniqueInfo * GetCurrentThreadInfo()
-	{
-		return IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
-	}
+	//IrisThreadInfo * GetCurrentThreadInfo()
+	//{
+	//	return IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
+	//}
 
 	bool CurrentThreadIsMainThread()
 	{
@@ -54,11 +54,13 @@ namespace IrisDevUtil {
 		return pTargetClass == pClass->GetInternClass();
 	}
 
-	void GroanIrregularWithString(const char* strIrregularString)
+	void GroanIrregularWithString(const char* strIrregularString, IIrisThreadInfo* pThreadInfo)
 	{
+
+		auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
+
 		auto* pInterpreter = IrisInterpreter::CurrentInterpreter();
 		auto* pCompiler = IrisCompiler::CurrentCompiler();
-		auto* pInfo = IrisDevUtil::GetCurrentThreadInfo();
 		
 		auto nLineNumber = pInfo->m_nCurrentLineNumber;
 		auto strFileName = pCompiler->GetFileName(pInfo->m_nCurrentFileIndex);
@@ -74,7 +76,7 @@ namespace IrisDevUtil {
 
 		IrisValues ivValues = { ivLineNumber, ivFileName, ivMsg };
 
-		pInterpreter->RegistIrregular(IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Irregular"), &ivValues, nullptr));
+		pInterpreter->RegistIrregular(IrisDevUtil::CreateInstance(IrisDevUtil::GetClass("Irregular"), &ivValues, nullptr, pInfo) , pInfo);
 	}
 
 	int GetInt(const IrisValue & ivValue)
@@ -98,71 +100,71 @@ namespace IrisDevUtil {
 
 	}
 
-	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment)
+	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment, IIrisThreadInfo* pThreadInfo)
 	{
-		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(ivObj.GetIrisObject()));
+		auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
+		pInfo->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(ivObj.GetIrisObject()));
 
 		if (pParameters) {
 			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 			for (auto& value : vcVictor) {
 				pInfo->m_stStack.Push(value);
 			}
 		}
 
-		auto ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, pEnvironment, pParameters, CallerSide::Outside);
+		auto ivResult = static_cast<IrisObject*>(ivObj.GetIrisObject())->CallInstanceFunction(strMethodName, pParameters, pEnvironment, pThreadInfo, CallerSide::Outside);
 
-		if (pParameters && !IrregularHappened()) {
-			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		if (pParameters && !IrregularHappened(pInfo)) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize(), pInfo);
 		}
 		
-		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+		pInfo->m_skTempNewObjectStack.pop_back();
 
 		return ivResult;
 	}
 
-	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment)
+	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 	{
-		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pClass->GetInternClass()->GetClassObject()));
+		auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
+		pInfo->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pClass->GetInternClass()->GetClassObject()));
 
 		if (pParameters) {
 			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 			for (auto& value : vcVictor) {
 				pInfo->m_stStack.Push(value);
 			}
 		}
 
-		auto ivResult = pClass->GetInternClass()->CallClassMethod(szMethodName, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+		auto ivResult = pClass->GetInternClass()->CallClassMethod(szMethodName, static_cast<IrisValues*>(pParameters), static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisThreadInfo*>(pThreadInfo), CallerSide::Outside);
 
-		if (pParameters && !IrregularHappened()) {
-			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		if (pParameters && !IrregularHappened(pInfo)) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize(), pInfo);
 		}
 
-		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+		pInfo->m_skTempNewObjectStack.pop_back();
 
 		return ivResult;
 	}
 
-	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment)
+	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo)
 	{
-		GetCurrentThreadInfo()->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pModule->GetInternModule()->GetModuleObject()));
+		auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
+		pInfo->m_skTempNewObjectStack.push_back(static_cast<IrisObject*>(pModule->GetInternModule()->GetModuleObject()));
 
 		if (pParameters) {
 			auto& vcVictor = static_cast<IrisValues*>(pParameters)->GetVector();
-			auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 			for (auto& value : vcVictor) {
 				pInfo->m_stStack.Push(value);
 			}
 		}
 
-		auto ivResult = pModule->GetInternModule()->CallClassMethod(szMethodName, static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisValues*>(pParameters), CallerSide::Outside);
+		auto ivResult = pModule->GetInternModule()->CallClassMethod(szMethodName, static_cast<IrisValues*>(pParameters), static_cast<IrisContextEnvironment*>(pContextEnvironment), static_cast<IrisThreadInfo*>(pThreadInfo), CallerSide::Outside);
 
-		if (pParameters && !IrregularHappened()) {
-			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize());
+		if (pParameters && !IrregularHappened(pInfo)) {
+			IrisInterpreter::CurrentInterpreter()->PopStack(static_cast<IrisValues*>(pParameters)->GetSize(), pInfo);
 		}
 
-		IrisDevUtil::GetCurrentThreadInfo()->m_skTempNewObjectStack.pop_back();
+		pInfo->m_skTempNewObjectStack.pop_back();
 
 		return ivResult;
 	}
@@ -207,9 +209,9 @@ namespace IrisDevUtil {
 		return static_cast<IrisContextEnvironment*>(pContextEnvironment)->GetClosureBlock();
 	}
 
-	IrisValue ExcuteClosureBlock(IIrisClosureBlock * pClosureBlock, IIrisValues* pParameters)
+	IrisValue ExcuteClosureBlock(IIrisClosureBlock * pClosureBlock, IIrisValues* pParameters, IIrisThreadInfo* pThreadInfo)
 	{
-		return static_cast<IrisClosureBlock*>(pClosureBlock)->Excute(pParameters);
+		return static_cast<IrisClosureBlock*>(pClosureBlock)->Excute(pParameters, pThreadInfo);
 	}
 
 	void ContextEnvironmentSetClosureBlock(IIrisContextEnvironment* pContextEnvironment, IIrisClosureBlock* pBlock)
@@ -399,9 +401,9 @@ namespace IrisDevUtil {
 		return static_cast<IrisInterfaceBaseTag*>(static_cast<IrisObject*>(ivValue.GetIrisObject())->GetNativeObject())->GetInterface()->GetExternInterface();
 	}
 
-	IrisValue CreateInstance(IIrisClass * pClass, IIrisValues * ivsParams, IIrisContextEnvironment * pContexEnvironment)
+	IrisValue CreateInstance(IIrisClass * pClass, IIrisValues * ivsParams, IIrisContextEnvironment * pContexEnvironment, IIrisThreadInfo* pThreadInfo)
 	{
-		return pClass->GetInternClass()->CreateInstance(ivsParams, pContexEnvironment);
+		return pClass->GetInternClass()->CreateInstance(ivsParams, pContexEnvironment, pThreadInfo);
 	}
 
 	IrisValue CreateInstanceByInstantValue(const char * szString)
@@ -508,13 +510,13 @@ namespace IrisDevUtil {
 		return ivValue;
 	}
 
-	bool IrregularHappened()
+	bool IrregularHappened(IIrisThreadInfo* pThreadInfo)
 	{
-		return IrisInterpreter::CurrentInterpreter()->IrregularHappened();
+		return IrisInterpreter::CurrentInterpreter()->IrregularHappened(static_cast<IrisThreadInfo*>(pThreadInfo));
 	}
 
-	bool FatalErrorHappened()
+	bool FatalErrorHappened(IIrisThreadInfo* pThreadInfo)
 	{
-		return IrisInterpreter::CurrentInterpreter()->FatalErrorHappened();
+		return IrisInterpreter::CurrentInterpreter()->FatalErrorHappened(static_cast<IrisThreadInfo*>(pThreadInfo));
 	}
 }

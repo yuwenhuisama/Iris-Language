@@ -5,6 +5,7 @@
 #include "IrisFatalErrorHandler.h"
 #include "IrisValidator/IrisExpressionValidateVisitor.h"
 
+#include "IrisThread/IrisThreadManager.h"
 
 bool IrisSuperStatement::Generate()
 {
@@ -60,7 +61,7 @@ bool IrisSuperStatement::Validate()
 	IrisExpressionValidateVisitor ievvExpressionVisitor;
 
 	if (!pCompiler->UpperWithBlock()) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SuperStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "super Statement can only be used in Method Block or Closure Block.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SuperStatementIrregular, m_nLineNumber, pCompiler->GetCurrentFileIndex(), "super Statement can only be used in Method Block or Closure Block.",  IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo());
 		return false;
 	}
 

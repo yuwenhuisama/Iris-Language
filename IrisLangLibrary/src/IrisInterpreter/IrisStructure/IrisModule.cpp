@@ -136,11 +136,11 @@ void IrisModule::_SearchModuleMethod(const IrisInternString& strFunctionName, Ir
 }
 
 #if IR_USE_STL_STRING
-IrisValue IrisModule::CallClassMethod(const string& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
+IrisValue IrisModule::CallClassMethod(const string& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide) {
 #else
-IrisValue IrisModule::CallClassMethod(const IrisInternString& strMethodName, IrisContextEnvironment* pContextEnvironment, IrisValues* ivParameters, CallerSide eSide) {
+IrisValue IrisModule::CallClassMethod(const IrisInternString& strMethodName, IrisValues* ivParameters, IrisContextEnvironment* pContextEnvironment, IrisThreadInfo* pThreadInfo, CallerSide eSide) {
 #endif // IR_USE_STL_STRING
-	return static_cast<IrisObject*>(m_pModuleObject)->CallInstanceFunction(strMethodName, pContextEnvironment, ivParameters, eSide);
+	return static_cast<IrisObject*>(m_pModuleObject)->CallInstanceFunction(strMethodName, ivParameters, pContextEnvironment, pThreadInfo, eSide);
 }
 
 #if IR_USE_STL_STRING
@@ -148,7 +148,7 @@ IrisModule::IrisModule(const string& strModuleName, IrisModule* pUpperModule) : 
 #else
 IrisModule::IrisModule(const IrisInternString& strModuleName, IrisModule* pUpperModule) : m_strModuleName(strModuleName), m_pUpperModule(pUpperModule) {
 #endif // IR_USE_STL_STRING
-	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Module")->CreateInstance(nullptr, nullptr);
+	IrisValue ivValue = IrisInterpreter::CurrentInterpreter()->GetIrisClass("Module")->CreateInstance(nullptr, nullptr, IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id()));
 	IrisDevUtil::GetNativePointer<IrisModuleBaseTag*>(ivValue.GetIrisObject())->SetModule(this);
 	m_pModuleObject = ivValue.GetIrisObject();
 }

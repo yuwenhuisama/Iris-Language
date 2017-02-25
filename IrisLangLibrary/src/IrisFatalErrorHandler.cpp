@@ -1,5 +1,6 @@
 #include "IrisCompileConfigure.h"
 
+#include "IrisThread/IrisThreadInfo.h"
 #include "IrisFatalErrorHandler.h"
 #include "IrisCompiler.h"
 #include "IrisInterpreter.h"
@@ -25,10 +26,10 @@ void IrisFatalErrorHandler::SetFatalErrorMessageFuncton(FatalErrorMessageFunctio
 	s_pfMessageFunction = pfFunction;
 }
 
-void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage)
+void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t nLineNumber, size_t nBelongingFileIndex, const string & strFatalErrorMessage, IrisThreadInfo* pThreadInfo)
 {
 
-	IrisInterpreter::CurrentInterpreter()->HappenFatalError();
+	IrisInterpreter::CurrentInterpreter()->HappenFatalError(pThreadInfo);
 	
 	string strIrregularTitle = "<Irregular : ";
 	string strMessage = "\n  Irregular-happened Report : Oh! Master, a FATAL ERROR has happened and Iris is not clever and dosen't kown how to deal with it. Could you please cheak it yourself? \n";
@@ -65,8 +66,8 @@ void IrisFatalErrorHandler::ShowFatalErrorMessage(FatalErrorType eType, size_t n
 		strMessage += strIrregularMessage + "IrregularNotDealedIrregular," + "\n" + strLinenoMessage;
 		strMessage += ">Tip : " + strFatalErrorMessage + "\n";
 		{
-			auto& ivIrregularObj = IrisDevUtil::GetCurrentThreadInfo()->m_ivIrregularObjectRegister;
-			auto ivStringValue = IrisDevUtil::CallMethod(ivIrregularObj, "to_string", nullptr, IrisDevUtil::GetCurrentThreadInfo()->m_pEnvrionmentRegister);
+			auto& ivIrregularObj = pThreadInfo->m_ivIrregularObjectRegister;
+			auto ivStringValue = IrisDevUtil::CallMethod(ivIrregularObj, "to_string", nullptr, pThreadInfo->m_pEnvrionmentRegister, pThreadInfo);
 			auto strMsg = IrisDevUtil::GetString(ivStringValue);
 			strMessage += strMsg;
 		}

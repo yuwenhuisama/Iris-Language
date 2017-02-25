@@ -11,9 +11,10 @@ class IIrisModule;
 class IIrisInterface;
 class IIrisContextEnvironment;
 class IIrisClosureBlock;
-struct IrisThreadUniqueInfo;
+//struct IrisThreadInfo;
+class IIrisThreadInfo;
 
-typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*);
+typedef IrisValue(*IrisNativeFunction)(const IrisValue&, IIrisValues*, IIrisValues*, IIrisContextEnvironment*, IIrisThreadInfo*);
 
 #define DECLARE_CLASS_CHECK(klass) bool CheckClassIs##klass(const IrisValue& ivValue);
 #define IMPLEMENT_CLASS_CHECK(klass) bool CheckClassIs##klass(const IrisValue& ivValue) { return INNER_CLASS_GET_POINTER(klass) == static_cast<IrisObject*>(ivValue.GetIrisObject())->GetClass();  }
@@ -31,7 +32,7 @@ namespace IrisDevUtil {
 		return static_cast<T>(_InnerGetNativePointer(pObject));
 	}
 
-	IrisThreadUniqueInfo* GetCurrentThreadInfo();
+	//IrisThreadInfo* GetCurrentThreadInfo();
 	bool CurrentThreadIsMainThread();
 
 	bool CheckClass(const IrisValue& ivValue, const char* szClassName);
@@ -51,14 +52,14 @@ namespace IrisDevUtil {
 
 	bool CheckClassIsStringOrUniqueString(const IrisValue& ivValue);
 
-	void GroanIrregularWithString(const char* szIrregularString);
+	void GroanIrregularWithString(const char* szIrregularString, IIrisThreadInfo* pThreadInfo);
 
 	int GetInt(const IrisValue& ivValue);
 	double GetFloat(const IrisValue& ivValue);
 	const char* GetString(const IrisValue& ivValue);
-	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment = nullptr);
-	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment = nullptr);
-	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment = nullptr);
+	IrisValue CallMethod(const IrisValue & ivObj, const char* strMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pEnvironment, IIrisThreadInfo* pThreadInfo);
+	IrisValue CallClassMethod(IIrisClass * pClass, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironment, IIrisThreadInfo* pThreadInfo);
+	IrisValue CallClassMethod(IIrisModule * pModule, const char * szMethodName, IIrisValues * pParameters, IIrisContextEnvironment* pContextEnvironmen, IIrisThreadInfo* pThreadInfo);
 	IrisValue CreateInt(int nInteger);
 	IrisValue CreateFloat(double dDouble);
 	IrisValue CreateString(const char* nInteger);
@@ -68,7 +69,7 @@ namespace IrisDevUtil {
 
 	bool ObjectIsFixed(const IrisValue& ivObj);
 	IIrisClosureBlock* GetClosureBlock(IIrisContextEnvironment* pContextEnvironment);
-	IrisValue ExcuteClosureBlock(IIrisClosureBlock* pClosureBlock, IIrisValues* pParameters);
+	IrisValue ExcuteClosureBlock(IIrisClosureBlock* pClosureBlock, IIrisValues* pParameters, IIrisThreadInfo* pThreadInfo);
 	void ContextEnvironmentSetClosureBlock(IIrisContextEnvironment* pContextEnvironment, IIrisClosureBlock* pBlock);
 	IIrisObject* GetNativeObjectPointer(const IrisValue& ivObj);
 	int GetObjectID(const IrisValue& ivObj);
@@ -83,7 +84,7 @@ namespace IrisDevUtil {
 	void MarkObject(const IrisValue& ivObject);
 	void MarkClosureBlock(IIrisClosureBlock* pClosureBlock);
 
-	//IrisThreadUniqueInfo* GetCurrentThreadInfo();
+	//IrisThreadInfo* GetCurrentThreadInfo();
 	//
 	//bool CurrentThreadIsMainThread();
 
@@ -116,15 +117,15 @@ namespace IrisDevUtil {
 	IIrisModule* GetNativeModule(const IrisValue& ivValue);
 	IIrisInterface* GetNativeInterface(const IrisValue& ivValue);
 
-	IrisValue CreateInstance(IIrisClass* pClass, IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment);
+	IrisValue CreateInstance(IIrisClass* pClass, IIrisValues* ivsParams, IIrisContextEnvironment* pContexEnvironment, IIrisThreadInfo* pThreadInfo);
 	IrisValue CreateInstanceByInstantValue(const char* szString);
 	IrisValue CreateInstanceByInstantValue(double dFloat);
 	IrisValue CreateInstanceByInstantValue(int nInteger);
 	IrisValue CreateInstanceByInstantValue(IIrisClosureBlock* pBlock);
 	IrisValue CreateUniqueStringInstanceByUniqueIndex(size_t nIndex);
 
-	bool IrregularHappened();
-	bool FatalErrorHappened();
+	bool IrregularHappened(IIrisThreadInfo* pThreadInfo);
+	bool FatalErrorHappened(IIrisThreadInfo* pThreadInfo);
 }
 
 #endif

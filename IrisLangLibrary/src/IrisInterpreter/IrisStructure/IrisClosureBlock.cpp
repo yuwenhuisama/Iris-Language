@@ -9,7 +9,7 @@
 #include "IrisInterpreter/IrisNativeModules/IrisGC.h"
 #include "IrisFatalErrorHandler.h"
 
-IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment() {
+IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment(IIrisThreadInfo* pThreadInfo) {
 	IrisContextEnvironment* pNewEnvironment = new IrisContextEnvironment();
 	pNewEnvironment->m_eType = IrisContextEnvironment::EnvironmentType::Runtime;
 	pNewEnvironment->m_uType.m_pCurObject = m_pNativeObject;
@@ -27,7 +27,7 @@ IrisContextEnvironment* IrisClosureBlock::_CreateNewContextEnvironment() {
 		pTemp = pTemp->m_pUpperContextEnvironment;
 	}
 
-	IrisInterpreter::CurrentInterpreter()->AddNewEnvironmentToHeap(pNewEnvironment);
+	IrisInterpreter::CurrentInterpreter()->AddNewEnvironmentToHeap(pNewEnvironment, static_cast<IrisThreadInfo*>(pThreadInfo));
 	return pNewEnvironment;
 }
 
@@ -245,20 +245,19 @@ bool IrisClosureBlock::_ParameterCheck(IrisValues* pParameters)
 	}
 }
 
-IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
+IrisValue IrisClosureBlock::Excute(IIrisValues* pValues, IIrisThreadInfo* pThreadInfo) {
 
+	auto pInfo = static_cast<IrisThreadInfo*>(pThreadInfo);
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
 	auto& vcCodes = *m_icsCodes.m_pWholeCodes;
 	auto& nStartPointer = m_icsCodes.m_nStartPointer;
 	auto& nEndPointer = m_icsCodes.m_nEndPointer;
 	auto& nBelongingFileIndex = m_icsCodes.m_nBelongingFileIndex;
-		
-	auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
-
+	
 	// Parameter check
 	if (!_ParameterCheck(static_cast<IrisValues*>(pValues))) {
-		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.");
+		IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::ParameterNotFitIrregular, pInfo->m_nCurrentLineNumber, pInfo->m_nCurrentFileIndex, "Parameters of block assigned is not fit.", pInfo);
 		return pInterpreter->Nil();
 	}
 
@@ -283,7 +282,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 			IrisValues ivsValues;
 			ivsValues.GetVector().assign(it, static_cast<IrisValues*>(pValues)->GetVector().end());
 
-			auto ivArray = pClass->CreateInstance(&ivsValues, nullptr);
+			auto ivArray = pClass->CreateInstance(&ivsValues, nullptr, pThreadInfo);
 			bool bResult = false;
 			IrisValue& ivValue = const_cast<IrisValue&>(m_pCurContextEnvironment->GetVariableValue(m_strVariableParameter, bResult));
 			if (bResult) {
@@ -297,24 +296,23 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues) {
 	}
 
 	IrisValue ivValue;
-	IrisInterpreter::CurrentInterpreter()->PushEnvironment();
-	IrisInterpreter::CurrentInterpreter()->SetEnvironment(m_pCurContextEnvironment);
+	IrisInterpreter::CurrentInterpreter()->PushEnvironment(pInfo);
+	IrisInterpreter::CurrentInterpreter()->SetEnvironment(m_pCurContextEnvironment, pInfo);
 	if (!vcCodes.empty()) {
 		IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
 		//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
-		pInterpreter->PushMethodDeepIndex(m_nIndex);
+		pInterpreter->PushMethodDeepIndex(m_nIndex, pInfo);
 
-		auto pInfo = IrisDevUtil::GetCurrentThreadInfo();
 		auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
 		pInfo->m_nCurrentFileIndex = nBelongingFileIndex;
-		pInterpreter->RunCode(vcCodes, nStartPointer, nEndPointer);
+		pInterpreter->RunCode(vcCodes, nStartPointer, nEndPointer, pInfo);
 		pInfo->m_nCurrentFileIndex = nOldFileIndex;
 
-		ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister();
-		pInterpreter->PopMethodTopDeepIndex();
+		ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pInfo);
+		pInterpreter->PopMethodTopDeepIndex(pInfo);
 	}
-	IrisInterpreter::CurrentInterpreter()->PopEnvironment();
+	IrisInterpreter::CurrentInterpreter()->PopEnvironment(pInfo);
 
 	//m_pCurContextEnvironment->m_pExcuteBlock = nullptr;
 
@@ -333,9 +331,9 @@ IrisObject * IrisClosureBlock::GetNativeObject()
 }
 
 #if IR_USE_STL_STRING
-IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, const string& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_strVariableParameter(strVariableParamterName), m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<string>& lsParameters, const string& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex, IrisThreadInfo* pThreadInfo) : m_strVariableParameter(strVariableParamterName), m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
 #else
-IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, const IrisInternString& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex) : m_strVariableParameter(strVariableParamterName), m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
+IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironment, list<IrisInternString>& lsParameters, const IrisInternString& strVariableParamterName, unsigned int nStartPointer, unsigned int nEndPointer, vector<IR_WORD>& lsCodes, int nBelongingFileIndex, unsigned int nIndex, IrisThreadInfo* pThreadInfo) : m_strVariableParameter(strVariableParamterName), m_pUpperContextEnvironment(pUpperContexEnvironment), m_mpOtherVariables(), m_nIndex(nIndex)
 #endif // IR_USE_STL_STRING
 {
 	m_lsParameters.assign(lsParameters.begin(), lsParameters.end());
@@ -346,7 +344,7 @@ IrisClosureBlock::IrisClosureBlock(IrisContextEnvironment* pUpperContexEnvironme
 	m_icsCodes.m_nEndPointer = nEndPointer;
 	m_icsCodes.m_nBelongingFileIndex = nBelongingFileIndex;
 
-	m_pCurContextEnvironment = _CreateNewContextEnvironment();
+	m_pCurContextEnvironment = _CreateNewContextEnvironment(pThreadInfo);
 
 }
 
