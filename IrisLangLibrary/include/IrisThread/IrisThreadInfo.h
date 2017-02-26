@@ -24,8 +24,6 @@ private:
 	
 	typedef vector<IrisContextEnvironment*> _EnvironmentStack;
 	typedef vector<unsigned int> _LoopDeepStack;
-	typedef vector<IrisValue> _ValueStack;
-	typedef vector<bool> _BooleanStack;
 	typedef vector<IrisObject*> _ObjectStack;
 	typedef unordered_set<IrisContextEnvironment*> _EnvironmentHeap;
 	typedef unordered_set<IrisObject*> _ObjectHeap;
@@ -40,13 +38,9 @@ public:
 
 	_EnvironmentHeap m_ehEnvironmentHeap;
 	_EnvironmentStack m_skEnvironmentStack;				      // 线程上下文栈
-	_LoopDeepStack m_skDeepStack;							  // 线程深度栈
-	_LoopDeepStack m_skMethodDeepStack;					      // 线程方法深度栈
-	_ValueStack m_skCounterRegister;						  // 线程Counter栈
-	_ValueStack m_skTimerRegister;							  // 线程Timer栈
-	_BooleanStack m_skUnimitedLoopFlag;						  // 线程UnitedLoopFlag栈
-	_ValueStack m_skVessleRegister;							  // 线程容器栈
-	_ValueStack m_skIteratorRegister;						  // 线程Iterator栈
+	//_LoopDeepStack m_skDeepStack;								 // 线程深度栈
+	//_LoopDeepStack m_skMethodDeepStack;					      // 线程方法深度栈
+
 	_ObjectStack m_skTempNewObjectStack;  					  // 线程新生对象临时栈
 	_ObjectHeap m_hpObjectInNativeFunctionHeap;				  // 线程本地方法调用生成临时对象栈
 	size_t m_nNativeReference = 0;							  // 线程本地方法调用次数统计
@@ -69,6 +63,9 @@ public:
 	IrisValue m_ivIrregularObjectRegister;					  // 异常状态对象寄存器
 	bool m_bIrregularHappenedRegister = false;				  // 异常发生寄存器
 	bool m_bFatalErrorHappendRegister = false;			      // FatalError发生寄存器
+
+	int m_nStartDeepRegister = -1;							  // 循环开始深度寄存器
+	int m_nEndDeepRegister = -1;							  // 当前循环深度寄存器
 
 	size_t m_nCurrentLineNumber = 0;						  // 当前线程所在代码行号
 

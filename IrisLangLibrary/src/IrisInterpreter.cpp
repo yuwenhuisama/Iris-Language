@@ -600,6 +600,12 @@ bool IrisInterpreter::Run()
 	//auto pThreadInfo = IrisDevUtil::GetCurrentThreadInfo();
 	auto pThreadInfo = IrisThreadManager::CurrentThreadManager()->GetMainThreadInfo();
 	pThreadInfo->m_nCurrentFileIndex = m_pCurrentCompiler->GetCurrentFileIndex();
+	
+	auto pNewContextEnvironment = new IrisContextEnvironment();
+	pNewContextEnvironment->m_pUpperContextEnvironment = nullptr;
+	pNewContextEnvironment->m_eType = IrisContextEnvironment::EnvironmentType::Runtime;
+	pThreadInfo->m_pEnvrionmentRegister = pNewContextEnvironment;
+	AddNewEnvironmentToHeap(pNewContextEnvironment, pThreadInfo);
 
 	bool bResult = RunCode(m_pCurrentCompiler->GetCodes(), 0, m_pCurrentCompiler->GetCodes().size(), pThreadInfo);
 
@@ -1109,8 +1115,8 @@ bool IrisInterpreter::cre_env(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 	pNewContextEnvironment->m_pUpperContextEnvironment = pThreadInfo->m_pEnvrionmentRegister;
 	pNewContextEnvironment->m_eType = IrisContextEnvironment::EnvironmentType::Runtime;
 	pThreadInfo->m_pEnvrionmentRegister = pNewContextEnvironment;
-	//IrisGC::AddContextEnvironmentSize();
-	//IrisGC::ContextEnvironmentGC();
+	IrisGC::CurrentGC()->AddContextEnvironmentSize();
+	IrisGC::CurrentGC()->ContextEnvironmentGC();
 	AddNewEnvironmentToHeap(pNewContextEnvironment, pThreadInfo);
 	return true;
 }
@@ -1159,7 +1165,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		// Main
-		if (!pThreadInfo->m_pEnvrionmentRegister || pThreadInfo->m_pEnvrionmentRegister->m_bIsThreadMainContext || pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_bIsThreadMainContext || pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure) {
 			pThreadInfo->m_ivResultRegister = GetConstance(strIdentifier, bResult);
 			if (!bResult) {
 				AddConstance(strIdentifier, m_ivNil);
@@ -1183,7 +1189,12 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		}
 		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime) {
 			IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-			pThreadInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(strIdentifier, bResult);
+			if (pObject) {
+				pThreadInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(strIdentifier, bResult);
+			}
+			else {
+				pThreadInfo->m_ivResultRegister = GetConstance(strIdentifier, bResult);
+			}
 			if (!bResult) {
 				// ** Error **
 #if IR_USE_STL_STRING
@@ -1215,13 +1226,7 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			pThreadInfo->m_ivResultRegister = GetOtherValue(strIdentifier, bResult);
-			if (!bResult) {
-				AddOtherValue(strIdentifier, m_ivNil);
-			}
-		}
-		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
 			IrisClass* pClass = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
 			pThreadInfo->m_ivResultRegister = pClass->SearchClassVariable(strIdentifier, bResult);
 			if (!bResult) {
@@ -1267,11 +1272,11 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 			else {
 				pThreadInfo->m_ivResultRegister = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
 					? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetClassVariable(strIdentifier,bResult)
-					: GetOtherValue(strIdentifier, bResult);
+					: pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult);
 				if (!bResult) {
 					pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
 						? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, m_ivNil)
-						: AddOtherValue(strIdentifier, m_ivNil);
+						: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, m_ivNil);
 				}
 			}
 		}
@@ -1292,11 +1297,11 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		else {
 			pThreadInfo->m_ivResultRegister = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
 				? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetInstanceVariable(strIdentifier, bResult)
-				: GetOtherValue(strIdentifier, bResult);
+				: pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult);
 			if (!bResult) {
 				pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
 					? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, m_ivNil)
-					: AddOtherValue(strIdentifier, m_ivNil);
+					: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, m_ivNil);
 			}
 		}
 	}
@@ -1306,22 +1311,13 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			//|| pThreadInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
-			pThreadInfo->m_ivResultRegister = GetOtherValue(strIdentifier, bResult);
-			if (!bResult) {
-				AddOtherValue(strIdentifier, m_ivNil);
-			}
-		}
-		else if(pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime) {
-			pThreadInfo->m_ivResultRegister = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-				? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetLocalVariable(strIdentifier, bResult)
-				: pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult);
-			if (!bResult) {
-				pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-					? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddLocalVariable(strIdentifier, m_ivNil)
-					: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, m_ivNil);
-			}
+		pThreadInfo->m_ivResultRegister = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+			? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetLocalVariable(strIdentifier, bResult)
+			: pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult);
+		if (!bResult) {
+			pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+				? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddLocalVariable(strIdentifier, m_ivNil)
+				: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, m_ivNil);
 		}
 	}
 		break;
@@ -1337,21 +1333,6 @@ bool IrisInterpreter::load(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 		pThreadInfo->m_ivResultRegister = static_cast<IrisObject*>(pThreadInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strGetterMethod, nullptr, nullptr, pThreadInfo, CallerSide::Outside);
 	}
 		break;
-//	case IrisAMType::SelfMemberValue:
-//	{
-//		bool bResult = false;
-//		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-//#if IR_USE_STL_STRING
-//		string strInstanceVariableName = "@" + strIdentifier;
-//#else
-//		string strInstanceVariableName = "@" + strIdentifier.GetSTLString();
-//#endif // IR_USE_STL_STRING
-//		pThreadInfo->m_ivResultRegister = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->GetInstanceValue(strInstanceVariableName, bResult);
-//		if (!bResult) {
-//			pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject->AddInstanceValue(strInstanceVariableName, m_ivNil);
-//		}
-//	}
-//		break;
 	case IrisAMType::IndexValue:
 	{
 		bool bResult = false;
@@ -1437,7 +1418,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 		// if exist then error
 		// Main
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime && pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject == nullptr) {
 			GetConstance(strIdentifier, bResult);
 			if (!bResult) {
 				AddConstance(strIdentifier, pThreadInfo->m_ivResultRegister);
@@ -1451,7 +1432,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			}
 		}
 		// Class
-		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
 			IrisClass* pClass = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
 			pClass->SearchConstance(strIdentifier, bResult);
 			if (!bResult) {
@@ -1493,7 +1474,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		IrisValue& ivTmp = (IrisValue&)GetGlobalValue(strIdentifier, bResult);
+		IrisValue& ivTmp = const_cast<IrisValue&>(GetGlobalValue(strIdentifier, bResult));
 		if (!bResult) {
 			AddGlobalValue(strIdentifier, pThreadInfo->m_ivResultRegister);
 		}
@@ -1506,18 +1487,9 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
-			if (!bResult) {
-				AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
-			}
-			else {
-				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-			}
-		}
-		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
 			IrisClass* pClass = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
-			IrisValue& ivTmp = (IrisValue&)pClass->SearchClassVariable(strIdentifier, bResult);
+			IrisValue& ivTmp = (const_cast<IrisValue&>(pClass->SearchClassVariable(strIdentifier, bResult)));
 			if (!bResult) {
 				pClass->AddClassVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 			}
@@ -1527,7 +1499,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		}
 		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ModuleDefineTime) {
 			IrisModule* pModule = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
-			IrisValue& ivTmp = (IrisValue&)pModule->SearchClassVariable(strIdentifier, bResult);
+			IrisValue& ivTmp = const_cast<IrisValue&>(pModule->SearchClassVariable(strIdentifier, bResult));
 			if (!bResult) {
 				pModule->AddClassVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 			}
@@ -1547,7 +1519,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
 			if (pObject) {
 				if (pObject->GetClass()->GetInternClass()->IsClassClass()) {
-					IrisValue& ivTmp = (IrisValue&)((IrisClassBaseTag*)(pObject->GetNativeObject()))->GetClass()->SearchClassVariable(strIdentifier, bResult);
+					IrisValue& ivTmp = const_cast<IrisValue&>(((IrisClassBaseTag*)(pObject->GetNativeObject()))->GetClass()->SearchClassVariable(strIdentifier, bResult));
 					if (!bResult) {
 						((IrisClassBaseTag*)(pObject->GetNativeObject()))->GetClass()->AddClassVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 					}
@@ -1556,7 +1528,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 					}
 				}
 				else if (pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-					IrisValue& ivTmp = (IrisValue&)((IrisModuleBaseTag*)(pObject->GetNativeObject()))->GetModule()->SearchClassVariable(strIdentifier, bResult);
+					IrisValue& ivTmp = const_cast<IrisValue&>(((IrisModuleBaseTag*)(pObject->GetNativeObject()))->GetModule()->SearchClassVariable(strIdentifier, bResult));
 					if (!bResult) {
 						((IrisModuleBaseTag*)(pObject->GetNativeObject()))->GetModule()->AddClassVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 					}
@@ -1565,7 +1537,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 					}
 				}
 				else {
-					IrisValue& ivTmp = (IrisValue&)pObject->GetClass()->GetInternClass()->SearchClassVariable(strIdentifier, bResult);
+					IrisValue& ivTmp = const_cast<IrisValue&>(pObject->GetClass()->GetInternClass()->SearchClassVariable(strIdentifier, bResult));
 					if (!bResult) {
 						pObject->GetClass()->GetInternClass()->AddClassVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 					}
@@ -1577,12 +1549,12 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 			// Main
 			else {
 				IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-					? (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetClassVariable(strIdentifier,bResult)
-					: (IrisValue&)GetOtherValue(strIdentifier, bResult);
+					? const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetClassVariable(strIdentifier,bResult))
+					: const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult));
 				if (!bResult) {
 					pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure ?
 						pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
-						: AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
+						: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 				}
 				else {
 					ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
@@ -1595,51 +1567,43 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			//|| pThreadInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
-			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
-			if (!bResult) {
-				AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
-			}
-			else {
-				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-			}
-		}
-		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime) {
+		if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime) {
 			IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
 			if (pObject) {
-				//if (pObject->GetClass()->GetInternClass()->IsClassClass() || pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-				//	IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
-				//	if (!bResult) {
-				//		AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
-				//	}
-				//	else {
-				//		ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-				//	}
-				//}
-				//else {
-					IrisValue& ivTmp = (IrisValue&)pObject->GetInstanceValue(strIdentifier, bResult);
-					if (!bResult) {
-						pObject->AddInstanceValue(strIdentifier, pThreadInfo->m_ivResultRegister);
-					}
-					else {
-						ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-					}
-				//}
-			}
-			// Main
-			else {
-				IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-					? (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetInstanceVariable(strIdentifier, bResult)
-					: (IrisValue&)GetOtherValue(strIdentifier, bResult);
+				IrisValue& ivTmp = const_cast<IrisValue&>(pObject->GetInstanceValue(strIdentifier, bResult));
 				if (!bResult) {
-					pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure ?
-						pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
-						: AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
+					pObject->AddInstanceValue(strIdentifier, pThreadInfo->m_ivResultRegister);
 				}
 				else {
 					ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
 				}
+			}
+			// Main
+			else {
+				IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+					? const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetInstanceVariable(strIdentifier, bResult))
+					: const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult));
+				if (!bResult) {
+					pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure ?
+						pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
+						: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
+				}
+				else {
+					ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
+				}
+			}
+		}
+		else {
+			IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+				? const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetInstanceVariable(strIdentifier, bResult))
+				: const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult));
+			if (!bResult) {
+				pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure ?
+					pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddOtherVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
+					: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
+			}
+			else {
+				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
 			}
 		}
 	}
@@ -1648,28 +1612,16 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 	{
 		bool bResult = false;
 		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			//|| pThreadInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime) {
-			IrisValue& ivTmp = (IrisValue&)GetOtherValue(strIdentifier, bResult);
-			if (!bResult) {
-				AddOtherValue(strIdentifier, pThreadInfo->m_ivResultRegister);
-			}
-			else {
-				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-			}
+		IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+			? const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetLocalVariable(strIdentifier, bResult))
+			: const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult));
+		if (!bResult) {
+			pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
+				? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
+				: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
 		}
-		else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::Runtime) {
-			IrisValue& ivTmp = pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-				? (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->GetLocalVariable(strIdentifier, bResult)
-				: (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strIdentifier, bResult);
-			if (!bResult) {
-				pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure
-					? pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister)
-					: pThreadInfo->m_pEnvrionmentRegister->AddLocalVariable(strIdentifier, pThreadInfo->m_ivResultRegister);
-			}
-			else {
-				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-			}
+		else {
+			ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
 		}
 	}
 		break;
@@ -1686,35 +1638,6 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 		static_cast<IrisObject*>(pThreadInfo->m_ivResultRegister.GetIrisObject())->CallInstanceFunction(strSetterName, &ivsValues, nullptr, pThreadInfo, CallerSide::Outside);
 	}
 		break;
-//	case IrisAMType::SelfMemberValue:
-//	{
-//		bool bResult = false;
-//		auto& strIdentifier = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
-//		if (!pThreadInfo->m_pEnvrionmentRegister || !pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject) {
-//			// ** Error **
-//			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::SelfPointerIrregular,
-//				pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex,
-//				"Statement of self must be used in INSTANCE METHOD OF CLASS.");
-//			return false;
-//		}
-//		else {
-//			bool bResult = false;
-//			IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-//#if IR_USE_STL_STRING
-//			string strIntanceVaraible = "@" + strIdentifier;
-//#else
-//			string strIntanceVaraible = "@" + strIdentifier.GetSTLString();
-//#endif // IR_USE_STL_STRING
-//			IrisValue& ivTmp = (IrisValue&)pObject->GetInstanceValue(strIntanceVaraible, bResult);
-//			if (!bResult) {
-//				pObject->AddInstanceValue(strIntanceVaraible, pThreadInfo->m_ivResultRegister);
-//			}
-//			else {
-//				ivTmp.SetIrisObject(pThreadInfo->m_ivResultRegister.GetIrisObject());
-//			}
-//		}
-//	}
-//		break;
 	case IrisAMType::IndexValue:
 	{
 		bool bResult = false;
@@ -1740,6 +1663,7 @@ bool IrisInterpreter::assign(vector<IR_WORD>& vcVector, unsigned int& nCodePoint
 bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {
 	auto nCurrentFileIndex = pThreadInfo->m_nCurrentFileIndex;
+
 	if (pThreadInfo->m_pClosureBlockRegister) {
 		pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock = pThreadInfo->m_pClosureBlockRegister;
 		pThreadInfo->m_pClosureBlockRegister = nullptr;
@@ -1764,9 +1688,6 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 	IrisValues ivsValues(nParameters);
 	if (nParameters) {
 		int i = 0;
-		//for (auto it = m_stStack.m_lsStack.rbegin(); i < nParameters; ++i, ++it) {
-		//	ivsValues[nParameters - i - 1] = *it;
-		//}
 		ivsValues.GetVector().assign(pThreadInfo->m_stStack.m_lsStack.begin() + pThreadInfo->m_stStack.m_lsStack.size() - nParameters, pThreadInfo->m_stStack.m_lsStack.end());
 		pValues = &ivsValues;
 	}
@@ -1784,15 +1705,7 @@ bool IrisInterpreter::hid_call(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		IrisContextEnvironment* pUpperEnvironment = pThreadInfo->m_pEnvrionmentRegister->m_pUpperContextEnvironment;
 		if(pUpperEnvironment && pUpperEnvironment->m_uType.m_pCurObject) {
 			IrisObject* pObject = pUpperEnvironment->m_uType.m_pCurObject;
-			//if (pObject->GetClass()->GetInternClass()->IsClassClass()) {
-			//	pThreadInfo->m_ivResultRegister = ((IrisClassBaseTag*)pObject->GetNativeObject())->GetClass()->CallClassMethod(strMethodName, pThreadInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside);
-			//}
-			//else if (pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-			//	pThreadInfo->m_ivResultRegister = ((IrisModuleBaseTag*)pObject->GetNativeObject())->GetModule()->CallClassMethod(strMethodName, pThreadInfo->m_pEnvrionmentRegister, pValues, CallerSide::Inside);
-			//}
-			//else {
-				pThreadInfo->m_ivResultRegister = pObject->CallInstanceFunction(strMethodName, pValues, pThreadInfo->m_pEnvrionmentRegister, pThreadInfo, CallerSide::Inside);
-			//}
+			pThreadInfo->m_ivResultRegister = pObject->CallInstanceFunction(strMethodName, pValues, pThreadInfo->m_pEnvrionmentRegister, pThreadInfo, CallerSide::Inside);
 		}
 		else {
 			IrisMethod* pMethod = GetMainMethod(strMethodName);
@@ -1915,62 +1828,57 @@ bool IrisInterpreter::fld_load(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 		}
 	}
 	else {
-		if (!pThreadInfo->m_pEnvrionmentRegister) {
-			pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+		switch (pThreadInfo->m_pEnvrionmentRegister->m_eType)
+		{
+		case IrisContextEnvironment::EnvironmentType::ClassDefineTime: 
+		{
+			IrisClass* pClass = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
+			if (pClass->GetUpperModule()) {
+				pThreadInfo->m_ivResultRegister = pClass->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+			}
+			else {
+				pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+			}
 		}
-		else {
-			switch (pThreadInfo->m_pEnvrionmentRegister->m_eType)
-			{
-			case IrisContextEnvironment::EnvironmentType::ClassDefineTime: 
-			{
-				IrisClass* pClass = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pClass;
-				if (pClass->GetUpperModule()) {
-					pThreadInfo->m_ivResultRegister = pClass->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
-				else {
-					pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+			break;
+		case IrisContextEnvironment::EnvironmentType::ModuleDefineTime:
+		{
+			IrisModule* pModule = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
+			if (pModule->GetUpperModule()) {
+				pThreadInfo->m_ivResultRegister = pModule->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+			}
+			else {
+				pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+			}
+		}
+			break;
+		case IrisContextEnvironment::EnvironmentType::Runtime:
+		{
+			IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
+			if (pObject) {
+				pThreadInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
+				if (!bResult) {
+					IrisModule* pModule = pObject->GetClass()->GetInternClass()->GetUpperModule();
+					pThreadInfo->m_ivResultRegister = pModule->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
 				}
 			}
-				break;
-			case IrisContextEnvironment::EnvironmentType::ModuleDefineTime:
-			{
-				IrisModule* pModule = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pModule;
-				if (pModule->GetUpperModule()) {
-					pThreadInfo->m_ivResultRegister = pModule->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
-				else {
-					pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
+			else {
+				pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
 			}
-				break;
-			case IrisContextEnvironment::EnvironmentType::Runtime:
-			{
-				IrisObject* pObject = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject;
-				if (pObject) {
-					pThreadInfo->m_ivResultRegister = pObject->GetClass()->GetInternClass()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-					if (!bResult) {
-						IrisModule* pModule = pObject->GetClass()->GetInternClass()->GetUpperModule();
-						pThreadInfo->m_ivResultRegister = pModule->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-					}
-				}
-				else {
-					pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
+		}
+			break;
+		case IrisContextEnvironment::EnvironmentType::InterfaceDefineTime:
+		{
+			IrisInterface* pInterface = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
+			if (pInterface->GetUpperModule()) {
+				pThreadInfo->m_ivResultRegister = pInterface->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
 			}
-				break;
-			case IrisContextEnvironment::EnvironmentType::InterfaceDefineTime:
-			{
-				IrisInterface* pInterface = pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pInterface;
-				if (pInterface->GetUpperModule()) {
-					pThreadInfo->m_ivResultRegister = pInterface->GetUpperModule()->SearchConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
-				else {
-					pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
-				}
+			else {
+				pThreadInfo->m_ivResultRegister = GetConstance(m_pCurrentCompiler->GetIdentifier(nTargetIndex, nCurrentFileIndex), bResult);
 			}
-			default:
-				break;
-			}
+		}
+		default:
+			break;
 		}
 	}
 
@@ -2007,8 +1915,7 @@ bool IrisInterpreter::load_false(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 
 bool IrisInterpreter::load_self(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {
-	if (!pThreadInfo->m_pEnvrionmentRegister
-		|| pThreadInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime
+	if (pThreadInfo->m_pEnvrionmentRegister->m_eType != IrisContextEnvironment::EnvironmentType::Runtime
 		|| !pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject
 		|| pThreadInfo->m_pEnvrionmentRegister->m_bIsClosure) {
 		// ** Error **
@@ -2048,7 +1955,7 @@ bool IrisInterpreter::imth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 
   	IrisMethod* pMethod = new IrisMethod(strMethodName, pUserFunction);
 
-	if (!pThreadInfo->m_pEnvrionmentRegister) {
+	if (pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject == nullptr) {
 		AddMainMethod(strMethodName, pMethod);
 	}
 	else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
@@ -2084,7 +1991,7 @@ bool IrisInterpreter::cmth_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoi
 
 	IrisMethod* pMethod = new IrisMethod(strMethodName, pUserFunction);
 
-	if (!pThreadInfo->m_pEnvrionmentRegister) {
+	if (pThreadInfo->m_pEnvrionmentRegister->m_uType.m_pCurObject == nullptr) {
 		AddMainMethod(strMethodName, pMethod);
 	}
 	else if (pThreadInfo->m_pEnvrionmentRegister->m_eType == IrisContextEnvironment::EnvironmentType::ClassDefineTime) {
@@ -2184,14 +2091,8 @@ bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 	auto& strLog = pCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 
 	bool bResult = false;
-	if (pThreadInfo->m_pEnvrionmentRegister) {
-		IrisValue& ivResult = (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strLog, bResult);
-		ivResult.SetIrisObject(pThreadInfo->m_ivCounterRegister.GetIrisObject());
-	}
-	else {
-		IrisValue& ivResult = (IrisValue&)GetOtherValue(strLog, bResult);
-		ivResult.SetIrisObject(pThreadInfo->m_ivCounterRegister.GetIrisObject());
-	}
+	IrisValue& ivResult = const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strLog, bResult));
+	ivResult.SetIrisObject(pThreadInfo->m_ivCounterRegister.GetIrisObject());
 
 	return true;
 }
@@ -2199,7 +2100,7 @@ bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
  {
 	// Get Current Deep Index
-	unsigned int nDeepIndex = GetTopDeepIndex(pThreadInfo);
+	unsigned int nDeepIndex = pThreadInfo->m_nEndDeepRegister;
 	unsigned int nInstructor = 0;
 	unsigned int nOperators = 0;
 	//nCodePointer -= 2;
@@ -2226,13 +2127,14 @@ bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 bool IrisInterpreter::push_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	PushDeepIndex(iaAM.m_dwIndex, pThreadInfo);
+	//PushDeepIndex(iaAM.m_dwIndex, pThreadInfo);
+	//PushDepth(iaAM.m_dwIndex, pThreadInfo);
 	return true;
 }
 
 bool IrisInterpreter::pop_deep(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {
-	PopTopDeepIndex(pThreadInfo);
+	//PopDepth(pThreadInfo);
 	return true;
 }
 
@@ -2245,69 +2147,79 @@ bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 
 	const unsigned int& nCodeEnder = nEnder;
 
+	//size_t nDiffer = GetDepthDiff(pThreadInfo);
+
+	pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister.clear();
+	pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister.clear();
+	pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.clear();
+	pThreadInfo->m_pEnvrionmentRegister->m_skVessleRegister.clear();
+	pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister.clear();
+
+	nCodePointer = nCodeEnder;
+
 	//nCodePointer -= 2;
-	unsigned int nIndex = GetTopDeepIndex(pThreadInfo);
-	while (true) {
-		if (++nCodePointer == nCodeEnder) {
-			break;
-		}
-		++nCodePointer;
-		nInstructor = vcVector[nCodePointer] >> 8;
-		nOperators = vcVector[nCodePointer] & 0x00FF;
-		// end_blk
-		if (nInstructor == 19) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (nIndex == iaAM.m_dwIndex) {
-				PopTopDeepIndex(pThreadInfo);
-				nIndex = GetTopDeepIndex(pThreadInfo);
-			}
-		}
-		// pop_cnt
-		else if (nInstructor == 45) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (iaAM.m_dwIndex == nIndex) {
-				PopCounter(pThreadInfo);
-			}
-		}
-		// pop_tim
-		else if (nInstructor == 46) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (iaAM.m_dwIndex == nIndex) {
-				PopTimer(pThreadInfo);
-			}
-		}
-		// pop_unim
-		else if (nInstructor == 48) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (iaAM.m_dwIndex == nIndex) {
-				PopUnlimitedLoopFlag(pThreadInfo);
-			}
-		}
-		// pop_vsl
-		else if (nInstructor == 50) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (iaAM.m_dwIndex == nIndex) {
-				PopVessle(pThreadInfo);
-			}
-		}
-		// pop_iter
-		else if (nInstructor == 52) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (iaAM.m_dwIndex == nIndex) {
-				PopIterator(pThreadInfo);
-			}
-		}
-		else {
-			nCodePointer += nOperators * 3;
-		}
-	}
+	//unsigned int nIndex = GetTopDeepIndex(pThreadInfo);
+	//while (true) {
+	//	if (++nCodePointer == nCodeEnder) {
+	//		break;
+	//	}
+	//	++nCodePointer;
+	//	nInstructor = vcVector[nCodePointer] >> 8;
+	//	nOperators = vcVector[nCodePointer] & 0x00FF;
+	//	// end_blk
+	//	if (nInstructor == 19) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (nIndex == iaAM.m_dwIndex) {
+	//			PopTopDeepIndex(pThreadInfo);
+	//			nIndex = GetTopDeepIndex(pThreadInfo);
+	//		}
+	//	}
+	//	// pop_cnt
+	//	else if (nInstructor == 45) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (iaAM.m_dwIndex == nIndex) {
+	//			PopCounter(pThreadInfo);
+	//		}
+	//	}
+	//	// pop_tim
+	//	else if (nInstructor == 46) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (iaAM.m_dwIndex == nIndex) {
+	//			PopTimer(pThreadInfo);
+	//		}
+	//	}
+	//	// pop_unim
+	//	else if (nInstructor == 48) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (iaAM.m_dwIndex == nIndex) {
+	//			PopUnlimitedLoopFlag(pThreadInfo);
+	//		}
+	//	}
+	//	// pop_vsl
+	//	else if (nInstructor == 50) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (iaAM.m_dwIndex == nIndex) {
+	//			PopVessle(pThreadInfo);
+	//		}
+	//	}
+	//	// pop_iter
+	//	else if (nInstructor == 52) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (iaAM.m_dwIndex == nIndex) {
+	//			PopIterator(pThreadInfo);
+	//		}
+	//	}
+	//	else {
+	//		nCodePointer += nOperators * 3;
+	//	}
+	//}
 	--nCodePointer;
 	return true;
 }
 
 bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {	// Get Current Deep Index
-	unsigned int nDeepIndex = GetTopDeepIndex(pThreadInfo);
+	unsigned int nDeepIndex = pThreadInfo->m_nEndDeepRegister;
 	unsigned int nInstructor = 0;
 	unsigned int nOperators = 0;
 	IrisAM iaAM;
@@ -3068,14 +2980,8 @@ bool IrisInterpreter::assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePo
 
 	auto& strLocalValue = m_pCurrentCompiler->GetIdentifier(iaAM.m_dwIndex, nCurrentFileIndex);
 	bool bResult = false;
-	if (pThreadInfo->m_pEnvrionmentRegister) {
-		IrisValue& ivResult = (IrisValue&)pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strLocalValue, bResult);
-		ivResult.SetIrisObject(pThreadInfo->m_ivIrregularObjectRegister.GetIrisObject());
-	}
-	else {
-		IrisValue& ivResult = (IrisValue&)GetOtherValue(strLocalValue, bResult);
-		ivResult.SetIrisObject(pThreadInfo->m_ivIrregularObjectRegister.GetIrisObject());
-	}
+	IrisValue& ivResult = const_cast<IrisValue&>(pThreadInfo->m_pEnvrionmentRegister->GetVariableValue(strLocalValue, bResult));
+	ivResult.SetIrisObject(pThreadInfo->m_ivIrregularObjectRegister.GetIrisObject());
 
 	pThreadInfo->m_ivResultRegister = pThreadInfo->m_ivIrregularObjectRegister;
 
@@ -3213,24 +3119,3 @@ bool IrisInterpreter::load_cast(vector<IR_WORD>& vcVector, unsigned int & nCodeP
 
 	return true;
 }
-
-//bool IrisInterpreter::cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer) {
-//	auto pThreadInfo = IrisDevUtil::GetCurrentThreadInfo();
-//	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-//	const int nParameters = iaAM.m_dwIndex;
-//
-//	IrisValues* pValues = nullptr;
-//	IrisValues ivsValues(nParameters);
-//	if (nParameters) {
-//		int i = 0;
-//		//for (auto it = m_stStack.m_lsStack.rbegin(); i < nParameters; ++i, ++it) {
-//		//	ivsValues[nParameters - i - 1] = *it;
-//		//}
-//		ivsValues.GetVector().assign(pThreadInfo->m_stStack.m_lsStack.begin() + pThreadInfo->m_stStack.m_lsStack.size() - nParameters, pThreadInfo->m_stStack.m_lsStack.end());
-//		pValues = &ivsValues;
-//	}
-//
-//	pThreadInfo->m_pEnvrionmentRegister->m_pClosureBlock->Excute(pValues);
-//	
-//	return true;
-//}

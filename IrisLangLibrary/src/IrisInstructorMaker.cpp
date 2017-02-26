@@ -251,9 +251,10 @@ void IrisInstructorMaker::assign_log(IR_DWORD dwParameterCount)
 	AddAMCode(IrisAMType::LocalValue, dwParameterCount);
 }
 
-void IrisInstructorMaker::brk()
+void IrisInstructorMaker::brk(IR_DWORD dwOffset)
 {
-	AddInstructorCode(BRK, 0);
+	AddInstructorCode(BRK, 1);
+	AddAMCode(IrisAMType::Extends, dwOffset);
 }
 
 void IrisInstructorMaker::push_deep(IR_DWORD dwParameterCount)
@@ -272,9 +273,10 @@ void IrisInstructorMaker::rtn()
 	AddInstructorCode(RTN, 0);
 }
 
-void IrisInstructorMaker::ctn()
+void IrisInstructorMaker::ctn(IR_DWORD dwOffset)
 {
-	AddInstructorCode(CTN, 0);
+	AddInstructorCode(CTN, 1);
+	AddAMCode(IrisAMType::Extends, dwOffset);
 }
 
 void IrisInstructorMaker::assign_vsl()

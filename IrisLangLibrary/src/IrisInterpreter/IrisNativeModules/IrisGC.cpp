@@ -78,28 +78,28 @@ void IrisGC::_Mark() {
 		}
 
 		// Counter栈
-		for (auto& value : pThreadInfo->m_skCounterRegister) {
+		for (auto& value : pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister) {
 			if (value.GetIrisObject()) {
 				static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
 			}
 		}
 
 		// Timer栈
-		for (auto& value : pThreadInfo->m_skTimerRegister) {
+		for (auto& value : pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister) {
 			if (value.GetIrisObject()) {
 				static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
 			}
 		}
 
 		// Vessle栈
-		for (auto& value : pThreadInfo->m_skVessleRegister) {
+		for (auto& value : pThreadInfo->m_pEnvrionmentRegister->m_skVessleRegister) {
 			if (value.GetIrisObject()) {
 				static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
 			}
 		}
 
 		// Iterator栈
-		for (auto& value : pThreadInfo->m_skIteratorRegister) {
+		for (auto& value : pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister) {
 			if (value.GetIrisObject()) {
 				static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
 			}
@@ -144,10 +144,6 @@ void IrisGC::_Mark() {
 	for (auto& value : pInter->m_mpGlobalValues) {
 		static_cast<IrisObject*>((value.second.GetIrisObject()))->Mark();
 	}
-	// Main环境变量
-	for (auto& value : pInter->m_mpOtherValues) {
-			static_cast<IrisObject*>((value.second.GetIrisObject()))->Mark();
-	}
 	// Main环境常量
 	for (auto& value : pInter->m_mpConstances) {
 		if (IrisDevUtil::CheckClassIsModule(value.second)) {
@@ -181,6 +177,7 @@ void IrisGC::_Mark() {
 		for (auto& env : pThreadInfo->m_skEnvironmentStack) {
 			if (env) {
 				++env->m_nReferenced;
+
 				if (env->m_pClosureBlock) {
 					static_cast<IrisObject*>(env->m_pClosureBlock->GetNativeObject())->Mark();
 				}
@@ -210,6 +207,34 @@ void IrisGC::_Mark() {
 			for (auto value : env->m_mpVariables) {
 				static_cast<IrisObject*>((value.second.GetIrisObject()))->Mark();
 			}
+
+			// Counter栈
+			for (auto& value : env->m_skCounterRegister) {
+				if (value.GetIrisObject()) {
+					static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
+				}
+			}
+
+			// Timer栈
+			for (auto& value : env->m_skTimerRegister) {
+				if (value.GetIrisObject()) {
+					static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
+				}
+			}
+
+			// Vessle栈
+			for (auto& value : env->m_skVessleRegister) {
+				if (value.GetIrisObject()) {
+					static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
+				}
+			}
+
+			// Iterator栈
+			for (auto& value : env->m_skIteratorRegister) {
+				if (value.GetIrisObject()) {
+					static_cast<IrisObject*>((value.GetIrisObject()))->Mark();
+				}
+			}
 		}
 
 		for (auto& env : pThreadInfo->m_skEnvironmentStack) {
@@ -237,6 +262,7 @@ void IrisGC::_Sweep() {
 	IrisHeap& ihHeap = pInterpreter->m_hpHeap;
 	unordered_set<IrisObject*>& stObjects = ihHeap.GetHeapSet();
 	IrisValue ivValue;
+
 	for (unordered_set<IrisObject*>::iterator iter = stObjects.begin(); iter != stObjects.end(); )
 	{
 		if (!(*iter)->m_bIsMaked && !(*iter)->IsPermanent()) {
@@ -333,8 +359,17 @@ void IrisGC::AddContextEnvironmentSize() {
 void IrisGC::ContextEnvironmentGC() {
 	if (sm_bFlag) {
 		auto pData = GetCurrentThreadGCData();
-		auto pThreadInfo = IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
+
 		if (pData->m_nCurrentContextEnvironmentHeapSize > pData->m_nNextContextEnvironmentThresholdSize) {
+
+			auto pThreadInfo = IrisThreadManager::CurrentThreadManager()->GetThreadInfo(this_thread::get_id());
+
+			for (auto& env : pThreadInfo->m_skEnvironmentStack) {
+				++env->m_nReferenced;
+			}
+
+			++pThreadInfo->m_pEnvrionmentRegister->m_nReferenced;
+
 			// Environment
 			unordered_set<IrisContextEnvironment*>& stEnvironments = pThreadInfo->m_ehEnvironmentHeap;
 			for (unordered_set<IrisContextEnvironment*>::iterator iter = stEnvironments.begin(); iter != stEnvironments.end(); )
@@ -347,6 +382,12 @@ void IrisGC::ContextEnvironmentGC() {
 				else {
 					++iter;
 				}
+			}
+
+			--pThreadInfo->m_pEnvrionmentRegister->m_nReferenced;
+
+			for (auto& env : pThreadInfo->m_skEnvironmentStack) {
+				--env->m_nReferenced;
 			}
 
 			if (pData->m_nCurrentContextEnvironmentHeapSize > pData->m_nNextContextEnvironmentThresholdSize) {

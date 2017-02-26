@@ -68,7 +68,7 @@ const IrisValue& IrisModule::SearchConstance(const IrisInternString& strConstNam
 		return *pValue;
 	}
 	else{
-		pValue = const_cast<IrisValue*>(&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strConstName, bResult));
+		pValue = const_cast<IrisValue*>(&IrisInterpreter::CurrentInterpreter()->GetConstance(strConstName, bResult));
 		if (bResult) {
 			return *pValue;
 		}

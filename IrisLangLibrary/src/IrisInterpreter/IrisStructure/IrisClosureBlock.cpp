@@ -50,10 +50,6 @@ const IrisValue& IrisClosureBlock::GetLocalVariable(const IrisInternString& strV
 		return *pValue;
 	}
 	else {
-		pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strVariableName, bResult);
-		if (bResult) {
-			return *pValue;
-		}
 		return IrisInterpreter::CurrentInterpreter()->Nil();
 	}
 }
@@ -81,11 +77,11 @@ const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& s
 			IrisObject* pObject = pContextEnvrionment->m_uType.m_pCurObject;
 			if (pObject) {
 				if (pObject->GetClass()->GetInternClass()->IsNormalClass()) {
-					pValue = (IrisValue*)(&pObject->GetInstanceValue(strVariableName, bResult));
+					pValue = const_cast<IrisValue*>((&pObject->GetInstanceValue(strVariableName, bResult)));
 				}
 			}
 			else {
-				pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strVariableName, bResult);
+				pValue = const_cast<IrisValue*>(&pContextEnvrionment->GetVariableValue(strVariableName, bResult));
 			}
 			if (bResult) {
 				return *pValue;
@@ -97,10 +93,6 @@ const IrisValue& IrisClosureBlock::GetInstanceVariable(const IrisInternString& s
 			return *pValue;
 		}
 		else {
-			pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strVariableName, bResult);
-			if (bResult) {
-				return *pValue;
-			}
 			return IrisInterpreter::CurrentInterpreter()->Nil();
 		}
 	}
@@ -130,18 +122,18 @@ const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strV
 			IrisObject* pObject = pContextEnvrionment->m_uType.m_pCurObject;
 			if (pObject) {
 				if (pObject->GetClass()->GetInternClass()->IsClassClass()) {
-					pValue = (IrisValue*)&((IrisClassBaseTag*)pObject->GetNativeObject())->GetClass()->SearchClassVariable(strVariableName, bResult);
+					pValue = const_cast<IrisValue*>(&((IrisClassBaseTag*)pObject->GetNativeObject())->GetClass()->SearchClassVariable(strVariableName, bResult));
 				}
 				else if (pObject->GetClass()->GetInternClass()->IsModuleClass()) {
-					pValue = (IrisValue*)&((IrisModuleBaseTag*)pObject->GetNativeObject())->GetModule()->SearchClassVariable(strVariableName, bResult);
+					pValue = const_cast<IrisValue*>(&((IrisModuleBaseTag*)pObject->GetNativeObject())->GetModule()->SearchClassVariable(strVariableName, bResult));
 				}
 				else {
-					pValue = (IrisValue*)&pObject->GetClass()->GetInternClass()->SearchClassVariable(strVariableName, bResult);
+					pValue = const_cast<IrisValue*>(&pObject->GetClass()->GetInternClass()->SearchClassVariable(strVariableName, bResult));
 				}
 
 			}
 			else {
-				pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strVariableName, bResult);
+				pValue = const_cast<IrisValue*>(&pContextEnvrionment->GetVariableValue(strVariableName, bResult));
 			}
 			if (bResult) {
 				return *pValue;
@@ -154,10 +146,6 @@ const IrisValue& IrisClosureBlock::GetClassVariable(const IrisInternString& strV
 			return *pValue;
 		}
 		else {
-			pValue = (IrisValue*)&IrisInterpreter::CurrentInterpreter()->GetOtherValue(strVariableName, bResult);
-			if (bResult) {
-				return *pValue;
-			}
 			return IrisInterpreter::CurrentInterpreter()->Nil();
 		}
 	}
@@ -302,7 +290,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues, IIrisThreadInfo* pThrea
 		IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 
 		//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
-		pInterpreter->PushMethodDeepIndex(m_nIndex, pInfo);
+		//pInterpreter->PushMethodDeepIndex(m_nIndex, pInfo);
 
 		auto nOldFileIndex = pInfo->m_nCurrentFileIndex;
 		pInfo->m_nCurrentFileIndex = nBelongingFileIndex;
@@ -310,7 +298,7 @@ IrisValue IrisClosureBlock::Excute(IIrisValues* pValues, IIrisThreadInfo* pThrea
 		pInfo->m_nCurrentFileIndex = nOldFileIndex;
 
 		ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pInfo);
-		pInterpreter->PopMethodTopDeepIndex(pInfo);
+		//pInterpreter->PopMethodTopDeepIndex(pInfo);
 	}
 	IrisInterpreter::CurrentInterpreter()->PopEnvironment(pInfo);
 

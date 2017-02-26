@@ -39,11 +39,11 @@ public:
 	static void cmp_tac();
 	static void inc_cnt();
 	static void assign_log(IR_DWORD dwParameterCount);
-	static void brk();
+	static void brk(IR_DWORD dwOffset);
 	static void push_deep(IR_DWORD dwParameterCount);
 	static void pop_deep();
 	static void rtn();
-	static void ctn();
+	static void ctn(IR_DWORD dwOffset);
 	static void assign_vsl();
 	static void assign_iter();
 	static void load_iter();

@@ -10,6 +10,8 @@
 
 #include "IrisThread/IrisThreadManager.h"
 
+#include "IrisVirtualCodeNumber.h"
+
 #include <vector>
 using namespace std;
 
@@ -79,15 +81,37 @@ bool IrisForStatement::Generate()
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter2->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	}
 	// block
+
+	pCompiler->PushLoopIndex(pCompiler->GetDefineIndex() + 1);
+
 	if (!m_pBlock->Generate()) {
 		return false;
 	}
+
+	pCompiler->PopLoopIndex();
 
 	for (int i = 0; i < 4 + 1; ++i) {
 		//vcEndBlk.push_front(vcAfter.back());
 		vcEndBlk.insert(vcEndBlk.begin(), vcAfter.back());
 		vcAfter.pop_back();
 	}
+
+	//// Ñ°ÕÒbrk
+	//while (true) {
+	//	// end_def
+	//	nInstructor = vcVector[++nCodePointer] >> 8;
+	//	nOperators = vcVector[nCodePointer] & 0x00FF;
+	//	if (nInstructor == BRK) {
+	//		iaAM = GetOneAM(vcVector, nCodePointer);
+	//		if (nDeepIndex == iaAM.m_dwIndex) {
+	//			break;
+	//		}
+	//	}
+	//	else {
+	//		nCodePointer += (nOperators * 3);
+	//	}
+	//}
+
 
 	// ¼ÆËãjtºÍjmpµÄoffset
 	unsigned int nJtOffset = vcAfter.size() + 4 + 1; // after vector code size + jmp

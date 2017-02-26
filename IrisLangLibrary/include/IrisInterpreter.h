@@ -96,7 +96,7 @@ private:
 	_MethodMap m_mpMethods;
 
 	_ValueMap m_mpGlobalValues;
-	_ValueMap m_mpOtherValues;
+	//_ValueMap m_mpOtherValues;
 	_ValueMap m_mpConstances;
 
 	IrisValue m_ivNil;
@@ -219,53 +219,77 @@ public:
 	}
 
 	inline void PushVessle(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_skVessleRegister.push_back(pThreadInfo->m_ivVessleRegister);
+		pThreadInfo->m_pEnvrionmentRegister->m_skVessleRegister.push_back(pThreadInfo->m_ivVessleRegister);
 	}
 	inline void PopVessle(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_ivVessleRegister = pThreadInfo->m_skVessleRegister.back();
-		pThreadInfo->m_skVessleRegister.pop_back();
+		pThreadInfo->m_ivVessleRegister = pThreadInfo->m_pEnvrionmentRegister->m_skVessleRegister.back();
+		pThreadInfo->m_pEnvrionmentRegister->m_skVessleRegister.pop_back();
 	}
 
 	inline void PushIterator(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_skIteratorRegister.push_back(pThreadInfo->m_ivIteratorRegister); }
+		pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister.push_back(pThreadInfo->m_ivIteratorRegister); }
 	inline void PopIterator(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_ivIteratorRegister = pThreadInfo->m_skIteratorRegister.back();
-		pThreadInfo->m_skIteratorRegister.pop_back();
+		pThreadInfo->m_ivIteratorRegister = pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister.back();
+		pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister.pop_back();
 	}
 
 	inline void PushCounter(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_skCounterRegister.push_back(pThreadInfo->m_ivCounterRegister);
+		pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister.push_back(pThreadInfo->m_ivCounterRegister);
 	}
 	inline void PopCounter(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_ivCounterRegister = pThreadInfo->m_skCounterRegister.back(); 
-		pThreadInfo->m_skCounterRegister.pop_back(); 
+		pThreadInfo->m_ivCounterRegister = pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister.back();
+		pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister.pop_back();
 	}
 
 	inline void PushTimer(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_skTimerRegister.push_back(pThreadInfo->m_ivTimerRegister); }
+		pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister.push_back(pThreadInfo->m_ivTimerRegister); }
 	inline void PopTimer(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_ivTimerRegister = pThreadInfo->m_skTimerRegister.back();
-		pThreadInfo->m_skTimerRegister.pop_back();
+		pThreadInfo->m_ivTimerRegister = pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister.back();
+		pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister.pop_back();
 	}
 
 	inline void PushUnlimitedLoopFlag(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_skUnimitedLoopFlag.push_back(pThreadInfo->m_bUnimitedLoopFlagRegister); }
+		pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.push_back(pThreadInfo->m_bUnimitedLoopFlagRegister); }
 	inline void PopUnlimitedLoopFlag(IrisThreadInfo* pThreadInfo) {
-		pThreadInfo->m_bUnimitedLoopFlagRegister = pThreadInfo->m_skUnimitedLoopFlag.back();
-		pThreadInfo->m_skUnimitedLoopFlag.pop_back(); 
+		pThreadInfo->m_bUnimitedLoopFlagRegister = pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.back();
+		pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.pop_back();
 	}
 
-	inline unsigned int GetTopDeepIndex(IrisThreadInfo* pThreadInfo) {
-		return pThreadInfo->m_skDeepStack.empty() ? -1 : pThreadInfo->m_skDeepStack.back(); 
-	}
-	inline void PushDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.push_back(nIndex); }
-	inline void PopTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.pop_back(); }
-	inline void ClearDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.clear(); }
 
-	inline unsigned int GetTopMethodDeepIndex(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_skMethodDeepStack.back(); }
-	inline void PushMethodDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.push_back(nIndex); }
-	inline void PopMethodTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.pop_back(); }
-	inline void ClearMethodDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.clear(); }
+	//inline int GetCurrentDepth(IrisThreadInfo* pThreadInfo) {
+	//	return pThreadInfo->m_nEndDeepRegister;
+	//}
+
+	//inline int GetDepthDiff(IrisThreadInfo* pThreadInfo) {
+	//	return pThreadInfo->m_nEndDeepRegister - pThreadInfo->m_nStartDeepRegister + 1;
+	//}
+
+	//inline void PushDepth(int nDeep, IrisThreadInfo* pThreadInfo) {
+	//	pThreadInfo->m_nEndDeepRegister = nDeep;
+
+	//	if (pThreadInfo->m_nStartDeepRegister == -1) {
+	//		pThreadInfo->m_nStartDeepRegister = nDeep;
+	//	}
+	//}
+
+	//inline void PopDepth(IrisThreadInfo* pThreadInfo) {
+	//	--pThreadInfo->m_nEndDeepRegister;
+	//	if (pThreadInfo->m_nEndDeepRegister < pThreadInfo->m_nStartDeepRegister) {
+	//		pThreadInfo->m_nEndDeepRegister = pThreadInfo->m_nStartDeepRegister = -1;
+	//	}
+	//}
+
+	//inline unsigned int GetTopDeepIndex(IrisThreadInfo* pThreadInfo) {
+	//	return pThreadInfo->m_skDeepStack.empty() ? -1 : pThreadInfo->m_skDeepStack.back(); 
+	//}
+	//inline void PushDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.push_back(nIndex); }
+	//inline void PopTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.pop_back(); }
+	//inline void ClearDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.clear(); }
+
+	//inline unsigned int GetTopMethodDeepIndex(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_skMethodDeepStack.back(); }
+	//inline void PushMethodDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.push_back(nIndex); }
+	//inline void PopMethodTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.pop_back(); }
+	//inline void ClearMethodDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.clear(); }
 
 	inline const IrisValue& GetCurrentResultRegister(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_ivResultRegister; }
 
@@ -297,6 +321,7 @@ public:
 		m_iwlGlobalVariableLock.WriteUnlock();
 	}
 
+/*
 #if IR_USE_STL_STRING
 	inline void AddOtherValue(const string& strValueName, const IrisValue& ivValue) {
 #else
@@ -306,6 +331,7 @@ public:
 		m_mpOtherValues.insert(_ValuePair(strValueName, ivValue));
 		m_iwlOtherVariableLock.WriteUnlock();
 	}
+*/
 
 #if IR_USE_STL_STRING
 	inline const IrisValue& GetConstance(const string& strValueName, bool& bResult) {
@@ -346,7 +372,7 @@ public:
 			return ivResult;
 		}
 	}
-
+/*
 #if IR_USE_STL_STRING
 	inline const IrisValue& GetOtherValue(const string& strValueName, bool& bResult) {
 #else
@@ -366,7 +392,7 @@ public:
 			return ivResult;
 		}
 	}
-
+*/
 #if IR_USE_STL_STRING
 	inline IrisMethod* GetMainMethod(const string& strMethodName);
 #else

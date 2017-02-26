@@ -42,6 +42,9 @@ private:
 	typedef pair<IrisInternString, IrisValue> _VariablePair;
 #endif // IR_USE_STL_STRING
 
+	typedef vector<IrisValue> _ValueStack;
+	typedef vector<bool> _BooleanStack;
+
 public:
 	enum class EnvironmentType {
 		ClassDefineTime = 0,
@@ -82,6 +85,12 @@ public:
 	int m_nThreadReferenced = 0;
 
 	IrisWLLock m_iwlVariableLock;
+
+	_ValueStack m_skCounterRegister;						  // 上下文Counter栈
+	_ValueStack m_skTimerRegister;							  // 上下文Timer栈
+	_BooleanStack m_skUnimitedLoopFlag;						  // 上下文UnitedLoopFlag栈
+	_ValueStack m_skVessleRegister;							  // 上下文容器栈
+	_ValueStack m_skIteratorRegister;						  // 上下文Iterator栈
 
 public:
 

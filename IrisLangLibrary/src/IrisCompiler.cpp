@@ -459,7 +459,8 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << std::left << setw(15) << "assign_log" << pMaker->GetAMString(IrisAMType::LocalValue) << "[" << iaAM.m_dwIndex << "]" << endl;
 			break;
 		case BRK: // brk
-			cout << std::left << setw(15) << "brk" << endl;
+			iaAM = GetOneAM(vcVector, nCodePointer);
+			cout << std::left << setw(15) << "brk" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl << endl;
 			break;
 		case PUSH_DEEP: // push_deep
 			iaAM = GetOneAM(vcVector, nCodePointer);
@@ -472,7 +473,8 @@ void IrisCompiler::OutputCode(vector<IR_WORD>& vcVector)
 			cout << std::left << setw(15) << "rtn" << endl;
 			break;
 		case CTN: // ctn
-			cout << std::left << setw(15) << "ctn" << endl;
+			iaAM = GetOneAM(vcVector, nCodePointer);
+			cout << std::left << setw(15) << "ctn" << pMaker->GetAMString(IrisAMType::Extends) << "[" << iaAM.m_dwIndex << "]" << endl << endl;
 			break;
 		case ASSIGN_VSL: // assign_vsl
 			cout << std::left << setw(15) << "assign_vsl" << endl;
@@ -824,4 +826,19 @@ void IrisCompiler::PushUpperType(UpperType eType)
 void IrisCompiler::PopUpperType()
 {
 	m_stUpperType.pop_back();
+}
+
+size_t IrisCompiler::GetTopLoopIndex()
+{
+	return m_stLoopIndex.back();;
+}
+
+void IrisCompiler::PushLoopIndex(size_t nIndex)
+{
+	m_stLoopIndex.push_back(nIndex);
+}
+
+void IrisCompiler::PopLoopIndex()
+{
+	m_stLoopIndex.pop_back();
 }

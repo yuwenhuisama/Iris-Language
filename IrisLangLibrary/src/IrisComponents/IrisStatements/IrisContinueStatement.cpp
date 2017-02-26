@@ -11,7 +11,8 @@ bool IrisContinueStatement::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-	pMaker->ctn();
+	// fake offset
+	pMaker->ctn(0);
 
 	return true;
 }

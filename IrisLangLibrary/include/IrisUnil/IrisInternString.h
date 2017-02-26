@@ -18,8 +18,8 @@ public:
 				for (size_t i = 0;i < str.length();++i) {
 					h = (h << 5) - h + str[i];
 				}
-				((IrisInternString&)isString).SetHashed(true);
-				((IrisInternString&)isString).SetHashValue(h);
+				const_cast<IrisInternString&>(isString).SetHashed(true);
+				const_cast<IrisInternString&>(isString).SetHashValue(h);
 				nHash = h;
 			}
 			else {

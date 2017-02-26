@@ -224,7 +224,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisValues* pParameters, IrisCon
 			//ivValue = m_uFunction.m_pUserFunction->m_pBlock->Execute(pNewEnvironment).m_ivValue;
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			//IrisAM iaAM = pInterpreter->GetOneAM(iCoderPointer);
-			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
+			//pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
 			auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
 			pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
@@ -232,7 +232,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisValues* pParameters, IrisCon
 			pThreadInfo->m_nCurrentFileIndex = nOldFileIndex;
 
 			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pThreadInfo);
-			pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
+			//pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 		}
 	}
 	else {
@@ -275,7 +275,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisValues* pParameters, IrisCon
 			// 将参数加入环境中
 			IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 			
-			pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
+			//pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
 			auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
 			pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
@@ -283,7 +283,7 @@ IrisValue IrisMethod::Call(IrisValue& ivObject, IrisValues* pParameters, IrisCon
 			pThreadInfo->m_nCurrentFileIndex = nOldFileIndex;
 
 			ivValue = IrisInterpreter::CurrentInterpreter()->GetCurrentResultRegister(pThreadInfo);
-			pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
+			//pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 		}
 	}
 	if (bIsGetNew) {
@@ -340,7 +340,7 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, IrisThreadInfo* pT
 	// 将参数加入环境中
 	IrisInterpreter* pInterpreter = IrisInterpreter::CurrentInterpreter();
 	
-	pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
+	//pInterpreter->PushMethodDeepIndex(m_uFunction.m_pUserFunction->m_dwIndex, pThreadInfo);
 
 	auto nOldFileIndex = pThreadInfo->m_nCurrentFileIndex;
 	pThreadInfo->m_nCurrentFileIndex = m_uFunction.m_pUserFunction->m_icsBlockCodes.m_nBelongingFileIndex;
@@ -350,7 +350,7 @@ IrisValue IrisMethod::CallMainMethod(IrisValues* pParameters, IrisThreadInfo* pT
 	if (bIsGetNew) {
 		IrisInterpreter::CurrentInterpreter()->PopEnvironment(pThreadInfo);
 	}
-	pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
+	//pInterpreter->PopMethodTopDeepIndex(pThreadInfo);
 
 	if (pInterpreter->IrregularHappened(pThreadInfo)) {
 		if (pParameters) {

@@ -16,7 +16,8 @@ bool IrisBreakStatement::Generate()
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
 
-	pMaker->brk();
+	// fake offset
+	pMaker->brk(0);
 
 	return true;
 }

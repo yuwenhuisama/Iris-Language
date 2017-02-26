@@ -312,6 +312,9 @@ public:
 private:
 	typedef vector<UpperType> _UpperTypeStack;
 	_UpperTypeStack m_stUpperType;
+
+	typedef vector<size_t> _LoopIndexStack;
+	_LoopIndexStack m_stLoopIndex;
 	
 public:
 	bool UpperWithBlock();
@@ -326,6 +329,10 @@ public:
 
 	void PushUpperType(UpperType eType);
 	void PopUpperType(); 
+
+	size_t GetTopLoopIndex();
+	void PushLoopIndex(size_t nIndex);
+	void PopLoopIndex();
 
 	friend class IrisInterpreter;
 	friend class IrisVirtualCodeFile;
