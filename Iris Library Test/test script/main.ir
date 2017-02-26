@@ -1,12 +1,41 @@
-fun test() {
-	for(i in [0 => 10]) {
-		for(j in [0 => 20]) {
-			;print('i = ', i, ', j = ', j, '\n')
-			if(i == 5 && j == 5) {
-				;break
-			}
-		}
-	}
+;a = 1
+
+if(a == 1) {
+	;print("a = 1\n")
 }
 
-;test()
+if(a != 1) {
+	;print("a != 1\n")
+} else {
+	;print("a = 1\n")
+}
+
+;a = 3
+
+if(a == 1) {
+	;print("a = 1\n")
+}
+elseif (a == 2) {
+	;print("a = 2\n")
+}
+elseif (a == 3) {
+	;print("a = 3\n")
+}
+else {
+	;print("a = ", a ,"\n")
+}
+
+;a = 4
+
+if(a == 1) {
+	;print("a = 1\n")
+}
+elseif (a == 2) {
+	;print("a = 2\n")
+}
+elseif (a == 3) {
+	;print("a = 3\n")
+}
+else {
+	;print("a = ", a ,"\n")
+}

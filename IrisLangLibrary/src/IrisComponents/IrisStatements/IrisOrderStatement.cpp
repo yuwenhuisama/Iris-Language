@@ -12,7 +12,6 @@ IrisOrderStatement::IrisOrderStatement(IrisBlock* pOrderBlock, IrisIdentifier* p
 {
 }
 
-
 bool IrisOrderStatement::Generate()
 {
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
@@ -28,28 +27,27 @@ bool IrisOrderStatement::Generate()
 		return false;
 	}
 
-	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
-	vector<IR_WORD> vcNewVector;
-	pCompiler->SetCurrentCodeList(&vcNewVector);
-	if (!m_pServeBlock->Generate()) {
-		return false;
-	}
-
-	vector<IR_WORD> lsAssignIrregular;
-
-	pCompiler->SetCurrentCodeList(&lsAssignIrregular);
+	//***
+	pCompiler->IncreamDefineIndex();
+	pMaker->blk_def(pCompiler->GetDefineIndex());
 
 	pMaker->assign_ir(pCompiler->GetIdentifierIndex(m_pIrregularObject->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 
-	pCompiler->SetCurrentCodeList(pOldVector);
-
-	vector<IR_WORD>::iterator iCode = vcNewVector.begin();
-	for (int i = 0; i < 4 + 1; ++i) {
-		++iCode;
+	if (m_pServeBlock->m_pStatements) {
+		if (!m_pServeBlock->m_pStatements->Ergodic(
+			[&](IrisStatement* pStatement) -> bool {
+			if (!pStatement->Generate()) {
+				return false;
+			}
+			return true;
+		}
+		))
+			return false;
 	}
 
-	vcNewVector.insert(iCode, lsAssignIrregular.begin(), lsAssignIrregular.end());
-	pCompiler->LinkCodesToRealCodes(vcNewVector);
+	pMaker->end_def(pCompiler->GetDefineIndex());
+	pCompiler->DecreamDefineIndex();
+	//***
 
 	if (m_pIgnoreBlock) {
 		if (!m_pIgnoreBlock->Generate()) {
@@ -62,6 +60,56 @@ bool IrisOrderStatement::Generate()
 
 	return true;
 }
+
+//bool IrisOrderStatement::Generate()
+//{
+//	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
+//	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+//	pCompiler->SetLineNumber(m_nLineNumber);
+//
+//	unsigned int nWithIgnoreBlock = m_pIgnoreBlock ? 1 : 0;
+//
+//	pCompiler->IncreamDefineIndex();
+//	pMaker->reg_irp(nWithIgnoreBlock, pCompiler->GetDefineIndex());
+//
+//	if (!m_pOrderBlock->Generate()) {
+//		return false;
+//	}
+//
+//	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
+//	vector<IR_WORD> vcNewVector;
+//	pCompiler->SetCurrentCodeList(&vcNewVector);
+//	if (!m_pServeBlock->Generate()) {
+//		return false;
+//	}
+//
+//	vector<IR_WORD> lsAssignIrregular;
+//
+//	pCompiler->SetCurrentCodeList(&lsAssignIrregular);
+//
+//	pMaker->assign_ir(pCompiler->GetIdentifierIndex(m_pIrregularObject->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+//
+//	pCompiler->SetCurrentCodeList(pOldVector);
+//
+//	vector<IR_WORD>::iterator iCode = vcNewVector.begin();
+//	for (int i = 0; i < 4 + 1; ++i) {
+//		++iCode;
+//	}
+//
+//	vcNewVector.insert(iCode, lsAssignIrregular.begin(), lsAssignIrregular.end());
+//	pCompiler->LinkCodesToRealCodes(vcNewVector);
+//
+//	if (m_pIgnoreBlock) {
+//		if (!m_pIgnoreBlock->Generate()) {
+//			return false;
+//		}
+//	}
+//
+//	pMaker->ureg_irp(pCompiler->GetDefineIndex());
+//	pCompiler->DecreamDefineIndex();
+//
+//	return true;
+//}
 
 IrisOrderStatement::~IrisOrderStatement()
 {

@@ -122,7 +122,7 @@ private:
 	string m_strCurFileName = "";
 	unsigned int m_nCurFileIndex = 0;
 
-	_CodeVector* m_pCurrentCodeVector = nullptr;
+	//_CodeVector* m_pCurrentCodeVector = nullptr;
 
 	_StringField m_mpFiles;
 	_StringSpace m_vcFiles;
@@ -158,8 +158,8 @@ public:
 	inline _CodeVector& GetEvalCodes() { return m_vcEvalCodes; }
 	inline _CodeVector& GetCodes() { return *m_pCurrentStatementInfo->m_pCodes; };
 
-	inline void SetCurrentCodeList(_CodeVector* pCodeList) { m_pCurrentCodeVector = pCodeList; }
-	inline _CodeVector* GetCurrentCodeVector() { return m_pCurrentCodeVector; }
+	//inline void SetCurrentCodeList(_CodeVector* pCodeList) { m_pCurrentCodeVector = pCodeList; }
+	//inline _CodeVector* GetCurrentCodeVector() { return m_pCurrentCodeVector; }
 
 	inline void IncreamDefineIndex() { ++m_nCurrentDefineIndex; }
 	inline void DecreamDefineIndex() { --m_nCurrentDefineIndex; }
@@ -189,42 +189,56 @@ public:
 	bool HaveFileRequired(const string& strFile);
 
 	bool Generate();
+
+	size_t m_nCurrentCodePosition = 0;
+	inline size_t GetCurrentCodePosition() {
+		return m_nCurrentCodePosition - 1;
+	}
+
+	inline void IncreamCurrentCodePoisition(size_t nSize) {
+		m_nCurrentCodePosition += nSize;
+	}
+
+	inline size_t GetCurrentCodeLastIndex() {
+		return m_bEvalFlag ? m_vcEvalCodes.size() - 1 : m_pCurrentStatementInfo->m_pCodes->size() - 1;
+	}
+
 	inline void AddCode(IrisVirtualCode& ivcCode) { 
 		//ivcCode.m_wFileIndex = IrisCompiler::CurrentCompiler()->GetCurrentFileName();
 		ivcCode.m_wLineNumber = IrisCompiler::CurrentCompiler()->GetCurrentLineNumber();
-		if (m_pCurrentCodeVector) {
-			m_pCurrentCodeVector->push_back(ivcCode[1]);
-			m_pCurrentCodeVector->push_back(ivcCode[0]);
+		//if (m_pCurrentCodeVector) {
+		//	m_pCurrentCodeVector->push_back(ivcCode[1]);
+		//	m_pCurrentCodeVector->push_back(ivcCode[0]);
+		//}
+		//else {
+		if (m_bEvalFlag) {
+			m_vcEvalCodes.push_back(ivcCode[1]);
+			m_vcEvalCodes.push_back(ivcCode[0]);
 		}
 		else {
-			if (m_bEvalFlag) {
-				m_vcEvalCodes.push_back(ivcCode[1]);
-				m_vcEvalCodes.push_back(ivcCode[0]);
-			}
-			else {
-				m_pCurrentStatementInfo->m_pCodes->push_back(ivcCode[1]);
-				m_pCurrentStatementInfo->m_pCodes->push_back(ivcCode[0]);
-			}
+			m_pCurrentStatementInfo->m_pCodes->push_back(ivcCode[1]);
+			m_pCurrentStatementInfo->m_pCodes->push_back(ivcCode[0]);
 		}
+		//}
 	}
 	inline void AddCode(IrisAM& iaAM) {
-		if (m_pCurrentCodeVector) {
-			m_pCurrentCodeVector->push_back(iaAM[0]);
-			m_pCurrentCodeVector->push_back(iaAM[1]);
-			m_pCurrentCodeVector->push_back(iaAM[2]);
+		//if (m_pCurrentCodeVector) {
+		//	m_pCurrentCodeVector->push_back(iaAM[0]);
+		//	m_pCurrentCodeVector->push_back(iaAM[1]);
+		//	m_pCurrentCodeVector->push_back(iaAM[2]);
+		//}
+		//else {
+		if (m_bEvalFlag) {
+			m_vcEvalCodes.push_back(iaAM[0]);
+			m_vcEvalCodes.push_back(iaAM[1]);
+			m_vcEvalCodes.push_back(iaAM[2]);
 		}
 		else {
-			if (m_bEvalFlag) {
-				m_vcEvalCodes.push_back(iaAM[0]);
-				m_vcEvalCodes.push_back(iaAM[1]);
-				m_vcEvalCodes.push_back(iaAM[2]);
-			}
-			else {
-				m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[0]);
-				m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[1]);
-				m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[2]);
-			}
+			m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[0]);
+			m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[1]);
+			m_pCurrentStatementInfo->m_pCodes->push_back(iaAM[2]);
 		}
+		//}
 	}
 
 #if IR_DEBUG_PRINT
@@ -233,19 +247,19 @@ public:
 	IrisAM GetOneAM(vector<IR_WORD>& vcVector, unsigned int& nCodePointer);
 #endif
 
-	inline void LinkCodesToRealCodes(vector<IR_WORD>& vcCodes) {
-		if (m_pCurrentCodeVector) {
-			m_pCurrentCodeVector->insert(m_pCurrentCodeVector->end(), vcCodes.begin(), vcCodes.end());
-		}
-		else {
-			if (m_bEvalFlag) {
-				m_vcEvalCodes.insert(m_pCurrentStatementInfo->m_pCodes->end(), vcCodes.begin(), vcCodes.end());
-			}
-			else {
-				m_pCurrentStatementInfo->m_pCodes->insert(m_pCurrentStatementInfo->m_pCodes->end(), vcCodes.begin(), vcCodes.end());
-			}
-		}
-	}
+	//inline void LinkCodesToRealCodes(vector<IR_WORD>& vcCodes) {
+	//	//if (m_pCurrentCodeVector) {
+	//	//	m_pCurrentCodeVector->insert(m_pCurrentCodeVector->end(), vcCodes.begin(), vcCodes.end());
+	//	//}
+	//	//else {
+	//		if (m_bEvalFlag) {
+	//			m_vcEvalCodes.insert(m_pCurrentStatementInfo->m_pCodes->end(), vcCodes.begin(), vcCodes.end());
+	//		}
+	//		else {
+	//			m_pCurrentStatementInfo->m_pCodes->insert(m_pCurrentStatementInfo->m_pCodes->end(), vcCodes.begin(), vcCodes.end());
+	//		}
+	//	//}
+	//}
 
 	unsigned int GetStringIndex(const string& strString, unsigned int nFileIndex);
 	unsigned int GetIntegerIndex(int nInteger, unsigned int nFileIndex);

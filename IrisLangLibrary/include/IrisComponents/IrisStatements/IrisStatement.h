@@ -3,11 +3,12 @@
 
 #include "IrisValidator/IIrisStatementValidator.h"
 
-
 class IrisStatement : public IIrisStatementValidator
 {
 protected:
 	int m_nLineNumber = 0;
+
+	void* m_pCurrentLoopEndLabel = nullptr;
 
 public:
 	IrisStatement();

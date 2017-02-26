@@ -8,6 +8,7 @@
 using namespace std;
 #endif
 
+
 IrisInstructorMaker* IrisInstructorMaker::s_pInstance = nullptr;
 
 #if IR_DEBUG_PRINT
@@ -81,431 +82,643 @@ IrisInstructorMaker::~IrisInstructorMaker()
 {
 }
 
+void IrisInstructorMaker::Generate()
+{
+	for (auto& pfGenerate : m_lsGenerateInstructionList) {
+		pfGenerate();
+	}
+}
+
+void IrisInstructorMaker::place_lable(Label * pLabel)
+{
+	pLabel->SetStartOffset(IrisCompiler::CurrentCompiler()->GetCurrentCodePosition() + 2);
+}
+
 void IrisInstructorMaker::push_env()
 {
-	AddInstructorCode(PUSH_ENV, 0);
+	AddGenerateInstruction([=]() -> void{
+		AddInstructorCode(PUSH_ENV, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop_env()
 {
-	AddInstructorCode(POP_ENV, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_ENV, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::push()
 {
-	AddInstructorCode(PUSH, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop(IR_DWORD dwIndex)
 {
-	AddInstructorCode(POP, 1);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP, 1);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::cre_env()
 {
-	AddInstructorCode(CRE_ENV, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CRE_ENV, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::load(IrisAMType eType, IR_DWORD dwIndex)
 {
-	AddInstructorCode(LOAD, 1);
-	AddAMCode(eType, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD, 1);
+		AddAMCode(eType, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::nol_call(IR_DWORD dwIndex, IR_BYTE bParameterCount)
 {
-	AddInstructorCode(NOL_CALL, 2);
-	AddAMCode(IrisAMType::Identifier, dwIndex);
-	AddAMCode(IrisAMType::Extends, bParameterCount);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(NOL_CALL, 2);
+		AddAMCode(IrisAMType::Identifier, dwIndex);
+		AddAMCode(IrisAMType::Extends, bParameterCount);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::assign(IrisAMType eType, IR_DWORD dwIndex)
 {
-	AddInstructorCode(ASSIGN, 1);
-	AddAMCode(eType, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN, 1);
+		AddAMCode(eType, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::hid_call(IR_DWORD dwIndex, IR_BYTE bParameterCount)
 {
-	AddInstructorCode(HID_CALL, 2);
-	AddAMCode(IrisAMType::Identifier, dwIndex);
-	AddAMCode(IrisAMType::Extends, bParameterCount);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(HID_CALL, 2);
+		AddAMCode(IrisAMType::Identifier, dwIndex);
+		AddAMCode(IrisAMType::Extends, bParameterCount);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::set_fld(IR_DWORDS& lsFieldMember)
 {
-	AddInstructorCode(SET_FLD, (IR_BYTE)lsFieldMember.size());
- 	for (auto elem : lsFieldMember) {
-		AddAMCode(IrisAMType::Identifier, elem);
-	}
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(SET_FLD, (IR_BYTE)lsFieldMember.size());
+		for (auto elem : lsFieldMember) {
+			AddAMCode(IrisAMType::Identifier, elem);
+		}
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(lsFieldMember.size()));
 }
 
 void IrisInstructorMaker::clr_fld()
 {
-	AddInstructorCode(CLR_FLD, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CLR_FLD, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::fld_load(IR_DWORD dwIndex, IR_BYTE bEmptyFlag)
 {
-	AddInstructorCode(FLD_LOAD, 2);
-	AddAMCode(IrisAMType::Constance, dwIndex);
-	AddAMCode(IrisAMType::Extends, bEmptyFlag);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(FLD_LOAD, 2);
+		AddAMCode(IrisAMType::Constance, dwIndex);
+		AddAMCode(IrisAMType::Extends, bEmptyFlag);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::load_nil()
 {
-	AddInstructorCode(LOAD_NIL, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_NIL, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::load_true()
 {
-	AddInstructorCode(LOAD_TRUE, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_TRUE, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::load_false()
 {
-	AddInstructorCode(LOAD_FALSE, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_FALSE, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::load_self()
 {
-	AddInstructorCode(LOAD_SELF, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_SELF, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::imth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_BYTE bWithCastBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(IMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(IMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
-	for (auto elem : lsParameters) {
-		AddAMCode(IrisAMType::Identifier, elem);
-	}
+		for (auto elem : lsParameters) {
+			AddAMCode(IrisAMType::Identifier, elem);
+		}
 
-	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
-	AddAMCode(IrisAMType::Extends, bWithCastBlock);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+		AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
+		AddAMCode(IrisAMType::Extends, bWithCastBlock);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(lsParameters.size() + 4));
 }
 
 void IrisInstructorMaker::cmth_def(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_BYTE bWithCastBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(CMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CMTH_DEF, (IR_BYTE)lsParameters.size() + 4);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
-	for (auto elem : lsParameters) {
-		AddAMCode(IrisAMType::Identifier, elem);
-	}
+		for (auto elem : lsParameters) {
+			AddAMCode(IrisAMType::Identifier, elem);
+		}
 
-	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
-	AddAMCode(IrisAMType::Extends, bWithCastBlock);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+		AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
+		AddAMCode(IrisAMType::Extends, bWithCastBlock);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(lsParameters.size() + 4));
 }
 
 void IrisInstructorMaker::blk_def(IR_DWORD dwIndex)
 {
-	AddInstructorCode(BLK_DEF, 1);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(BLK_DEF, 1);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::end_def(IR_DWORD dwIndex)
 {
-	AddInstructorCode(END_DEF, 1);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(END_DEF, 1);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
-void IrisInstructorMaker::jfon(IR_DWORD dwOffset)
+void IrisInstructorMaker::jfon(Label* pLabel)
 {
-	AddInstructorCode(JFON, 1);
-	AddAMCode(IrisAMType::Extends, dwOffset);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(JFON, 1);
+		AddAMCode(IrisAMType::Extends, pLabel->GetStartOffset() - IrisCompiler::CurrentCompiler()->GetCurrentCodeLastIndex());
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
-void IrisInstructorMaker::jmp(IR_DWORD dwOffset)
+void IrisInstructorMaker::jmp(Label* pLabel)
 {
-	AddInstructorCode(JMP, 1);
-	AddAMCode(IrisAMType::Extends, dwOffset);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(JMP, 1);
+		AddAMCode(IrisAMType::Extends, pLabel->GetStartOffset() - IrisCompiler::CurrentCompiler()->GetCurrentCodeLastIndex());
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::ini_tm()
 {
-	AddInstructorCode(INI_TM, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(INI_TM, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::ini_cnt()
 {
-	AddInstructorCode(INI_CNT, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(INI_CNT, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::cmp_tac()
 {
-	AddInstructorCode(CMP_TAC, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CMP_TAC, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::inc_cnt()
 {
-	AddInstructorCode(INC_CNT, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(INC_CNT, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::assign_log(IR_DWORD dwParameterCount)
 {
-	AddInstructorCode(ASSIGN_LOG, 1);
-	AddAMCode(IrisAMType::LocalValue, dwParameterCount);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN_LOG, 1);
+		AddAMCode(IrisAMType::LocalValue, dwParameterCount);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
-void IrisInstructorMaker::brk(IR_DWORD dwOffset)
+void IrisInstructorMaker::brk(Label* pLabel)
 {
-	AddInstructorCode(BRK, 1);
-	AddAMCode(IrisAMType::Extends, dwOffset);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(BRK, 1);
+		AddAMCode(IrisAMType::Extends, pLabel->GetStartOffset() - IrisCompiler::CurrentCompiler()->GetCurrentCodeLastIndex());
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::push_deep(IR_DWORD dwParameterCount)
 {
-	AddInstructorCode(PUSH_DEEP, 1);
-	AddAMCode(IrisAMType::Extends, dwParameterCount);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_DEEP, 1);
+		AddAMCode(IrisAMType::Extends, dwParameterCount);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::pop_deep()
 {
-	AddInstructorCode(POP_DEEP, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_DEEP, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::rtn()
 {
-	AddInstructorCode(RTN, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(RTN, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
-void IrisInstructorMaker::ctn(IR_DWORD dwOffset)
+void IrisInstructorMaker::ctn(Label* pLabel)
 {
-	AddInstructorCode(CTN, 1);
-	AddAMCode(IrisAMType::Extends, dwOffset);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CTN, 1);
+		AddAMCode(IrisAMType::Extends, pLabel->GetStartOffset() - IrisCompiler::CurrentCompiler()->GetCurrentCodeLastIndex());
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::assign_vsl()
 {
-	AddInstructorCode(ASSIGN_VSL, 0);
-
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN_VSL, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::assign_iter()
 {
-	AddInstructorCode(ASSIGN_ITER, 0);
-
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN_ITER, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::load_iter()
 {
-	AddInstructorCode(LOAD_ITER, 0);
-
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_ITER, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
-void IrisInstructorMaker::jt(IR_DWORD dwOffset)
+void IrisInstructorMaker::jt(Label* pLabel)
 {
-	AddInstructorCode(JT, 1);
-	AddAMCode(IrisAMType::Extends, dwOffset);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(JT, 1);
+		AddAMCode(IrisAMType::Extends, pLabel->GetStartOffset() - IrisCompiler::CurrentCompiler()->GetCurrentCodeLastIndex());
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::assign_cmp()
 {
-	AddInstructorCode(ASSIGN_CMP, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN_CMP, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::cmp_cmp()
 {
-	AddInstructorCode(CMP_CMP, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CMP_CMP, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::cre_cenv(IR_BYTE bType)
 {
-	AddInstructorCode(CRE_CENV, 1);
-	AddAMCode(IrisAMType::Extends, bType);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CRE_CENV, 1);
+		AddAMCode(IrisAMType::Extends, bType);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::def_cls(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(DEF_CLS, 2);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(DEF_CLS, 2);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::add_ext()
 {
-	AddInstructorCode(ADD_EXT, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ADD_EXT, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::add_mld()
 {
-	AddInstructorCode(ADD_MLD, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ADD_MLD, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::add_inf()
 {
-	AddInstructorCode(ADD_INF, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ADD_INF, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::push_cnt()
 {
-	AddInstructorCode(PUSH_CNT, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_CNT, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::push_tim()
 {
-	AddInstructorCode(PUSH_TIM, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_TIM, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop_cnt(IR_BYTE bDeep)
 {
-	AddInstructorCode(POP_CNT, 1);
-	AddAMCode(IrisAMType::Extends, bDeep);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_CNT, 1);
+		AddAMCode(IrisAMType::Extends, bDeep);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::pop_tim(IR_BYTE bDeep)
 {
-	AddInstructorCode(POP_TIM, 1);
-	AddAMCode(IrisAMType::Extends, bDeep);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_TIM, 1);
+		AddAMCode(IrisAMType::Extends, bDeep);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::push_unim()
 {
-	AddInstructorCode(PUSH_UNIM, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_UNIM, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop_unim(IR_BYTE bDeep)
 {
-	AddInstructorCode(POP_UNIM, 1);
-	AddAMCode(IrisAMType::Extends, bDeep);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_UNIM, 1);
+		AddAMCode(IrisAMType::Extends, bDeep);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::push_vsl()
 {
-	AddInstructorCode(PUSH_VSL, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_VSL, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop_vsl(IR_BYTE bDeep)
 {
-	AddInstructorCode(POP_VSL, 1);
-	AddAMCode(IrisAMType::Extends, bDeep);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_VSL, 1);
+		AddAMCode(IrisAMType::Extends, bDeep);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::push_iter()
 {
-	AddInstructorCode(PUSH_ITER, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(PUSH_ITER, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::pop_iter(IR_BYTE bDeep)
 {
-	AddInstructorCode(POP_ITER, 1);
-	AddAMCode(IrisAMType::Extends, bDeep);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(POP_ITER, 1);
+		AddAMCode(IrisAMType::Extends, bDeep);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::str_def(IR_DWORD dwNameIndex, IR_DWORD dwParamIndex, IR_BYTE bIsWithBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(STR_DEF, 4);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Identifier, dwParamIndex);
-	AddAMCode(IrisAMType::Extends, bIsWithBlock);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(STR_DEF, 4);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Identifier, dwParamIndex);
+		AddAMCode(IrisAMType::Extends, bIsWithBlock);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(4));
 }
 
 void IrisInstructorMaker::gtr_def(IR_DWORD dwNameIndex, IR_BYTE bIsWithBlock, IR_DWORD dwIndex)
 {
-	AddInstructorCode(GTR_DEF, 3);	
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Extends, bIsWithBlock);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(GTR_DEF, 3);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Extends, bIsWithBlock);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(3));
 }
 
 void IrisInstructorMaker::gstr_def(IR_DWORD dwNameIndex)
 {
-	AddInstructorCode(GSTR_DEF, 1);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(GSTR_DEF, 1);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::set_auth(IR_DWORD dwNameIndex, IR_BYTE bEnv, IR_BYTE bTar, IR_BYTE bType)
 {
-	AddInstructorCode(SET_AUTH, 4);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Extends, bEnv);
-	AddAMCode(IrisAMType::Extends, bTar);
-	AddAMCode(IrisAMType::Extends, bType);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(SET_AUTH, 4);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Extends, bEnv);
+		AddAMCode(IrisAMType::Extends, bTar);
+		AddAMCode(IrisAMType::Extends, bType);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(4));
 }
 
 void IrisInstructorMaker::def_mld(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(DEF_MLD, 2);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(DEF_MLD, 2);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::def_inf(IR_DWORD dwNameIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(DEF_INF, 2);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(DEF_INF, 2);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::def_infs(IR_DWORD dwNameIndex, IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex)
 {
-	AddInstructorCode(DEF_INFS, (IR_BYTE)lsParameters.size() + 2);
-	AddAMCode(IrisAMType::Identifier, dwNameIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(DEF_INFS, (IR_BYTE)lsParameters.size() + 2);
+		AddAMCode(IrisAMType::Identifier, dwNameIndex);
 
-	for (auto elem : lsParameters) {
-		AddAMCode(IrisAMType::Identifier, elem);
-	}
+		for (auto elem : lsParameters) {
+			AddAMCode(IrisAMType::Identifier, elem);
+		}
 
-	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
+		AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(lsParameters.size() + 2));
 }
 
 void IrisInstructorMaker::cblk_def(IR_DWORDS & lsParameters, IR_DWORD dwVariableParameterIndex, IR_DWORD dwIndex)
 {
-	AddInstructorCode(CBLK_DEF, (IR_BYTE)lsParameters.size() + 1 + 1);
-	for (auto elem : lsParameters) {
-		AddAMCode(IrisAMType::Identifier, elem);
-	}
-	AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
-	AddAMCode(IrisAMType::Extends, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(CBLK_DEF, (IR_BYTE)lsParameters.size() + 2);
+		for (auto elem : lsParameters) {
+			AddAMCode(IrisAMType::Identifier, elem);
+		}
+		AddAMCode(IrisAMType::Identifier, dwVariableParameterIndex);
+		AddAMCode(IrisAMType::Extends, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(lsParameters.size() + 2));
 }
 
 void IrisInstructorMaker::blk()
 {
-	AddInstructorCode(BLK, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(BLK, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
-
-//void IrisInstructorMaker::cast(IR_DWORD nParametersCount)
-//{
-//	AddInstructorCode(62, 1);
-//	AddAMCode(IrisAMType::Extends, nParametersCount);
-//}
 
 void IrisInstructorMaker::reg_irp(IR_BYTE bWithIgnoreBlock, IR_DWORD nIndex)
 {
-	AddInstructorCode(REG_IRP, 2);
-	AddAMCode(IrisAMType::Extends, bWithIgnoreBlock);
-	AddAMCode(IrisAMType::Extends, nIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(REG_IRP, 2);
+		AddAMCode(IrisAMType::Extends, bWithIgnoreBlock);
+		AddAMCode(IrisAMType::Extends, nIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(2));
 }
 
 void IrisInstructorMaker::ureg_irp(IR_DWORD nIndex)
 {
-	AddInstructorCode(UREG_IRP, 1);
-	AddAMCode(IrisAMType::Extends, nIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(UREG_IRP, 1);
+		AddAMCode(IrisAMType::Extends, nIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::assign_ir(IR_DWORD dwIndex)
 {
-	AddInstructorCode(ASSIGN_IR, 1);
-	AddAMCode(IrisAMType::LocalValue, dwIndex);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(ASSIGN_IR, 1);
+		AddAMCode(IrisAMType::LocalValue, dwIndex);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::grn()
 {
-	AddInstructorCode(GRN, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(GRN, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
 
 void IrisInstructorMaker::spr(IR_BYTE bParameterCount)
 {
-	AddInstructorCode(SPR, 1);
-	AddAMCode(IrisAMType::Extends, bParameterCount);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(SPR, 1);
+		AddAMCode(IrisAMType::Extends, bParameterCount);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(1));
 }
 
 void IrisInstructorMaker::load_cast()
 {
-	AddInstructorCode(LOAD_CAST, 0);
+	AddGenerateInstruction([=]() -> void {
+		AddInstructorCode(LOAD_CAST, 0);
+	});
+	IrisCompiler::CurrentCompiler()->IncreamCurrentCodePoisition(CalcInstructorLength(0));
 }
+
+void IrisInstructorMaker::Label::SetStartOffset(size_t nOffset) { m_nStartOffset = nOffset; }
+
+size_t IrisInstructorMaker::Label::GetStartOffset() { return m_nStartOffset; }

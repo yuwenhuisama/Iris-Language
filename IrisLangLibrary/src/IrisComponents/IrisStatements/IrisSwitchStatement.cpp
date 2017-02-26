@@ -11,44 +11,47 @@
 #include <vector>
 using namespace std;
 
-struct  IrisSwitchStatement::_WhenStructure {
-	vector<vector<IR_WORD>*> m_lsComparerCodes;
-	vector<IR_WORD> m_lsBlockCodes;
-	unsigned int m_nComparerSize = 0;
-
-	_WhenStructure() = default;
-	~_WhenStructure() {
-		for (auto vector : m_lsComparerCodes) {
-			delete vector;
-		}
-	}
-};
+//struct  IrisSwitchStatement::_WhenStructure {
+//	vector<vector<IR_WORD>*> m_lsComparerCodes;
+//	vector<IR_WORD> m_lsBlockCodes;
+//	unsigned int m_nComparerSize = 0;
+//
+//	_WhenStructure() = default;
+//	~_WhenStructure() {
+//		for (auto vector : m_lsComparerCodes) {
+//			delete vector;
+//		}
+//	}
+//};
 
 bool IrisSwitchStatement::Generate()
 {
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	pCompiler->SetLineNumber(m_nLineNumber);
+	
+	auto pLabelJumpToEnd = new IrisInstructorMaker::Label();
 
 	// maker
 	m_pCondition->Generate();
 	pMaker->assign_cmp();
 
-	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
-	vector<IR_WORD>* pNewVector = nullptr;
-	vector<IR_WORD>* pElseVector = nullptr;
-	_WhenStructure* pWhenStructure = nullptr;
-	vector<_WhenStructure*> vcWhenStructures;
-	size_t nWholeSize = 0;
-
 	// Generate
-	for(auto when : m_pSwitchBlock->m_pWhenList->m_lsList){
-		pWhenStructure = new _WhenStructure();
+	IrisInstructorMaker::Label* pLabelJumpToNext = nullptr;
+	IrisInstructorMaker::Label* pLabelJumpToElse = nullptr;
 
-		if(!when->m_pExpressions->Ergodic(
+	size_t nCount = 0;
+	for (auto when : m_pSwitchBlock->m_pWhenList->m_lsList) {
+
+		auto pLabelJumpToBlock = new IrisInstructorMaker::Label();
+
+		if (nCount != 0) {
+			pMaker->place_lable(pLabelJumpToNext);
+		}
+		++nCount;
+
+		if (!when->m_pExpressions->Ergodic(
 			[&](IrisExpression* pExpression) -> bool {
-			pNewVector = new vector<IR_WORD>();
-			pCompiler->SetCurrentCodeList(pNewVector);
 			if (!pExpression->Generate()) {
 				return false;
 			}
@@ -56,78 +59,156 @@ bool IrisSwitchStatement::Generate()
 			pMaker->cre_env();
 			pMaker->cmp_cmp();
 			pMaker->pop_env();
-			pWhenStructure->m_lsComparerCodes.push_back(pNewVector);
-			pWhenStructure->m_nComparerSize += pNewVector->size() + 4 + 1; // compare size + jfon or jt
+
+			pMaker->jt(pLabelJumpToBlock);
+
 			return true;
 		}
-			)) {
+		)) {
 			return false;
 		}
 
-		pCompiler->SetCurrentCodeList(&(pWhenStructure->m_lsBlockCodes));
-		//pNewVector = new vector<IR_WORD>();
+		// 不是最后一个when
+		if (nCount != m_pSwitchBlock->m_pWhenList->m_lsList.size()) {
+			pLabelJumpToNext = new IrisInstructorMaker::Label();
+			pMaker->jmp(pLabelJumpToNext);
+		}
+		// 是最后一个when
+		else {
+			// 如果有else
+			if (m_pSwitchBlock->m_pElseBlock) {
+				pLabelJumpToElse = new IrisInstructorMaker::Label();
+				pMaker->jmp(pLabelJumpToElse);
+			}
+			else {
+				pMaker->jmp(pLabelJumpToEnd);
+			}
+		}
+
+		pMaker->place_lable(pLabelJumpToBlock);
+
 		if (!when->m_pBlock->Generate()) {
 			return false;
 		}
 
-		vcWhenStructures.push_back(pWhenStructure);
-		nWholeSize += pWhenStructure->m_lsBlockCodes.size() + pWhenStructure->m_nComparerSize + 5; // + jmp
+		pMaker->jmp(pLabelJumpToEnd);
 	}
 
 	if (m_pSwitchBlock->m_pElseBlock) {
-		pElseVector = new vector<IR_WORD>();
-		pCompiler->SetCurrentCodeList(pElseVector);
+		pMaker->place_lable(pLabelJumpToElse);
 		m_pSwitchBlock->m_pElseBlock->Generate();
-		nWholeSize += pElseVector->size();
 	}
 
-	pCompiler->SetCurrentCodeList(pOldVector);
-
-	// Calc
-	unsigned int Offset = 0;
-	//size_t nCmpIndex = 0;
-	for (auto when : vcWhenStructures) {
-		Offset = when->m_nComparerSize;
-		//nCmpIndex = when->m_lsComparerCodes.size();
-		for (auto cmp : when->m_lsComparerCodes) {
-			pCompiler->LinkCodesToRealCodes(*cmp);
-			if (cmp != when->m_lsComparerCodes.back()) {
-				pMaker->jt(Offset -= cmp->size() + 5); // - jmp
-			}
-			else {
-				if (when != vcWhenStructures.back()) {
-					pMaker->jfon(when->m_lsBlockCodes.size() + 4 + 1); // skip the block and jmp
-				}
-				else {
-					if(!pElseVector) {
-						pMaker->jfon(when->m_lsBlockCodes.size()); // skip the block
-					}
-					else {
-						pMaker->jfon(when->m_lsBlockCodes.size() + 5); // skip the block
-					}
-				}
-			}
-		}
-		pCompiler->LinkCodesToRealCodes(when->m_lsBlockCodes);
-		nWholeSize -= when->m_lsBlockCodes.size() + when->m_nComparerSize + 5;
-		if(nWholeSize != 0) {
-			pMaker->jmp(nWholeSize - 5);
-		}
-	}
-
-	if (pElseVector) {
-		pCompiler->LinkCodesToRealCodes(*pElseVector);
-	}
-
-	for (auto strt : vcWhenStructures) {
-		delete strt;
-	}
-	if(pElseVector) {
-		delete pElseVector;
-	}
+	pMaker->place_lable(pLabelJumpToEnd);
 
 	return true;
 }
+
+
+//bool IrisSwitchStatement::Generate()
+//{
+//	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
+//	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+//	pCompiler->SetLineNumber(m_nLineNumber);
+//
+//	// maker
+//	m_pCondition->Generate();
+//	pMaker->assign_cmp();
+//
+//	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
+//	vector<IR_WORD>* pNewVector = nullptr;
+//	vector<IR_WORD>* pElseVector = nullptr;
+//	_WhenStructure* pWhenStructure = nullptr;
+//	vector<_WhenStructure*> vcWhenStructures;
+//	size_t nWholeSize = 0;
+//
+//	// Generate
+//	for(auto when : m_pSwitchBlock->m_pWhenList->m_lsList){
+//		pWhenStructure = new _WhenStructure();
+//
+//		if(!when->m_pExpressions->Ergodic(
+//			[&](IrisExpression* pExpression) -> bool {
+//			pNewVector = new vector<IR_WORD>();
+//			pCompiler->SetCurrentCodeList(pNewVector);
+//			if (!pExpression->Generate()) {
+//				return false;
+//			}
+//			pMaker->push_env();
+//			pMaker->cre_env();
+//			pMaker->cmp_cmp();
+//			pMaker->pop_env();
+//			pWhenStructure->m_lsComparerCodes.push_back(pNewVector);
+//			pWhenStructure->m_nComparerSize += pNewVector->size() + 4 + 1; // compare size + jfon or jt
+//			return true;
+//		}
+//			)) {
+//			return false;
+//		}
+//
+//		pCompiler->SetCurrentCodeList(&(pWhenStructure->m_lsBlockCodes));
+//		//pNewVector = new vector<IR_WORD>();
+//		if (!when->m_pBlock->Generate()) {
+//			return false;
+//		}
+//
+//		vcWhenStructures.push_back(pWhenStructure);
+//		nWholeSize += pWhenStructure->m_lsBlockCodes.size() + pWhenStructure->m_nComparerSize + 5; // + jmp
+//	}
+//
+//	if (m_pSwitchBlock->m_pElseBlock) {
+//		pElseVector = new vector<IR_WORD>();
+//		pCompiler->SetCurrentCodeList(pElseVector);
+//		m_pSwitchBlock->m_pElseBlock->Generate();
+//		nWholeSize += pElseVector->size();
+//	}
+//
+//	pCompiler->SetCurrentCodeList(pOldVector);
+//
+//	// Calc
+//	unsigned int Offset = 0;
+//	//size_t nCmpIndex = 0;
+//	for (auto when : vcWhenStructures) {
+//		Offset = when->m_nComparerSize;
+//		//nCmpIndex = when->m_lsComparerCodes.size();
+//		for (auto cmp : when->m_lsComparerCodes) {
+//			pCompiler->LinkCodesToRealCodes(*cmp);
+//			if (cmp != when->m_lsComparerCodes.back()) {
+//				pMaker->jt(Offset -= cmp->size() + 5); // - jmp
+//			}
+//			else {
+//				if (when != vcWhenStructures.back()) {
+//					pMaker->jfon(when->m_lsBlockCodes.size() + 4 + 1); // skip the block and jmp
+//				}
+//				else {
+//					if(!pElseVector) {
+//						pMaker->jfon(when->m_lsBlockCodes.size()); // skip the block
+//					}
+//					else {
+//						pMaker->jfon(when->m_lsBlockCodes.size() + 5); // skip the block
+//					}
+//				}
+//			}
+//		}
+//		pCompiler->LinkCodesToRealCodes(when->m_lsBlockCodes);
+//		nWholeSize -= when->m_lsBlockCodes.size() + when->m_nComparerSize + 5;
+//		if(nWholeSize != 0) {
+//			pMaker->jmp(nWholeSize - 5);
+//		}
+//	}
+//
+//	if (pElseVector) {
+//		pCompiler->LinkCodesToRealCodes(*pElseVector);
+//	}
+//
+//	for (auto strt : vcWhenStructures) {
+//		delete strt;
+//	}
+//	if(pElseVector) {
+//		delete pElseVector;
+//	}
+//
+//	return true;
+//}
 
 IrisSwitchStatement::IrisSwitchStatement(IrisExpression* pCondition, IrisSwitchBlock* pSwitchBlock) : m_pCondition(pCondition), m_pSwitchBlock(pSwitchBlock)
 {

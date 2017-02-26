@@ -12,7 +12,7 @@ protected:
 	IrisExpression* m_pCondition = nullptr;
 	IrisSwitchBlock* m_pSwitchBlock = nullptr;
 
-	struct _WhenStructure;
+	//struct _WhenStructure;
 
 public:
 

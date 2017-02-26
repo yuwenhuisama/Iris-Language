@@ -15,11 +15,14 @@
 #include <vector>
 using namespace std;
 
-bool IrisForStatement::Generate()
-{
+bool IrisForStatement::Generate() {
 	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
 	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
 	pCompiler->SetLineNumber(m_nLineNumber);
+
+	auto pLabelSkipToCompare = new IrisInstructorMaker::Label();
+	auto pLabelJumpToEnd = new IrisInstructorMaker::Label();
+	auto pLabelJumpBack = new IrisInstructorMaker::Label();
 
 	pMaker->push_vsl();
 	pMaker->push_iter();
@@ -34,11 +37,11 @@ bool IrisForStatement::Generate()
 	pMaker->assign_iter();
 	pMaker->push_deep(pCompiler->GetDefineIndex() + 1);
 
-	vector<IR_WORD> vcBefore;
-	vector<IR_WORD> vcAfter;
-	vector<IR_WORD> vcEndBlk;
-	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
-	pCompiler->SetCurrentCodeList(&vcBefore);
+	pMaker->jmp(pLabelSkipToCompare);
+
+	//****
+	pMaker->place_lable(pLabelJumpBack);
+	//****
 
 	// next
 	pMaker->load_iter();
@@ -46,7 +49,10 @@ bool IrisForStatement::Generate()
 	pMaker->cre_env();
 	pMaker->nol_call(pCompiler->GetIdentifierIndex("next", pCompiler->GetCurrentFileIndex()), 0);
 	pMaker->pop_env();
-	// size = 2 + 2 + 2 + 2 + 3 + 3 + 2
+
+	//****
+	pMaker->place_lable(pLabelSkipToCompare);
+	//****
 
 	// is end
 	pMaker->load_iter();
@@ -54,8 +60,8 @@ bool IrisForStatement::Generate()
 	pMaker->cre_env();
 	pMaker->nol_call(pCompiler->GetIdentifierIndex("is_end", pCompiler->GetCurrentFileIndex()), 0);
 	pMaker->pop_env();
+	pMaker->jt(pLabelJumpToEnd);
 
-	pCompiler->SetCurrentCodeList(&vcAfter);
 	// assign
 	if (m_pIter1 && !m_pIter2) {
 		pMaker->load_iter();
@@ -72,7 +78,7 @@ bool IrisForStatement::Generate()
 		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_key", pCompiler->GetCurrentFileIndex()), 0);
 		pMaker->pop_env();
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter1->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
-
+	
 		pMaker->load_iter();
 		pMaker->push_env();
 		pMaker->cre_env();
@@ -80,57 +86,129 @@ bool IrisForStatement::Generate()
 		pMaker->pop_env();
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter2->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	}
+	
+	decltype(m_pCurrentLoopEndLabel) pOldLoopEndLable = m_pCurrentLoopEndLabel;
+	m_pCurrentLoopEndLabel = pLabelJumpToEnd;
+
 	// block
-
-	pCompiler->PushLoopIndex(pCompiler->GetDefineIndex() + 1);
-
 	if (!m_pBlock->Generate()) {
 		return false;
 	}
 
-	pCompiler->PopLoopIndex();
+	m_pCurrentLoopEndLabel = pOldLoopEndLable;
 
-	for (int i = 0; i < 4 + 1; ++i) {
-		//vcEndBlk.push_front(vcAfter.back());
-		vcEndBlk.insert(vcEndBlk.begin(), vcAfter.back());
-		vcAfter.pop_back();
-	}
+	pMaker->jmp(pLabelJumpBack);
 
-	//// 寻找brk
-	//while (true) {
-	//	// end_def
-	//	nInstructor = vcVector[++nCodePointer] >> 8;
-	//	nOperators = vcVector[nCodePointer] & 0x00FF;
-	//	if (nInstructor == BRK) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (nDeepIndex == iaAM.m_dwIndex) {
-	//			break;
-	//		}
-	//	}
-	//	else {
-	//		nCodePointer += (nOperators * 3);
-	//	}
-	//}
+	//****
+	pMaker->place_lable(pLabelJumpToEnd);
+	//****
 
-
-	// 计算jt和jmp的offset
-	unsigned int nJtOffset = vcAfter.size() + 4 + 1; // after vector code size + jmp
-	int nJmpOffset = vcAfter.size() + 4 + 1 + vcBefore.size() + 4 + 1; // after vector code size + jt + before vector code size + jmp
-
-	int nSkipOffset = 2 + 2 + 2 + 2 + 3 + 3 + 2;
-
-	pCompiler->SetCurrentCodeList(pOldVector);
-	pMaker->jmp(nSkipOffset);
-	pCompiler->LinkCodesToRealCodes(vcBefore);
-	pMaker->jt(nJtOffset);
-	pCompiler->LinkCodesToRealCodes(vcAfter);
-	pMaker->jmp(-nJmpOffset);
-	pCompiler->LinkCodesToRealCodes(vcEndBlk);
 	pMaker->pop_vsl(pCompiler->GetDefineIndex() + 1);
 	pMaker->pop_iter(pCompiler->GetDefineIndex() + 1);
 	pMaker->pop_deep();
+
 	return true;
 }
+
+//bool IrisForStatement::Generate()
+//{
+//	IrisCompiler* pCompiler = IrisCompiler::CurrentCompiler();
+//	IrisInstructorMaker* pMaker = IrisInstructorMaker::CurrentInstructor();
+//	pCompiler->SetLineNumber(m_nLineNumber);
+//
+//	pMaker->push_vsl();
+//	pMaker->push_iter();
+//	if (!m_pSource->Generate()) {
+//		return false;
+//	}
+//	pMaker->assign_vsl();
+//	pMaker->push_env();
+//	pMaker->cre_env();
+//	pMaker->nol_call(pCompiler->GetIdentifierIndex("get_iterator", pCompiler->GetCurrentFileIndex()), 0);
+//	pMaker->pop_env();
+//	pMaker->assign_iter();
+//	pMaker->push_deep(pCompiler->GetDefineIndex() + 1);
+//
+//	vector<IR_WORD> vcBefore;
+//	vector<IR_WORD> vcAfter;
+//	vector<IR_WORD> vcEndBlk;
+//	vector<IR_WORD>* pOldVector = pCompiler->GetCurrentCodeVector();
+//	pCompiler->SetCurrentCodeList(&vcBefore);
+//
+//	// next
+//	pMaker->load_iter();
+//	pMaker->push_env();
+//	pMaker->cre_env();
+//	pMaker->nol_call(pCompiler->GetIdentifierIndex("next", pCompiler->GetCurrentFileIndex()), 0);
+//	pMaker->pop_env();
+//	// size = 2 + 2 + 2 + 2 + 3 + 3 + 2
+//
+//	// is end
+//	pMaker->load_iter();
+//	pMaker->push_env();
+//	pMaker->cre_env();
+//	pMaker->nol_call(pCompiler->GetIdentifierIndex("is_end", pCompiler->GetCurrentFileIndex()), 0);
+//	pMaker->pop_env();
+//
+//	pCompiler->SetCurrentCodeList(&vcAfter);
+//	// assign
+//	if (m_pIter1 && !m_pIter2) {
+//		pMaker->load_iter();
+//		pMaker->push_env();
+//		pMaker->cre_env();
+//		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), 0);
+//		pMaker->pop_env();
+//		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter1->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+//	}
+//	else if(m_pIter1 && m_pIter2){
+//		pMaker->load_iter();
+//		pMaker->push_env();
+//		pMaker->cre_env();
+//		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_key", pCompiler->GetCurrentFileIndex()), 0);
+//		pMaker->pop_env();
+//		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter1->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+//
+//		pMaker->load_iter();
+//		pMaker->push_env();
+//		pMaker->cre_env();
+//		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), 0);
+//		pMaker->pop_env();
+//		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter2->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
+//	}
+//	// block
+//
+//	pCompiler->PushLoopIndex(pCompiler->GetDefineIndex() + 1);
+//
+//	if (!m_pBlock->Generate()) {
+//		return false;
+//	}
+//
+//	pCompiler->PopLoopIndex();
+//
+//	for (int i = 0; i < 4 + 1; ++i) {
+//		//vcEndBlk.push_front(vcAfter.back());
+//		vcEndBlk.insert(vcEndBlk.begin(), vcAfter.back());
+//		vcAfter.pop_back();
+//	}
+//
+//	// 计算jt和jmp的offset
+//	unsigned int nJtOffset = vcAfter.size() + 4 + 1; // after vector code size + jmp
+//	int nJmpOffset = vcAfter.size() + 4 + 1 + vcBefore.size() + 4 + 1; // after vector code size + jt + before vector code size + jmp
+//
+//	int nSkipOffset = 2 + 2 + 2 + 2 + 3 + 3 + 2;
+//
+//	pCompiler->SetCurrentCodeList(pOldVector);
+//	pMaker->jmp(nSkipOffset);
+//	pCompiler->LinkCodesToRealCodes(vcBefore);
+//	pMaker->jt(nJtOffset);
+//	pCompiler->LinkCodesToRealCodes(vcAfter);
+//	pMaker->jmp(-nJmpOffset);
+//	pCompiler->LinkCodesToRealCodes(vcEndBlk);
+//	pMaker->pop_vsl(pCompiler->GetDefineIndex() + 1);
+//	pMaker->pop_iter(pCompiler->GetDefineIndex() + 1);
+//	pMaker->pop_deep();
+//	return true;
+//}
 
 IrisForStatement::IrisForStatement(IrisIdentifier* pIter1, IrisIdentifier* pIter2, IrisExpression* pSource, IrisBlock* pBlock) : m_pIter1(pIter1), m_pIter2(pIter2), m_pSource(pSource), m_pBlock(pBlock)
 {

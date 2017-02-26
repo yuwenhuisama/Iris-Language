@@ -12,7 +12,7 @@ bool IrisContinueStatement::Generate()
 	pCompiler->SetLineNumber(m_nLineNumber);
 
 	// fake offset
-	pMaker->ctn(0);
+	pMaker->ctn(static_cast<IrisInstructorMaker::Label*>(m_pCurrentLoopEndLabel));
 
 	return true;
 }

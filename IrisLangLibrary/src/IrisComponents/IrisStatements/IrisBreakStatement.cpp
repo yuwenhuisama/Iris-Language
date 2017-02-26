@@ -17,7 +17,7 @@ bool IrisBreakStatement::Generate()
 	pCompiler->SetLineNumber(m_nLineNumber);
 
 	// fake offset
-	pMaker->brk(0);
+	pMaker->brk(static_cast<IrisInstructorMaker::Label*>(m_pCurrentLoopEndLabel));
 
 	return true;
 }

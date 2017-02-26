@@ -195,6 +195,8 @@ bool IrisCompiler::Generate()
 		delete m_pCurrentStatementInfo->m_pStatementList;
 		m_pCurrentStatementInfo->m_pStatementList = nullptr;
 
+		IrisInstructorMaker::CurrentInstructor()->Generate();
+
 		IrisVirtualCodeFile ivcfIRCFile;
 		auto& strCurFileName = GetCurrentFileName();
 		auto pInfo = m_mpStatementInfos[strCurFileName];

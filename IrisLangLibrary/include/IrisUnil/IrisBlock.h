@@ -20,6 +20,7 @@ public:
 	virtual bool Accept(IrisAbstractStatementValidateVisitor* pVisitor) override;
 	virtual bool Validate() override;
 
+	friend class IrisOrderStatement;
 };
 
 #endif
