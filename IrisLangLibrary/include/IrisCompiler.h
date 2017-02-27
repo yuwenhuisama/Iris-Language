@@ -330,6 +330,8 @@ private:
 	typedef vector<size_t> _LoopIndexStack;
 	_LoopIndexStack m_stLoopIndex;
 	
+	void* m_pCurrentLoopEndLabel;
+
 public:
 	bool UpperWithBlock();
 	bool UpperWithClass();
@@ -347,6 +349,9 @@ public:
 	size_t GetTopLoopIndex();
 	void PushLoopIndex(size_t nIndex);
 	void PopLoopIndex();
+
+	void* GetCurrentLoopEndLabel() { return m_pCurrentLoopEndLabel; };
+	void SetCurrentLoopEndLable(void* pLabel) { m_pCurrentLoopEndLabel = pLabel; };
 
 	friend class IrisInterpreter;
 	friend class IrisVirtualCodeFile;

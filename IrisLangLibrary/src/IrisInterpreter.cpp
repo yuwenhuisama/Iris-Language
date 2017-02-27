@@ -656,7 +656,7 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 
 		switch (bInstructor)
 		{
-		case PUSH_ENV: // push_env
+		case PUSH_ENV: // push_env 
  			bResult = push_env(vcVector, nCodePointer, pThreadInfo);
 			break;
 		case POP_ENV: // pop_env
@@ -976,10 +976,8 @@ void IrisInterpreter::GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vc
 	IR_BYTE bOperators = 0;
 
 	// 到 end_def 为止，把所有的virtual code放到BlockCodes中
-	//unsigned int nLineNumber = vcVector[nCodePointer - 2];
-	//unsigned int nCurrentFileIndex = vcVector[nCodePointer - 1];
 	while (true) {
-		if (wVirtualCode >> 8 == 19) {
+		if (wVirtualCode >> 8 == END_DEF) {
 			iaAM = GetOneAM(vcVector, nCodePointer);
 			if (iaAM.m_dwIndex == nIndex) {
 				icsCodeSegment.m_nEndPointer = nCodePointer - 4;
@@ -991,8 +989,6 @@ void IrisInterpreter::GetCodesFromBlock(unsigned int nIndex, vector<IR_WORD>& vc
 			nCodePointer += 3 * bOperators;
 		}
 		++nCodePointer;
-		//nLineNumber = vcVector[++nCodePointer];
-		//nFileIndex = vcVector[++nCodePointer];
 		wVirtualCode = vcVector[++nCodePointer];
 	}
 }
@@ -1036,7 +1032,7 @@ bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVec
 	// 如果下一条指令不为blk_def则报错
 	++nCodePointer;
 	IR_BYTE bInstructor = vcVector[++nCodePointer] >> 8;
-	if (bInstructor != 18) {
+	if (bInstructor != BLK_DEF) {
 		// ** Error **
 		return false;
 	}
@@ -1050,7 +1046,7 @@ bool IrisInterpreter::BuildUserFunction(void** pFunction, vector<IR_WORD>& vcVec
 	if (bWithCastBlock) {
 		++nCodePointer;
 		bInstructor = vcVector[++nCodePointer] >> 8;
-		if (bInstructor != 18) {
+		if (bInstructor != BLK_DEF) {
 			// ** Error **
 			return false;
 		}
@@ -2032,7 +2028,7 @@ bool IrisInterpreter::jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 	}
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	nCodePointer += iaAM.m_dwIndex;
+	nCodePointer += (iaAM.m_dwIndex - 5);
 
 	return true;
 }
@@ -2040,7 +2036,7 @@ bool IrisInterpreter::jfon(vector<IR_WORD>& vcVector, unsigned int& nCodePointer
 bool IrisInterpreter::jmp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
 {
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	nCodePointer += iaAM.m_dwIndex;
+	nCodePointer += (iaAM.m_dwIndex - 5);
 	return true;
 }
 
@@ -2099,28 +2095,9 @@ bool IrisInterpreter::assign_log(vector<IR_WORD>& vcVector, unsigned int& nCodeP
 
 bool IrisInterpreter::brk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
  {
-	// Get Current Deep Index
-	unsigned int nDeepIndex = pThreadInfo->m_nEndDeepRegister;
-	unsigned int nInstructor = 0;
-	unsigned int nOperators = 0;
-	//nCodePointer -= 2;
-	//nCodePointer -= 1;
-	IrisAM iaAM;
-	while (true) {
-		// end_def
-		++nCodePointer;
-		nInstructor = vcVector[++nCodePointer] >> 8;
-		nOperators = vcVector[nCodePointer] & 0x00FF;
-		if (nInstructor == 19) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (nDeepIndex == iaAM.m_dwIndex) {
-				break;
-			}
-		}
-		else {
-			nCodePointer += (nOperators * 3);
-		}
-	}
+	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
+	nCodePointer += (iaAM.m_dwIndex - 5);
+
 	return true;
 }
 
@@ -2147,8 +2124,6 @@ bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 
 	const unsigned int& nCodeEnder = nEnder;
 
-	//size_t nDiffer = GetDepthDiff(pThreadInfo);
-
 	pThreadInfo->m_pEnvrionmentRegister->m_skCounterRegister.clear();
 	pThreadInfo->m_pEnvrionmentRegister->m_skTimerRegister.clear();
 	pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.clear();
@@ -2156,90 +2131,15 @@ bool IrisInterpreter::rtn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer,
 	pThreadInfo->m_pEnvrionmentRegister->m_skIteratorRegister.clear();
 
 	nCodePointer = nCodeEnder;
-
-	//nCodePointer -= 2;
-	//unsigned int nIndex = GetTopDeepIndex(pThreadInfo);
-	//while (true) {
-	//	if (++nCodePointer == nCodeEnder) {
-	//		break;
-	//	}
-	//	++nCodePointer;
-	//	nInstructor = vcVector[nCodePointer] >> 8;
-	//	nOperators = vcVector[nCodePointer] & 0x00FF;
-	//	// end_blk
-	//	if (nInstructor == 19) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (nIndex == iaAM.m_dwIndex) {
-	//			PopTopDeepIndex(pThreadInfo);
-	//			nIndex = GetTopDeepIndex(pThreadInfo);
-	//		}
-	//	}
-	//	// pop_cnt
-	//	else if (nInstructor == 45) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (iaAM.m_dwIndex == nIndex) {
-	//			PopCounter(pThreadInfo);
-	//		}
-	//	}
-	//	// pop_tim
-	//	else if (nInstructor == 46) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (iaAM.m_dwIndex == nIndex) {
-	//			PopTimer(pThreadInfo);
-	//		}
-	//	}
-	//	// pop_unim
-	//	else if (nInstructor == 48) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (iaAM.m_dwIndex == nIndex) {
-	//			PopUnlimitedLoopFlag(pThreadInfo);
-	//		}
-	//	}
-	//	// pop_vsl
-	//	else if (nInstructor == 50) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (iaAM.m_dwIndex == nIndex) {
-	//			PopVessle(pThreadInfo);
-	//		}
-	//	}
-	//	// pop_iter
-	//	else if (nInstructor == 52) {
-	//		iaAM = GetOneAM(vcVector, nCodePointer);
-	//		if (iaAM.m_dwIndex == nIndex) {
-	//			PopIterator(pThreadInfo);
-	//		}
-	//	}
-	//	else {
-	//		nCodePointer += nOperators * 3;
-	//	}
-	//}
 	--nCodePointer;
 	return true;
 }
 
 bool IrisInterpreter::ctn(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo)
-{	// Get Current Deep Index
-	unsigned int nDeepIndex = pThreadInfo->m_nEndDeepRegister;
-	unsigned int nInstructor = 0;
-	unsigned int nOperators = 0;
-	IrisAM iaAM;
-	//nCodePointer -= 2;
-	while (true) {
-		// end_def
-		++nCodePointer;
-		nInstructor = vcVector[++nCodePointer] >> 8; 
-		nOperators = vcVector[nCodePointer] & 0x00FF;
-		if (nInstructor == 19) {
-			iaAM = GetOneAM(vcVector, nCodePointer);
-			if (nDeepIndex == iaAM.m_dwIndex) {
-				break;
-			}
-		}
-		else {
-			nCodePointer += nOperators * 3;
-		}
-	}
-	nCodePointer -= 10;
+{	
+	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
+	nCodePointer += (iaAM.m_dwIndex - 5 - 10);
+
 	return true;
 }
 
@@ -2270,7 +2170,7 @@ bool IrisInterpreter::jt(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, 
 	}
 
 	IrisAM iaAM = GetOneAM(vcVector, nCodePointer);
-	nCodePointer += iaAM.m_dwIndex;
+	nCodePointer += (iaAM.m_dwIndex - 5);
 
 	return true;
 }

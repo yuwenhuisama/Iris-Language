@@ -60,14 +60,14 @@ bool IrisLoopIfStatement::Generate() {
 	}
 	pMaker->inc_cnt();
 
-	decltype(m_pCurrentLoopEndLabel) pOldLoopEndLable = m_pCurrentLoopEndLabel;
-	m_pCurrentLoopEndLabel = pLabelJumpToEnd;
+	IrisInstructorMaker::Label* pOldLoopEndLable = static_cast<IrisInstructorMaker::Label* >(pCompiler->GetCurrentLoopEndLabel());
+	pCompiler->SetCurrentLoopEndLable(pLabelJumpToEnd);
 
 	if (!m_pBlock->Generate()) {
 		return false;
 	}
 
-	m_pCurrentLoopEndLabel = pOldLoopEndLable;
+	pCompiler->SetCurrentLoopEndLable(pOldLoopEndLable);
 
 	pMaker->jmp(pLabelJumpBack);
 
