@@ -15,6 +15,10 @@ void ShowFatalErrorMessage(const char* pMessage) {
 
 int main(int argc, char* argv[]) {
 
+	if (argc != 2) {
+		return -1;
+	}
+
 	IrisInitializeStructForCpp iisInit;
 	iisInit.m_pfExitConditionFunction = ExitCondition;
 	iisInit.m_pfFatalErrorMessageFunction = ShowFatalErrorMessage;
@@ -24,7 +28,7 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
-	if (!IR_LoadScriptFromPath("test script/main.ir")) {
+	if (!IR_LoadScriptFromPath(argv[1])) {
 		cout << "Error when loading script!" << endl;
 		return 0;
 	}

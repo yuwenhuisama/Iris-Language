@@ -32,7 +32,7 @@ bool IrisForStatement::Generate() {
 	pMaker->assign_vsl();
 	pMaker->push_env();
 	pMaker->cre_env();
-	pMaker->nol_call(pCompiler->GetIdentifierIndex("get_iterator", pCompiler->GetCurrentFileIndex()), 0);
+	pMaker->nol_call(pCompiler->GetIdentifierIndex("get_iterator", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 	pMaker->pop_env();
 	pMaker->assign_iter();
 	pMaker->push_deep(pCompiler->GetDefineIndex() + 1);
@@ -47,7 +47,7 @@ bool IrisForStatement::Generate() {
 	pMaker->load_iter();
 	pMaker->push_env();
 	pMaker->cre_env();
-	pMaker->nol_call(pCompiler->GetIdentifierIndex("next", pCompiler->GetCurrentFileIndex()), 0);
+	pMaker->nol_call(pCompiler->GetIdentifierIndex("next", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 	pMaker->pop_env();
 
 	//****
@@ -58,7 +58,7 @@ bool IrisForStatement::Generate() {
 	pMaker->load_iter();
 	pMaker->push_env();
 	pMaker->cre_env();
-	pMaker->nol_call(pCompiler->GetIdentifierIndex("is_end", pCompiler->GetCurrentFileIndex()), 0);
+	pMaker->nol_call(pCompiler->GetIdentifierIndex("is_end", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 	pMaker->pop_env();
 	pMaker->jt(pLabelJumpToEnd);
 
@@ -67,7 +67,7 @@ bool IrisForStatement::Generate() {
 		pMaker->load_iter();
 		pMaker->push_env();
 		pMaker->cre_env();
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		pMaker->pop_env();
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter1->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	}
@@ -75,14 +75,14 @@ bool IrisForStatement::Generate() {
 		pMaker->load_iter();
 		pMaker->push_env();
 		pMaker->cre_env();
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_key", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_key", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		pMaker->pop_env();
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter1->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	
 		pMaker->load_iter();
 		pMaker->push_env();
 		pMaker->cre_env();
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("get_value", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		pMaker->pop_env();
 		pMaker->assign(IrisAMType::LocalValue, pCompiler->GetIdentifierIndex(m_pIter2->GetIdentifierString(), pCompiler->GetCurrentFileIndex()));
 	}

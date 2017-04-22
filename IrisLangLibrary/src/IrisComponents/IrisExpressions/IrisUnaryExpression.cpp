@@ -20,16 +20,16 @@ bool IrisUnaryExpression::Generate()
 	switch (m_eType)
 	{
 	case LogicNot:
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("!", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("!", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		break;
 	case BitNot:
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("~", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("~", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		break;
 	case Minus:
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("__minus", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("__minus", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		break;
 	case Plus:
-		pMaker->nol_call(pCompiler->GetIdentifierIndex("__plus", pCompiler->GetCurrentFileIndex()), 0);
+		pMaker->nol_call(pCompiler->GetIdentifierIndex("__plus", pCompiler->GetCurrentFileIndex()), pCompiler->GetCurrentFileIndex());
 		break;
 	default:
 		break;

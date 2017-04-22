@@ -146,7 +146,7 @@ bool IrisInterpreter::ShutDown() {
 	typedef bool(*RelFunc)();
 
 	for (auto hModule : m_emLoadedExtention) {
-		RelFunc pfFunc = (RelFunc)GetProcAddress(hModule.second, "IR_Release");
+		RelFunc pfFunc = reinterpret_cast<RelFunc>(GetProcAddress(hModule.second, "IR_Release"));
 		pfFunc();
 		::FreeLibrary(hModule.second);
 	}
@@ -842,9 +842,6 @@ bool IrisInterpreter::RunCode(vector<IR_WORD>& vcVector, unsigned int nStartPoin
 		case BLK: // blk
 			bResult = blk(vcVector, nCodePointer, pThreadInfo);
 			break;
-		//case 62: // cast
-		//	bResult = cast(vcVector, nCodePointer);
-		//	break;
 		case REG_IRP: // reg_irp
 			bResult = reg_irp(vcVector, nCodePointer, pThreadInfo);
 			break;
@@ -2427,7 +2424,7 @@ bool IrisInterpreter::str_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		// Block
 		// 如果下一条指令不为blk_def则报错
 		IR_BYTE bInstructor = vcVector[nCodePointer += 2] >> 8;
-		if (bInstructor != 18) {
+		if (bInstructor != BLK_DEF) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
 				pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex,
@@ -2492,7 +2489,7 @@ bool IrisInterpreter::gtr_def(vector<IR_WORD>& vcVector, unsigned int& nCodePoin
 		// Block
 		// 如果下一条指令不为blk_def则报错
 		IR_BYTE bInstructor = vcVector[nCodePointer += 2] >> 8;
-		if (bInstructor != 18) {
+		if (bInstructor != BLK_DEF) {
 			// ** Error **
 			IrisFatalErrorHandler::CurrentFatalHandler()->ShowFatalErrorMessage(IrisFatalErrorHandler::FatalErrorType::UnkownIrregular,
 				pThreadInfo->m_nCurrentLineNumber, pThreadInfo->m_nCurrentFileIndex,

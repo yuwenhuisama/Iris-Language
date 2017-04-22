@@ -255,42 +255,6 @@ public:
 		pThreadInfo->m_pEnvrionmentRegister->m_skUnimitedLoopFlag.pop_back();
 	}
 
-
-	//inline int GetCurrentDepth(IrisThreadInfo* pThreadInfo) {
-	//	return pThreadInfo->m_nEndDeepRegister;
-	//}
-
-	//inline int GetDepthDiff(IrisThreadInfo* pThreadInfo) {
-	//	return pThreadInfo->m_nEndDeepRegister - pThreadInfo->m_nStartDeepRegister + 1;
-	//}
-
-	//inline void PushDepth(int nDeep, IrisThreadInfo* pThreadInfo) {
-	//	pThreadInfo->m_nEndDeepRegister = nDeep;
-
-	//	if (pThreadInfo->m_nStartDeepRegister == -1) {
-	//		pThreadInfo->m_nStartDeepRegister = nDeep;
-	//	}
-	//}
-
-	//inline void PopDepth(IrisThreadInfo* pThreadInfo) {
-	//	--pThreadInfo->m_nEndDeepRegister;
-	//	if (pThreadInfo->m_nEndDeepRegister < pThreadInfo->m_nStartDeepRegister) {
-	//		pThreadInfo->m_nEndDeepRegister = pThreadInfo->m_nStartDeepRegister = -1;
-	//	}
-	//}
-
-	//inline unsigned int GetTopDeepIndex(IrisThreadInfo* pThreadInfo) {
-	//	return pThreadInfo->m_skDeepStack.empty() ? -1 : pThreadInfo->m_skDeepStack.back(); 
-	//}
-	//inline void PushDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.push_back(nIndex); }
-	//inline void PopTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.pop_back(); }
-	//inline void ClearDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skDeepStack.clear(); }
-
-	//inline unsigned int GetTopMethodDeepIndex(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_skMethodDeepStack.back(); }
-	//inline void PushMethodDeepIndex(unsigned int nIndex, IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.push_back(nIndex); }
-	//inline void PopMethodTopDeepIndex(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.pop_back(); }
-	//inline void ClearMethodDeepStack(IrisThreadInfo* pThreadInfo) { pThreadInfo->m_skMethodDeepStack.clear(); }
-
 	inline const IrisValue& GetCurrentResultRegister(IrisThreadInfo* pThreadInfo) { return pThreadInfo->m_ivResultRegister; }
 
 	inline IrisContextEnvironment* GetCurrentContextEnvrionment(IrisThreadInfo* pThreadInfo) {
@@ -372,27 +336,7 @@ public:
 			return ivResult;
 		}
 	}
-/*
-#if IR_USE_STL_STRING
-	inline const IrisValue& GetOtherValue(const string& strValueName, bool& bResult) {
-#else
-	inline const IrisValue& GetOtherValue(const IrisInternString& strValueName, bool& bResult) {
-#endif // IR_USE_STL_STRING
-		bResult = true;
-		m_iwlOtherVariableLock.ReadLock();
-		decltype(m_mpOtherValues)::iterator iOth;
-		if ((iOth = m_mpOtherValues.find(strValueName)) == m_mpOtherValues.end()) {
-			bResult = false;
-			m_iwlOtherVariableLock.ReadUnlock();
-			return m_ivNil;
-		}
-		else {
-			auto& ivResult = iOth->second;
-			m_iwlOtherVariableLock.ReadUnlock();
-			return ivResult;
-		}
-	}
-*/
+
 #if IR_USE_STL_STRING
 	inline IrisMethod* GetMainMethod(const string& strMethodName);
 #else
@@ -486,7 +430,6 @@ public:
 	bool def_infs(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 	bool cblk_def(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 	bool blk(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
-	//bool cast(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 	bool reg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 	bool ureg_irp(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
 	bool assign_ir(vector<IR_WORD>& vcVector, unsigned int& nCodePointer, IrisThreadInfo* pThreadInfo);
