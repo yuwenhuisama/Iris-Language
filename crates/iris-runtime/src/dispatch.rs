@@ -25,6 +25,35 @@ pub enum DispatchError {
     },
     /// Binding cannot create a BoundMethod for an absent ordinary selector.
     MissingMethod { selector: Selector },
+    /// The retained Method lexical owner is not in the receiver's current MRO.
+    InvalidSuper { selector: Selector },
+    /// No same-selector implementation follows the lexical owner in current MRO.
+    NoSuperMethod { selector: Selector },
+}
+
+/// Lexical authority supplied by an evaluator for an ordinary message send.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DispatchContext {
+    lexical_class: Option<ClassId>,
+    receiver_is_self: bool,
+}
+
+impl DispatchContext {
+    /// Represents an external send with no implementation authority.
+    pub const fn external() -> Self {
+        Self {
+            lexical_class: None,
+            receiver_is_self: false,
+        }
+    }
+
+    /// Represents code lexically owned by one Class.
+    pub const fn implementation(lexical_class: ClassId, receiver_is_self: bool) -> Self {
+        Self {
+            lexical_class: Some(lexical_class),
+            receiver_is_self,
+        }
+    }
 }
 
 impl crate::ClassRegistry {
@@ -56,6 +85,14 @@ impl crate::ClassRegistry {
         body: MethodBody,
         visibility: Visibility,
     ) -> Result<Method, ClassError> {
+        let capability = if self.active(class)?.methods().contains_key(&selector) {
+            crate::Capability::MethodBody
+        } else {
+            crate::Capability::MethodSet
+        };
+        if !self.active_meta_capabilities(class)?.allows(capability) {
+            return Err(ClassError::MetaCapabilityDenied { class, capability });
+        }
         let method = Method::new(
             self.next_method()?,
             MethodOwner::Class(class),
@@ -77,6 +114,19 @@ impl crate::ClassRegistry {
         selector: Selector,
         initializer: MethodBody,
     ) -> Result<(), ClassError> {
+        let capability = if self
+            .active(class)?
+            .properties()
+            .iter()
+            .any(|property| property.selector() == selector)
+        {
+            crate::Capability::PropertyBody
+        } else {
+            crate::Capability::PropertySet
+        };
+        if !self.active_meta_capabilities(class)?.allows(capability) {
+            return Err(ClassError::MetaCapabilityDenied { class, capability });
+        }
         let mut candidate = self.open(class)?;
         candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
         self.publish(candidate)?;
@@ -96,6 +146,16 @@ impl crate::ClassRegistry {
         class: ClassId,
         selector: Selector,
     ) -> Result<DispatchOutcome, DispatchError> {
+        self.dispatch_with_context(class, selector, DispatchContext::external())
+    }
+
+    /// Resolves an ordinary selector with the caller's lexical visibility authority.
+    pub fn dispatch_with_context(
+        &self,
+        class: ClassId,
+        selector: Selector,
+        context: DispatchContext,
+    ) -> Result<DispatchOutcome, DispatchError> {
         for entry in self.active(class).map_err(DispatchError::Class)?.mro() {
             let found = match entry {
                 MroEntry::Class(owner) => self
@@ -108,13 +168,42 @@ impl crate::ClassRegistry {
                 MroEntry::Module(module) => self.modules.method(*module, selector),
             };
             if let Some(method) = found {
-                return match method.visibility() {
-                    Visibility::Public => Ok(DispatchOutcome::Invoke(method)),
-                    Visibility::Private => Err(DispatchError::VisibilityDenied { selector }),
-                };
+                if self.authorizes(class, method, context)? {
+                    return Ok(DispatchOutcome::Invoke(method));
+                }
+                return Err(DispatchError::VisibilityDenied { selector });
             }
         }
         Ok(DispatchOutcome::WouldInvokeMethodMissing { selector })
+    }
+
+    fn authorizes(
+        &self,
+        receiver: ClassId,
+        method: Method,
+        context: DispatchContext,
+    ) -> Result<bool, DispatchError> {
+        match method.visibility() {
+            Visibility::Public => Ok(true),
+            Visibility::Private => Ok(matches!(
+                (method.owner(), context.lexical_class),
+                (MethodOwner::Class(owner), Some(caller)) if owner == caller
+            )),
+            Visibility::Protected => match (method.owner(), context.lexical_class) {
+                (MethodOwner::Class(owner), Some(caller)) => Ok(context.receiver_is_self
+                    && self
+                        .active(caller)
+                        .map_err(DispatchError::Class)?
+                        .mro()
+                        .contains(&MroEntry::Class(owner))
+                    && self
+                        .active(receiver)
+                        .map_err(DispatchError::Class)?
+                        .mro()
+                        .contains(&MroEntry::Class(owner))),
+                (MethodOwner::Module(_), _) | (MethodOwner::Class(_), None) => Ok(false),
+            },
+        }
     }
     /// Binds the exact Method identity selected at binding time.
     pub fn bind(
@@ -141,6 +230,39 @@ impl crate::ClassRegistry {
     ) -> Result<DispatchOutcome, DispatchError> {
         self.active(class).map_err(DispatchError::Class)?;
         Err(DispatchError::ContractDispatch { contract, selector })
+    }
+
+    /// Resolves the same selector after a Method's lexical owner in current receiver MRO.
+    pub fn dispatch_super(&self, class: ClassId, method: Method) -> Result<Method, DispatchError> {
+        let mro = self.active(class).map_err(DispatchError::Class)?.mro();
+        let owner = match method.owner() {
+            MethodOwner::Class(owner) => MroEntry::Class(owner),
+            MethodOwner::Module(owner) => MroEntry::Module(owner),
+        };
+        let index =
+            mro.iter()
+                .position(|entry| *entry == owner)
+                .ok_or(DispatchError::InvalidSuper {
+                    selector: method.selector(),
+                })?;
+        for entry in &mro[index + 1..] {
+            let successor = match entry {
+                MroEntry::Class(owner) => self
+                    .active(*owner)
+                    .map_err(DispatchError::Class)?
+                    .methods()
+                    .get(&method.selector())
+                    .and_then(|id| self.methods.get(id))
+                    .copied(),
+                MroEntry::Module(module) => self.modules.method(*module, method.selector()),
+            };
+            if let Some(successor) = successor {
+                return Ok(successor);
+            }
+        }
+        Err(DispatchError::NoSuperMethod {
+            selector: method.selector(),
+        })
     }
 
     pub(crate) fn next_method(&mut self) -> Result<MethodId, ClassError> {

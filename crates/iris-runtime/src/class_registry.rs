@@ -3,8 +3,8 @@ use std::{collections::HashMap, error::Error};
 
 use crate::module_registry::ModuleRegistry;
 use crate::{
-    CandidateRevision, ClassId, ClassRevision, LogicalClass, Method, MethodId, RevisionId,
-    StaticSpine,
+    BuiltinClass, CandidateRevision, Capability, ClassId, ClassRevision, LogicalClass,
+    MetaCapabilities, Method, MethodId, RevisionId, StaticSpine,
 };
 
 /// A recoverable failure from Class revision management.
@@ -12,17 +12,32 @@ use crate::{
 pub enum ClassError {
     UnknownClassId(ClassId),
     UnknownRevisionId(RevisionId),
-    StaleCandidate { class: ClassId },
-    StaticSpineDowngrade { class: ClassId },
-    DuplicateClassInGroup { class: ClassId },
+    StaleCandidate {
+        class: ClassId,
+    },
+    StaticSpineDowngrade {
+        class: ClassId,
+    },
+    DuplicateClassInGroup {
+        class: ClassId,
+    },
     RevisionArtifactUnavailable(RevisionId),
     RevisionIdentityExhausted,
     CommitIdentityExhausted,
-    RevisionNumberExhausted { class: ClassId },
+    RevisionNumberExhausted {
+        class: ClassId,
+    },
     ClassIdentityExhausted,
     MethodIdentityExhausted,
     UnknownModuleId(crate::ModuleId),
     ModuleCompositionCycle(crate::ModuleId),
+    ProtectedSuperclass {
+        class: ClassId,
+    },
+    MetaCapabilityDenied {
+        class: ClassId,
+        capability: Capability,
+    },
 }
 
 impl fmt::Display for ClassError {
@@ -43,6 +58,8 @@ impl fmt::Display for ClassError {
             Self::MethodIdentityExhausted => "Iris Method identity space exhausted",
             Self::UnknownModuleId(_) => "unknown Iris Module identity",
             Self::ModuleCompositionCycle(_) => "cyclic Iris Module composition",
+            Self::ProtectedSuperclass { .. } => "Iris built-in Class superclass is protected",
+            Self::MetaCapabilityDenied { .. } => "Iris Class meta capability denied",
         };
         formatter.write_str(message)
     }
@@ -62,6 +79,7 @@ pub struct ClassRegistry {
     pub(crate) next_commit_id: u64,
     pub(crate) next_method_id: u64,
     pub(crate) next_bound_method_id: u64,
+    pub(crate) builtins: HashMap<ClassId, BuiltinClass>,
 }
 
 impl ClassRegistry {
@@ -75,6 +93,20 @@ impl ClassRegistry {
         &mut self,
         static_spine: StaticSpine,
         runtime_superclass: Option<ClassId>,
+    ) -> Result<ClassId, ClassError> {
+        self.define_class_with_capabilities(
+            static_spine,
+            runtime_superclass,
+            MetaCapabilities::all(),
+        )
+    }
+
+    /// Defines a Class with an immutable origin meta-operation policy.
+    pub fn define_class_with_capabilities(
+        &mut self,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+        capabilities: MetaCapabilities,
     ) -> Result<ClassId, ClassError> {
         let class = ClassId::new(self.next_class_id);
         let revision = RevisionId::new(self.next_revision_id);
@@ -99,13 +131,25 @@ impl ClassRegistry {
         );
         self.revisions.insert(
             revision,
-            ClassRevision::from_candidate(candidate, revision, next_commit_id),
+            ClassRevision::from_candidate(candidate, revision, next_commit_id, capabilities),
         );
         self.classes
             .insert(class, LogicalClass::new(class, revision));
         self.next_class_id = next_class_id;
         self.next_revision_id = next_revision_id;
         self.next_commit_id = next_commit_id;
+        Ok(class)
+    }
+
+    /// Defines a protected built-in value Class.
+    pub fn define_builtin_class(
+        &mut self,
+        kind: BuiltinClass,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+    ) -> Result<ClassId, ClassError> {
+        let class = self.define_class(static_spine, runtime_superclass)?;
+        self.builtins.insert(class, kind);
         Ok(class)
     }
 
@@ -132,6 +176,11 @@ impl ClassRegistry {
     /// Returns metadata for the Class's current active revision.
     pub fn active(&self, class: ClassId) -> Result<&ClassRevision, ClassError> {
         self.revision(self.active_revision(class)?)
+    }
+
+    /// Returns the current revision's immutable effective meta policy.
+    pub fn active_meta_capabilities(&self, class: ClassId) -> Result<MetaCapabilities, ClassError> {
+        Ok(self.active(class)?.meta_capabilities())
     }
 
     /// Opens a candidate from the Class's sole active revision.

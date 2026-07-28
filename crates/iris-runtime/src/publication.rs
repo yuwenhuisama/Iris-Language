@@ -30,7 +30,8 @@ impl ClassRegistry {
             .map(|candidate| {
                 let id = RevisionId::new(next_revision_id);
                 next_revision_id += 1;
-                ClassRevision::from_candidate(candidate, id, commit_id)
+                let capabilities = candidate.meta_capabilities;
+                ClassRevision::from_candidate(candidate, id, commit_id, capabilities)
             })
             .collect::<Vec<_>>();
         for revision in &published {
@@ -73,6 +74,13 @@ impl ClassRegistry {
             }
             if active.static_spine() != candidate.static_spine {
                 return Err(ClassError::StaticSpineDowngrade {
+                    class: candidate.owner,
+                });
+            }
+            if self.builtins.contains_key(&candidate.owner)
+                && active.runtime_superclass() != candidate.runtime_superclass
+            {
+                return Err(ClassError::ProtectedSuperclass {
                     class: candidate.owner,
                 });
             }

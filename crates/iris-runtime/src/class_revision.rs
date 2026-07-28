@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{ClassId, MethodBody, MethodId, ModuleId, RevisionId, Selector};
+use crate::{
+    Capability, ClassId, MetaCapabilities, MethodBody, MethodId, ModuleId, RevisionId, Selector,
+};
 
 /// One revision-owned stored property initializer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,6 +103,7 @@ pub struct ClassRevision {
     methods: BTreeMap<Selector, MethodId>,
     properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
+    meta_capabilities: MetaCapabilities,
 }
 
 impl ClassRevision {
@@ -108,6 +111,7 @@ impl ClassRevision {
         candidate: CandidateRevision,
         id: RevisionId,
         commit_id: u64,
+        meta_capabilities: MetaCapabilities,
     ) -> Self {
         Self {
             id,
@@ -121,6 +125,7 @@ impl ClassRevision {
             methods: candidate.methods,
             properties: candidate.properties,
             class_vars: candidate.class_vars,
+            meta_capabilities,
         }
     }
 
@@ -178,6 +183,11 @@ impl ClassRevision {
     pub const fn class_vars(&self) -> &BTreeSet<Selector> {
         &self.class_vars
     }
+
+    /// Returns this revision's immutable effective meta-operation policy.
+    pub const fn meta_capabilities(&self) -> MetaCapabilities {
+        self.meta_capabilities
+    }
 }
 
 /// Unpublished, mutable class metadata derived from one active revision.
@@ -193,6 +203,7 @@ pub struct CandidateRevision {
     pub(crate) methods: BTreeMap<Selector, MethodId>,
     pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
+    pub(crate) meta_capabilities: MetaCapabilities,
 }
 
 impl CandidateRevision {
@@ -214,6 +225,7 @@ impl CandidateRevision {
             methods: BTreeMap::new(),
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
+            meta_capabilities: MetaCapabilities::all(),
         }
     }
 
@@ -229,6 +241,7 @@ impl CandidateRevision {
             methods: revision.methods.clone(),
             properties: revision.properties.clone(),
             class_vars: revision.class_vars.clone(),
+            meta_capabilities: revision.meta_capabilities,
         })
     }
 
@@ -279,5 +292,10 @@ impl CandidateRevision {
     /// Replaces the candidate static spine; publication rejects a changed spine.
     pub fn replace_static_spine(&mut self, spine: StaticSpine) {
         self.static_spine = spine;
+    }
+
+    /// Applies source-level meta denies, which can only narrow authorization.
+    pub fn deny_meta(&mut self, capabilities: &[Capability]) {
+        self.meta_capabilities.deny(capabilities);
     }
 }

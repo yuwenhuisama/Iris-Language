@@ -22,6 +22,8 @@ pub enum Visibility {
     Public,
     /// The Method is found but unavailable to ordinary external dispatch.
     Private,
+    /// The Method is available only to implementation code in its nominal hierarchy.
+    Protected,
 }
 
 /// Immutable identity-bearing Method definition.
