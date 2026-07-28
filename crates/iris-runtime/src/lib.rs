@@ -2,6 +2,7 @@
 
 mod class_registry;
 mod class_revision;
+mod decorator;
 mod dispatch;
 mod heap;
 mod identity;
@@ -21,6 +22,7 @@ pub use class_registry::{ClassError, ClassRegistry};
 pub use class_revision::{
     CandidateRevision, ClassRevision, LogicalClass, MroEntry, StaticSpine, StoredProperty,
 };
+pub use decorator::{AppliedDecorator, DecoratorTransform, DecoratorViolation};
 pub use dispatch::{DispatchContext, DispatchError, DispatchOutcome};
 pub use heap::{HeapObject, HeapPayload, RuntimeError, RuntimeHeap};
 pub use identity::{ClassId, MethodId, ModuleId, ObjectId, RevisionId, Selector};

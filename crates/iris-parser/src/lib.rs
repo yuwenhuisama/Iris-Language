@@ -7,9 +7,9 @@ mod expression_tests;
 
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
-    ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression, MatchArm,
-    MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration, Pattern, Program, Statement,
-    TypeExpression, Visibility,
+    ClassDeclaration, Constraint, ContractDeclaration, Declaration, Decorator, Expression,
+    MatchArm, MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration, Pattern, Program,
+    Statement, TypeExpression, Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -236,27 +236,34 @@ impl Parser {
             if self.consume("\n") {
                 continue;
             }
+            let decorators = self.decorators();
             match self.peek() {
                 Some("open") if self.peek_next() == Some("class") => self
-                    .class_declaration()
+                    .class_declaration(decorators)
                     .map(|value| program.declarations.push(Declaration::Class(value))),
                 Some("class") => self
-                    .class_declaration()
+                    .class_declaration(decorators)
                     .map(|value| program.declarations.push(Declaration::Class(value))),
                 Some("module") => self
-                    .module_declaration()
+                    .module_declaration(decorators)
                     .map(|value| program.declarations.push(Declaration::Module(value))),
                 Some("contract") => self
-                    .contract_declaration()
+                    .contract_declaration(decorators)
                     .map(|value| program.declarations.push(Declaration::Contract(value))),
-                _ => self.statement().map(|value| program.statements.push(value)),
+                _ if decorators.is_empty() => {
+                    self.statement().map(|value| program.statements.push(value))
+                }
+                _ => {
+                    self.error("PARSE_UNEXPECTED_TOKEN");
+                    None
+                }
             };
             self.consume_terminators();
         }
         program
     }
 
-    fn class_declaration(&mut self) -> Option<ClassDeclaration> {
+    fn class_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ClassDeclaration> {
         let reopen = self.consume("open");
         self.expect("class")?;
         let name = self.name()?;
@@ -310,6 +317,7 @@ impl Parser {
         }
         let body = self.body()?;
         Some(ClassDeclaration {
+            decorators,
             reopen,
             name,
             parameters,
@@ -322,7 +330,7 @@ impl Parser {
         })
     }
 
-    fn module_declaration(&mut self) -> Option<ModuleDeclaration> {
+    fn module_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ModuleDeclaration> {
         self.expect("module")?;
         let name = self.name()?;
         let parameters = self.generic_parameters();
@@ -362,6 +370,7 @@ impl Parser {
             }
         }
         Some(ModuleDeclaration {
+            decorators,
             name,
             parameters,
             mixins,
@@ -371,7 +380,7 @@ impl Parser {
         })
     }
 
-    fn contract_declaration(&mut self) -> Option<ContractDeclaration> {
+    fn contract_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ContractDeclaration> {
         self.expect("contract")?;
         let name = self.name()?;
         let parameters = self.generic_parameters();
@@ -411,6 +420,7 @@ impl Parser {
             }
         }
         Some(ContractDeclaration {
+            decorators,
             name,
             parameters,
             parents,
@@ -441,7 +451,12 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Option<Statement> {
+        let decorators = self.decorators();
         if self.consume("let") || self.consume("mut") || self.consume("const") {
+            if !decorators.is_empty() {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            }
             let binding = self.binding_name()?;
             if self.consume(":") {
                 self.type_expression()?;
@@ -500,6 +515,7 @@ impl Parser {
             }
             return self.body().map(|body| {
                 Statement::Method(MethodDeclaration {
+                    decorators,
                     kind,
                     selector,
                     parameters,
@@ -517,7 +533,15 @@ impl Parser {
             } else {
                 Expression::Literal("nil".into())
             };
-            return Some(Statement::StoredProperty { name, initializer });
+            return Some(Statement::StoredProperty {
+                decorators,
+                name,
+                initializer,
+            });
+        }
+        if !decorators.is_empty() {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            return None;
         }
         if self.consume("if") {
             let condition = self.expression(0)?;
@@ -732,6 +756,32 @@ impl Parser {
     fn selector(&mut self) -> Option<String> {
         let name = self.name()?;
         self.selector_suffix(name)
+    }
+    fn decorators(&mut self) -> Vec<Decorator> {
+        let mut decorators = Vec::new();
+        while self.check("@")
+            && self
+                .tokens
+                .get(self.cursor + 1)
+                .is_some_and(|token| is_identifier(&token.text))
+            && self
+                .tokens
+                .get(self.cursor + 2)
+                .is_some_and(|token| token.text == "(")
+        {
+            self.advance();
+            let Some(name) = self.name() else {
+                break;
+            };
+            if self.expect("(").is_none() {
+                break;
+            }
+            let Some(arguments) = self.arguments() else {
+                break;
+            };
+            decorators.push(Decorator { name, arguments });
+        }
+        decorators
     }
     fn selector_suffix(&mut self, mut selector: String) -> Option<String> {
         if self.consume("?") {
@@ -1104,6 +1154,22 @@ mod tests {
 
         // Then
         assert!(result.program_accepted, "{result:#?}");
+    }
+    #[test]
+    fn parses_stacked_decorators_without_reclassifying_raw_ivars() {
+        // Given
+        let decorated = "@outer(1) @inner(:tag) class A { @logged() public fun m() { @name } }";
+
+        // When
+        let result = parse(decorated);
+
+        // Then
+        assert!(result.program_accepted, "{result:#?}");
+        assert!(matches!(
+            result.program.declarations.as_slice(),
+            [Declaration::Class(class)]
+                if class.decorators.iter().map(|decorator| decorator.name.as_str()).eq(["outer", "inner"])
+        ));
     }
 
     #[test]

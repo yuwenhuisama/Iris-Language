@@ -18,7 +18,14 @@ pub enum Declaration {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Decorator {
+    pub name: String,
+    pub arguments: Vec<Expression>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClassDeclaration {
+    pub decorators: Vec<Decorator>,
     pub reopen: bool,
     pub name: String,
     pub parameters: Vec<String>,
@@ -32,6 +39,7 @@ pub struct ClassDeclaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleDeclaration {
+    pub decorators: Vec<Decorator>,
     pub name: String,
     pub parameters: Vec<String>,
     pub mixins: Vec<TypeExpression>,
@@ -42,6 +50,7 @@ pub struct ModuleDeclaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractDeclaration {
+    pub decorators: Vec<Decorator>,
     pub name: String,
     pub parameters: Vec<String>,
     pub parents: Vec<TypeExpression>,
@@ -75,6 +84,7 @@ pub enum Statement {
         value: Expression,
     },
     StoredProperty {
+        decorators: Vec<Decorator>,
         name: String,
         initializer: Expression,
     },
@@ -106,6 +116,7 @@ pub enum Statement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodDeclaration {
+    pub decorators: Vec<Decorator>,
     pub kind: MethodKind,
     pub selector: String,
     pub parameters: Vec<String>,
@@ -295,6 +306,7 @@ mod tests {
         // Given
         let program = Program {
             declarations: vec![Declaration::Class(ClassDeclaration {
+                decorators: Vec::new(),
                 reopen: false,
                 name: "Pair".into(),
                 parameters: vec!["T".into(), "U".into()],
@@ -332,6 +344,7 @@ mod tests {
         // Given
         let program = Program {
             declarations: vec![Declaration::Contract(ContractDeclaration {
+                decorators: Vec::new(),
                 name: "Child".into(),
                 parameters: Vec::new(),
                 parents: vec![
@@ -454,6 +467,7 @@ mod tests {
 
     fn empty_class(name: &str, extends: Option<TypeExpression>) -> ClassDeclaration {
         ClassDeclaration {
+            decorators: Vec::new(),
             reopen: false,
             name: name.into(),
             parameters: Vec::new(),

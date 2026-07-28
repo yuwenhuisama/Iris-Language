@@ -3,8 +3,8 @@ use std::{collections::HashMap, error::Error};
 
 use crate::module_registry::ModuleRegistry;
 use crate::{
-    BuiltinClass, CandidateRevision, Capability, ClassId, ClassRevision, LogicalClass,
-    MetaCapabilities, Method, MethodId, RevisionId, StaticSpine,
+    BuiltinClass, CandidateRevision, Capability, ClassId, ClassRevision, DecoratorTransform,
+    DecoratorViolation, LogicalClass, MetaCapabilities, Method, MethodId, RevisionId, StaticSpine,
 };
 
 /// A recoverable failure from Class revision management.
@@ -38,6 +38,10 @@ pub enum ClassError {
         class: ClassId,
         capability: Capability,
     },
+    DecoratorViolation {
+        class: ClassId,
+        violation: DecoratorViolation,
+    },
 }
 
 impl fmt::Display for ClassError {
@@ -60,6 +64,9 @@ impl fmt::Display for ClassError {
             Self::ModuleCompositionCycle(_) => "cyclic Iris Module composition",
             Self::ProtectedSuperclass { .. } => "Iris built-in Class superclass is protected",
             Self::MetaCapabilityDenied { .. } => "Iris Class meta capability denied",
+            Self::DecoratorViolation { .. } => {
+                "Iris decorator changed forbidden declaration metadata"
+            }
         };
         formatter.write_str(message)
     }
@@ -193,6 +200,16 @@ impl ClassRegistry {
     pub fn publish(&mut self, candidate: CandidateRevision) -> Result<ClassRevision, ClassError> {
         let mut revisions = self.publish_group([candidate])?;
         revisions.pop().ok_or(ClassError::RevisionIdentityExhausted)
+    }
+
+    /// Applies declaration decorators to an unpublished candidate before atomic publication.
+    pub fn publish_decorated(
+        &mut self,
+        mut candidate: CandidateRevision,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+    ) -> Result<ClassRevision, ClassError> {
+        candidate.stage_decorators(decorators);
+        self.publish(candidate)
     }
 
     /// Rebuilds a candidate from a retained artifact and publishes new history.

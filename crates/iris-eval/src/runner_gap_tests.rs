@@ -331,3 +331,15 @@ fn source_omitted_return_type_remains_dynamic() {
     // Then
     assert_eq!(result, Ok(RuntimeValue::Integer(42_u8.into())));
 }
+
+#[test]
+fn source_decorated_class_publishes_and_evaluates_its_method() {
+    // Given
+    let source = "@logged() class A { public fun m() -> Integer { 1 } }; A.new().m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(1_u8.into())));
+}

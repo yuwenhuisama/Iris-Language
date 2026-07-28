@@ -1,4 +1,7 @@
-use iris_runtime::{ClassError, ClassRegistry, ModuleId, RevisionId, StaticSpine};
+use iris_runtime::{
+    ClassError, ClassRegistry, DecoratorTransform, DecoratorViolation, ModuleId, RevisionId,
+    StaticSpine,
+};
 
 fn origin(registry: &mut ClassRegistry) -> Result<iris_runtime::ClassId, ClassError> {
     registry.define_class(StaticSpine::new(1), None)
@@ -149,6 +152,81 @@ fn rollback_of_unknown_revision_returns_a_typed_error() -> Result<(), ClassError
     assert_eq!(
         result,
         Err(ClassError::RevisionArtifactUnavailable(RevisionId::new(99)))
+    );
+    Ok(())
+}
+
+#[test]
+fn decorators_apply_in_written_order_inside_the_publication_transaction() -> Result<(), ClassError>
+{
+    // Given
+    let mut registry = ClassRegistry::new();
+    let class = origin(&mut registry)?;
+    let candidate = registry.open(class)?;
+
+    // When
+    let revision = registry.publish_decorated(
+        candidate,
+        [
+            DecoratorTransform::metadata("outer", ["one"]),
+            DecoratorTransform::metadata("inner", ["two"]),
+        ],
+    )?;
+
+    // Then
+    assert_eq!(
+        revision
+            .decorators()
+            .iter()
+            .map(|decorator| decorator.identity())
+            .collect::<Vec<_>>(),
+        ["outer", "inner"].to_vec()
+    );
+    Ok(())
+}
+
+#[test]
+fn decorator_changing_nominal_identity_is_rejected_with_typed_c091_error() -> Result<(), ClassError>
+{
+    // Given
+    let mut registry = ClassRegistry::new();
+    let class = origin(&mut registry)?;
+    let active = registry.active_revision(class)?;
+    let candidate = registry.open(class)?;
+
+    // When
+    let result = registry.publish_decorated(candidate, [DecoratorTransform::ChangeNominalIdentity]);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(ClassError::DecoratorViolation {
+            class,
+            violation: DecoratorViolation::NominalIdentity,
+        })
+    );
+    assert_eq!(registry.active_revision(class)?, active);
+    Ok(())
+}
+
+#[test]
+fn decorator_changing_declaration_kind_is_rejected_with_typed_c091_error() -> Result<(), ClassError>
+{
+    // Given
+    let mut registry = ClassRegistry::new();
+    let class = origin(&mut registry)?;
+    let candidate = registry.open(class)?;
+
+    // When
+    let result = registry.publish_decorated(candidate, [DecoratorTransform::ChangeDeclarationKind]);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(ClassError::DecoratorViolation {
+            class,
+            violation: DecoratorViolation::DeclarationKind,
+        })
     );
     Ok(())
 }

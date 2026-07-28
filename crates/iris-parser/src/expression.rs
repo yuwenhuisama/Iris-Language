@@ -120,7 +120,7 @@ impl Parser {
         Some(Expression::Array(values))
     }
 
-    fn arguments(&mut self) -> Option<Vec<Expression>> {
+    pub(super) fn arguments(&mut self) -> Option<Vec<Expression>> {
         self.delimited_expressions(")")
     }
 

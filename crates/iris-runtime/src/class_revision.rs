@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Capability, ClassId, MetaCapabilities, MethodBody, MethodId, ModuleId, RevisionId, Selector,
+    AppliedDecorator, Capability, ClassId, DecoratorTransform, MetaCapabilities, MethodBody,
+    MethodId, ModuleId, RevisionId, Selector,
 };
 
 /// One revision-owned stored property initializer.
@@ -104,6 +105,7 @@ pub struct ClassRevision {
     properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
     meta_capabilities: MetaCapabilities,
+    decorators: Vec<AppliedDecorator>,
 }
 
 impl ClassRevision {
@@ -126,6 +128,7 @@ impl ClassRevision {
             properties: candidate.properties,
             class_vars: candidate.class_vars,
             meta_capabilities,
+            decorators: candidate.decorators,
         }
     }
 
@@ -188,6 +191,11 @@ impl ClassRevision {
     pub const fn meta_capabilities(&self) -> MetaCapabilities {
         self.meta_capabilities
     }
+
+    /// Returns decorators applied to this revision in source order.
+    pub fn decorators(&self) -> &[AppliedDecorator] {
+        &self.decorators
+    }
 }
 
 /// Unpublished, mutable class metadata derived from one active revision.
@@ -204,6 +212,8 @@ pub struct CandidateRevision {
     pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
     pub(crate) meta_capabilities: MetaCapabilities,
+    pub(crate) decorators: Vec<AppliedDecorator>,
+    pub(crate) pending_decorators: Vec<DecoratorTransform>,
 }
 
 impl CandidateRevision {
@@ -226,6 +236,8 @@ impl CandidateRevision {
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
             meta_capabilities: MetaCapabilities::all(),
+            decorators: Vec::new(),
+            pending_decorators: Vec::new(),
         }
     }
 
@@ -242,6 +254,16 @@ impl CandidateRevision {
             properties: revision.properties.clone(),
             class_vars: revision.class_vars.clone(),
             meta_capabilities: revision.meta_capabilities,
+            decorators: Vec::new(),
+            pending_decorators: revision
+                .decorators
+                .iter()
+                .cloned()
+                .map(|decorator| DecoratorTransform::Metadata {
+                    identity: decorator.identity,
+                    arguments: decorator.arguments,
+                })
+                .collect(),
         })
     }
 
@@ -297,5 +319,12 @@ impl CandidateRevision {
     /// Applies source-level meta denies, which can only narrow authorization.
     pub fn deny_meta(&mut self, capabilities: &[Capability]) {
         self.meta_capabilities.deny(capabilities);
+    }
+
+    pub(crate) fn stage_decorators(
+        &mut self,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+    ) {
+        self.pending_decorators.extend(decorators);
     }
 }

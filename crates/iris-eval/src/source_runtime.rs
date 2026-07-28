@@ -105,10 +105,15 @@ impl SourceEvaluator {
             self.mixins.insert(class, mixins);
             class
         };
+        self.publish_decorators(class, &declaration.decorators)?;
         for statement in &declaration.body {
             match statement {
-                Statement::StoredProperty { name, initializer } => {
-                    self.stored_property(class, name, initializer.clone())?;
+                Statement::StoredProperty {
+                    decorators,
+                    name,
+                    initializer,
+                } => {
+                    self.stored_property(class, decorators, name, initializer.clone())?;
                 }
                 Statement::Method(method) => self.class_method(class, method)?,
                 _ => return Err(EvaluationError::UnsupportedConstruct),
@@ -124,11 +129,12 @@ impl SourceEvaluator {
     ) -> Result<(), EvaluationError> {
         let body = self.register_body(method.clone());
         let selector = self.selector(&method.selector);
+        let decorators = self.decorator_transforms(&method.decorators);
         match method.kind {
             MethodKind::Instance => {
                 self.runtime
                     .registry_mut()
-                    .publish_method(class, selector, body, visibility(method))
+                    .publish_decorated_method(class, selector, body, visibility(method), decorators)
                     .map_err(EvaluationError::Class)?;
             }
             MethodKind::Class => {
@@ -147,7 +153,7 @@ impl SourceEvaluator {
                 let method_visibility = visibility(method);
                 self.runtime
                     .registry_mut()
-                    .publish_method(class, selector, body, method_visibility)
+                    .publish_decorated_method(class, selector, body, method_visibility, decorators)
                     .map_err(EvaluationError::Class)?;
             }
             MethodKind::Module => return Err(EvaluationError::UnsupportedConstruct),
@@ -158,10 +164,12 @@ impl SourceEvaluator {
     fn stored_property(
         &mut self,
         class: ClassId,
+        decorators: &[iris_syntax::Decorator],
         name: &str,
         initializer: Expression,
     ) -> Result<(), EvaluationError> {
         let getter = MethodDeclaration {
+            decorators: Vec::new(),
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -171,6 +179,7 @@ impl SourceEvaluator {
             )))],
         };
         let setter = MethodDeclaration {
+            decorators: Vec::new(),
             kind: MethodKind::Property,
             selector: format!("{name}="),
             parameters: vec!["value".into()],
@@ -182,6 +191,7 @@ impl SourceEvaluator {
             })],
         };
         let initializer = MethodDeclaration {
+            decorators: Vec::new(),
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -196,10 +206,50 @@ impl SourceEvaluator {
         self.class_method(class, &setter)?;
         let body = self.register_body(initializer);
         let property = self.selector(&format!("@{name}"));
+        let decorators = self.decorator_transforms(decorators);
         self.runtime
             .registry_mut()
-            .publish_stored_property(class, property, body)
+            .publish_decorated_stored_property(class, property, body, decorators)
             .map_err(EvaluationError::Class)
+    }
+
+    fn publish_decorators(
+        &mut self,
+        class: ClassId,
+        decorators: &[iris_syntax::Decorator],
+    ) -> Result<(), EvaluationError> {
+        if decorators.is_empty() {
+            return Ok(());
+        }
+        let candidate = self
+            .runtime
+            .registry_mut()
+            .open(class)
+            .map_err(EvaluationError::Class)?;
+        let transforms = self.decorator_transforms(decorators);
+        self.runtime
+            .registry_mut()
+            .publish_decorated(candidate, transforms)
+            .map_err(EvaluationError::Class)?;
+        Ok(())
+    }
+
+    fn decorator_transforms(
+        &self,
+        decorators: &[iris_syntax::Decorator],
+    ) -> Vec<iris_runtime::DecoratorTransform> {
+        decorators
+            .iter()
+            .map(|decorator| {
+                iris_runtime::DecoratorTransform::metadata(
+                    decorator.name.clone(),
+                    decorator
+                        .arguments
+                        .iter()
+                        .map(|argument| format!("{argument:?}")),
+                )
+            })
+            .collect()
     }
 
     fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {

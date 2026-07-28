@@ -261,3 +261,35 @@ fn property_set_and_property_body_are_independently_deniable() -> Result<(), Cla
     assert!(replace.is_ok());
     Ok(())
 }
+
+#[test]
+fn decorated_method_publication_respects_method_set_capability() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let class = registry.define_class(StaticSpine::new(1), None)?;
+    let mut candidate = registry.open(class)?;
+    candidate.deny_meta(&[Capability::MethodSet]);
+    registry.publish(candidate)?;
+
+    // When
+    let result = registry.publish_decorated_method(
+        class,
+        Selector::new(99),
+        MethodBody::new(1),
+        Visibility::Public,
+        [iris_runtime::DecoratorTransform::metadata(
+            "logged",
+            ["trace"],
+        )],
+    );
+
+    // Then
+    assert_eq!(
+        result,
+        Err(ClassError::MetaCapabilityDenied {
+            class,
+            capability: Capability::MethodSet,
+        })
+    );
+    Ok(())
+}

@@ -1,6 +1,6 @@
 use crate::{
-    BoundMethod, ClassError, ClassId, Method, MethodBody, MethodId, MethodOwner, ModuleId,
-    MroEntry, Selector, Visibility,
+    BoundMethod, ClassError, ClassId, DecoratorTransform, Method, MethodBody, MethodId,
+    MethodOwner, ModuleId, MroEntry, Selector, Visibility,
 };
 
 /// Result of resolving an ordinary send before evaluator invocation.
@@ -107,6 +107,38 @@ impl crate::ClassRegistry {
         Ok(method)
     }
 
+    /// Publishes a decorator-transformed Method through the ordinary capability-checked candidate.
+    pub fn publish_decorated_method(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        body: MethodBody,
+        visibility: Visibility,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+    ) -> Result<Method, ClassError> {
+        let capability = if self.active(class)?.methods().contains_key(&selector) {
+            crate::Capability::MethodBody
+        } else {
+            crate::Capability::MethodSet
+        };
+        if !self.active_meta_capabilities(class)?.allows(capability) {
+            return Err(ClassError::MetaCapabilityDenied { class, capability });
+        }
+        let method = Method::new(
+            self.next_method()?,
+            MethodOwner::Class(class),
+            selector,
+            body,
+            visibility,
+        );
+        let mut candidate = self.open(class)?;
+        candidate.stage_decorators(decorators);
+        candidate.replace_method(selector, method.id());
+        self.publish(candidate)?;
+        self.methods.insert(method.id(), method);
+        Ok(method)
+    }
+
     /// Publishes one stored-property initializer in declaration order.
     pub fn publish_stored_property(
         &mut self,
@@ -128,6 +160,34 @@ impl crate::ClassRegistry {
             return Err(ClassError::MetaCapabilityDenied { class, capability });
         }
         let mut candidate = self.open(class)?;
+        candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
+        self.publish(candidate)?;
+        Ok(())
+    }
+
+    /// Publishes a decorator-transformed stored property through normal capability checks.
+    pub fn publish_decorated_stored_property(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        initializer: MethodBody,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+    ) -> Result<(), ClassError> {
+        let capability = if self
+            .active(class)?
+            .properties()
+            .iter()
+            .any(|property| property.selector() == selector)
+        {
+            crate::Capability::PropertyBody
+        } else {
+            crate::Capability::PropertySet
+        };
+        if !self.active_meta_capabilities(class)?.allows(capability) {
+            return Err(ClassError::MetaCapabilityDenied { class, capability });
+        }
+        let mut candidate = self.open(class)?;
+        candidate.stage_decorators(decorators);
         candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
         self.publish(candidate)?;
         Ok(())

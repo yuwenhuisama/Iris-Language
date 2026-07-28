@@ -5,8 +5,11 @@ use crate::{CandidateRevision, ClassError, ClassRegistry, ClassRevision, Revisio
 impl ClassRegistry {
     pub fn publish_group<const N: usize>(
         &mut self,
-        candidates: [CandidateRevision; N],
+        mut candidates: [CandidateRevision; N],
     ) -> Result<Vec<ClassRevision>, ClassError> {
+        for candidate in &mut candidates {
+            crate::decorator::apply_pending(candidate)?;
+        }
         self.validate_group(&candidates)?;
         let candidates = candidates
             .into_iter()
