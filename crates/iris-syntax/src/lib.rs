@@ -1,5 +1,9 @@
 //! Syntax tree types shared by the Iris v1 front end.
 
+mod shape;
+
+pub use shape::{PRECEDENCE_ROWS_COVERED, render_parse_shape, render_parse_shapes};
+
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Program {
     pub declarations: Vec<Declaration>,
@@ -188,7 +192,10 @@ pub enum AssignmentOperator {
 
 #[cfg(test)]
 mod tests {
-    use super::{BinaryOperator, Expression, UnaryOperator};
+    use super::{
+        AssignmentOperator, BinaryOperator, Expression, PRECEDENCE_ROWS_COVERED, Program,
+        Statement, UnaryOperator, render_parse_shape, render_parse_shapes,
+    };
 
     #[test]
     fn expression_nodes_preserve_power_and_unary_shape() {
@@ -203,5 +210,145 @@ mod tests {
         };
 
         assert!(matches!(expression, Expression::Unary { .. }));
+    }
+
+    #[test]
+    fn render_parse_shapes_renders_v003_byte_exactly() {
+        let program = Program {
+            declarations: Vec::new(),
+            statements: vec![
+                Statement::Expression(power("2", power("3", leaf("2")))),
+                Statement::Expression(Expression::Unary {
+                    operator: UnaryOperator::Negate,
+                    operand: Box::new(power("2", leaf("2"))),
+                }),
+                Statement::Expression(power(
+                    "2",
+                    Expression::Unary {
+                        operator: UnaryOperator::Negate,
+                        operand: Box::new(leaf("3")),
+                    },
+                )),
+            ],
+        };
+
+        assert_eq!(
+            render_parse_shapes(&program),
+            ["2 ** (3 ** 2)", "-(2 ** 2)", "2 ** (-3)"]
+        );
+    }
+
+    #[test]
+    fn render_parse_shape_renders_conformance_v011_chain_byte_exactly() {
+        let chain = assign(
+            logical_or(logical_and(named_infix(
+                equality(
+                    relational(
+                        range(
+                            bit_or(
+                                bit_xor(
+                                    bit_and(
+                                        shift(
+                                            add(mul(power("a.b(c)[d]", unary("e")), "f"), "g"),
+                                            "h",
+                                        ),
+                                        "i",
+                                    ),
+                                    "j",
+                                ),
+                                "k",
+                            ),
+                            "l",
+                        ),
+                        "m",
+                    ),
+                    "n",
+                ),
+                "o",
+            ))),
+            "r",
+        );
+
+        assert_eq!(
+            render_parse_shape(&chain),
+            "assign(q_or_chain(logical_or(logical_and(named_infix(equality(relational(range(bit_or(bit_xor(bit_and(shift(add(mul(pow(primary_chain(a.b(c)[d]), unary(-e)), f), g), h), i), j), k), l), m), n), named, o), p)), r)"
+        );
+        assert_eq!(PRECEDENCE_ROWS_COVERED, 17);
+    }
+
+    #[test]
+    fn render_parse_shapes_rejects_one_character_mutation() {
+        let rendered = render_parse_shapes(&Program {
+            declarations: Vec::new(),
+            statements: vec![Statement::Expression(power("2", power("3", leaf("2"))))],
+        });
+
+        assert_ne!(rendered[0], "2 ** (3 ** 3)");
+    }
+
+    fn leaf(value: &str) -> Expression {
+        Expression::Name(value.into())
+    }
+
+    fn unary(value: &str) -> Expression {
+        Expression::Unary {
+            operator: UnaryOperator::Negate,
+            operand: Box::new(leaf(value)),
+        }
+    }
+
+    fn binary(left: Expression, operator: BinaryOperator, right: Expression) -> Expression {
+        Expression::Binary {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        }
+    }
+
+    fn power(left: &str, right: Expression) -> Expression {
+        binary(leaf(left), BinaryOperator::Power, right)
+    }
+    fn mul(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::Multiply, leaf(right))
+    }
+    fn add(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::Add, leaf(right))
+    }
+    fn shift(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::ShiftLeft, leaf(right))
+    }
+    fn bit_and(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::BitwiseAnd, leaf(right))
+    }
+    fn bit_xor(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::BitwiseXor, leaf(right))
+    }
+    fn bit_or(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::BitwiseOr, leaf(right))
+    }
+    fn range(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::RangeExclusive, leaf(right))
+    }
+    fn relational(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::Less, leaf(right))
+    }
+    fn equality(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::Equal, leaf(right))
+    }
+    fn named_infix(left: Expression, right: &str) -> Expression {
+        binary(left, BinaryOperator::NamedInfix, leaf(right))
+    }
+    fn logical_and(left: Expression) -> Expression {
+        binary(left, BinaryOperator::LogicalAnd, leaf("p"))
+    }
+    fn logical_or(left: Expression) -> Expression {
+        binary(left, BinaryOperator::LogicalOr, leaf("q"))
+    }
+    fn assign(left: Expression, right: &str) -> Expression {
+        Expression::Assignment {
+            left: Box::new(left),
+            operator: AssignmentOperator::Assign,
+            right: Box::new(leaf(right)),
+        }
     }
 }
