@@ -39,6 +39,10 @@ pub fn parse(source: &str) -> ParseResult {
     let lexer_tokens = lexed.tokens();
     let mut raw = Vec::new();
     for token in lexer_tokens {
+        if token.kind == TokenKind::Newline {
+            raw.push((token.kind, "\n"));
+            continue;
+        }
         let start = token.offset.0;
         let end = token_end(source, start, token.kind);
         let text = source.get(start..end).unwrap_or_default().trim();
@@ -89,7 +93,8 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         | TokenKind::LeftBrace
         | TokenKind::RightBrace
         | TokenKind::Colon
-        | TokenKind::Semicolon => 1,
+        | TokenKind::Semicolon
+        | TokenKind::Dot => 1,
     };
     start + width
 }
@@ -128,7 +133,23 @@ fn combine_fixed_operators(raw: &[(TokenKind, &str)]) -> Vec<Token> {
             .get(cursor + 1)
             .filter(|(next_kind, _)| *next_kind == TokenKind::SourceCharacter)
             .map(|(_, next)| format!("{text}{next}"));
+        let three_character_candidate = raw
+            .get(cursor + 1)
+            .zip(raw.get(cursor + 2))
+            .filter(|((next_kind, _), (last_kind, _))| {
+                *next_kind == TokenKind::SourceCharacter && *last_kind == TokenKind::SourceCharacter
+            })
+            .map(|((_, next), (_, last))| format!("{text}{next}{last}"));
         if kind == TokenKind::SourceCharacter
+            && three_character_candidate
+                .as_deref()
+                .is_some_and(is_three_character_operator)
+        {
+            tokens.push(Token {
+                text: three_character_candidate.unwrap_or_default(),
+            });
+            cursor += 3;
+        } else if kind == TokenKind::SourceCharacter
             && candidate.as_deref().is_some_and(is_two_character_operator)
         {
             tokens.push(Token {
@@ -159,8 +180,13 @@ fn is_two_character_operator(value: &str) -> bool {
             | "&="
             | "|="
             | "^="
+            | "%="
             | "=>"
     )
+}
+
+fn is_three_character_operator(value: &str) -> bool {
+    matches!(value, "**=" | "<<=" | ">>=" | "&&=" | "||=")
 }
 
 struct Parser {
@@ -179,7 +205,6 @@ impl Parser {
                 } else {
                     "PARSE_EMPTY_STATEMENT"
                 });
-                self.advance_to_terminator();
                 continue;
             }
             if self.consume("\n") {
@@ -385,6 +410,35 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Option<Statement> {
+        if self.consume("let") || self.consume("mut") || self.consume("const") {
+            let binding = self.binding_name()?;
+            if self.consume("=") {
+                return self.expression(0).map(Statement::Expression);
+            }
+            return Some(Statement::Expression(Expression::Name(binding)));
+        }
+        if self.consume("fun") {
+            self.selector()?;
+            self.expect("(")?;
+            while !self.check(")") && !self.at_end() {
+                self.advance();
+            }
+            self.expect(")")?;
+            self.body()?;
+            return Some(Statement::Expression(Expression::Name("fun".into())));
+        }
+        if self.consume("if") {
+            let condition = self.expression(0)?;
+            self.body()?;
+            if self.consume("else") {
+                if self.check("if") {
+                    self.statement()?;
+                } else {
+                    self.body()?;
+                }
+            }
+            return Some(Statement::Expression(condition));
+        }
         if self.consume("return") {
             return Some(Statement::Return(if self.is_terminator() {
                 None
@@ -542,6 +596,20 @@ impl Parser {
                 right: Box::new(right),
             };
         }
+        if minimum == 0 && !(self.check("=") && self.peek_next() == Some(">")) {
+            if let Some(operator) = self.assignment_operator() {
+                self.advance();
+                let right = self.expression(0)?;
+                left = Expression::Assignment {
+                    left: Box::new(left),
+                    operator,
+                    right: Box::new(right),
+                };
+            } else if self.consume("%=") {
+                self.error("PARSE_INVALID_ASSIGNMENT_OPERATOR");
+                return None;
+            }
+        }
         Some(left)
     }
 
@@ -667,6 +735,53 @@ impl Parser {
         }
         Some(values)
     }
+    fn selector(&mut self) -> Option<String> {
+        let mut selector = self.name()?;
+        if self.consume("?") {
+            selector.push('?');
+        } else if self.consume("!") {
+            selector.push('!');
+        }
+        if self.check("?") || self.check("!") {
+            self.error("PARSE_INVALID_SELECTOR_SUFFIX");
+            while self.consume("?") || self.consume("!") {}
+            return None;
+        }
+        Some(selector)
+    }
+    fn binding_name(&mut self) -> Option<String> {
+        let value = self.peek()?;
+        if is_reserved_keyword(value) {
+            self.error("PARSE_RESERVED_KEYWORD_BINDING");
+            self.advance();
+            return None;
+        }
+        let name = self.name()?;
+        if self.check("?") || self.check("!") {
+            self.error("PARSE_INVALID_SELECTOR_SUFFIX");
+            while self.consume("?") || self.consume("!") {}
+            return None;
+        }
+        Some(name)
+    }
+    fn assignment_operator(&self) -> Option<iris_syntax::AssignmentOperator> {
+        match self.peek()? {
+            "=" => Some(iris_syntax::AssignmentOperator::Assign),
+            "+=" => Some(iris_syntax::AssignmentOperator::Add),
+            "-=" => Some(iris_syntax::AssignmentOperator::Subtract),
+            "*=" => Some(iris_syntax::AssignmentOperator::Multiply),
+            "/=" => Some(iris_syntax::AssignmentOperator::Divide),
+            "**=" => Some(iris_syntax::AssignmentOperator::Power),
+            "&=" => Some(iris_syntax::AssignmentOperator::BitwiseAnd),
+            "|=" => Some(iris_syntax::AssignmentOperator::BitwiseOr),
+            "^=" => Some(iris_syntax::AssignmentOperator::BitwiseXor),
+            "<<=" => Some(iris_syntax::AssignmentOperator::ShiftLeft),
+            ">>=" => Some(iris_syntax::AssignmentOperator::ShiftRight),
+            "&&=" => Some(iris_syntax::AssignmentOperator::LogicalAnd),
+            "||=" => Some(iris_syntax::AssignmentOperator::LogicalOr),
+            _ => None,
+        }
+    }
     fn consume_terminators(&mut self) {
         let mut saw_semicolon = false;
         while self.consume(";") || self.consume("\n") {
@@ -753,7 +868,11 @@ impl Parser {
         self.cursor >= self.tokens.len()
     }
     fn error(&mut self, code: &'static str) {
-        if self.diagnostics.is_empty() {
+        if !self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == code)
+        {
             self.diagnostics.push(Diagnostic { code });
         }
     }
@@ -771,6 +890,60 @@ fn is_identifier(value: &str) -> bool {
         .as_bytes()
         .first()
         .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+}
+
+fn is_reserved_keyword(value: &str) -> bool {
+    matches!(
+        value,
+        "class"
+            | "module"
+            | "contract"
+            | "open"
+            | "extends"
+            | "for"
+            | "mixin"
+            | "where"
+            | "meta"
+            | "deny"
+            | "public"
+            | "protected"
+            | "private"
+            | "override"
+            | "impl"
+            | "property"
+            | "shared"
+            | "key"
+            | "async"
+            | "await"
+            | "fun"
+            | "let"
+            | "mut"
+            | "const"
+            | "global"
+            | "import"
+            | "from"
+            | "as"
+            | "export"
+            | "type"
+            | "if"
+            | "else"
+            | "while"
+            | "in"
+            | "break"
+            | "continue"
+            | "match"
+            | "try"
+            | "catch"
+            | "finally"
+            | "raise"
+            | "return"
+            | "is"
+            | "nil"
+            | "true"
+            | "false"
+            | "self"
+            | "super"
+    )
 }
 
 #[cfg(test)]
@@ -868,6 +1041,43 @@ mod tests {
 
         assert_eq!(empty.diagnostics[0].code, "PARSE_EMPTY_STATEMENT");
         assert_eq!(body_meta.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+    }
+
+    #[test]
+    fn diagnostics_cover_header_semicolons_reserved_bindings_selector_suffixes_and_assignments() {
+        let header = parse("class A meta deny shape {}; class A { if true { meta deny shape } }");
+        let semicolons = parse(";return nil; ; ; x;;y");
+        let reserved = parse(
+            "let alias = 1\nlet switch = 1\nlet when = 1\nlet and = 1\nlet or = 1\nlet not = 1\nlet class = 1",
+        );
+        let selectors = parse(
+            "fun ready?() { true }\nfun save!() { nil }\nfun ready?!() { nil }\nlet done? = true",
+        );
+        let assignments = parse(
+            "a += b; a -= b; a *= b; a /= b; a **= b; a &= b; a |= b; a ^= b; a <<= b; a >>= b; a %= b; a &&= b; a ||= b",
+        );
+
+        assert_eq!(header.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+        assert_eq!(
+            semicolons
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            ["PARSE_LEGACY_LEADING_SEMICOLON", "PARSE_EMPTY_STATEMENT"]
+        );
+        assert_eq!(
+            reserved.diagnostics[0].code,
+            "PARSE_RESERVED_KEYWORD_BINDING"
+        );
+        assert_eq!(
+            selectors.diagnostics[0].code,
+            "PARSE_INVALID_SELECTOR_SUFFIX"
+        );
+        assert_eq!(
+            assignments.diagnostics[0].code,
+            "PARSE_INVALID_ASSIGNMENT_OPERATOR"
+        );
     }
 
     #[test]

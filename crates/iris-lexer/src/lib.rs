@@ -432,6 +432,23 @@ mod tests {
     }
 
     #[test]
+    fn preserves_only_valid_dot_floats_when_invalid_separator_candidates_follow() {
+        // Given
+        let source = ".5; 1.; .; ._5; 1._0; 1_.";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [Literal::Float64(0.5), Literal::Float64(1.0)]
+        );
+        assert!(result.diagnostics().contains(&"LEX_BAD_NUMERIC_SEPARATOR"));
+        assert!(kinds(&lex(source.as_bytes())).contains(&TokenKind::Dot));
+    }
+
+    #[test]
     fn preserves_integers_larger_than_u64() {
         // Given
         let source = "18446744073709551616";

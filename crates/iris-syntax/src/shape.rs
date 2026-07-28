@@ -1,4 +1,7 @@
-use crate::{AssignmentOperator, BinaryOperator, Expression, Program, Statement, UnaryOperator};
+use crate::{
+    AssignmentOperator, BinaryOperator, Declaration, Expression, Program, Statement,
+    TypeExpression, UnaryOperator,
+};
 
 /// Number of precedence rows covered by the CONFORMANCE-V011 structural fixture.
 pub const PRECEDENCE_ROWS_COVERED: u8 = 17;
@@ -6,14 +9,41 @@ pub const PRECEDENCE_ROWS_COVERED: u8 = 17;
 /// Renders the source-form `expect.artifact.parse_shapes` observations.
 #[must_use]
 pub fn render_parse_shapes(program: &Program) -> Vec<String> {
-    program
-        .statements
+    let mut shapes = program
+        .declarations
         .iter()
-        .filter_map(|statement| match statement {
-            Statement::Expression(expression) => Some(source_shape(expression, 0)),
-            _ => None,
+        .filter_map(|declaration| match declaration {
+            Declaration::Class(value) if !value.constraints.is_empty() => Some(format!(
+                "constraints({})",
+                value
+                    .constraints
+                    .iter()
+                    .map(|constraint| format!(
+                        "{}: {}",
+                        constraint.parameter,
+                        type_expression_shape(&constraint.bound)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Declaration::Class(_) | Declaration::Module(_) | Declaration::Contract(_) => None,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    shapes.extend(
+        program
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Expression(expression) => Some(source_shape(expression, 0)),
+                Statement::Return(_)
+                | Statement::Break { .. }
+                | Statement::Continue(_)
+                | Statement::While { .. }
+                | Statement::For { .. }
+                | Statement::Match { .. } => None,
+            }),
+    );
+    shapes
 }
 
 /// Renders the structural `expect.artifact.parse_shape` observation.
@@ -125,6 +155,31 @@ fn primary_shape(value: &str) -> String {
         format!("primary_chain({value})")
     } else {
         value.into()
+    }
+}
+
+fn type_expression_shape(value: &TypeExpression) -> String {
+    match value {
+        TypeExpression::Name(value) => value.clone(),
+        TypeExpression::Intersection(values) => values
+            .iter()
+            .map(type_expression_shape)
+            .collect::<Vec<_>>()
+            .join(" & "),
+        TypeExpression::Union(values) => values
+            .iter()
+            .map(type_expression_shape)
+            .collect::<Vec<_>>()
+            .join(" | "),
+        TypeExpression::Generic { name, arguments } => format!(
+            "{}<{}>",
+            name,
+            arguments
+                .iter()
+                .map(type_expression_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 

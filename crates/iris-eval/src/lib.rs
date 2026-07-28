@@ -140,6 +140,28 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_v173_interpolated_and_non_interpolated_string_forms() -> Result<(), EvaluationError>
+    {
+        // Given
+        let source = "[\"a\\n${1 + 1}\", 'a\\n${x}', r#\"a\\n${x}\"#, \"\"\"\n  a\n  \"\"\"]";
+
+        // When
+        let value = evaluate_literals(source)?;
+
+        // Then
+        assert_eq!(
+            value,
+            Value::Array(vec![
+                Value::String("a\n2".into()),
+                Value::String("a\n${x}".into()),
+                Value::String(r"a\n${x}".into()),
+                Value::String("a".into()),
+            ])
+        );
+        Ok(())
+    }
+
+    #[test]
     fn returns_the_lexer_diagnostic_for_malformed_literals() {
         // Given
         let source = "1__0";

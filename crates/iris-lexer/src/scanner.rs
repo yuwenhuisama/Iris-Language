@@ -27,6 +27,7 @@ pub enum TokenKind {
     RightBrace,
     Colon,
     Semicolon,
+    Dot,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,13 +73,21 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
         Err(diagnostic) => return fail(diagnostic),
     };
     let literal_conversion = crate::convert_literals(text);
-    if let Some(code) = literal_conversion.diagnostics().first() {
-        return fail(Diagnostic::new(
-            code,
+    let diagnostics = match literal_conversion.diagnostics().first() {
+        Some(&"LEX_BAD_NUMERIC_SEPARATOR") => vec![Diagnostic::new(
+            "LEX_BAD_NUMERIC_SEPARATOR",
             ByteOffset(base),
             SourcePosition { line: 1, column: 1 },
-        ));
-    }
+        )],
+        Some(code) => {
+            return fail(Diagnostic::new(
+                code,
+                ByteOffset(base),
+                SourcePosition { line: 1, column: 1 },
+            ));
+        }
+        None => Vec::new(),
+    };
     let bytes = text.as_bytes();
     let mut tokens = Vec::new();
     let mut index = 0;
@@ -151,6 +160,14 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
+            b'.' => punct(
+                &mut tokens,
+                &mut index,
+                &mut position,
+                TokenKind::Dot,
+                offset,
+                true,
+            ),
             b'!' if bytes.get(index + 1) == Some(&b'=') => {
                 push(&mut tokens, TokenKind::BangEqual, offset);
                 advance(&mut index, 2, &mut position);
@@ -311,7 +328,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
     }
     LexedSource {
         tokens,
-        diagnostics: Vec::new(),
+        diagnostics,
     }
 }
 

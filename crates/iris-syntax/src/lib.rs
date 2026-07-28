@@ -193,8 +193,9 @@ pub enum AssignmentOperator {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssignmentOperator, BinaryOperator, Expression, PRECEDENCE_ROWS_COVERED, Program,
-        Statement, UnaryOperator, render_parse_shape, render_parse_shapes,
+        AssignmentOperator, BinaryOperator, ClassDeclaration, Constraint, Declaration, Expression,
+        PRECEDENCE_ROWS_COVERED, Program, Statement, TypeExpression, UnaryOperator,
+        render_parse_shape, render_parse_shapes,
     };
 
     #[test]
@@ -236,6 +237,42 @@ mod tests {
             render_parse_shapes(&program),
             ["2 ** (3 ** 2)", "-(2 ** 2)", "2 ** (-3)"]
         );
+    }
+
+    #[test]
+    fn renders_v163_class_where_constraints_byte_exactly() {
+        // Given
+        let program = Program {
+            declarations: vec![Declaration::Class(ClassDeclaration {
+                name: "Pair".into(),
+                parameters: vec!["T".into(), "U".into()],
+                extends: None,
+                implements: Vec::new(),
+                mixins: Vec::new(),
+                constraints: vec![
+                    Constraint {
+                        parameter: "T".into(),
+                        bound: TypeExpression::Intersection(vec![
+                            TypeExpression::Name("A".into()),
+                            TypeExpression::Name("B".into()),
+                        ]),
+                    },
+                    Constraint {
+                        parameter: "U".into(),
+                        bound: TypeExpression::Name("C".into()),
+                    },
+                ],
+                meta_deny: Vec::new(),
+                body: Vec::new(),
+            })],
+            statements: Vec::new(),
+        };
+
+        // When
+        let shapes = render_parse_shapes(&program);
+
+        // Then
+        assert_eq!(shapes, ["constraints(T: A & B, U: C)"]);
     }
 
     #[test]

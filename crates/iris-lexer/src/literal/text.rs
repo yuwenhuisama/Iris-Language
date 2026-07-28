@@ -38,7 +38,48 @@ pub(super) fn convert_string(source: &str) -> Segment {
     } else {
         value
     };
+    let value = if !raw && quote == b'"' {
+        interpolate_decimal_sums(&value)
+    } else {
+        value
+    };
     Segment::value(close + opener + fence, Literal::String(value), None)
+}
+
+fn interpolate_decimal_sums(value: &str) -> String {
+    let mut output = String::new();
+    let mut remainder = value;
+    while let Some(open) = remainder.find("${") {
+        output.push_str(&remainder[..open]);
+        let expression = &remainder[open + 2..];
+        let Some(close) = expression.find('}') else {
+            output.push_str(&remainder[open..]);
+            return output;
+        };
+        let expression = &expression[..close];
+        if let Some(number) = decimal_sum(expression) {
+            output.push_str(&number.to_string());
+        } else {
+            output.push_str("${");
+            output.push_str(expression);
+            output.push('}');
+        }
+        remainder = &remainder[open + close + 3..];
+    }
+    output.push_str(remainder);
+    output
+}
+
+fn decimal_sum(expression: &str) -> Option<u64> {
+    let mut sum = 0_u64;
+    for term in expression.split('+') {
+        let term = term.trim();
+        if term.is_empty() || !term.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        sum = sum.checked_add(term.parse().ok()?)?;
+    }
+    Some(sum)
 }
 
 fn raw_header(bytes: &[u8]) -> (bool, usize, usize) {

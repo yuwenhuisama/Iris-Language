@@ -61,7 +61,10 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
         }
         let result = match bytes[index] {
             b'\'' | b'"' | b'r' if starts_string(bytes, index) => convert_string(&source[index..]),
-            byte if byte.is_ascii_digit() || (byte == b'.' && next_is_digit(bytes, index)) => {
+            byte if byte.is_ascii_digit()
+                || (byte == b'.'
+                    && (next_is_digit(bytes, index) || bytes.get(index + 1) == Some(&b'_'))) =>
+            {
                 flush_string(&mut conversion, &mut pending_string);
                 convert_number(&source[index..])
             }
