@@ -90,6 +90,9 @@ impl Parser {
     }
 
     fn primary(&mut self) -> Option<Expression> {
+        if self.consume("@") {
+            return self.name().map(Expression::RawIvar);
+        }
         if self.consume("(") {
             let value = self.expression(0)?;
             self.expect(")")?;

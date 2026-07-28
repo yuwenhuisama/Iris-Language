@@ -139,7 +139,8 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         | TokenKind::RightBrace
         | TokenKind::Colon
         | TokenKind::Semicolon
-        | TokenKind::Dot => 1,
+        | TokenKind::Dot
+        | TokenKind::At => 1,
     };
     start + width
 }
@@ -442,6 +443,9 @@ impl Parser {
     fn statement(&mut self) -> Option<Statement> {
         if self.consume("let") || self.consume("mut") || self.consume("const") {
             let binding = self.binding_name()?;
+            if self.consume(":") {
+                self.type_expression()?;
+            }
             if self.consume("=") {
                 return self.expression(0).map(|value| Statement::Binding {
                     name: binding,
@@ -461,6 +465,8 @@ impl Parser {
         };
         let kind = if self.consume("class") {
             MethodKind::Class
+        } else if self.consume("module") {
+            MethodKind::Module
         } else if self.consume("property") {
             MethodKind::Property
         } else {
@@ -468,7 +474,7 @@ impl Parser {
         };
         let visibility = visibility.unwrap_or(match kind {
             MethodKind::Property => Visibility::Public,
-            MethodKind::Instance | MethodKind::Class => Visibility::Private,
+            MethodKind::Instance | MethodKind::Class | MethodKind::Module => Visibility::Private,
         });
         if self.consume("fun") {
             let mut selector = self.selector()?;
@@ -501,6 +507,17 @@ impl Parser {
                     body,
                 })
             });
+        }
+        if kind == MethodKind::Property {
+            let name = self.name()?;
+            self.expect(":")?;
+            self.type_expression()?;
+            let initializer = if self.consume("=") {
+                self.expression(0)?
+            } else {
+                Expression::Literal("nil".into())
+            };
+            return Some(Statement::StoredProperty { name, initializer });
         }
         if self.consume("if") {
             let condition = self.expression(0)?;
@@ -686,7 +703,15 @@ impl Parser {
         values
     }
     fn type_expression(&mut self) -> Option<TypeExpression> {
-        let mut values = vec![TypeExpression::Name(self.name()?)];
+        let first = if self.consume("typeof") {
+            self.expect("(")?;
+            let expression = self.expression(0)?;
+            self.expect(")")?;
+            TypeExpression::Typeof(Box::new(expression))
+        } else {
+            TypeExpression::Name(self.name()?)
+        };
+        let mut values = vec![first];
         while self.consume("&") {
             values.push(TypeExpression::Name(self.name()?));
         }
@@ -915,6 +940,7 @@ fn is_reserved_keyword(value: &str) -> bool {
             | "false"
             | "self"
             | "super"
+            | "typeof"
     )
 }
 

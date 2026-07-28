@@ -59,6 +59,7 @@ pub struct Constraint {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypeExpression {
     Name(String),
+    Typeof(Box<Expression>),
     Intersection(Vec<TypeExpression>),
     Union(Vec<TypeExpression>),
     Generic {
@@ -72,6 +73,10 @@ pub enum Statement {
     Binding {
         name: String,
         value: Expression,
+    },
+    StoredProperty {
+        name: String,
+        initializer: Expression,
     },
     Method(MethodDeclaration),
     Expression(Expression),
@@ -112,6 +117,7 @@ pub struct MethodDeclaration {
 pub enum MethodKind {
     Instance,
     Class,
+    Module,
     Property,
 }
 
@@ -175,6 +181,7 @@ pub enum Expression {
         right: Box<Expression>,
     },
     Grouped(Box<Expression>),
+    RawIvar(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

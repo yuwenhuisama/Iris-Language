@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
-use iris_runtime::{ClassId, Kernel, Method, MethodBody, Runtime, Selector, StaticSpine, Value};
+use iris_runtime::{
+    ClassId, Kernel, Method, MethodBody, ModuleId, Runtime, Selector, StaticSpine, Value,
+};
 use iris_syntax::{
-    BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, Program, Statement,
+    BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
+    Program, Statement,
 };
 
 use crate::EvaluationError;
@@ -20,6 +23,8 @@ struct SourceEvaluator {
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
     class_methods: HashMap<(ClassId, Selector), Method>,
+    module_names: HashMap<String, ModuleId>,
+    module_methods: HashMap<(ModuleId, Selector), Method>,
     mixins: HashMap<ClassId, Vec<ClassId>>,
     next_selector: u64,
     next_body: u64,
@@ -34,6 +39,8 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             class_methods: HashMap::new(),
+            module_names: HashMap::new(),
+            module_methods: HashMap::new(),
             mixins: HashMap::new(),
             next_selector: 1_000,
             next_body: 1,
@@ -42,10 +49,13 @@ impl SourceEvaluator {
 
     fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
         for declaration in &program.declarations {
-            let iris_syntax::Declaration::Class(class) = declaration else {
-                return Err(EvaluationError::UnsupportedConstruct);
-            };
-            self.class(class)?;
+            match declaration {
+                iris_syntax::Declaration::Class(class) => self.class(class)?,
+                iris_syntax::Declaration::Module(module) => self.module(module)?,
+                iris_syntax::Declaration::Contract(_) => {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+            }
         }
         let mut values = Vec::new();
         for statement in &program.statements {
@@ -96,38 +106,124 @@ impl SourceEvaluator {
             class
         };
         for statement in &declaration.body {
+            match statement {
+                Statement::StoredProperty { name, initializer } => {
+                    self.stored_property(class, name, initializer.clone())?;
+                }
+                Statement::Method(method) => self.class_method(class, method)?,
+                _ => return Err(EvaluationError::UnsupportedConstruct),
+            }
+        }
+        Ok(())
+    }
+
+    fn class_method(
+        &mut self,
+        class: ClassId,
+        method: &MethodDeclaration,
+    ) -> Result<(), EvaluationError> {
+        let body = self.register_body(method.clone());
+        let selector = self.selector(&method.selector);
+        match method.kind {
+            MethodKind::Instance => {
+                self.runtime
+                    .registry_mut()
+                    .publish_method(class, selector, body, visibility(method))
+                    .map_err(EvaluationError::Class)?;
+            }
+            MethodKind::Class => {
+                self.class_methods.insert(
+                    (class, selector),
+                    Method::new(
+                        iris_runtime::MethodId::new(body.raw()),
+                        iris_runtime::MethodOwner::Class(class),
+                        selector,
+                        body,
+                        visibility(method),
+                    ),
+                );
+            }
+            MethodKind::Property => {
+                let method_visibility = visibility(method);
+                self.runtime
+                    .registry_mut()
+                    .publish_method(class, selector, body, method_visibility)
+                    .map_err(EvaluationError::Class)?;
+            }
+            MethodKind::Module => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        Ok(())
+    }
+
+    fn stored_property(
+        &mut self,
+        class: ClassId,
+        name: &str,
+        initializer: Expression,
+    ) -> Result<(), EvaluationError> {
+        let getter = MethodDeclaration {
+            kind: MethodKind::Property,
+            selector: name.into(),
+            parameters: Vec::new(),
+            visibility: iris_syntax::Visibility::Public,
+            body: vec![Statement::Expression(Expression::RawIvar(format!(
+                "@{name}"
+            )))],
+        };
+        let setter = MethodDeclaration {
+            kind: MethodKind::Property,
+            selector: format!("{name}="),
+            parameters: vec!["value".into()],
+            visibility: iris_syntax::Visibility::Public,
+            body: vec![Statement::Expression(Expression::Assignment {
+                left: Box::new(Expression::RawIvar(format!("@{name}"))),
+                operator: iris_syntax::AssignmentOperator::Assign,
+                right: Box::new(Expression::Name("value".into())),
+            })],
+        };
+        let initializer = MethodDeclaration {
+            kind: MethodKind::Property,
+            selector: name.into(),
+            parameters: Vec::new(),
+            visibility: iris_syntax::Visibility::Private,
+            body: vec![Statement::Expression(Expression::Assignment {
+                left: Box::new(Expression::RawIvar(format!("@{name}"))),
+                operator: iris_syntax::AssignmentOperator::Assign,
+                right: Box::new(initializer),
+            })],
+        };
+        self.class_method(class, &getter)?;
+        self.class_method(class, &setter)?;
+        let body = self.register_body(initializer);
+        let property = self.selector(&format!("@{name}"));
+        self.runtime
+            .registry_mut()
+            .publish_stored_property(class, property, body)
+            .map_err(EvaluationError::Class)
+    }
+
+    fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
+        let module = self
+            .runtime
+            .registry_mut()
+            .define_module(&[])
+            .map_err(EvaluationError::Class)?;
+        self.module_names.insert(declaration.name.clone(), module);
+        for statement in &declaration.body {
             let Statement::Method(method) = statement else {
                 return Err(EvaluationError::UnsupportedConstruct);
             };
+            if method.kind != MethodKind::Module {
+                return Err(EvaluationError::UnsupportedConstruct);
+            }
             let body = self.register_body(method.clone());
             let selector = self.selector(&method.selector);
-            match method.kind {
-                MethodKind::Instance => {
-                    self.runtime
-                        .registry_mut()
-                        .publish_method(class, selector, body, visibility(method))
-                        .map_err(EvaluationError::Class)?;
-                }
-                MethodKind::Class => {
-                    self.class_methods.insert(
-                        (class, selector),
-                        Method::new(
-                            iris_runtime::MethodId::new(body.raw()),
-                            iris_runtime::MethodOwner::Class(class),
-                            selector,
-                            body,
-                            visibility(method),
-                        ),
-                    );
-                }
-                MethodKind::Property => {
-                    let method_visibility = visibility(method);
-                    self.runtime
-                        .registry_mut()
-                        .publish_method(class, selector, body, method_visibility)
-                        .map_err(EvaluationError::Class)?;
-                }
-            }
+            let defined = self
+                .runtime
+                .registry_mut()
+                .define_module_method(module, selector, body, visibility(method))
+                .map_err(EvaluationError::Class)?;
+            self.module_methods.insert((module, selector), defined);
         }
         Ok(())
     }
@@ -145,7 +241,8 @@ impl SourceEvaluator {
                 Ok(value)
             }
             Statement::Expression(expression) => self.expression(expression, locals, receiver),
-            Statement::Method(_)
+            Statement::StoredProperty { .. }
+            | Statement::Method(_)
             | Statement::Return(_)
             | Statement::Break { .. }
             | Statement::Continue(_)
@@ -169,6 +266,17 @@ impl SourceEvaluator {
                 .or_else(|| (name == "self").then_some(receiver).flatten())
                 .or_else(|| builtin(name, &self.kernel))
                 .ok_or(EvaluationError::UnsupportedConstruct),
+            Expression::RawIvar(name) => {
+                let Value::Object(object) =
+                    receiver.ok_or(EvaluationError::UnsupportedConstruct)?
+                else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let selector = self.selector(name);
+                self.runtime
+                    .raw_ivar(object, selector)
+                    .map_err(EvaluationError::Construction)
+            }
             Expression::Literal(source) => literal(source),
             Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
             Expression::Grouped(expression) => self.expression(expression, locals, receiver),
@@ -190,6 +298,30 @@ impl SourceEvaluator {
                     .map(|argument| self.expression(argument, locals, receiver.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 match callee.as_ref() {
+                    Expression::Member {
+                        receiver: target,
+                        selector,
+                    } if matches!(target.as_ref(), Expression::Name(name) if self.module_names.contains_key(name)) =>
+                    {
+                        let Expression::Name(name) = target.as_ref() else {
+                            return Err(EvaluationError::UnsupportedConstruct);
+                        };
+                        let module = *self
+                            .module_names
+                            .get(name)
+                            .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        let selector_name = selector.clone();
+                        let selector = self.selector(&selector_name);
+                        let method = self
+                            .module_methods
+                            .get(&(module, selector))
+                            .copied()
+                            .ok_or(EvaluationError::MessageNotFound {
+                                receiver_class: "Module".into(),
+                                selector: selector_name,
+                            })?;
+                        self.invoke_method(method, Value::Symbol(name.clone()), &arguments)
+                    }
                     Expression::Member {
                         receiver: target,
                         selector,
@@ -228,6 +360,19 @@ impl SourceEvaluator {
                 Err(EvaluationError::UnsupportedConstruct)
             }
             Expression::Assignment { left, right, .. } => {
+                if let Expression::RawIvar(name) = left.as_ref() {
+                    let Value::Object(object) =
+                        receiver.ok_or(EvaluationError::UnsupportedConstruct)?
+                    else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    let value = self.expression(right, locals, Some(Value::Object(object)))?;
+                    let selector = self.selector(name);
+                    return self
+                        .runtime
+                        .assign_raw_ivar(object, selector, value)
+                        .map_err(EvaluationError::Construction);
+                }
                 let Expression::Member {
                     receiver: target,
                     selector,
@@ -275,7 +420,21 @@ impl SourceEvaluator {
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
         let bodies = &self.bodies;
         self.runtime
-            .construct(class, arguments, |_, method, receiver, arguments| {
+            .construct(class, arguments, |runtime, method, receiver, arguments| {
+                let Some(declaration) = bodies.get(&method.body().raw()) else {
+                    return Err(iris_runtime::ExecutionError::Raised(Value::Nil));
+                };
+                if let Some(Statement::Expression(Expression::Assignment { left, right, .. })) =
+                    declaration.body.last()
+                    && matches!(left.as_ref(), Expression::RawIvar(_))
+                    && let Expression::Literal(value) = right.as_ref()
+                {
+                    let value = literal(value)
+                        .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil))?;
+                    return runtime
+                        .assign_raw_ivar(receiver, method.selector(), value)
+                        .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil));
+                }
                 invoke(bodies, method, Value::Object(receiver), arguments)
             })
             .map_err(EvaluationError::Construction)
@@ -392,6 +551,20 @@ impl SourceEvaluator {
                 iris_runtime::ExecutionError::Raised(Value::Nil),
             ));
         };
+        let raw_ivar = match declaration.body.last() {
+            Some(Statement::Expression(Expression::RawIvar(name))) => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(name) = raw_ivar {
+            let Value::Object(object) = receiver else {
+                return Err(EvaluationError::UnsupportedConstruct);
+            };
+            let selector = self.selector(&name);
+            return self
+                .runtime
+                .raw_ivar(object, selector)
+                .map_err(EvaluationError::Construction);
+        }
         if matches!(declaration.body.last(), Some(Statement::Expression(Expression::Call { callee, .. })) if matches!(callee.as_ref(), Expression::Name(name) if name == "super"))
         {
             let Value::Object(object) = receiver else {

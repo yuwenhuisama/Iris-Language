@@ -51,6 +51,7 @@ pub enum TokenKind {
     Colon,
     Semicolon,
     Dot,
+    At,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -321,6 +322,14 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 &mut index,
                 &mut position,
                 TokenKind::Semicolon,
+                offset,
+                true,
+            ),
+            b'@' => punct(
+                &mut tokens,
+                &mut index,
+                &mut position,
+                TokenKind::At,
                 offset,
                 true,
             ),
@@ -614,6 +623,7 @@ fn keyword(text: &[u8]) -> bool {
             | b"true"
             | b"false"
             | b"nil"
+            | b"typeof"
     )
 }
 fn fail(diagnostic: Diagnostic) -> LexedSource {

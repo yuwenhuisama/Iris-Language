@@ -283,3 +283,51 @@ fn source_mixins_resolve_in_reverse_declaration_order() {
     // Then
     assert_eq!(result, Ok(RuntimeValue::Integer(2_u8.into())));
 }
+
+#[test]
+fn source_typeof_annotation_accepts_the_operand_static_type() {
+    // Given
+    let source = "let a = 1; let b: typeof(a) = 2; b";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(2_u8.into())));
+}
+
+#[test]
+fn source_module_fun_dispatches_on_the_module_object() {
+    // Given
+    let source = "module M { module fun helper() -> Integer { 3 } }; M.helper()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(3_u8.into())));
+}
+
+#[test]
+fn source_stored_property_uses_its_raw_ivar_backing_slot() {
+    // Given
+    let source = "class A { property name: Integer = 5 }; A.new().name";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(5_u8.into())));
+}
+
+#[test]
+fn source_omitted_return_type_remains_dynamic() {
+    // Given
+    let source = "class A { public fun m() { 42 } }; A.new().m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(42_u8.into())));
+}

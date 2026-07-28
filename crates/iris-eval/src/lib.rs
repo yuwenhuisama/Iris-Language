@@ -55,7 +55,13 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     if !parsed.program_accepted {
         return Err(EvaluationError::ParseDiagnostic);
     }
-    if !parsed.program.declarations.is_empty() {
+    if !parsed.program.declarations.is_empty()
+        || parsed
+            .program
+            .statements
+            .iter()
+            .any(|statement| matches!(statement, Statement::Binding { .. }))
+    {
         return source_runtime::evaluate(&parsed.program);
     }
     let mut evaluator = Evaluator {
@@ -91,7 +97,7 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
-            Statement::Binding { .. } | Statement::Method(_) => {
+            Statement::Binding { .. } | Statement::StoredProperty { .. } | Statement::Method(_) => {
                 Err(EvaluationError::UnsupportedConstruct)
             }
             Statement::Expression(expression) => self
@@ -190,6 +196,7 @@ impl Evaluator {
                 }
             }
             Expression::Symbol(_)
+            | Expression::RawIvar(_)
             | Expression::ContractView { .. }
             | Expression::Assignment { .. } => Err(EvaluationError::UnsupportedConstruct),
         }

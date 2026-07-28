@@ -54,6 +54,7 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
             .filter_map(|statement| match statement {
                 Statement::Expression(expression) => Some(source_shape(expression, 0)),
                 Statement::Binding { .. }
+                | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::Return(_)
                 | Statement::Break { .. }
@@ -74,7 +75,9 @@ pub fn render_parse_shape(expression: &Expression) -> String {
 
 fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
     let (shape, precedence) = match expression {
-        Expression::Name(value) | Expression::Literal(value) => (value.clone(), 17),
+        Expression::Name(value) | Expression::Literal(value) | Expression::RawIvar(value) => {
+            (value.clone(), 17)
+        }
         Expression::Symbol(value) => (format!(":{value}"), 17),
         Expression::Array(values) => (
             format!(
@@ -150,7 +153,9 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
 
 fn structural_shape(expression: &Expression) -> String {
     match expression {
-        Expression::Name(value) | Expression::Literal(value) => primary_shape(value),
+        Expression::Name(value) | Expression::Literal(value) | Expression::RawIvar(value) => {
+            primary_shape(value)
+        }
         Expression::Symbol(value) => format!("symbol({value})"),
         Expression::Array(values) => format!(
             "array({})",
@@ -240,6 +245,7 @@ fn primary_shape(value: &str) -> String {
 fn type_expression_shape(value: &TypeExpression) -> String {
     match value {
         TypeExpression::Name(value) => value.clone(),
+        TypeExpression::Typeof(value) => format!("typeof({})", source_shape(value, 0)),
         TypeExpression::Intersection(values) => values
             .iter()
             .map(type_expression_shape)
