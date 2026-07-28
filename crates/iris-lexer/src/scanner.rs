@@ -226,14 +226,17 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 offset,
                 true,
             ),
-            b')' => punct(
-                &mut tokens,
-                &mut index,
-                &mut position,
-                TokenKind::RightParen,
-                offset,
-                false,
-            ),
+            b')' => {
+                punct(
+                    &mut tokens,
+                    &mut index,
+                    &mut position,
+                    TokenKind::RightParen,
+                    offset,
+                    false,
+                );
+                expression_start = false;
+            }
             b'{' => punct(
                 &mut tokens,
                 &mut index,

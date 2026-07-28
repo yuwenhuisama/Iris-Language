@@ -83,6 +83,8 @@ impl ComparisonProtocol {
             | Value::Bool(_)
             | Value::Float32(_)
             | Value::Float64(_)
+            | Value::Array(_)
+            | Value::Class(_)
             | Value::Object(_) => {
                 return Err(ComparisonError::Contract);
             }
@@ -136,9 +138,12 @@ impl Truthiness {
             TruthinessMethod::Default => match value {
                 Value::Nil => Value::Bool(false),
                 Value::Bool(value) => Value::Bool(*value),
-                Value::Integer(_) | Value::Float32(_) | Value::Float64(_) | Value::Object(_) => {
-                    Value::Bool(true)
-                }
+                Value::Integer(_)
+                | Value::Float32(_)
+                | Value::Float64(_)
+                | Value::Array(_)
+                | Value::Class(_)
+                | Value::Object(_) => Value::Bool(true),
             },
             TruthinessMethod::Returns(value) => value,
             TruthinessMethod::Raises(error) => return Err(TruthinessError::Raised(error)),
@@ -149,6 +154,8 @@ impl Truthiness {
             | Value::Integer(_)
             | Value::Float32(_)
             | Value::Float64(_)
+            | Value::Array(_)
+            | Value::Class(_)
             | Value::Object(_) => Err(TruthinessError::TypeContract),
         }
     }

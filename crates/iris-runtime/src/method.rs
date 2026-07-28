@@ -10,7 +10,7 @@ impl MethodBody {
         Self(raw)
     }
 
-    pub(crate) const fn raw(&self) -> u64 {
+    pub const fn raw(&self) -> u64 {
         self.0
     }
 }

@@ -1,6 +1,9 @@
 //! Minimal literal evaluation.
 
 use iris_lexer::{Literal, convert_literals};
+use iris_parser::parse;
+use iris_runtime::{BuiltinClass, Kernel, KernelError, NativeSelector, Value as RuntimeValue};
+use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 
 /// Observable literal values supported by the Iris v1 grammar vectors.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,12 +21,219 @@ pub enum Value {
 }
 
 /// Evaluation failure for a source form outside the literal-only evaluator.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EvaluationError {
     /// Literal conversion emitted a stable lexical diagnostic.
     LexicalDiagnostic(&'static str),
     /// The source did not produce a literal value this evaluator can observe.
     UnsupportedConstruct,
+    /// Source parsing rejected the requested expression.
+    ParseDiagnostic,
+    /// The runtime rejected a native send.
+    Runtime(KernelError),
+}
+
+/// Evaluates a source expression by sending every supported operator through the runtime kernel.
+pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
+    let parsed = parse(source);
+    if !parsed.program_accepted {
+        return Err(EvaluationError::ParseDiagnostic);
+    }
+    let mut evaluator = Evaluator {
+        kernel: Kernel::new().map_err(EvaluationError::Runtime)?,
+    };
+    let values = parsed
+        .program
+        .statements
+        .iter()
+        .map(|statement| evaluator.statement(statement))
+        .collect::<Result<Vec<_>, _>>()?;
+    match values.as_slice() {
+        [] => Err(EvaluationError::UnsupportedConstruct),
+        [value] => Ok(value.clone()),
+        _ => Ok(RuntimeValue::Array(values)),
+    }
+}
+
+struct Evaluator {
+    kernel: Kernel,
+}
+
+enum Evaluated {
+    Value(RuntimeValue),
+    Member(RuntimeValue, String),
+}
+
+impl Evaluator {
+    fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
+        match statement {
+            Statement::Expression(expression) => self.expression(expression).and_then(Self::value),
+            Statement::Return(_)
+            | Statement::Break { .. }
+            | Statement::Continue(_)
+            | Statement::While { .. }
+            | Statement::For { .. }
+            | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn expression(&mut self, expression: &Expression) -> Result<Evaluated, EvaluationError> {
+        match expression {
+            Expression::Name(name) => self.name(name),
+            Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
+            Expression::Array(expressions) => expressions
+                .iter()
+                .map(|expression| self.expression(expression).and_then(Self::value))
+                .collect::<Result<Vec<_>, _>>()
+                .map(RuntimeValue::Array)
+                .map(Evaluated::Value),
+            Expression::Grouped(expression) => self.expression(expression),
+            Expression::Member { receiver, selector } => {
+                let receiver = Self::value(self.expression(receiver)?)?;
+                Ok(Evaluated::Member(receiver, selector.clone()))
+            }
+            Expression::Call { callee, arguments } => {
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.expression(argument).and_then(Self::value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                match self.expression(callee)? {
+                    Evaluated::Member(receiver, selector) => {
+                        self.send(receiver, &selector, &arguments)
+                    }
+                    Evaluated::Value(RuntimeValue::Class(class)) => self
+                        .kernel
+                        .construct(class, &arguments)
+                        .map(Evaluated::Value)
+                        .map_err(EvaluationError::Runtime),
+                    Evaluated::Value(_) => Err(EvaluationError::UnsupportedConstruct),
+                }
+            }
+            Expression::Unary { operator, operand } => {
+                let operand = Self::value(self.expression(operand)?)?;
+                let selector = match operator {
+                    UnaryOperator::Negate => NativeSelector::Negate,
+                    UnaryOperator::BitwiseNot => NativeSelector::BitwiseNot,
+                    UnaryOperator::Plus | UnaryOperator::Not => {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    }
+                };
+                self.kernel
+                    .send(operand, selector, &[])
+                    .map(Evaluated::Value)
+                    .map_err(EvaluationError::Runtime)
+            }
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                let left = Self::value(self.expression(left)?)?;
+                let right = Self::value(self.expression(right)?)?;
+                match operator {
+                    BinaryOperator::Identity => Kernel::same_identity(&left, &right)
+                        .map(RuntimeValue::Bool)
+                        .map(Evaluated::Value)
+                        .map_err(EvaluationError::Runtime),
+                    _ => self.binary(left, operator, right),
+                }
+            }
+            Expression::Symbol(_)
+            | Expression::ContractView { .. }
+            | Expression::Assignment { .. } => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn name(&self, name: &str) -> Result<Evaluated, EvaluationError> {
+        let value = match name {
+            "nil" => RuntimeValue::Nil,
+            "true" => RuntimeValue::Bool(true),
+            "false" => RuntimeValue::Bool(false),
+            "Integer" => RuntimeValue::Class(
+                self.kernel
+                    .class(BuiltinClass::Integer)
+                    .map_err(EvaluationError::Runtime)?,
+            ),
+            "Float32" => RuntimeValue::Class(
+                self.kernel
+                    .class(BuiltinClass::Float32)
+                    .map_err(EvaluationError::Runtime)?,
+            ),
+            "Float64" => RuntimeValue::Class(
+                self.kernel
+                    .class(BuiltinClass::Float64)
+                    .map_err(EvaluationError::Runtime)?,
+            ),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        };
+        Ok(Evaluated::Value(value))
+    }
+
+    fn literal(&self, source: &str) -> Result<RuntimeValue, EvaluationError> {
+        match source {
+            "nil" => return Ok(RuntimeValue::Nil),
+            "true" => return Ok(RuntimeValue::Bool(true)),
+            "false" => return Ok(RuntimeValue::Bool(false)),
+            _ => {}
+        }
+        match evaluate_literals(source)? {
+            Value::Integer(value) => value
+                .parse()
+                .map(RuntimeValue::Integer)
+                .map_err(|_| EvaluationError::UnsupportedConstruct),
+            Value::Float32Bits(bits) => Ok(RuntimeValue::Float32(f32::from_bits(bits))),
+            Value::Float64Bits(bits) => Ok(RuntimeValue::Float64(f64::from_bits(bits))),
+            Value::String(_) | Value::Array(_) => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn send(
+        &self,
+        receiver: RuntimeValue,
+        selector: &str,
+        arguments: &[RuntimeValue],
+    ) -> Result<Evaluated, EvaluationError> {
+        let selector =
+            NativeSelector::from_source(selector).ok_or(EvaluationError::UnsupportedConstruct)?;
+        self.kernel
+            .send(receiver, selector, arguments)
+            .map(Evaluated::Value)
+            .map_err(EvaluationError::Runtime)
+    }
+
+    fn binary(
+        &self,
+        left: RuntimeValue,
+        operator: &BinaryOperator,
+        right: RuntimeValue,
+    ) -> Result<Evaluated, EvaluationError> {
+        let selector = match operator {
+            BinaryOperator::Add => NativeSelector::Add,
+            BinaryOperator::Subtract => NativeSelector::Subtract,
+            BinaryOperator::Multiply => NativeSelector::Multiply,
+            BinaryOperator::Divide => NativeSelector::Divide,
+            BinaryOperator::Power => NativeSelector::Power,
+            BinaryOperator::ShiftLeft => NativeSelector::ShiftLeft,
+            BinaryOperator::ShiftRight => NativeSelector::ShiftRight,
+            BinaryOperator::Equal => NativeSelector::Equal,
+            BinaryOperator::Less => NativeSelector::Less,
+            BinaryOperator::Compare => NativeSelector::Compare,
+            BinaryOperator::NamedInfix { selector } => NativeSelector::from_source(selector)
+                .ok_or(EvaluationError::UnsupportedConstruct)?,
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        };
+        self.kernel
+            .send(left, selector, &[right])
+            .map(Evaluated::Value)
+            .map_err(EvaluationError::Runtime)
+    }
+
+    fn value(value: Evaluated) -> Result<RuntimeValue, EvaluationError> {
+        match value {
+            Evaluated::Value(value) => Ok(value),
+            Evaluated::Member(_, _) => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
 }
 
 /// Evaluates source containing only lexer-converted literal values.
@@ -47,6 +257,166 @@ pub fn evaluate_literals(source: &str) -> Result<Value, EvaluationError> {
         [] => Err(EvaluationError::UnsupportedConstruct),
         [value] => Ok(value.clone()),
         _ => Ok(Value::Array(values)),
+    }
+}
+
+#[cfg(test)]
+mod evaluator_bridge_tests {
+    use iris_runtime::{MethodBody, NativeSelector, Value as RuntimeValue, Visibility};
+
+    use super::evaluate;
+
+    #[test]
+    fn evaluates_v039_floor_division_from_source() {
+        // Given
+        let source = "[-5 div 2, 5 div -2, -5 div -2]";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer((-3_i8).into()),
+                RuntimeValue::Integer((-3_i8).into()),
+                RuntimeValue::Integer(2_u8.into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn evaluates_v040_modulo_from_source() {
+        // Given
+        let source = "[-5 mod 2, 5 mod -2, -5 mod -2]";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Integer((-1_i8).into()),
+                RuntimeValue::Integer((-1_i8).into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn evaluates_v019_singleton_identity_from_source() {
+        // Given
+        let source = "[nil same? nil, true same? true, false same? false]";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![RuntimeValue::Bool(true); 3]))
+        );
+    }
+
+    #[test]
+    fn evaluates_v046_integer_division_from_source() {
+        // Given
+        let source = "Integer(5) / Integer(2)";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(result, Ok(RuntimeValue::Float64(2.5)));
+    }
+
+    #[test]
+    fn evaluates_v036_signed_zero_equality_while_preserving_bits() {
+        // Given
+        let source =
+            "Float64.from_bits(0x0000000000000000) == Float64.from_bits(0x8000000000000000)";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(result, Ok(RuntimeValue::Bool(true)));
+    }
+
+    #[test]
+    fn named_infix_and_member_send_have_the_same_result() {
+        // Given
+        let infix = "5 div 2";
+        let member = "Integer(5).div(2)";
+
+        // When
+        let infix_result = evaluate(infix);
+        let member_result = evaluate(member);
+
+        // Then
+        assert_eq!(infix_result, member_result);
+        assert_eq!(infix_result, Ok(RuntimeValue::Integer(2_u8.into())));
+    }
+
+    #[test]
+    fn integer_division_by_zero_is_a_typed_runtime_error() {
+        // Given
+        let source = "1 div 0";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert!(matches!(result, Err(super::EvaluationError::Runtime(_))));
+    }
+
+    #[test]
+    fn identity_primitive_bypasses_replaced_comparison_slots()
+    -> Result<(), iris_runtime::KernelError> {
+        // Given
+        let mut kernel = iris_runtime::Kernel::new()?;
+        let bool_class = kernel.class(iris_runtime::BuiltinClass::Bool)?;
+        kernel.registry_mut().publish_method(
+            bool_class,
+            NativeSelector::Equal.id(),
+            MethodBody::new(1),
+            Visibility::Public,
+        )?;
+
+        // When
+        let identity = iris_runtime::Kernel::same_identity(
+            &RuntimeValue::Bool(true),
+            &RuntimeValue::Bool(true),
+        )?;
+
+        // Then
+        assert!(identity);
+        Ok(())
+    }
+
+    #[test]
+    fn evaluates_addition_at_the_float32_receiver_width() {
+        // Given
+        let source = "16777217 + 0.0f32";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(result, Ok(RuntimeValue::Float32(16_777_216.0)));
+    }
+
+    #[test]
+    fn evaluates_v042_negative_float_power_as_nan() {
+        // Given
+        let source = "(-2.0f64) ** 0.5f64";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert!(matches!(result, Ok(RuntimeValue::Float64(value)) if value.is_nan()));
     }
 }
 

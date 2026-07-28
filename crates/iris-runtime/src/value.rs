@@ -2,7 +2,7 @@ use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
 
-use crate::ObjectId;
+use crate::{ClassId, ObjectId};
 
 /// An arbitrary-precision Iris integer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,6 +115,10 @@ pub enum Value {
     Float32(f32),
     /// An IEEE-754 binary64 value.
     Float64(f64),
+    /// A literal Iris Array.
+    Array(Vec<Value>),
+    /// A logical built-in Class object.
+    Class(ClassId),
     /// An object owned by the runtime heap.
     Object(ObjectId),
 }

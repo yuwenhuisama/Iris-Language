@@ -27,6 +27,9 @@ name = "iris-eval"
 version = "0.1.0"
 dependencies = [
  "iris-lexer",
+ "iris-parser",
+ "iris-runtime",
+ "iris-syntax",
 ]
 
 [[package]]

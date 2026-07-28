@@ -5,6 +5,7 @@ mod class_revision;
 mod dispatch;
 mod heap;
 mod identity;
+mod kernel;
 mod meta;
 mod method;
 mod module_registry;
@@ -22,6 +23,7 @@ pub use class_revision::{
 pub use dispatch::{DispatchContext, DispatchError, DispatchOutcome};
 pub use heap::{HeapObject, HeapPayload, RuntimeError, RuntimeHeap};
 pub use identity::{ClassId, MethodId, ModuleId, ObjectId, RevisionId, Selector};
+pub use kernel::{Kernel, KernelError, NativeSelector};
 pub use meta::{BuiltinClass, Capability, MetaCapabilities};
 pub use method::{BoundMethod, Method, MethodBody, MethodOwner, Visibility};
 pub use numeric::{Numeric, NumericError, NumericValue};
