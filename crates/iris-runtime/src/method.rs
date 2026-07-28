@@ -9,6 +9,10 @@ impl MethodBody {
     pub const fn new(raw: u64) -> Self {
         Self(raw)
     }
+
+    pub(crate) const fn raw(&self) -> u64 {
+        self.0
+    }
 }
 
 /// Access policy declared for a Method slot.

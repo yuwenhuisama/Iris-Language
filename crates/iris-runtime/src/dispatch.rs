@@ -69,6 +69,27 @@ impl crate::ClassRegistry {
         self.methods.insert(method.id(), method);
         Ok(method)
     }
+
+    /// Publishes one stored-property initializer in declaration order.
+    pub fn publish_stored_property(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        initializer: MethodBody,
+    ) -> Result<(), ClassError> {
+        let mut candidate = self.open(class)?;
+        candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
+        self.publish(candidate)?;
+        Ok(())
+    }
+
+    pub(crate) fn method(&self, id: MethodId) -> Option<Method> {
+        self.methods.get(&id).copied()
+    }
+
+    pub(crate) fn module_method(&self, module: ModuleId, selector: Selector) -> Option<Method> {
+        self.modules.method(module, selector)
+    }
     /// Resolves an ordinary selector through the Class's active stored MRO.
     pub fn dispatch(
         &self,

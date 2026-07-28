@@ -1,6 +1,32 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{ClassId, MethodId, ModuleId, RevisionId, Selector};
+use crate::{ClassId, MethodBody, MethodId, ModuleId, RevisionId, Selector};
+
+/// One revision-owned stored property initializer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StoredProperty {
+    selector: Selector,
+    initializer: MethodBody,
+}
+
+impl StoredProperty {
+    pub(crate) const fn new(selector: Selector, initializer: MethodBody) -> Self {
+        Self {
+            selector,
+            initializer,
+        }
+    }
+
+    /// Returns the declared property's selector.
+    pub const fn selector(&self) -> Selector {
+        self.selector
+    }
+
+    /// Returns the evaluator body that initializes this stored property.
+    pub const fn initializer(&self) -> MethodBody {
+        self.initializer
+    }
+}
 
 /// One precomputed member in a Class revision's lookup linearization.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,7 +99,7 @@ pub struct ClassRevision {
     mro: Vec<MroEntry>,
     modules: Vec<ModuleId>,
     methods: BTreeMap<Selector, MethodId>,
-    properties: BTreeSet<Selector>,
+    properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
 }
 
@@ -144,7 +170,7 @@ impl ClassRevision {
     }
 
     /// Returns the inert property-table metadata slot.
-    pub const fn properties(&self) -> &BTreeSet<Selector> {
+    pub fn properties(&self) -> &[StoredProperty] {
         &self.properties
     }
 
@@ -165,7 +191,7 @@ pub struct CandidateRevision {
     pub(crate) mro: Vec<MroEntry>,
     pub(crate) modules: Vec<ModuleId>,
     pub(crate) methods: BTreeMap<Selector, MethodId>,
-    pub(crate) properties: BTreeSet<Selector>,
+    pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
 }
 
@@ -186,7 +212,7 @@ impl CandidateRevision {
             mro,
             modules: Vec::new(),
             methods: BTreeMap::new(),
-            properties: BTreeSet::new(),
+            properties: Vec::new(),
             class_vars: BTreeSet::new(),
         }
     }
@@ -225,11 +251,23 @@ impl CandidateRevision {
         self.methods.insert(selector, method);
     }
 
+    pub(crate) fn add_stored_property(&mut self, property: StoredProperty) {
+        if let Some(existing) = self
+            .properties
+            .iter_mut()
+            .find(|existing| existing.selector() == property.selector())
+        {
+            *existing = property;
+        } else {
+            self.properties.push(property);
+        }
+    }
+
     pub(crate) fn restore(&mut self, artifact: &ClassRevision) {
         self.runtime_superclass = artifact.runtime_superclass();
         self.modules = artifact.modules().to_vec();
         self.methods = artifact.methods().clone();
-        self.properties = artifact.properties().clone();
+        self.properties = artifact.properties().to_vec();
         self.class_vars = artifact.class_vars().clone();
     }
 
