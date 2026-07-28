@@ -1,11 +1,892 @@
-//! Recursive-descent declarations plus Pratt expressions.
+//! Recursive-descent declarations plus Pratt expressions for Iris v1.
+
+use iris_lexer::{TokenKind, lex};
+use iris_syntax::{
+    BinaryOperator, ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression,
+    MatchArm, MatchBody, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
+    UnaryOperator,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Diagnostic {
+    pub code: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParseResult {
+    pub program: Program,
+    pub diagnostics: Vec<Diagnostic>,
+    pub program_accepted: bool,
+}
+
+impl ParseResult {
+    pub fn is_clean(&self) -> bool {
+        self.diagnostics.is_empty()
+    }
+}
+
+pub fn parse(source: &str) -> ParseResult {
+    let lexed = lex(source.as_bytes());
+    if let Some(diagnostic) = lexed.diagnostics().first() {
+        return ParseResult {
+            program: Program::default(),
+            diagnostics: vec![Diagnostic {
+                code: diagnostic.code(),
+            }],
+            program_accepted: false,
+        };
+    }
+    let lexer_tokens = lexed.tokens();
+    let mut raw = Vec::new();
+    for token in lexer_tokens {
+        let start = token.offset.0;
+        let end = token_end(source, start, token.kind);
+        let text = source.get(start..end).unwrap_or_default().trim();
+        if !text.is_empty() {
+            raw.push((token.kind, text));
+        }
+    }
+    let tokens = combine_fixed_operators(&raw);
+    let mut parser = Parser {
+        tokens,
+        cursor: 0,
+        diagnostics: Vec::new(),
+    };
+    let program = parser.program();
+    let program_accepted = parser.diagnostics.is_empty() && parser.at_end();
+    if !parser.at_end() && parser.diagnostics.is_empty() {
+        parser.error("PARSE_UNEXPECTED_TOKEN");
+    }
+    ParseResult {
+        program,
+        diagnostics: parser.diagnostics,
+        program_accepted,
+    }
+}
+
+fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
+    let remaining = source.get(start..).unwrap_or_default();
+    let width = match kind {
+        TokenKind::RangeInclusive | TokenKind::RangeExclusive => 3,
+        TokenKind::ContractView | TokenKind::BangEqual | TokenKind::RightShift => 2,
+        TokenKind::Identifier | TokenKind::Keyword | TokenKind::SetterSelector => remaining
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'?' | b'!'))
+            .count(),
+        TokenKind::StringLiteral
+        | TokenKind::MutableStringLiteral
+        | TokenKind::BytesLiteral
+        | TokenKind::ByteArrayLiteral
+        | TokenKind::RegexLiteral => literal_end(remaining),
+        TokenKind::Newline => usize::from(remaining.starts_with("\r\n")) + 1,
+        TokenKind::HashOpen => 2,
+        TokenKind::SourceCharacter
+        | TokenKind::LessThan
+        | TokenKind::GreaterThan
+        | TokenKind::Slash
+        | TokenKind::LeftParen
+        | TokenKind::RightParen
+        | TokenKind::LeftBrace
+        | TokenKind::RightBrace
+        | TokenKind::Colon
+        | TokenKind::Semicolon => 1,
+    };
+    start + width
+}
+
+fn literal_end(remaining: &str) -> usize {
+    let quote = remaining
+        .bytes()
+        .position(|byte| matches!(byte, b'\'' | b'"'))
+        .unwrap_or(0);
+    let delimiter = remaining.as_bytes().get(quote).copied().unwrap_or(b'"');
+    let mut cursor = quote + 1;
+    while let Some(byte) = remaining.as_bytes().get(cursor) {
+        if *byte == b'\\' {
+            cursor += 2;
+            continue;
+        }
+        cursor += 1;
+        if *byte == delimiter {
+            return cursor;
+        }
+    }
+    remaining.len()
+}
+
+#[derive(Clone, Debug)]
+struct Token {
+    text: String,
+}
+
+fn combine_fixed_operators(raw: &[(TokenKind, &str)]) -> Vec<Token> {
+    let mut tokens = Vec::new();
+    let mut cursor = 0;
+    while cursor < raw.len() {
+        let (kind, text) = raw[cursor];
+        let candidate = raw
+            .get(cursor + 1)
+            .filter(|(next_kind, _)| *next_kind == TokenKind::SourceCharacter)
+            .map(|(_, next)| format!("{text}{next}"));
+        if kind == TokenKind::SourceCharacter
+            && candidate.as_deref().is_some_and(is_two_character_operator)
+        {
+            tokens.push(Token {
+                text: candidate.unwrap_or_default(),
+            });
+            cursor += 2;
+        } else {
+            tokens.push(Token { text: text.into() });
+            cursor += 1;
+        }
+    }
+    tokens
+}
+
+fn is_two_character_operator(value: &str) -> bool {
+    matches!(
+        value,
+        "**" | "<<"
+            | "<="
+            | ">="
+            | "=="
+            | "&&"
+            | "||"
+            | "+="
+            | "-="
+            | "*="
+            | "/="
+            | "&="
+            | "|="
+            | "^="
+            | "=>"
+    )
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    cursor: usize,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Parser {
+    fn program(&mut self) -> Program {
+        let mut program = Program::default();
+        while !self.at_end() {
+            if self.consume(";") {
+                self.error(if self.cursor == 1 {
+                    "PARSE_LEGACY_LEADING_SEMICOLON"
+                } else {
+                    "PARSE_EMPTY_STATEMENT"
+                });
+                self.advance_to_terminator();
+                continue;
+            }
+            if self.consume("\n") {
+                continue;
+            }
+            match self.peek() {
+                Some("class") => self
+                    .class_declaration()
+                    .map(|value| program.declarations.push(Declaration::Class(value))),
+                Some("module") => self
+                    .module_declaration()
+                    .map(|value| program.declarations.push(Declaration::Module(value))),
+                Some("contract") => self
+                    .contract_declaration()
+                    .map(|value| program.declarations.push(Declaration::Contract(value))),
+                _ => self.statement().map(|value| program.statements.push(value)),
+            };
+            self.consume_terminators();
+        }
+        program
+    }
+
+    fn class_declaration(&mut self) -> Option<ClassDeclaration> {
+        self.expect("class")?;
+        let name = self.name()?;
+        let parameters = self.generic_parameters();
+        let mut extends = None;
+        let mut implements = Vec::new();
+        let mut mixins = Vec::new();
+        let mut constraints = Vec::new();
+        let mut meta_deny = Vec::new();
+        let mut rank = 0;
+        while !self.check("{") && !self.at_end() {
+            let clause = match self.peek() {
+                Some("extends") => 1,
+                Some("for") => 2,
+                Some("mixin") => 3,
+                Some("where") => 4,
+                Some("meta") => 5,
+                _ => {
+                    self.error("PARSE_BAD_HEADER_ORDER");
+                    return None;
+                }
+            };
+            if clause <= rank {
+                self.error("PARSE_BAD_HEADER_ORDER");
+                return None;
+            }
+            rank = clause;
+            match clause {
+                1 => {
+                    self.advance();
+                    extends = self.type_expression();
+                }
+                2 => {
+                    self.advance();
+                    implements = self.type_list();
+                }
+                3 => {
+                    self.advance();
+                    mixins = self.type_list();
+                }
+                4 => {
+                    self.advance();
+                    constraints = self.constraints();
+                }
+                5 => {
+                    self.advance();
+                    meta_deny = self.meta_deny()?;
+                }
+                _ => unreachable!(),
+            }
+        }
+        let body = self.body()?;
+        Some(ClassDeclaration {
+            name,
+            parameters,
+            extends,
+            implements,
+            mixins,
+            constraints,
+            meta_deny,
+            body,
+        })
+    }
+
+    fn module_declaration(&mut self) -> Option<ModuleDeclaration> {
+        self.expect("module")?;
+        let name = self.name()?;
+        let parameters = self.generic_parameters();
+        let mut mixins = Vec::new();
+        let mut constraints = Vec::new();
+        let mut meta_deny = Vec::new();
+        let mut rank = 0;
+        while !self.check("{") && !self.at_end() {
+            let clause = match self.peek() {
+                Some("mixin") => 1,
+                Some("where") => 2,
+                Some("meta") => 3,
+                _ => {
+                    self.error("PARSE_BAD_HEADER_ORDER");
+                    return None;
+                }
+            };
+            if clause <= rank {
+                self.error("PARSE_BAD_HEADER_ORDER");
+                return None;
+            }
+            rank = clause;
+            match clause {
+                1 => {
+                    self.advance();
+                    mixins = self.type_list();
+                }
+                2 => {
+                    self.advance();
+                    constraints = self.constraints();
+                }
+                3 => {
+                    self.advance();
+                    meta_deny = self.meta_deny()?;
+                }
+                _ => unreachable!(),
+            }
+        }
+        Some(ModuleDeclaration {
+            name,
+            parameters,
+            mixins,
+            constraints,
+            meta_deny,
+            body: self.body()?,
+        })
+    }
+
+    fn contract_declaration(&mut self) -> Option<ContractDeclaration> {
+        self.expect("contract")?;
+        let name = self.name()?;
+        let parameters = self.generic_parameters();
+        let mut parents = Vec::new();
+        let mut constraints = Vec::new();
+        let mut meta_deny = Vec::new();
+        let mut rank = 0;
+        while !self.check("{") && !self.at_end() {
+            let clause = match self.peek() {
+                Some("extends") => 1,
+                Some("where") => 2,
+                Some("meta") => 3,
+                _ => {
+                    self.error("PARSE_BAD_HEADER_ORDER");
+                    return None;
+                }
+            };
+            if clause <= rank {
+                self.error("PARSE_BAD_HEADER_ORDER");
+                return None;
+            }
+            rank = clause;
+            match clause {
+                1 => {
+                    self.advance();
+                    parents = self.type_list();
+                }
+                2 => {
+                    self.advance();
+                    constraints = self.constraints();
+                }
+                3 => {
+                    self.advance();
+                    meta_deny = self.meta_deny()?;
+                }
+                _ => unreachable!(),
+            }
+        }
+        Some(ContractDeclaration {
+            name,
+            parameters,
+            parents,
+            constraints,
+            meta_deny,
+            body: self.body()?,
+        })
+    }
+
+    fn body(&mut self) -> Option<Vec<Statement>> {
+        self.expect("{")?;
+        let mut body = Vec::new();
+        self.consume_terminators();
+        while !self.check("}") && !self.at_end() {
+            if self.check("meta") {
+                self.error("PARSE_BAD_HEADER_ORDER");
+                return None;
+            }
+            if let Some(statement) = self.statement() {
+                body.push(statement);
+            } else {
+                self.advance_to_terminator();
+            }
+            self.consume_terminators();
+        }
+        self.expect("}")?;
+        Some(body)
+    }
+
+    fn statement(&mut self) -> Option<Statement> {
+        if self.consume("return") {
+            return Some(Statement::Return(if self.is_terminator() {
+                None
+            } else {
+                self.expression(0)
+            }));
+        }
+        if self.consume("break") {
+            let label = if self.is_name() && self.peek_next() == Some(":") {
+                self.name()
+            } else {
+                None
+            };
+            if label.is_some() {
+                self.expect(":")?;
+            }
+            return Some(Statement::Break {
+                label,
+                value: if self.is_terminator() {
+                    None
+                } else {
+                    self.expression(0)
+                },
+            });
+        }
+        if self.consume("continue") {
+            return Some(Statement::Continue(if self.is_name() {
+                self.name()
+            } else {
+                None
+            }));
+        }
+        if self.is_name() && self.peek_next() == Some(":") {
+            let label = self.name()?;
+            self.expect(":")?;
+            if self.consume("while") {
+                let condition = self.expression(0)?;
+                return Some(Statement::While {
+                    label: Some(label),
+                    condition,
+                    body: self.body()?,
+                });
+            }
+            if self.consume("for") {
+                let binding = self.name()?;
+                self.expect("in")?;
+                let iterable = self.expression(0)?;
+                return Some(Statement::For {
+                    label: Some(label),
+                    binding,
+                    iterable,
+                    body: self.body()?,
+                });
+            }
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            return None;
+        }
+        if self.consume("while") {
+            let condition = self.expression(0)?;
+            return Some(Statement::While {
+                label: None,
+                condition,
+                body: self.body()?,
+            });
+        }
+        if self.consume("match") {
+            return self.match_statement();
+        }
+        self.expression(0).map(Statement::Expression)
+    }
+
+    fn match_statement(&mut self) -> Option<Statement> {
+        let subject = self.expression(0)?;
+        self.expect("{")?;
+        self.consume_terminators();
+        let mut arms = Vec::new();
+        let mut fallback = None;
+        while !self.check("}") && !self.at_end() {
+            if self.consume("else") {
+                self.expect_arrow()?;
+                fallback = Some(self.match_body()?);
+                self.consume_terminators();
+                if !self.check("}") {
+                    self.error("PARSE_UNEXPECTED_TOKEN");
+                }
+                break;
+            }
+            let pattern = self.pattern()?;
+            let guard = if self.consume("if") {
+                self.expression(0)
+            } else {
+                None
+            };
+            self.expect_arrow()?;
+            let body = self.match_body()?;
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+            });
+            self.consume(",");
+            self.consume_terminators();
+        }
+        self.expect("}")?;
+        Some(Statement::Match {
+            subject,
+            arms,
+            fallback,
+        })
+    }
+
+    fn match_body(&mut self) -> Option<MatchBody> {
+        if self.check("{") {
+            self.body().map(MatchBody::Block)
+        } else {
+            self.expression(0).map(MatchBody::Expression)
+        }
+    }
+    fn pattern(&mut self) -> Option<Pattern> {
+        let mut values = vec![Pattern::Name(self.name()?)];
+        while self.consume("|") {
+            values.push(Pattern::Name(self.name()?));
+        }
+        if values.len() == 1 {
+            values.pop()
+        } else {
+            Some(Pattern::Alternatives(values))
+        }
+    }
+
+    fn expression(&mut self, minimum: u8) -> Option<Expression> {
+        let mut left = self.prefix()?;
+        while let Some((precedence, associativity, operator)) = self.infix() {
+            if precedence < minimum {
+                break;
+            }
+            self.advance();
+            let next = if associativity == Associativity::Right {
+                precedence
+            } else {
+                precedence + 1
+            };
+            let right = self.expression(next)?;
+            if associativity == Associativity::NonAssociative
+                && self
+                    .infix()
+                    .is_some_and(|(candidate, _, _)| candidate == precedence)
+            {
+                self.error("PARSE_NONASSOCIATIVE_CHAIN");
+                return None;
+            }
+            left = Expression::Binary {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        Some(left)
+    }
+
+    fn prefix(&mut self) -> Option<Expression> {
+        let unary = match self.peek() {
+            Some("+") => Some(UnaryOperator::Plus),
+            Some("-") => Some(UnaryOperator::Negate),
+            Some("~") => Some(UnaryOperator::BitwiseNot),
+            Some("!") => Some(UnaryOperator::Not),
+            _ => None,
+        };
+        if let Some(operator) = unary {
+            self.advance();
+            return self.expression(14).map(|operand| Expression::Unary {
+                operator,
+                operand: Box::new(operand),
+            });
+        }
+        if self.consume("(") {
+            let value = self.expression(0)?;
+            self.expect(")")?;
+            return Some(Expression::Grouped(Box::new(value)));
+        }
+        let value = self.advance()?.text;
+        Some(if self.is_literal(&value) {
+            Expression::Literal(value)
+        } else {
+            Expression::Name(value)
+        })
+    }
+
+    fn infix(&self) -> Option<(u8, Associativity, BinaryOperator)> {
+        let operator = match self.peek()? {
+            "**" => (14, Associativity::Right, BinaryOperator::Power),
+            "*" => (12, Associativity::Left, BinaryOperator::Multiply),
+            "/" => (12, Associativity::Left, BinaryOperator::Divide),
+            "+" => (11, Associativity::Left, BinaryOperator::Add),
+            "-" => (11, Associativity::Left, BinaryOperator::Subtract),
+            "<<" => (10, Associativity::Left, BinaryOperator::ShiftLeft),
+            ">>" => (10, Associativity::Left, BinaryOperator::ShiftRight),
+            "&" => (9, Associativity::Left, BinaryOperator::BitwiseAnd),
+            "^" => (8, Associativity::Left, BinaryOperator::BitwiseXor),
+            "|" => (7, Associativity::Left, BinaryOperator::BitwiseOr),
+            "..=" => (
+                6,
+                Associativity::NonAssociative,
+                BinaryOperator::RangeInclusive,
+            ),
+            "..<" => (
+                6,
+                Associativity::NonAssociative,
+                BinaryOperator::RangeExclusive,
+            ),
+            "<" => (5, Associativity::NonAssociative, BinaryOperator::Less),
+            ">" => (5, Associativity::NonAssociative, BinaryOperator::Greater),
+            "==" => (4, Associativity::NonAssociative, BinaryOperator::Equal),
+            "!=" => (4, Associativity::NonAssociative, BinaryOperator::NotEqual),
+            "&&" => (2, Associativity::Left, BinaryOperator::LogicalAnd),
+            "||" => (1, Associativity::Left, BinaryOperator::LogicalOr),
+            value if is_identifier(value) => (3, Associativity::Left, BinaryOperator::NamedInfix),
+            _ => return None,
+        };
+        Some(operator)
+    }
+
+    fn generic_parameters(&mut self) -> Vec<String> {
+        let mut values = Vec::new();
+        if self.consume("<") {
+            while !self.check(">") && !self.at_end() {
+                if let Some(name) = self.name() {
+                    values.push(name);
+                }
+                if !self.consume(",") {
+                    break;
+                }
+            }
+            let _ = self.expect(">");
+        }
+        values
+    }
+    fn constraints(&mut self) -> Vec<Constraint> {
+        let mut values = Vec::new();
+        while let Some(parameter) = self.name() {
+            if self.expect(":").is_none() {
+                break;
+            }
+            let Some(bound) = self.type_expression() else {
+                break;
+            };
+            values.push(Constraint { parameter, bound });
+            if !self.consume(",") {
+                break;
+            }
+        }
+        values
+    }
+    fn type_list(&mut self) -> Vec<TypeExpression> {
+        let mut values = Vec::new();
+        while let Some(value) = self.type_expression() {
+            values.push(value);
+            if !self.consume(",") {
+                break;
+            }
+        }
+        values
+    }
+    fn type_expression(&mut self) -> Option<TypeExpression> {
+        let mut values = vec![TypeExpression::Name(self.name()?)];
+        while self.consume("&") {
+            values.push(TypeExpression::Name(self.name()?));
+        }
+        if values.len() == 1 {
+            values.pop()
+        } else {
+            Some(TypeExpression::Intersection(values))
+        }
+    }
+    fn meta_deny(&mut self) -> Option<Vec<String>> {
+        self.expect("deny")?;
+        let mut values = vec![self.name()?];
+        while self.consume(",") {
+            values.push(self.name()?);
+        }
+        Some(values)
+    }
+    fn consume_terminators(&mut self) {
+        let mut saw_semicolon = false;
+        while self.consume(";") || self.consume("\n") {
+            if self
+                .tokens
+                .get(self.cursor - 1)
+                .is_some_and(|token| token.text == ";")
+            {
+                if saw_semicolon {
+                    self.error("PARSE_EMPTY_STATEMENT");
+                    return;
+                }
+                saw_semicolon = true;
+            }
+        }
+    }
+    fn is_terminator(&self) -> bool {
+        self.at_end() || matches!(self.peek(), Some(";" | "}" | "\n"))
+    }
+    fn advance_to_terminator(&mut self) {
+        while !self.is_terminator() {
+            self.advance();
+        }
+    }
+    fn name(&mut self) -> Option<String> {
+        if self.is_name() {
+            self.advance().map(|token| token.text)
+        } else {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            None
+        }
+    }
+    fn is_name(&self) -> bool {
+        self.peek().is_some_and(is_identifier)
+    }
+    fn is_literal(&self, value: &str) -> bool {
+        value.chars().next().is_some_and(|character| {
+            character.is_ascii_digit() || character == '\'' || character == '"'
+        }) || matches!(value, "nil" | "true" | "false")
+    }
+    fn expect(&mut self, expected: &str) -> Option<()> {
+        if self.consume(expected) {
+            Some(())
+        } else {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            None
+        }
+    }
+    fn expect_arrow(&mut self) -> Option<()> {
+        if self.consume("=>") || (self.consume("=") && self.consume(">")) {
+            Some(())
+        } else {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            None
+        }
+    }
+    fn consume(&mut self, expected: &str) -> bool {
+        if self.check(expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+    fn check(&self, expected: &str) -> bool {
+        self.peek() == Some(expected)
+    }
+    fn peek(&self) -> Option<&str> {
+        self.tokens
+            .get(self.cursor)
+            .map(|token| token.text.as_str())
+    }
+    fn peek_next(&self) -> Option<&str> {
+        self.tokens
+            .get(self.cursor + 1)
+            .map(|token| token.text.as_str())
+    }
+    fn advance(&mut self) -> Option<Token> {
+        let value = self.tokens.get(self.cursor).cloned();
+        self.cursor += usize::from(value.is_some());
+        value
+    }
+    fn at_end(&self) -> bool {
+        self.cursor >= self.tokens.len()
+    }
+    fn error(&mut self, code: &'static str) {
+        if self.diagnostics.is_empty() {
+            self.diagnostics.push(Diagnostic { code });
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Associativity {
+    Left,
+    Right,
+    NonAssociative,
+}
+
+fn is_identifier(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+}
 
 #[cfg(test)]
+#[allow(clippy::panic)]
 mod tests {
-    #[test]
-    fn crate_identity_is_available_when_compiled() {
-        let crate_name = env!("CARGO_PKG_NAME");
+    use crate::parse;
+    use iris_syntax::{BinaryOperator, Declaration, Expression, Statement, TypeExpression};
 
-        assert_ne!(crate_name, "");
+    #[test]
+    fn powers_are_right_associative_and_bind_tighter_than_negation() {
+        let result = parse("2 ** 3 ** 2; -2 ** 2");
+        assert!(result.is_clean());
+        let [
+            Statement::Expression(Expression::Binary {
+                left,
+                operator: BinaryOperator::Power,
+                right,
+            }),
+            Statement::Expression(Expression::Unary { operand, .. }),
+        ] = result.program.statements.as_slice()
+        else {
+            panic!("expected power expression followed by unary expression");
+        };
+        assert!(matches!(left.as_ref(), Expression::Literal(_)));
+        assert!(matches!(
+            right.as_ref(),
+            Expression::Binary {
+                operator: BinaryOperator::Power,
+                ..
+            }
+        ));
+        assert!(matches!(
+            operand.as_ref(),
+            Expression::Binary {
+                operator: BinaryOperator::Power,
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn reordered_header_has_the_stable_diagnostic() {
+        let result = parse("class A for C extends B {}");
+        assert_eq!(result.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+        assert!(!result.program_accepted);
+    }
+    #[test]
+    fn leading_semicolon_has_the_stable_diagnostic() {
+        let result = parse(";return nil");
+        assert_eq!(result.diagnostics[0].code, "PARSE_LEGACY_LEADING_SEMICOLON");
+        assert!(!result.program_accepted);
+    }
+    #[test]
+    fn non_associative_chains_are_rejected() {
+        let result = parse("a < b < c");
+        assert_eq!(result.diagnostics[0].code, "PARSE_NONASSOCIATIVE_CHAIN");
+        assert!(!result.program_accepted);
+    }
+    #[test]
+    fn class_where_constraints_preserve_intersection_shape() {
+        let result = parse("class Pair<T, U> where T: A & B, U: C {}");
+        assert!(result.is_clean());
+        let [Declaration::Class(class)] = result.program.declarations.as_slice() else {
+            panic!("expected class declaration");
+        };
+        assert_eq!(class.constraints.len(), 2);
+        assert!(matches!(
+            class.constraints[0].bound,
+            TypeExpression::Intersection(_)
+        ));
+        assert!(matches!(
+            class.constraints[1].bound,
+            TypeExpression::Name(_)
+        ));
+    }
+    #[test]
+    fn contract_parents_preserve_source_order() {
+        let result = parse("contract Child extends ParentA, ParentB {}");
+        assert!(result.is_clean());
+        let [Declaration::Contract(contract)] = result.program.declarations.as_slice() else {
+            panic!("expected contract declaration");
+        };
+        assert_eq!(
+            contract.parents,
+            [
+                TypeExpression::Name("ParentA".into()),
+                TypeExpression::Name("ParentB".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_statements_and_meta_in_a_body_are_rejected() {
+        let empty = parse("x;;y");
+        let body_meta = parse("class A { meta deny shape }");
+
+        assert_eq!(empty.diagnostics[0].code, "PARSE_EMPTY_STATEMENT");
+        assert_eq!(body_meta.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+    }
+
+    #[test]
+    fn labeled_break_and_match_fallback_parse_without_semantic_checks() {
+        let loop_result = parse("outer: while ready { break outer: 1 }");
+        let match_result = parse("match value { first if ready => 1, else => 2 }");
+
+        assert!(loop_result.is_clean());
+        assert!(match_result.is_clean());
+        assert!(matches!(
+            loop_result.program.statements.as_slice(),
+            [Statement::While { label: Some(label), .. }] if label == "outer"
+        ));
+        assert!(matches!(
+            match_result.program.statements.as_slice(),
+            [Statement::Match {
+                fallback: Some(_),
+                ..
+            }]
+        ));
     }
 }
