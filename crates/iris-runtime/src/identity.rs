@@ -1,7 +1,7 @@
 macro_rules! define_id {
     ($name:ident) => {
         /// Opaque runtime identity.
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $name(u64);
 
         impl $name {

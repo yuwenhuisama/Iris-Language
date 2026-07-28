@@ -2,6 +2,27 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{ClassId, MethodId, ModuleId, RevisionId, Selector};
 
+/// One precomputed member in a Class revision's lookup linearization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MroEntry {
+    /// A logical Class member.
+    Class(ClassId),
+    /// A composed Module member.
+    Module(ModuleId),
+}
+
+impl From<ClassId> for MroEntry {
+    fn from(value: ClassId) -> Self {
+        Self::Class(value)
+    }
+}
+
+impl From<ModuleId> for MroEntry {
+    fn from(value: ModuleId) -> Self {
+        Self::Module(value)
+    }
+}
+
 /// Immutable nominal promises established by a class origin declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StaticSpine(u64);
@@ -49,7 +70,7 @@ pub struct ClassRevision {
     commit_id: u64,
     static_spine: StaticSpine,
     runtime_superclass: Option<ClassId>,
-    mro: Vec<ClassId>,
+    mro: Vec<MroEntry>,
     modules: Vec<ModuleId>,
     methods: BTreeMap<Selector, MethodId>,
     properties: BTreeSet<Selector>,
@@ -107,8 +128,8 @@ impl ClassRevision {
         self.runtime_superclass
     }
 
-    /// Returns the computed MRO slot; its linearization is deferred.
-    pub fn mro(&self) -> &[ClassId] {
+    /// Returns the precomputed MRO stored when this revision was published.
+    pub fn mro(&self) -> &[MroEntry] {
         &self.mro
     }
 
@@ -141,7 +162,7 @@ pub struct CandidateRevision {
     pub(crate) number: u64,
     pub(crate) static_spine: StaticSpine,
     pub(crate) runtime_superclass: Option<ClassId>,
-    pub(crate) mro: Vec<ClassId>,
+    pub(crate) mro: Vec<MroEntry>,
     pub(crate) modules: Vec<ModuleId>,
     pub(crate) methods: BTreeMap<Selector, MethodId>,
     pub(crate) properties: BTreeSet<Selector>,
@@ -149,6 +170,27 @@ pub struct CandidateRevision {
 }
 
 impl CandidateRevision {
+    pub(crate) fn origin(
+        owner: ClassId,
+        base: RevisionId,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+        mro: Vec<MroEntry>,
+    ) -> Self {
+        Self {
+            base,
+            owner,
+            number: 1,
+            static_spine,
+            runtime_superclass,
+            mro,
+            modules: Vec::new(),
+            methods: BTreeMap::new(),
+            properties: BTreeSet::new(),
+            class_vars: BTreeSet::new(),
+        }
+    }
+
     pub(crate) fn from_revision(revision: &ClassRevision) -> Option<Self> {
         revision.number.checked_add(1).map(|number| Self {
             base: revision.id,
@@ -169,9 +211,26 @@ impl CandidateRevision {
         self.modules.push(module);
     }
 
-    /// Sets the deferred MRO result for a later MRO computation step.
-    pub fn replace_mro(&mut self, mro: Vec<ClassId>) {
+    /// Removes a Module edge from this candidate before publication.
+    pub fn remove_module(&mut self, module: ModuleId) {
+        self.modules.retain(|candidate| *candidate != module);
+    }
+
+    /// Sets an MRO value that publication recomputes before storing.
+    pub fn replace_mro(&mut self, mro: Vec<MroEntry>) {
         self.mro = mro;
+    }
+
+    pub(crate) fn replace_method(&mut self, selector: Selector, method: MethodId) {
+        self.methods.insert(selector, method);
+    }
+
+    pub(crate) fn restore(&mut self, artifact: &ClassRevision) {
+        self.runtime_superclass = artifact.runtime_superclass();
+        self.modules = artifact.modules().to_vec();
+        self.methods = artifact.methods().clone();
+        self.properties = artifact.properties().clone();
+        self.class_vars = artifact.class_vars().clone();
     }
 
     /// Replaces the candidate runtime superclass before validation.
