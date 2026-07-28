@@ -595,15 +595,6 @@
   async function fetchMarkdown(collection, chapter, lang) {
     const path = collection.getPath(chapter, lang);
     const fallbackPath = collection.getFallbackPath?.(chapter, lang) || "";
-    if (fallbackPath && collection.view === "tutorial") {
-      const fallbackResponse = await fetch(fallbackPath, { cache: "no-cache" });
-      if (!fallbackResponse.ok) throw new Error(`${fallbackResponse.status} ${fallbackResponse.statusText}`);
-      return {
-        markdown: await fallbackResponse.text(),
-        path: fallbackPath,
-        notice: `<aside class="translation-notice" role="note"><h2>${t("translationNoticeTitle")}</h2><p>${t("translationNoticeBody")}</p><p><code>${escapeHtml(fallbackPath)}</code></p></aside>`
-      };
-    }
     const response = await fetch(path, { cache: "no-cache" });
     if (response.ok) return { markdown: await response.text(), path, notice: "" };
     if (fallbackPath) {
