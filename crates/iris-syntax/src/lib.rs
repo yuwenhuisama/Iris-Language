@@ -156,7 +156,7 @@ pub enum UnaryOperator {
     Not,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -182,7 +182,8 @@ pub enum BinaryOperator {
     AsOptional,
     Equal,
     NotEqual,
-    NamedInfix,
+    NamedInfix { selector: String },
+    Identity,
     LogicalAnd,
     LogicalOr,
 }
@@ -473,7 +474,13 @@ mod tests {
         binary(left, BinaryOperator::Equal, leaf(right))
     }
     fn named_infix(left: Expression, right: &str) -> Expression {
-        binary(left, BinaryOperator::NamedInfix, leaf(right))
+        binary(
+            left,
+            BinaryOperator::NamedInfix {
+                selector: "named".into(),
+            },
+            leaf(right),
+        )
     }
     fn logical_and(left: Expression) -> Expression {
         binary(left, BinaryOperator::LogicalAnd, leaf("p"))

@@ -670,7 +670,10 @@ impl Parser {
         Some(values)
     }
     fn selector(&mut self) -> Option<String> {
-        let mut selector = self.name()?;
+        let name = self.name()?;
+        self.selector_suffix(name)
+    }
+    fn selector_suffix(&mut self, mut selector: String) -> Option<String> {
         if self.consume("?") {
             selector.push('?');
         } else if self.consume("!") {

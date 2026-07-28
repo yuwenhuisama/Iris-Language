@@ -127,6 +127,65 @@ fn keeps_contract_view_distinct_from_range_operators() {
     );
 }
 
+#[test]
+fn retains_each_named_infix_selector_in_the_ast() {
+    // Given
+    let sources = [("a div b", "div"), ("a mod b", "mod"), ("a foo b", "foo")];
+
+    // When / Then
+    for (source, selector) in sources {
+        let result = parse(source);
+
+        assert!(result.is_clean(), "{result:#?}");
+        assert_eq!(
+            result.program.statements,
+            [Statement::Expression(Expression::Binary {
+                left: Box::new(Expression::Name("a".into())),
+                operator: BinaryOperator::NamedInfix {
+                    selector: selector.into(),
+                },
+                right: Box::new(Expression::Name("b".into())),
+            })]
+        );
+    }
+
+    // Given
+    let div = parse("a div b").program;
+    let modulo = parse("a mod b").program;
+
+    // Then
+    assert_ne!(div, modulo);
+}
+
+#[test]
+fn parses_suffixed_named_infix_selectors() {
+    // Given
+    let sources = [
+        ("a same? b", BinaryOperator::Identity),
+        (
+            "a ready! b",
+            BinaryOperator::NamedInfix {
+                selector: "ready!".into(),
+            },
+        ),
+    ];
+
+    // When / Then
+    for (source, operator) in sources {
+        let result = parse(source);
+
+        assert!(result.is_clean(), "{result:#?}");
+        assert_eq!(
+            result.program.statements,
+            [Statement::Expression(Expression::Binary {
+                left: Box::new(Expression::Name("a".into())),
+                operator,
+                right: Box::new(Expression::Name("b".into())),
+            })]
+        );
+    }
+}
+
 fn negate(value: &str) -> Expression {
     Expression::Unary {
         operator: UnaryOperator::Negate,
@@ -137,7 +196,9 @@ fn negate(value: &str) -> Expression {
 fn named_infix(left: Expression, right: Expression) -> Expression {
     Expression::Binary {
         left: Box::new(left),
-        operator: BinaryOperator::NamedInfix,
+        operator: BinaryOperator::NamedInfix {
+            selector: "div".into(),
+        },
         right: Box::new(right),
     }
 }

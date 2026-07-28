@@ -113,13 +113,13 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             operator,
             right,
         } => {
-            let precedence = binary_precedence(*operator);
+            let precedence = binary_precedence(operator);
             let right_precedence = precedence + 1;
             (
                 format!(
                     "{} {} {}",
                     source_shape(left, precedence + 1),
-                    binary_operator(*operator),
+                    binary_operator(operator),
                     source_shape(right, right_precedence)
                 ),
                 precedence,
@@ -184,14 +184,19 @@ fn structural_shape(expression: &Expression) -> String {
             operator,
             right,
         } => match operator {
-            BinaryOperator::NamedInfix => format!(
+            BinaryOperator::NamedInfix { .. } => format!(
                 "named_infix({}, named, {})",
+                structural_shape(left),
+                structural_shape(right)
+            ),
+            BinaryOperator::Identity => format!(
+                "identity({}, {})",
                 structural_shape(left),
                 structural_shape(right)
             ),
             _ => format!(
                 "{}({}, {})",
-                structural_operator(*operator),
+                structural_operator(operator),
                 structural_shape(left),
                 structural_shape(right)
             ),
@@ -264,7 +269,7 @@ const fn unary_operator(operator: UnaryOperator) -> &'static str {
     }
 }
 
-const fn binary_precedence(operator: BinaryOperator) -> u8 {
+const fn binary_precedence(operator: &BinaryOperator) -> u8 {
     match operator {
         BinaryOperator::Power => 15,
         BinaryOperator::Multiply | BinaryOperator::Divide => 13,
@@ -285,13 +290,13 @@ const fn binary_precedence(operator: BinaryOperator) -> u8 {
         | BinaryOperator::As
         | BinaryOperator::AsOptional => 6,
         BinaryOperator::Equal | BinaryOperator::NotEqual => 5,
-        BinaryOperator::NamedInfix => 4,
+        BinaryOperator::NamedInfix { .. } | BinaryOperator::Identity => 4,
         BinaryOperator::LogicalAnd => 3,
         BinaryOperator::LogicalOr => 2,
     }
 }
 
-const fn binary_operator(operator: BinaryOperator) -> &'static str {
+const fn binary_operator(operator: &BinaryOperator) -> &'static str {
     match operator {
         BinaryOperator::Power => "**",
         BinaryOperator::Multiply => "*",
@@ -317,13 +322,14 @@ const fn binary_operator(operator: BinaryOperator) -> &'static str {
         BinaryOperator::AsOptional => "as?",
         BinaryOperator::Equal => "==",
         BinaryOperator::NotEqual => "!=",
-        BinaryOperator::NamedInfix => "named",
+        BinaryOperator::NamedInfix { .. } => "named",
+        BinaryOperator::Identity => "same?",
         BinaryOperator::LogicalAnd => "&&",
         BinaryOperator::LogicalOr => "||",
     }
 }
 
-const fn structural_operator(operator: BinaryOperator) -> &'static str {
+const fn structural_operator(operator: &BinaryOperator) -> &'static str {
     match operator {
         BinaryOperator::Power => "pow",
         BinaryOperator::Multiply | BinaryOperator::Divide => "mul",
@@ -344,7 +350,8 @@ const fn structural_operator(operator: BinaryOperator) -> &'static str {
         | BinaryOperator::As
         | BinaryOperator::AsOptional => "relational",
         BinaryOperator::Equal | BinaryOperator::NotEqual => "equality",
-        BinaryOperator::NamedInfix => "named_infix",
+        BinaryOperator::NamedInfix { .. } => "named_infix",
+        BinaryOperator::Identity => "identity",
         BinaryOperator::LogicalAnd => "logical_and",
         BinaryOperator::LogicalOr => "logical_or",
     }

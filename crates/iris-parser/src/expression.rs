@@ -5,11 +5,11 @@ use crate::{Associativity, Parser, is_identifier};
 impl Parser {
     pub(super) fn expression(&mut self, minimum: u8) -> Option<Expression> {
         let mut left = self.prefix()?;
-        while let Some((precedence, associativity, operator)) = self.infix() {
+        while let Some((precedence, associativity)) = self.infix() {
             if precedence < minimum {
                 break;
             }
-            self.advance();
+            let operator = self.consume_infix_operator()?;
             let next = if associativity == Associativity::Right {
                 precedence
             } else {
@@ -19,7 +19,7 @@ impl Parser {
             if associativity == Associativity::NonAssociative
                 && self
                     .infix()
-                    .is_some_and(|(candidate, _, _)| candidate == precedence)
+                    .is_some_and(|(candidate, _)| candidate == precedence)
             {
                 self.error("PARSE_NONASSOCIATIVE_CHAIN");
                 return None;
@@ -138,35 +138,58 @@ impl Parser {
         }
     }
 
-    fn infix(&self) -> Option<(u8, Associativity, BinaryOperator)> {
+    fn infix(&self) -> Option<(u8, Associativity)> {
         let operator = match self.peek()? {
-            "**" => (14, Associativity::Right, BinaryOperator::Power),
-            "*" => (12, Associativity::Left, BinaryOperator::Multiply),
-            "/" => (12, Associativity::Left, BinaryOperator::Divide),
-            "+" => (11, Associativity::Left, BinaryOperator::Add),
-            "-" => (11, Associativity::Left, BinaryOperator::Subtract),
-            "<<" => (10, Associativity::Left, BinaryOperator::ShiftLeft),
-            ">>" => (10, Associativity::Left, BinaryOperator::ShiftRight),
-            "&" => (9, Associativity::Left, BinaryOperator::BitwiseAnd),
-            "^" => (8, Associativity::Left, BinaryOperator::BitwiseXor),
-            "|" => (7, Associativity::Left, BinaryOperator::BitwiseOr),
-            "..=" => (
-                6,
-                Associativity::NonAssociative,
-                BinaryOperator::RangeInclusive,
-            ),
-            "..<" => (
-                6,
-                Associativity::NonAssociative,
-                BinaryOperator::RangeExclusive,
-            ),
-            "<" => (5, Associativity::NonAssociative, BinaryOperator::Less),
-            ">" => (5, Associativity::NonAssociative, BinaryOperator::Greater),
-            "==" => (4, Associativity::NonAssociative, BinaryOperator::Equal),
-            "!=" => (4, Associativity::NonAssociative, BinaryOperator::NotEqual),
-            "&&" => (2, Associativity::Left, BinaryOperator::LogicalAnd),
-            "||" => (1, Associativity::Left, BinaryOperator::LogicalOr),
-            value if is_identifier(value) => (3, Associativity::Left, BinaryOperator::NamedInfix),
+            "**" => (14, Associativity::Right),
+            "*" => (12, Associativity::Left),
+            "/" => (12, Associativity::Left),
+            "+" => (11, Associativity::Left),
+            "-" => (11, Associativity::Left),
+            "<<" => (10, Associativity::Left),
+            ">>" => (10, Associativity::Left),
+            "&" => (9, Associativity::Left),
+            "^" => (8, Associativity::Left),
+            "|" => (7, Associativity::Left),
+            "..=" | "..<" => (6, Associativity::NonAssociative),
+            "<" | ">" => (5, Associativity::NonAssociative),
+            "==" | "!=" => (4, Associativity::NonAssociative),
+            "&&" => (2, Associativity::Left),
+            "||" => (1, Associativity::Left),
+            value if is_identifier(value) => (3, Associativity::Left),
+            _ => return None,
+        };
+        Some(operator)
+    }
+
+    fn consume_infix_operator(&mut self) -> Option<BinaryOperator> {
+        let token = self.advance()?.text;
+        let operator = match token.as_str() {
+            "**" => BinaryOperator::Power,
+            "*" => BinaryOperator::Multiply,
+            "/" => BinaryOperator::Divide,
+            "+" => BinaryOperator::Add,
+            "-" => BinaryOperator::Subtract,
+            "<<" => BinaryOperator::ShiftLeft,
+            ">>" => BinaryOperator::ShiftRight,
+            "&" => BinaryOperator::BitwiseAnd,
+            "^" => BinaryOperator::BitwiseXor,
+            "|" => BinaryOperator::BitwiseOr,
+            "..=" => BinaryOperator::RangeInclusive,
+            "..<" => BinaryOperator::RangeExclusive,
+            "<" => BinaryOperator::Less,
+            ">" => BinaryOperator::Greater,
+            "==" => BinaryOperator::Equal,
+            "!=" => BinaryOperator::NotEqual,
+            "&&" => BinaryOperator::LogicalAnd,
+            "||" => BinaryOperator::LogicalOr,
+            selector if is_identifier(selector) => {
+                let selector = self.selector_suffix(token)?;
+                if selector == "same?" {
+                    BinaryOperator::Identity
+                } else {
+                    BinaryOperator::NamedInfix { selector }
+                }
+            }
             _ => return None,
         };
         Some(operator)
