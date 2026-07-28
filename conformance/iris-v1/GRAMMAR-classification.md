@@ -6,7 +6,7 @@ This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear 
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-GRAMMAR-V003` | `spec/iris-v1/02-lexical-grammar.md:551` | positive | interpreter required; JIT required; native not applicable | executable | Assert parse-shape output for `2 ** 3 ** 2`, `-2 ** 2`, and `2 ** -3` matches the three required associativity strings. |
 | `IRIS-V1-GRAMMAR-V010` | `spec/iris-v1/02-lexical-grammar.md:552` | diagnostic | parser required; interpreter not applicable; JIT not applicable; native not applicable | authored-expect | Author the keyword inventory expectation for D-509, including reserved keywords and historical non-keyword identifier handling. |
-| `IRIS-V1-GRAMMAR-V011` | `spec/iris-v1/02-lexical-grammar.md:553` | positive | parser required; interpreter optional; JIT optional; native not applicable | executable | Assert contextual tokenization for ranges, member access, hash literal opening, interpolation, generic closers, Regex opening, and literal prefixes. |
+| `IRIS-V1-GRAMMAR-V011` | `spec/iris-v1/02-lexical-grammar.md:553` | positive | parser required; interpreter optional; JIT optional; native not applicable | prose-fixture | Assert contextual tokenization for ranges, member access, hash literal opening, interpolation, generic closers, Regex opening, and literal prefixes. |
 | `IRIS-V1-GRAMMAR-V013` | `spec/iris-v1/02-lexical-grammar.md:554` | diagnostic | parser required; interpreter not applicable; JIT not applicable; native not applicable | authored-expect | Author the labeled-loop expectation, including accepted `break outer: expr` and rejected non-loop or missing-colon forms. |
 | `IRIS-V1-GRAMMAR-V144` | `spec/iris-v1/02-lexical-grammar.md:570` | positive | interpreter required; JIT required; native not applicable | executable | Assert integer literal values `[10, 493, 755, 255]` and `Integer` type observations. |
 | `IRIS-V1-GRAMMAR-V145` | `spec/iris-v1/02-lexical-grammar.md:571` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert valid numeric separator tokenization and `LEX_BAD_NUMERIC_SEPARATOR` for each malformed separator fixture. |
@@ -19,23 +19,23 @@ This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear 
 | `IRIS-V1-GRAMMAR-V152` | `spec/iris-v1/02-lexical-grammar.md:578` | positive | interpreter required; JIT required; native not applicable | executable | Assert hexadecimal float and integer values `[15.5, 1.0, 1.0, 0.5, 483]` with expected numeric types. |
 | `IRIS-V1-GRAMMAR-V153` | `spec/iris-v1/02-lexical-grammar.md:579` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | authored-expect | Author the malformed hex-float expectation for `0x1.` without inventing a diagnostic code beyond the spec text. |
 | `IRIS-V1-GRAMMAR-V154` | `spec/iris-v1/02-lexical-grammar.md:580` | differential | interpreter required; JIT required; native not applicable | deferred | Defer differential interpreter and JIT `float32_bits` and `float64_bits` comparison under varied host locales and rounding modes. |
-| `IRIS-V1-GRAMMAR-V155` | `spec/iris-v1/02-lexical-grammar.md:581` | diagnostic | interpreter required; JIT required; native not applicable | executable | Assert signed overflow, zero-rounding, subnormal bit results, and precision-warning presence or absence. |
-| `IRIS-V1-GRAMMAR-V161` | `spec/iris-v1/02-lexical-grammar.md:582` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert canonical headers parse and reordered or repeated headers emit `PARSE_BAD_HEADER_ORDER`. |
+| `IRIS-V1-GRAMMAR-V155` | `spec/iris-v1/02-lexical-grammar.md:581` | diagnostic | interpreter required; JIT required; native not applicable | prose-fixture | Assert signed overflow, zero-rounding, subnormal bit results, and precision-warning presence or absence. |
+| `IRIS-V1-GRAMMAR-V161` | `spec/iris-v1/02-lexical-grammar.md:582` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | prose-fixture | Assert canonical headers parse and reordered or repeated headers emit `PARSE_BAD_HEADER_ORDER`. |
 | `IRIS-V1-GRAMMAR-V163` | `spec/iris-v1/02-lexical-grammar.md:583` | positive | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert parser output contains constraints `T: A & B` and `U: C`, with comma as assignment separator. |
 | `IRIS-V1-GRAMMAR-V165` | `spec/iris-v1/02-lexical-grammar.md:584` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert header `meta deny shape` parses and body placement emits `PARSE_BAD_HEADER_ORDER` with no declaration candidate. |
 | `IRIS-V1-GRAMMAR-V167` | `spec/iris-v1/02-lexical-grammar.md:585` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert `PARSE_LEGACY_LEADING_SEMICOLON` and `PARSE_EMPTY_STATEMENT` for the listed semicolon fixtures. |
-| `IRIS-V1-GRAMMAR-V168` | `spec/iris-v1/02-lexical-grammar.md:586` | positive | interpreter required; JIT required; native not applicable | executable | Assert statement boundaries, parenthesized newline continuation, escaped newline continuation, and trailing semicolon acceptance. |
+| `IRIS-V1-GRAMMAR-V168` | `spec/iris-v1/02-lexical-grammar.md:586` | positive | interpreter required; JIT required; native not applicable | prose-fixture | Assert statement boundaries, parenthesized newline continuation, escaped newline continuation, and trailing semicolon acceptance. |
 | `IRIS-V1-GRAMMAR-V170` | `spec/iris-v1/02-lexical-grammar.md:587` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert comment removal for line, doc, and nested block comments, plus `LEX_UNTERMINATED_COMMENT` for the malformed fixture. |
 | `IRIS-V1-GRAMMAR-V171` | `spec/iris-v1/02-lexical-grammar.md:588` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert first-line shebang acceptance and `LEX_SHEBANG_NOT_FIRST` for a later shebang. |
-| `IRIS-V1-GRAMMAR-V172` | `spec/iris-v1/02-lexical-grammar.md:589` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert valid UTF-8 BOM parsing and `LEX_INVALID_UTF8` for malformed UTF-8 and UTF-16LE BOM bytes. |
+| `IRIS-V1-GRAMMAR-V172` | `spec/iris-v1/02-lexical-grammar.md:589` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | prose-fixture | Assert valid UTF-8 BOM parsing and `LEX_INVALID_UTF8` for malformed UTF-8 and UTF-16LE BOM bytes. |
 | `IRIS-V1-GRAMMAR-V173` | `spec/iris-v1/02-lexical-grammar.md:590` | positive | interpreter required; JIT required; native not applicable | executable | Assert string-family values `"a\n2"`, `"a\n${x}"`, `"a\\n${x}"`, and `"a"`, all as `String`. |
 | `IRIS-V1-GRAMMAR-V174` | `spec/iris-v1/02-lexical-grammar.md:591` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert the valid escape scalar sequence and `LEX_BAD_ESCAPE` for bad escape and invalid Unicode scalar fixtures. |
-| `IRIS-V1-GRAMMAR-V175` | `spec/iris-v1/02-lexical-grammar.md:592` | diagnostic | interpreter required; JIT required; native not applicable | executable | Assert triple literal value `"alpha\nbeta"` and `LEX_BAD_MULTILINE_INDENT` for bad indentation. |
-| `IRIS-V1-GRAMMAR-V176` | `spec/iris-v1/02-lexical-grammar.md:593` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert tabs are not normalized to spaces and the mixed-indent fixture emits `LEX_BAD_MULTILINE_INDENT`. |
-| `IRIS-V1-GRAMMAR-V177` | `spec/iris-v1/02-lexical-grammar.md:594` | diagnostic | interpreter required; JIT required; native not applicable | executable | Assert raw literal preservation for zero and nonzero fences, plus `LEX_BAD_RAW_FENCE` for a 256-fence fixture. |
+| `IRIS-V1-GRAMMAR-V175` | `spec/iris-v1/02-lexical-grammar.md:592` | diagnostic | interpreter required; JIT required; native not applicable | prose-fixture | Assert triple literal value `"alpha\nbeta"` and `LEX_BAD_MULTILINE_INDENT` for bad indentation. |
+| `IRIS-V1-GRAMMAR-V176` | `spec/iris-v1/02-lexical-grammar.md:593` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | prose-fixture | Assert tabs are not normalized to spaces and the mixed-indent fixture emits `LEX_BAD_MULTILINE_INDENT`. |
+| `IRIS-V1-GRAMMAR-V177` | `spec/iris-v1/02-lexical-grammar.md:594` | diagnostic | interpreter required; JIT required; native not applicable | prose-fixture | Assert raw literal preservation for zero and nonzero fences, plus `LEX_BAD_RAW_FENCE` for a 256-fence fixture. |
 | `IRIS-V1-GRAMMAR-V178` | `spec/iris-v1/02-lexical-grammar.md:595` | positive | interpreter required; JIT required; native not applicable | executable | Assert raw triple value `"${x}\\n"` after strict indent stripping with no escape or interpolation evaluation. |
 | `IRIS-V1-GRAMMAR-V179` | `spec/iris-v1/02-lexical-grammar.md:596` | positive | interpreter required; JIT required; native not applicable | executable | Assert adjacent literal concatenation yields `String("abcd")` without a statement terminator between segments. |
-| `IRIS-V1-GRAMMAR-V189` | `spec/iris-v1/02-lexical-grammar.md:597` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert `"\xFF"` yields text `String("U+00FF")` and surrogate escape emits `LEX_BAD_ESCAPE`. |
+| `IRIS-V1-GRAMMAR-V189` | `spec/iris-v1/02-lexical-grammar.md:597` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | prose-fixture | Assert `"\xFF"` yields text `String("U+00FF")` and surrogate escape emits `LEX_BAD_ESCAPE`. |
 | `IRIS-V1-GRAMMAR-V190` | `spec/iris-v1/02-lexical-grammar.md:598` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | authored-expect | Author the interpolation expectation, including `String("3")` for the expression form and parse rejection for the format mini-language. |
 | `IRIS-V1-GRAMMAR-V181` | `spec/iris-v1/02-lexical-grammar.md:599` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | authored-expect | Author the Regex literal and diagnostic expectations for supported flags, duplicate flags, and unsupported backreference syntax. |
 | `IRIS-V1-GRAMMAR-V183` | `spec/iris-v1/02-lexical-grammar.md:600` | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert historical words parse as identifiers while `let class = 1` is rejected as a reserved-keyword binding. |
@@ -50,9 +50,28 @@ This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear 
 
 | Classification | Count |
 | --- | ---: |
-| executable | 35 |
+| executable | 26 |
+| prose-fixture | 9 |
 | authored-expect | 5 |
 | deferred | 1 |
+
+## Prose Fixture Reclassification
+
+Nine rows were originally classified `executable` but their frozen chapter 02 rows supply prose instead of an executable fixture or an executable expectation. They are reclassified `prose-fixture`, carry the record tag `status:prose-fixture`, and are reported by the runner in its own `unrunnable_source` bucket. They are never counted as passing.
+
+| Vector ID | Why it is not executable |
+| --- | --- |
+| `IRIS-V1-GRAMMAR-V011` | `expect.artifact.parse_shapes` is an English sentence describing conformant tokenization, not a renderable shape. |
+| `IRIS-V1-GRAMMAR-V155` | `input.source_text` is entirely prose describing rounding fixtures. |
+| `IRIS-V1-GRAMMAR-V161` | `input.source_text` appends a prose description of the reordered-header fixture to the code prefix. |
+| `IRIS-V1-GRAMMAR-V168` | `expect.artifact.parse_shapes` lists behavior labels such as `newline-after-1-terminates`, not shapes. |
+| `IRIS-V1-GRAMMAR-V172` | `input.source_text` describes byte sequences in prose rather than supplying them. |
+| `IRIS-V1-GRAMMAR-V175` | `input.source_text` describes the invalid closing-indent fixture in prose. |
+| `IRIS-V1-GRAMMAR-V176` | `input.source_text` is entirely prose describing indentation. |
+| `IRIS-V1-GRAMMAR-V177` | `input.source_text` describes the 256-fence invalid fixture in prose. |
+| `IRIS-V1-GRAMMAR-V189` | `expect.value.string` is the notation `U+00FF`; the implementation correctly evaluates `"\xFF"` to `ÿ`. |
+
+The underlying frozen-spec defect is recorded in [`docs/spec-defects-v1.md`](../../docs/spec-defects-v1.md). Authoring concrete fixtures for these rows is future corpus work and is out of milestone 1 scope.
 
 ## Out Of Milestone Scope
 

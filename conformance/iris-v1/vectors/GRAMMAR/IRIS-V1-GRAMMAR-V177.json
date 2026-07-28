@@ -7,5 +7,5 @@
   "input": {"kind": "source", "source_text": "valid: r\"a\\n${x}\", r##\"a\\n${x}\"##; invalid: raw string with 256 fence characters", "malformed": true},
   "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source raw-string semantics have no native boundary."},
   "expect": {"diagnostics": [{"code": "LEX_BAD_RAW_FENCE", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C035"}]},
-  "tags": ["phase:lex", "diagnostic:raw-fence", "differential:interpreter-jit"]
+  "tags": ["phase:lex", "diagnostic:raw-fence", "differential:interpreter-jit", "status:prose-fixture"]
 }

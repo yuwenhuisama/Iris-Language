@@ -81,4 +81,23 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[test]
+    fn prose_fixture_tag_is_reported_as_unrunnable_source() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let records = corpus.records()?;
+
+        // When
+        let outcomes = super::execute(&records);
+
+        // Then
+        assert!(matches!(
+            outcomes
+                .iter()
+                .find(|outcome| outcome.id() == "IRIS-V1-GRAMMAR-V177"),
+            Some(Outcome::UnrunnableSource { .. })
+        ));
+        Ok(())
+    }
 }

@@ -7,5 +7,5 @@
   "input": {"kind": "source", "source_text": "valid: \"\"\"\n  alpha\n  beta\n  \"\"\"; invalid: closing-indent fixture with a non-empty line lacking that prefix", "malformed": true},
   "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source string semantics have no native boundary."},
   "expect": {"diagnostics": [{"code": "LEX_BAD_MULTILINE_INDENT", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C036"}]},
-  "tags": ["phase:lex", "diagnostic:multiline-indent", "differential:interpreter-jit"]
+  "tags": ["phase:lex", "diagnostic:multiline-indent", "differential:interpreter-jit", "status:prose-fixture"]
 }

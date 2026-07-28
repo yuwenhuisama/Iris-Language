@@ -1,5 +1,5 @@
 use crate::{model::Record, observation::compare};
-use iris_lexer::{TokenKind, convert_literals, lex};
+use iris_lexer::{convert_literals, lex};
 use iris_parser::parse;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,12 +120,12 @@ fn execute_record(record: &Record) -> Outcome {
             id: record.id.clone(),
         };
     }
-    let parsed = parse(&record.source);
-    if is_prose(&record.source) {
+    if record.tags.iter().any(|tag| tag == "status:prose-fixture") {
         return Outcome::UnrunnableSource {
             id: record.id.clone(),
         };
     }
+    let parsed = parse(&record.source);
     match compare(record, &parsed) {
         Ok(()) => Outcome::Passed {
             id: record.id.clone(),
@@ -136,21 +136,4 @@ fn execute_record(record: &Record) -> Outcome {
             actual,
         },
     }
-}
-
-fn is_prose(source: &str) -> bool {
-    if source.trim_end().ends_with('}') {
-        return false;
-    }
-    let mut words = 0;
-    for token in lex(source.as_bytes()).tokens() {
-        match token.kind {
-            TokenKind::Identifier | TokenKind::Keyword => words += 1,
-            _ => words = 0,
-        }
-        if words >= 5 {
-            return true;
-        }
-    }
-    false
 }

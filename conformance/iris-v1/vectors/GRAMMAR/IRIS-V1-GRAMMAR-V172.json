@@ -7,5 +7,5 @@
   "input": {"kind": "source", "source_text": "valid bytes: EF BB BF let cafe = \"ok\"; invalid bytes: C3 28; invalid bytes: FF FE", "malformed": true},
   "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C003 rejects non-UTF-8 before parsing or execution."},
   "expect": {"diagnostics": [{"code": "LEX_INVALID_UTF8", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C003"}]},
-  "tags": ["phase:lex", "diagnostic:utf8"]
+  "tags": ["phase:lex", "diagnostic:utf8", "status:prose-fixture"]
 }

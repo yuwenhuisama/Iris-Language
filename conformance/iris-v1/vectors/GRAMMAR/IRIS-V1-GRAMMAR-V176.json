@@ -7,5 +7,5 @@
   "input": {"kind": "source", "source_text": "triple literal with two-space closing indent and a content line prefixed by tab plus two spaces", "malformed": true},
   "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C036 defines lexical indentation matching."},
   "expect": {"diagnostics": [{"code": "LEX_BAD_MULTILINE_INDENT", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C036"}]},
-  "tags": ["phase:lex", "diagnostic:multiline-indent"]
+  "tags": ["phase:lex", "diagnostic:multiline-indent", "status:prose-fixture"]
 }
