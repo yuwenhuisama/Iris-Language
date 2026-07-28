@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V189",
+  "name": "String hexadecimal escapes produce scalars and reject surrogates",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C033", "IRIS-V1-GRAMMAR-C034", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-370"]},
+  "input": {"kind": "source", "source_text": "valid: \"\\xFF\"; invalid: \"\\u{D800}\"", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "This vector asserts lexical escape conversion and rejection before execution."},
+  "expect": {"value": {"string": "U+00FF"}, "diagnostics": [{"code": "LEX_BAD_ESCAPE", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C033"}]},
+  "tags": ["phase:lex", "diagnostic:bad-escape"]
+}

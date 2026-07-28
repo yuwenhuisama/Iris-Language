@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V172",
+  "name": "UTF-8 BOM is accepted while malformed and UTF-16 source is rejected",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C003", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-367"]},
+  "input": {"kind": "source", "source_text": "valid bytes: EF BB BF let cafe = \"ok\"; invalid bytes: C3 28; invalid bytes: FF FE", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C003 rejects non-UTF-8 before parsing or execution."},
+  "expect": {"diagnostics": [{"code": "LEX_INVALID_UTF8", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C003"}]},
+  "tags": ["phase:lex", "diagnostic:utf8"]
+}

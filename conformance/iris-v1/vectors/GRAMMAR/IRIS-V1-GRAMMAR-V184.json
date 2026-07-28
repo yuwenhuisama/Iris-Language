@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V184",
+  "name": "Contextual longest-match conflicts tokenize by grammar position",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C017", "IRIS-V1-GRAMMAR-C018", "IRIS-V1-GRAMMAR-C019", "IRIS-V1-GRAMMAR-C020", "IRIS-V1-GRAMMAR-C021", "IRIS-V1-GRAMMAR-C022", "IRIS-V1-GRAMMAR-C023", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-510"]},
+  "input": {"kind": "source", "source_text": "a ..= b; a ..< b; view..member; a != b; property fun ready?=(v: Bool) {}; Box<Array<String>>; %{k: v}; ${x}; m\"x\"; br\"x\"; mbr\"x\"; a / b", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "The contextual tokenization and out-of-literal interpolation rejection occur before execution."},
+  "expect": {"diagnostics": [{"code": "LEX_INTERPOLATION_OUTSIDE_LITERAL", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C021"}]},
+  "tags": ["phase:lex", "diagnostic:contextual-tokenization"]
+}

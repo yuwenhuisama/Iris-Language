@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V181",
+  "name": "Regex flags and backreferences follow the authored expectation",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C023", "IRIS-V1-GRAMMAR-C039", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-505", "D-506"]},
+  "input": {"kind": "source", "source_text": "/a+/i\nr/a\\/b/u\n/a/ii\n/(a)\\1/", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "The classified authored expectation covers lexical and validation behavior before execution."},
+  "expect": {"diagnostics": [{"code": "REGEX_INVALID_FLAGS_OR_SYNTAX", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C039"}]},
+  "tags": ["phase:lex", "status:authored-expect", "diagnostic:regex"]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V173",
+  "name": "Escaped, single, raw, and multiline strings retain distinct behavior",
+  "category": "positive",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C032", "IRIS-V1-GRAMMAR-C035", "IRIS-V1-GRAMMAR-C036"], "decisions": ["D-368"]},
+  "input": {"kind": "source", "source_text": "[\"a\\n${1 + 1}\", 'a\\n${x}', r#\"a\\n${x}\"#, \"\"\"\n  a\n  \"\"\"]"},
+  "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source string semantics have no native boundary."},
+  "expect": {"value": {"array": [{"string": "a\n2"}, {"string": "a\n${x}"}, {"string": "a\\n${x}"}, {"string": "a"}]}, "type": "Array[String]"},
+  "tags": ["phase:lex", "surface:string", "differential:interpreter-jit"]
+}

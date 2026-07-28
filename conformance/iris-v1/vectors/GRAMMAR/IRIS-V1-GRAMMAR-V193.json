@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V193",
+  "name": "Implicit and explicit Object class roots retain distinct source forms",
+  "category": "positive",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C049", "IRIS-V1-GRAMMAR-C052"], "decisions": ["D-283"]},
+  "input": {"kind": "source", "source_text": "class ImplicitRoot {}\nclass ExplicitRoot extends Object {}"},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "This vector asserts declaration parse shapes rather than executable behavior."},
+  "expect": {"artifact": {"parse_shapes": ["Class(name=ImplicitRoot, extends=absent)", "Class(name=ExplicitRoot, extends=Object)"]}},
+  "tags": ["phase:parse", "surface:declaration"]
+}

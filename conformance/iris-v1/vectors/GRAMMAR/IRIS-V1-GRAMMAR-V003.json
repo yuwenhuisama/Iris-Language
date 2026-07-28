@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V003",
+  "name": "Exponent precedence and unary negation parse shapes",
+  "category": "positive",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C041", "IRIS-V1-GRAMMAR-C042"], "decisions": ["D-033"]},
+  "input": {"kind": "source", "source_text": "2 ** 3 ** 2; -2 ** 2; 2 ** -3"},
+  "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source parsing has no native boundary."},
+  "expect": {"artifact": {"parse_shapes": ["2 ** (3 ** 2)", "-(2 ** 2)", "2 ** (-3)"]}},
+  "tags": ["phase:parse", "surface:operator", "differential:interpreter-jit"]
+}

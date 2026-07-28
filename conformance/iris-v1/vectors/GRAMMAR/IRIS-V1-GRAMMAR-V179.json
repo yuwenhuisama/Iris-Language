@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V179",
+  "name": "Adjacent string literals concatenate as one expression",
+  "category": "positive",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C032"], "decisions": ["D-386"]},
+  "input": {"kind": "source", "source_text": "\"a\" 'b' r\"c\" \"\"\"d\"\"\""},
+  "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source string semantics have no native boundary."},
+  "expect": {"value": {"string": "abcd"}, "type": "String"},
+  "tags": ["phase:lex", "surface:string", "differential:interpreter-jit"]
+}

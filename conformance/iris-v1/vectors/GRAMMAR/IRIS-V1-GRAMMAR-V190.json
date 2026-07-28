@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V190",
+  "name": "Interpolation expressions are accepted while format syntax is rejected",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C032", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-383"]},
+  "input": {"kind": "source", "source_text": "valid: \"${1 + 2}\"; invalid: \"${value:04d}\"", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "The classified authored expectation covers interpolation parsing before execution."},
+  "expect": {"value": {"string": "3"}, "diagnostics": [{"code": "PARSE_INTERPOLATION_FORMAT_SYNTAX", "severity": "error", "phase": "parse", "clause": "IRIS-V1-GRAMMAR-C032"}]},
+  "tags": ["phase:parse", "status:authored-expect", "diagnostic:interpolation"]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V192",
+  "name": "Contract extends clauses preserve ordered parent types",
+  "category": "positive",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C049", "IRIS-V1-GRAMMAR-C052"], "decisions": ["D-277"]},
+  "input": {"kind": "source", "source_text": "contract Child extends ParentA, ParentB {}"},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "This vector asserts declaration parse shape rather than executable behavior."},
+  "expect": {"artifact": {"parse_shape": "Contract(name=Child, extends=[ParentA, ParentB])"}},
+  "tags": ["phase:parse", "surface:declaration"]
+}

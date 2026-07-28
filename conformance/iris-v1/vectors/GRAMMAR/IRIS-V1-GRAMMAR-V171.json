@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V171",
+  "name": "Only a first-line shebang is accepted as a comment",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C005", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-366"]},
+  "input": {"kind": "source", "source_text": "valid: #! /usr/bin/env iris\nlet x = 1\ninvalid: let x = 1\n#! late", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C005 is a pure lexical source-position rule."},
+  "expect": {"diagnostics": [{"code": "LEX_SHEBANG_NOT_FIRST", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C005"}]},
+  "tags": ["phase:lex", "diagnostic:shebang"]
+}

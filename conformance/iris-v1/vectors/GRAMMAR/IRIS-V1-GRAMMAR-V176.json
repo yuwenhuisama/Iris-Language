@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V176",
+  "name": "Tabs do not match a triple-string closing space prefix",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C036", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-380"]},
+  "input": {"kind": "source", "source_text": "triple literal with two-space closing indent and a content line prefixed by tab plus two spaces", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C036 defines lexical indentation matching."},
+  "expect": {"diagnostics": [{"code": "LEX_BAD_MULTILINE_INDENT", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C036"}]},
+  "tags": ["phase:lex", "diagnostic:multiline-indent"]
+}

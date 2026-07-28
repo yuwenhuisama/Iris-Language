@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V183",
+  "name": "Historical words remain identifiers while reserved class is rejected",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C013", "IRIS-V1-GRAMMAR-C014", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-509"]},
+  "input": {"kind": "source", "source_text": "let alias = 1\nlet switch = 1\nlet when = 1\nlet and = 1\nlet or = 1\nlet not = 1\nlet class = 1", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "This vector asserts lexical keyword classification and parse rejection before execution."},
+  "expect": {"diagnostics": [{"code": "PARSE_RESERVED_KEYWORD_BINDING", "severity": "error", "phase": "parse", "clause": "IRIS-V1-GRAMMAR-C013"}]},
+  "tags": ["phase:parse", "diagnostic:reserved-keyword"]
+}

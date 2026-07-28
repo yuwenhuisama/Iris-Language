@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V191",
+  "name": "Only immediately newline-followed backslashes continue a line",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C007", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-388"]},
+  "input": {"kind": "source", "source_text": "valid: let sum = 1 + \\\n2\ninvalid: let bad = 1 + \\ \n2\ninvalid: let also_bad = 1 + \\ // note\n2", "malformed": true},
+  "applicability": {"interpreter": "required", "jit": "required", "native": "not_applicable", "reason": "Pure source continuation semantics have no native boundary."},
+  "expect": {"diagnostics": [{"code": "LEX_BAD_CONTINUATION", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C007"}]},
+  "tags": ["phase:lex", "diagnostic:continuation", "differential:interpreter-jit"]
+}

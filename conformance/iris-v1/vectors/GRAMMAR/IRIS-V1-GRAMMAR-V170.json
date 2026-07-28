@@ -1,0 +1,11 @@
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-GRAMMAR-V170",
+  "name": "Nested comments are removed and unterminated comments are rejected",
+  "category": "diagnostic",
+  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C006", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-365"]},
+  "input": {"kind": "source", "source_text": "valid: // note\n/// docs\n/* outer /* inner */ outer */\ninvalid: /* outer /* inner */", "malformed": true},
+  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "IRIS-V1-GRAMMAR-C006 is a pure lexical comment rule."},
+  "expect": {"diagnostics": [{"code": "LEX_UNTERMINATED_COMMENT", "severity": "error", "phase": "lex", "clause": "IRIS-V1-GRAMMAR-C006"}]},
+  "tags": ["phase:lex", "diagnostic:unterminated-comment"]
+}
