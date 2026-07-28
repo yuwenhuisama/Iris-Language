@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iris-lang.example/conformance/iris-v1/schema/iris-v1-vector-schema-1.json",
+  "title": "Iris v1 conformance vector record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "category",
+    "source",
+    "input",
+    "applicability",
+    "expect",
+    "tags"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "iris-v1-vector-schema-1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^IRIS-V1-(IDENTITY|GRAMMAR|RUNTIME|CONTROL|TYPES|COLLECTIONS|ASYNC|META|FFI|LIBRARY|MIGRATION|CONFORMANCE|TRACE)-V[0-9]{3}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": [
+        "positive",
+        "negative",
+        "diagnostic",
+        "differential"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chapter",
+        "artifact",
+        "clauses",
+        "decisions"
+      ],
+      "properties": {
+        "chapter": {
+          "enum": [
+            "IDENTITY",
+            "GRAMMAR",
+            "RUNTIME",
+            "CONTROL",
+            "TYPES",
+            "COLLECTIONS",
+            "ASYNC",
+            "META",
+            "FFI",
+            "LIBRARY",
+            "MIGRATION",
+            "CONFORMANCE",
+            "TRACE"
+          ]
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clauses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^IRIS-V1-[A-Z]+-C[0-9]{3}[A-Z]?$"
+          }
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^D-[0-9]{3}$"
+          }
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "source",
+            "package",
+            "metadata",
+            "native",
+            "ffi",
+            "serialized",
+            "host",
+            "legacy",
+            "fixture"
+          ]
+        },
+        "source_text": true,
+        "files": true,
+        "package": true,
+        "metadata": true,
+        "native_artifact": true,
+        "serialized_value": true,
+        "host_calls": true,
+        "fixture_ref": true,
+        "malformed": {
+          "const": true
+        }
+      },
+      "anyOf": [
+        { "required": ["source_text"] },
+        { "required": ["files"] },
+        { "required": ["package"] },
+        { "required": ["metadata"] },
+        { "required": ["native_artifact"] },
+        { "required": ["serialized_value"] },
+        { "required": ["host_calls"] },
+        { "required": ["fixture_ref"] }
+      ]
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interpreter", "jit", "native"],
+      "properties": {
+        "interpreter": { "$ref": "#/$defs/applicabilityValue" },
+        "jit": { "$ref": "#/$defs/applicabilityValue" },
+        "native": { "$ref": "#/$defs/applicabilityValue" },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stdout": true,
+        "stderr": true,
+        "value": true,
+        "type": true,
+        "error": true,
+        "diagnostics": true,
+        "status": true,
+        "artifact": true,
+        "backends": true,
+        "equivalence": true,
+        "side_effects": true
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9:_-]*$",
+        "allOf": [
+          {
+            "if": { "pattern": "^legacy:" },
+            "then": {
+              "enum": [
+                "legacy:preserve",
+                "legacy:intentional-divergence",
+                "legacy:removed",
+                "legacy:deferred",
+                "legacy:not-applicable"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "applicabilityValue": {
+      "enum": [
+        "required",
+        "optional",
+        "not_applicable",
+        "prohibited"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "applicability": {
+            "properties": {
+              "interpreter": { "const": "required" },
+              "jit": { "const": "required" },
+              "native": { "const": "required" }
+            },
+            "required": ["interpreter", "jit", "native"]
+          }
+        },
+        "required": ["applicability"]
+      },
+      "else": {
+        "properties": {
+          "applicability": {
+            "required": ["reason"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "category": { "enum": ["negative", "diagnostic"] }
+        },
+        "required": ["category"]
+      },
+      "then": {
+        "properties": {
+          "expect": { "minProperties": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "category": { "const": "negative" }
+        },
+        "required": ["category"]
+      },
+      "then": {
+        "anyOf": [
+          {
+            "properties": {
+              "expect": { "required": ["error"] }
+            }
+          },
+          {
+            "properties": {
+              "source": {
+                "properties": {
+                  "decisions": { "minItems": 1 }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input": {
+            "properties": {
+              "malformed": { "const": true }
+            },
+            "required": ["malformed"]
+          }
+        },
+        "required": ["input"]
+      },
+      "then": {
+        "properties": {
+          "category": { "enum": ["negative", "diagnostic"] }
+        },
+        "anyOf": [
+          {
+            "properties": {
+              "expect": { "required": ["diagnostics"] }
+            }
+          },
+          {
+            "properties": {
+              "expect": {
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": ["phase"]
+                  }
+                },
+                "required": ["error"]
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
