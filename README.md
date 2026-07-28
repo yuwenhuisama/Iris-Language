@@ -11,7 +11,7 @@
 
 ## What Iris Is
 
-Iris is the modern successor to Legacy Iris, a dynamic object-oriented scripting language designed for host embedding and native extension. Iris v1 keeps the identity of the original language while replacing its implementation and tightening its guarantees.
+Iris is a dynamic, object-oriented scripting language designed for host embedding and native extension.
 
 The defining idea is stated in `IRIS-V1-IDENTITY-C008`: **static promises bound dynamic behavior.** Declared superclasses, declared Contracts, visible member names and signatures, typed properties, generic constraints, and package identity are preserved across dynamic mutation, hot package upgrade, reflection, native binding, and optimization.
 
@@ -114,12 +114,8 @@ spec/iris-v1/          Frozen v1 specification, English and Simplified Chinese
 crates/                Rust reference implementation
 conformance/iris-v1/   Conformance vector corpus, schema, and classification
 docs/                  Specification defect ledger
-legacy/                Archived Legacy Iris C++ implementation, frozen
+legacy/                Archived prior C++ implementation, frozen and unmaintained
 ```
-
-### Legacy implementation
-
-The original C++/MSVC implementation is preserved unmodified under [`legacy/`](legacy/) for historical reference. **It is frozen and not guaranteed to build.** Iris v1 does not promise legacy source restoration, legacy syntax, legacy parser behavior, or legacy extension ABI compatibility. Intentional incompatibilities are documented in [chapter 11](spec/iris-v1/11-migration-divergence.md).
 
 ## Contributing
 
