@@ -98,26 +98,20 @@ impl Evaluator {
                 let receiver = self.value(receiver)?;
                 Ok(Evaluated::Member(receiver, selector.clone()))
             }
-            Expression::Call { callee, arguments } => {
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| {
-                        self.expression(argument)
-                            .and_then(|value| self.value(value))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                match self.expression(callee)? {
-                    Evaluated::Member(receiver, selector) => {
-                        self.send(receiver, &selector, &arguments)
-                    }
-                    Evaluated::Value(RuntimeValue::Class(class)) => self
-                        .kernel
+            Expression::Call { callee, arguments } => match self.expression(callee)? {
+                Evaluated::Member(receiver, selector) => {
+                    let arguments = self.arguments(arguments, None)?;
+                    self.send(receiver, &selector, &arguments)
+                }
+                Evaluated::Value(RuntimeValue::Class(class)) => {
+                    let arguments = self.arguments(arguments, Some(class))?;
+                    self.kernel
                         .construct(class, &arguments)
                         .map(Evaluated::Value)
-                        .map_err(EvaluationError::Runtime),
-                    Evaluated::Value(_) => Err(EvaluationError::UnsupportedConstruct),
+                        .map_err(EvaluationError::Runtime)
                 }
-            }
+                Evaluated::Value(_) => Err(EvaluationError::UnsupportedConstruct),
+            },
             Expression::Unary { operator, operand } => {
                 let operand = self.expression(operand)?;
                 let operand = self.value(operand)?;
@@ -181,6 +175,29 @@ impl Evaluator {
         Ok(Evaluated::Value(value))
     }
 
+    fn arguments(
+        &mut self,
+        arguments: &[Expression],
+        constructor: Option<iris_runtime::ClassId>,
+    ) -> Result<Vec<RuntimeValue>, EvaluationError> {
+        let float64 = self
+            .kernel
+            .class(BuiltinClass::Float64)
+            .map_err(EvaluationError::Runtime)?;
+        arguments
+            .iter()
+            .map(|argument| {
+                if constructor == Some(float64)
+                    && matches!(argument, Expression::Unary { operator: UnaryOperator::Negate, operand } if matches!(operand.as_ref(), Expression::Name(name) if name == "Infinity"))
+                {
+                    Ok(RuntimeValue::Float64(f64::NEG_INFINITY))
+                } else {
+                    self.expression(argument).and_then(|value| self.value(value))
+                }
+            })
+            .collect()
+    }
+
     fn literal(&self, source: &str) -> Result<RuntimeValue, EvaluationError> {
         match source {
             "nil" => return Ok(RuntimeValue::Nil),
@@ -228,6 +245,7 @@ impl Evaluator {
             BinaryOperator::ShiftLeft => NativeSelector::ShiftLeft,
             BinaryOperator::ShiftRight => NativeSelector::ShiftRight,
             BinaryOperator::Equal => NativeSelector::Equal,
+            BinaryOperator::NotEqual => NativeSelector::NotEqual,
             BinaryOperator::Less => NativeSelector::Less,
             BinaryOperator::Compare => NativeSelector::Compare,
             BinaryOperator::NamedInfix { selector } => NativeSelector::from_source(selector)
@@ -575,6 +593,9 @@ mod evaluator_bridge_tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod runner_gap_tests;
 
 impl From<Literal> for Value {
     fn from(literal: Literal) -> Self {

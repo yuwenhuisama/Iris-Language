@@ -20,6 +20,7 @@ pub enum NativeSelector {
     ShiftRight,
     BitwiseNot,
     Equal,
+    NotEqual,
     Less,
     Compare,
     Negate,
@@ -46,6 +47,7 @@ impl NativeSelector {
             ">>" => Some(Self::ShiftRight),
             "~" => Some(Self::BitwiseNot),
             "==" => Some(Self::Equal),
+            "!=" => Some(Self::NotEqual),
             "<" => Some(Self::Less),
             "<=>" => Some(Self::Compare),
             "negate" => Some(Self::Negate),
@@ -76,6 +78,7 @@ impl NativeSelector {
             Self::Nan => 16,
             Self::Infinity => 17,
             Self::MulAdd => 18,
+            Self::NotEqual => 19,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -98,6 +101,7 @@ impl NativeSelector {
             16 => Some(Self::Nan),
             17 => Some(Self::Infinity),
             18 => Some(Self::MulAdd),
+            19 => Some(Self::NotEqual),
             _ => None,
         }
     }
@@ -111,6 +115,7 @@ pub enum KernelError {
     Numeric(NumericError),
     Arity,
     Type,
+    Identity,
     MissingMethod,
 }
 impl fmt::Display for KernelError {
@@ -121,6 +126,7 @@ impl fmt::Display for KernelError {
             Self::Numeric(error) => error.fmt(f),
             Self::Arity => f.write_str("wrong Iris method arity"),
             Self::Type => f.write_str("wrong Iris receiver or argument type"),
+            Self::Identity => f.write_str("identity requires identity-bearing operands"),
             Self::MissingMethod => f.write_str("Iris method is missing"),
         }
     }
@@ -183,6 +189,7 @@ impl Kernel {
                 NativeSelector::ShiftRight,
                 NativeSelector::BitwiseNot,
                 NativeSelector::Equal,
+                NativeSelector::NotEqual,
                 NativeSelector::Less,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
@@ -198,6 +205,7 @@ impl Kernel {
                 NativeSelector::Divide,
                 NativeSelector::Power,
                 NativeSelector::Equal,
+                NativeSelector::NotEqual,
                 NativeSelector::Less,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
@@ -216,6 +224,7 @@ impl Kernel {
                 NativeSelector::Divide,
                 NativeSelector::Power,
                 NativeSelector::Equal,
+                NativeSelector::NotEqual,
                 NativeSelector::Less,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
@@ -258,6 +267,9 @@ impl Kernel {
                 _ => Err(KernelError::Type),
             };
         }
+        if class == self.class(BuiltinClass::Float64)? {
+            return self.construct_float64(arguments);
+        }
         Err(KernelError::Type)
     }
     pub fn same_identity(left: &Value, right: &Value) -> Result<bool, KernelError> {
@@ -269,7 +281,7 @@ impl Kernel {
                 Ok(false)
             }
             (Value::Object(left), Value::Object(right)) => Ok(left == right),
-            _ => Err(KernelError::Type),
+            _ => Err(KernelError::Identity),
         }
     }
     fn install(
@@ -319,6 +331,10 @@ impl Kernel {
                 Ok(Value::Integer(Numeric::integer_not(&numeric(&receiver)?)?))
             }
             NativeSelector::Equal => Ok(Value::Bool(Numeric::equal(
+                &numeric(&receiver)?,
+                &numeric_arg(arguments)?,
+            ))),
+            NativeSelector::NotEqual => Ok(Value::Bool(Numeric::not_equal(
                 &numeric(&receiver)?,
                 &numeric_arg(arguments)?,
             ))),
@@ -398,6 +414,14 @@ impl Kernel {
             }
             _ => Err(KernelError::Type),
         }
+    }
+    fn construct_float64(&self, arguments: &[Value]) -> Result<Value, KernelError> {
+        let numeric = numeric_arg(arguments)?;
+        Ok(match numeric {
+            NumericValue::Integer(value) => Value::Float64(value.to_f64()),
+            NumericValue::Float32(value) => Value::Float64(f64::from(value)),
+            NumericValue::Float64(value) => Value::Float64(value),
+        })
     }
     fn special(
         &self,
