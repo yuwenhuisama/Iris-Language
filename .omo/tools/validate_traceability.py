@@ -14,6 +14,14 @@ DECISION_ID = re.compile(r"D-\d{3}")
 MATRIX_ROW = re.compile(r"^\|\s*`(D-\d{3})`\s*\|")
 VECTOR_ROW = re.compile(r"^\|\s*`(IRIS-V1-[A-Z]+-V\d{3})`\s*\|")
 VECTOR_HEADER = "| Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |"
+VECTOR_HEADER_CELLS = (
+    "Vector ID",
+    "Category",
+    "Applicability",
+    "Source/Input",
+    "Expected observable",
+    "Decisions",
+)
 DELETED_BROAD_VECTORS = {
     "IRIS-V1-GRAMMAR-V008", "IRIS-V1-GRAMMAR-V009", "IRIS-V1-GRAMMAR-V012",
     "IRIS-V1-GRAMMAR-V014", "IRIS-V1-COLLECTIONS-V040", "IRIS-V1-COLLECTIONS-V041",
@@ -101,7 +109,7 @@ def parse_vectors(spec: Path) -> dict[str, VectorDefinition]:
     for path in sorted(spec.glob("*.md")):
         table_active = False
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if line == VECTOR_HEADER:
+            if line.startswith("|") and tuple(cells(line)) == VECTOR_HEADER_CELLS:
                 table_active = True
                 continue
             if table_active and not line.startswith("|"):
