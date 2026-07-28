@@ -6,6 +6,7 @@ members = [
     "crates/iris-eval",
     "crates/iris-conformance",
     "crates/iris-abi",
+    "crates/iris-runtime",
 ]
 resolver = "3"
 
