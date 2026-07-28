@@ -67,7 +67,9 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
-            Statement::Expression(expression) => self.expression(expression).and_then(Self::value),
+            Statement::Expression(expression) => self
+                .expression(expression)
+                .and_then(|value| self.value(value)),
             Statement::Return(_)
             | Statement::Break { .. }
             | Statement::Continue(_)
@@ -83,19 +85,26 @@ impl Evaluator {
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
             Expression::Array(expressions) => expressions
                 .iter()
-                .map(|expression| self.expression(expression).and_then(Self::value))
+                .map(|expression| {
+                    self.expression(expression)
+                        .and_then(|value| self.value(value))
+                })
                 .collect::<Result<Vec<_>, _>>()
                 .map(RuntimeValue::Array)
                 .map(Evaluated::Value),
             Expression::Grouped(expression) => self.expression(expression),
             Expression::Member { receiver, selector } => {
-                let receiver = Self::value(self.expression(receiver)?)?;
+                let receiver = self.expression(receiver)?;
+                let receiver = self.value(receiver)?;
                 Ok(Evaluated::Member(receiver, selector.clone()))
             }
             Expression::Call { callee, arguments } => {
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.expression(argument).and_then(Self::value))
+                    .map(|argument| {
+                        self.expression(argument)
+                            .and_then(|value| self.value(value))
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 match self.expression(callee)? {
                     Evaluated::Member(receiver, selector) => {
@@ -110,7 +119,8 @@ impl Evaluator {
                 }
             }
             Expression::Unary { operator, operand } => {
-                let operand = Self::value(self.expression(operand)?)?;
+                let operand = self.expression(operand)?;
+                let operand = self.value(operand)?;
                 let selector = match operator {
                     UnaryOperator::Negate => NativeSelector::Negate,
                     UnaryOperator::BitwiseNot => NativeSelector::BitwiseNot,
@@ -128,8 +138,10 @@ impl Evaluator {
                 operator,
                 right,
             } => {
-                let left = Self::value(self.expression(left)?)?;
-                let right = Self::value(self.expression(right)?)?;
+                let left = self.expression(left)?;
+                let left = self.value(left)?;
+                let right = self.expression(right)?;
+                let right = self.value(right)?;
                 match operator {
                     BinaryOperator::Identity => Kernel::same_identity(&left, &right)
                         .map(RuntimeValue::Bool)
@@ -228,10 +240,12 @@ impl Evaluator {
             .map_err(EvaluationError::Runtime)
     }
 
-    fn value(value: Evaluated) -> Result<RuntimeValue, EvaluationError> {
+    fn value(&self, value: Evaluated) -> Result<RuntimeValue, EvaluationError> {
         match value {
             Evaluated::Value(value) => Ok(value),
-            Evaluated::Member(_, _) => Err(EvaluationError::UnsupportedConstruct),
+            Evaluated::Member(receiver, selector) => self
+                .send(receiver, &selector, &[])
+                .and_then(|value| self.value(value)),
         }
     }
 }
@@ -417,6 +431,124 @@ mod evaluator_bridge_tests {
 
         // Then
         assert!(matches!(result, Ok(RuntimeValue::Float64(value)) if value.is_nan()));
+    }
+
+    #[test]
+    fn evaluates_integer_bitwise_not_and_right_shift_from_source() {
+        // Given
+        let source = "[~0, -3 >> 1]";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer((-1_i8).into()),
+                RuntimeValue::Integer((-2_i8).into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn evaluates_v047_infinity_member_chain_as_width_preserving_nan() {
+        // Given
+        let source = "Float64.infinity.mul_add(0, 1); Float32.infinity.mul_add(0, 1)";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert!(matches!(
+            result,
+            Ok(RuntimeValue::Array(values))
+                if matches!(values.as_slice(), [RuntimeValue::Float64(value), RuntimeValue::Float32(other)] if value.is_nan() && other.is_nan())
+        ));
+    }
+
+    #[test]
+    fn evaluates_v059_nan_equality_and_less_than() {
+        // Given
+        let equality = "Float64.nan == Float64.nan";
+        let less_than = "Float64.nan < 1.0";
+
+        // When
+        let equality_result = evaluate(equality);
+        let less_than_result = evaluate(less_than);
+
+        // Then
+        assert_eq!(equality_result, Ok(RuntimeValue::Bool(false)));
+        assert_eq!(less_than_result, Ok(RuntimeValue::Bool(false)));
+    }
+
+    #[test]
+    fn evaluates_v065_class_getters_at_their_declared_widths() {
+        // Given
+        let source = "Float32.nan; Float64.infinity; -Float64.infinity";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert!(matches!(
+            result,
+            Ok(RuntimeValue::Array(values))
+                if matches!(values.as_slice(), [RuntimeValue::Float32(nan), RuntimeValue::Float64(infinity), RuntimeValue::Float64(negative_infinity)] if nan.is_nan() && infinity.is_infinite() && infinity.is_sign_positive() && negative_infinity.is_infinite() && negative_infinity.is_sign_negative())
+        ));
+    }
+
+    #[test]
+    fn rejects_v065_bare_special_value_names() {
+        // Given
+        let names = ["nan", "inf"];
+
+        // When
+        let results = names.map(evaluate);
+
+        // Then
+        assert!(
+            results
+                .into_iter()
+                .all(|result| matches!(result, Err(super::EvaluationError::UnsupportedConstruct)))
+        );
+    }
+
+    #[test]
+    fn evaluates_v104_special_value_arithmetic_as_width_preserving_nan() {
+        // Given
+        let source = "Float32.nan + 1.0f32; Float64.infinity - Float64.infinity";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert!(matches!(
+            result,
+            Ok(RuntimeValue::Array(values))
+                if matches!(values.as_slice(), [RuntimeValue::Float32(value), RuntimeValue::Float64(other)] if value.is_nan() && other.is_nan())
+        ));
+    }
+
+    #[test]
+    fn evaluates_v069_out_of_range_float_bit_patterns_as_typed_errors() {
+        // Given
+        let sources = [
+            "Float64.from_bits(-1)",
+            "Float32.from_bits(2 ** 32)",
+            "Float64.from_bits(2 ** 64)",
+        ];
+
+        // When
+        let results = sources.map(evaluate);
+
+        // Then
+        assert!(results.into_iter().all(|result| matches!(
+            result,
+            Err(super::EvaluationError::Runtime(
+                iris_runtime::KernelError::Numeric(iris_runtime::NumericError::Range)
+            ))
+        )));
     }
 }
 
