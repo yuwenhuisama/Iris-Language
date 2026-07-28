@@ -432,6 +432,51 @@ mod tests {
     }
 
     #[test]
+    fn ignores_digits_that_continue_identifiers_during_literal_conversion() {
+        // Given
+        let source = "Float64.from_bits(0x0000000000000000) Float32.nan Float64.infinity x2.y abc64.from_bits(0)";
+
+        // When
+        let result = lex(source.as_bytes());
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+    }
+
+    #[test]
+    fn converts_standalone_floats_after_skipping_identifier_digits() {
+        // Given
+        let source = "1.5 1e3 0x1.fp3 64.5";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [
+                Literal::Float64(1.5),
+                Literal::Float64(1_000.0),
+                Literal::Float64(15.5),
+                Literal::Float64(64.5),
+            ]
+        );
+        assert!(result.diagnostics().is_empty(), "{result:#?}");
+    }
+
+    #[test]
+    fn retains_malformed_numeric_separator_diagnostics_after_skipping_identifiers() {
+        // Given
+        let source = "1__0";
+
+        // When
+        let result = lex(source.as_bytes());
+
+        // Then
+        assert_eq!(result.diagnostics()[0].code(), "LEX_BAD_NUMERIC_SEPARATOR");
+    }
+
+    #[test]
     fn preserves_only_valid_dot_floats_when_invalid_separator_candidates_follow() {
         // Given
         let source = ".5; 1.; .; ._5; 1._0; 1_.";

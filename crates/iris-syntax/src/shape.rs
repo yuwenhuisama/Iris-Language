@@ -73,6 +73,36 @@ pub fn render_parse_shape(expression: &Expression) -> String {
 fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
     let (shape, precedence) = match expression {
         Expression::Name(value) | Expression::Literal(value) => (value.clone(), 17),
+        Expression::Symbol(value) => (format!(":{value}"), 17),
+        Expression::Array(values) => (
+            format!(
+                "[{}]",
+                values
+                    .iter()
+                    .map(|value| source_shape(value, 0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            17,
+        ),
+        Expression::Member { receiver, selector } => {
+            (format!("{}.{}", source_shape(receiver, 17), selector), 17)
+        }
+        Expression::ContractView { receiver, selector } => {
+            (format!("{}..{}", source_shape(receiver, 17), selector), 17)
+        }
+        Expression::Call { callee, arguments } => (
+            format!(
+                "{}({})",
+                source_shape(callee, 17),
+                arguments
+                    .iter()
+                    .map(|argument| source_shape(argument, 0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            17,
+        ),
         Expression::Grouped(value) => (format!("({})", source_shape(value, 0)), 17),
         Expression::Unary { operator, operand } => (
             format!("{}{}", unary_operator(*operator), source_shape(operand, 16)),
@@ -119,6 +149,30 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
 fn structural_shape(expression: &Expression) -> String {
     match expression {
         Expression::Name(value) | Expression::Literal(value) => primary_shape(value),
+        Expression::Symbol(value) => format!("symbol({value})"),
+        Expression::Array(values) => format!(
+            "array({})",
+            values
+                .iter()
+                .map(structural_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expression::Member { receiver, selector } => {
+            format!("member({}, {selector})", structural_shape(receiver))
+        }
+        Expression::ContractView { receiver, selector } => {
+            format!("contract_view({}, {selector})", structural_shape(receiver))
+        }
+        Expression::Call { callee, arguments } => format!(
+            "call({}, [{}])",
+            structural_shape(callee),
+            arguments
+                .iter()
+                .map(structural_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Expression::Grouped(value) => structural_shape(value),
         Expression::Unary { operator, operand } => format!(
             "unary({}{})",

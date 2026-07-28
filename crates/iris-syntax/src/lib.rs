@@ -117,6 +117,20 @@ pub enum Pattern {
 pub enum Expression {
     Name(String),
     Literal(String),
+    Symbol(String),
+    Array(Vec<Expression>),
+    Member {
+        receiver: Box<Expression>,
+        selector: String,
+    },
+    ContractView {
+        receiver: Box<Expression>,
+        selector: String,
+    },
+    Call {
+        callee: Box<Expression>,
+        arguments: Vec<Expression>,
+    },
     Unary {
         operator: UnaryOperator,
         operand: Box<Expression>,
@@ -373,6 +387,27 @@ mod tests {
         });
 
         assert_ne!(rendered[0], "2 ** (3 ** 3)");
+    }
+
+    #[test]
+    fn render_parse_shapes_renders_new_expression_forms() {
+        // Given
+        let program = Program {
+            declarations: Vec::new(),
+            statements: vec![Statement::Expression(Expression::Call {
+                callee: Box::new(Expression::Member {
+                    receiver: Box::new(Expression::Name("Float64".into())),
+                    selector: "from_bits".into(),
+                }),
+                arguments: vec![Expression::Symbol("zero".into())],
+            })],
+        };
+
+        // When
+        let shapes = render_parse_shapes(&program);
+
+        // Then
+        assert_eq!(shapes, ["Float64.from_bits(:zero)"]);
     }
 
     fn leaf(value: &str) -> Expression {

@@ -1,10 +1,14 @@
 //! Recursive-descent declarations plus Pratt expressions for Iris v1.
 
+mod expression;
+
+#[cfg(test)]
+mod expression_tests;
+
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
-    BinaryOperator, ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression,
-    MatchArm, MatchBody, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
-    UnaryOperator,
+    ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression, MatchArm,
+    MatchBody, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,16 +42,32 @@ pub fn parse(source: &str) -> ParseResult {
     }
     let lexer_tokens = lexed.tokens();
     let mut raw = Vec::new();
-    for token in lexer_tokens {
+    let mut cursor = 0;
+    while cursor < lexer_tokens.len() {
+        let token = lexer_tokens[cursor];
         if token.kind == TokenKind::Newline {
             raw.push((token.kind, "\n"));
+            cursor += 1;
             continue;
         }
         let start = token.offset.0;
-        let end = token_end(source, start, token.kind);
+        let end = if token.kind == TokenKind::SourceCharacter
+            && source.as_bytes().get(start).is_some_and(u8::is_ascii_digit)
+        {
+            numeric_end(source, start)
+        } else {
+            token_end(source, start, token.kind)
+        };
         let text = source.get(start..end).unwrap_or_default().trim();
         if !text.is_empty() {
             raw.push((token.kind, text));
+        }
+        cursor += 1;
+        while lexer_tokens
+            .get(cursor)
+            .is_some_and(|next| next.offset.0 < end)
+        {
+            cursor += 1;
         }
     }
     let tokens = combine_fixed_operators(&raw);
@@ -75,7 +95,7 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         TokenKind::ContractView | TokenKind::BangEqual | TokenKind::RightShift => 2,
         TokenKind::Identifier | TokenKind::Keyword | TokenKind::SetterSelector => remaining
             .bytes()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'?' | b'!'))
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
             .count(),
         TokenKind::StringLiteral
         | TokenKind::MutableStringLiteral
@@ -97,6 +117,16 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         | TokenKind::Dot => 1,
     };
     start + width
+}
+
+fn numeric_end(source: &str, start: usize) -> usize {
+    source[start..]
+        .bytes()
+        .take_while(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'+' | b'-')
+        })
+        .count()
+        + start
 }
 
 fn literal_end(remaining: &str) -> usize {
@@ -156,6 +186,16 @@ fn combine_fixed_operators(raw: &[(TokenKind, &str)]) -> Vec<Token> {
                 text: candidate.unwrap_or_default(),
             });
             cursor += 2;
+        } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
+            let mut value = String::from(text);
+            cursor += 1;
+            while raw.get(cursor).is_some_and(|(next_kind, next)| {
+                *next_kind == TokenKind::SourceCharacter && next.as_bytes()[0].is_ascii_digit()
+            }) {
+                value.push_str(raw[cursor].1);
+                cursor += 1;
+            }
+            tokens.push(Token { text: value });
         } else {
             tokens.push(Token { text: text.into() });
             cursor += 1;
@@ -569,112 +609,6 @@ impl Parser {
         }
     }
 
-    fn expression(&mut self, minimum: u8) -> Option<Expression> {
-        let mut left = self.prefix()?;
-        while let Some((precedence, associativity, operator)) = self.infix() {
-            if precedence < minimum {
-                break;
-            }
-            self.advance();
-            let next = if associativity == Associativity::Right {
-                precedence
-            } else {
-                precedence + 1
-            };
-            let right = self.expression(next)?;
-            if associativity == Associativity::NonAssociative
-                && self
-                    .infix()
-                    .is_some_and(|(candidate, _, _)| candidate == precedence)
-            {
-                self.error("PARSE_NONASSOCIATIVE_CHAIN");
-                return None;
-            }
-            left = Expression::Binary {
-                left: Box::new(left),
-                operator,
-                right: Box::new(right),
-            };
-        }
-        if minimum == 0 && !(self.check("=") && self.peek_next() == Some(">")) {
-            if let Some(operator) = self.assignment_operator() {
-                self.advance();
-                let right = self.expression(0)?;
-                left = Expression::Assignment {
-                    left: Box::new(left),
-                    operator,
-                    right: Box::new(right),
-                };
-            } else if self.consume("%=") {
-                self.error("PARSE_INVALID_ASSIGNMENT_OPERATOR");
-                return None;
-            }
-        }
-        Some(left)
-    }
-
-    fn prefix(&mut self) -> Option<Expression> {
-        let unary = match self.peek() {
-            Some("+") => Some(UnaryOperator::Plus),
-            Some("-") => Some(UnaryOperator::Negate),
-            Some("~") => Some(UnaryOperator::BitwiseNot),
-            Some("!") => Some(UnaryOperator::Not),
-            _ => None,
-        };
-        if let Some(operator) = unary {
-            self.advance();
-            return self.expression(14).map(|operand| Expression::Unary {
-                operator,
-                operand: Box::new(operand),
-            });
-        }
-        if self.consume("(") {
-            let value = self.expression(0)?;
-            self.expect(")")?;
-            return Some(Expression::Grouped(Box::new(value)));
-        }
-        let value = self.advance()?.text;
-        Some(if self.is_literal(&value) {
-            Expression::Literal(value)
-        } else {
-            Expression::Name(value)
-        })
-    }
-
-    fn infix(&self) -> Option<(u8, Associativity, BinaryOperator)> {
-        let operator = match self.peek()? {
-            "**" => (14, Associativity::Right, BinaryOperator::Power),
-            "*" => (12, Associativity::Left, BinaryOperator::Multiply),
-            "/" => (12, Associativity::Left, BinaryOperator::Divide),
-            "+" => (11, Associativity::Left, BinaryOperator::Add),
-            "-" => (11, Associativity::Left, BinaryOperator::Subtract),
-            "<<" => (10, Associativity::Left, BinaryOperator::ShiftLeft),
-            ">>" => (10, Associativity::Left, BinaryOperator::ShiftRight),
-            "&" => (9, Associativity::Left, BinaryOperator::BitwiseAnd),
-            "^" => (8, Associativity::Left, BinaryOperator::BitwiseXor),
-            "|" => (7, Associativity::Left, BinaryOperator::BitwiseOr),
-            "..=" => (
-                6,
-                Associativity::NonAssociative,
-                BinaryOperator::RangeInclusive,
-            ),
-            "..<" => (
-                6,
-                Associativity::NonAssociative,
-                BinaryOperator::RangeExclusive,
-            ),
-            "<" => (5, Associativity::NonAssociative, BinaryOperator::Less),
-            ">" => (5, Associativity::NonAssociative, BinaryOperator::Greater),
-            "==" => (4, Associativity::NonAssociative, BinaryOperator::Equal),
-            "!=" => (4, Associativity::NonAssociative, BinaryOperator::NotEqual),
-            "&&" => (2, Associativity::Left, BinaryOperator::LogicalAnd),
-            "||" => (1, Associativity::Left, BinaryOperator::LogicalOr),
-            value if is_identifier(value) => (3, Associativity::Left, BinaryOperator::NamedInfix),
-            _ => return None,
-        };
-        Some(operator)
-    }
-
     fn generic_parameters(&mut self) -> Vec<String> {
         let mut values = Vec::new();
         if self.consume("<") {
@@ -879,7 +813,7 @@ impl Parser {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum Associativity {
+pub(crate) enum Associativity {
     Left,
     Right,
     NonAssociative,

@@ -59,6 +59,10 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
             index += 1;
             continue;
         }
+        if is_identifier_start(bytes[index]) && !starts_string(bytes, index) {
+            index = identifier_end(bytes, index);
+            continue;
+        }
         let result = match bytes[index] {
             b'\'' | b'"' | b'r' if starts_string(bytes, index) => convert_string(&source[index..]),
             byte if byte.is_ascii_digit()
@@ -132,4 +136,18 @@ fn starts_string(bytes: &[u8], index: usize) -> bool {
 
 fn next_is_digit(bytes: &[u8], index: usize) -> bool {
     bytes.get(index + 1).is_some_and(u8::is_ascii_digit)
+}
+
+fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn identifier_end(bytes: &[u8], mut index: usize) -> usize {
+    while bytes
+        .get(index)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        index += 1;
+    }
+    index
 }
