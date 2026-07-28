@@ -377,6 +377,30 @@ mod evaluator_bridge_tests {
     }
 
     #[test]
+    fn evaluates_v036_signed_zero_hash_equality_through_ordinary_member_sends() {
+        // Given
+        let source = "Float64.from_bits(0x0000000000000000).hash == Float64.from_bits(0x8000000000000000).hash";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(result, Ok(RuntimeValue::Bool(true)));
+    }
+
+    #[test]
+    fn equal_numbers_have_equal_public_hashes_through_ordinary_member_sends() {
+        // Given
+        let source = "Float64(1).hash == Float64.from_bits(0x3ff0000000000000).hash";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(result, Ok(RuntimeValue::Bool(true)));
+    }
+
+    #[test]
     fn named_infix_and_member_send_have_the_same_result() {
         // Given
         let infix = "5 div 2";

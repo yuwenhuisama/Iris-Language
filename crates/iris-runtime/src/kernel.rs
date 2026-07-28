@@ -3,7 +3,8 @@ use std::error::Error;
 
 use crate::{
     BuiltinClass, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, IntegerValue,
-    MethodBody, Numeric, NumericError, NumericValue, Selector, StaticSpine, Value, Visibility,
+    MethodBody, Numeric, NumericError, NumericValue, Selector, StableHashError, StaticSpine, Value,
+    Visibility,
 };
 
 /// Built-in selector identities executed by the native runtime kernel.
@@ -28,6 +29,7 @@ pub enum NativeSelector {
     Nan,
     Infinity,
     MulAdd,
+    Hash,
 }
 
 impl NativeSelector {
@@ -55,6 +57,7 @@ impl NativeSelector {
             "nan" => Some(Self::Nan),
             "infinity" => Some(Self::Infinity),
             "mul_add" => Some(Self::MulAdd),
+            "hash" => Some(Self::Hash),
             _ => None,
         }
     }
@@ -79,6 +82,7 @@ impl NativeSelector {
             Self::Infinity => 17,
             Self::MulAdd => 18,
             Self::NotEqual => 19,
+            Self::Hash => 20,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -102,6 +106,7 @@ impl NativeSelector {
             17 => Some(Self::Infinity),
             18 => Some(Self::MulAdd),
             19 => Some(Self::NotEqual),
+            20 => Some(Self::Hash),
             _ => None,
         }
     }
@@ -113,6 +118,7 @@ pub enum KernelError {
     Class(ClassError),
     Dispatch(DispatchError),
     Numeric(NumericError),
+    StableHash(StableHashError),
     Arity,
     Type,
     Identity,
@@ -124,6 +130,7 @@ impl fmt::Display for KernelError {
             Self::Class(error) => error.fmt(f),
             Self::Dispatch(error) => write!(f, "dispatch error: {error:?}"),
             Self::Numeric(error) => error.fmt(f),
+            Self::StableHash(error) => error.fmt(f),
             Self::Arity => f.write_str("wrong Iris method arity"),
             Self::Type => f.write_str("wrong Iris receiver or argument type"),
             Self::Identity => f.write_str("identity requires identity-bearing operands"),
@@ -145,6 +152,11 @@ impl From<DispatchError> for KernelError {
 impl From<NumericError> for KernelError {
     fn from(error: NumericError) -> Self {
         Self::Numeric(error)
+    }
+}
+impl From<StableHashError> for KernelError {
+    fn from(error: StableHashError) -> Self {
+        Self::StableHash(error)
     }
 }
 
@@ -175,6 +187,8 @@ impl Kernel {
             );
         }
         let mut kernel = Self { registry, classes };
+        kernel.install(BuiltinClass::Nil, &[NativeSelector::Hash])?;
+        kernel.install(BuiltinClass::Bool, &[NativeSelector::Hash])?;
         kernel.install(
             BuiltinClass::Integer,
             &[
@@ -194,6 +208,7 @@ impl Kernel {
                 NativeSelector::Compare,
                 NativeSelector::Negate,
                 NativeSelector::MulAdd,
+                NativeSelector::Hash,
             ],
         )?;
         kernel.install(
@@ -213,6 +228,7 @@ impl Kernel {
                 NativeSelector::Nan,
                 NativeSelector::Infinity,
                 NativeSelector::MulAdd,
+                NativeSelector::Hash,
             ],
         )?;
         kernel.install(
@@ -232,6 +248,7 @@ impl Kernel {
                 NativeSelector::Nan,
                 NativeSelector::Infinity,
                 NativeSelector::MulAdd,
+                NativeSelector::Hash,
             ],
         )?;
         Ok(kernel)
@@ -355,6 +372,7 @@ impl Kernel {
             NativeSelector::Nan => self.special(receiver, arguments, true),
             NativeSelector::Infinity => self.special(receiver, arguments, false),
             NativeSelector::MulAdd => self.mul_add(receiver, arguments),
+            NativeSelector::Hash => self.hash(receiver, arguments),
         }
     }
     fn binary(
@@ -451,6 +469,12 @@ impl Kernel {
             &numeric(&arguments[0])?,
             &numeric(&arguments[1])?,
         )?))
+    }
+    fn hash(&self, receiver: Value, arguments: &[Value]) -> Result<Value, KernelError> {
+        if !arguments.is_empty() {
+            return Err(KernelError::Arity);
+        }
+        Ok(Value::Integer(crate::public_hash(&receiver)?))
     }
 }
 fn numeric(value: &Value) -> Result<NumericValue, KernelError> {

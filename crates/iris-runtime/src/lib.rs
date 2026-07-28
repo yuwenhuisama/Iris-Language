@@ -14,6 +14,7 @@ mod numeric;
 mod protocol;
 mod publication;
 mod runtime;
+mod stable_hash;
 mod value;
 
 pub use class_registry::{ClassError, ClassRegistry};
@@ -32,4 +33,5 @@ pub use protocol::{
     TruthinessMethod,
 };
 pub use runtime::{ConstructionError, ExecutionError, Runtime};
+pub use stable_hash::{StableHashError, numeric_hash, numeric_public_hash, public_hash};
 pub use value::{IntegerValue, Value};

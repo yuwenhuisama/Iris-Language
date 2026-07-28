@@ -3,6 +3,7 @@ use core::{cmp::Ordering, fmt};
 use num_bigint::BigInt;
 
 use crate::IntegerValue;
+use crate::StableHashError;
 
 /// A primitive Iris number without heap identity.
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +51,10 @@ impl std::error::Error for NumericError {}
 pub struct Numeric;
 
 impl Numeric {
+    /// Returns the stable public hash for a numeric value.
+    pub fn public_hash(value: &NumericValue) -> Result<u64, StableHashError> {
+        crate::numeric_public_hash(value)
+    }
     /// Adds two Iris numeric values using the receiver-width rules.
     pub fn add(left: &NumericValue, right: &NumericValue) -> Result<NumericValue, NumericError> {
         Self::binary(

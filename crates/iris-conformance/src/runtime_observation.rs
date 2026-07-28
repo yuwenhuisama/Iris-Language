@@ -11,11 +11,68 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
     let expected = object(&expected)?;
     match expected.get("error") {
         Some(error) => compare_error(error, &record.source),
+        None if record.source.contains("stable numeric hash")
+            || record.source.contains("stable singleton hash") =>
+        {
+            compare_hash_fixture(
+                expected.get("value").ok_or("runtime value missing")?,
+                &record.source,
+            )
+        }
         None => compare_value(
             expected.get("value").ok_or("runtime value missing")?,
             expected.get("type"),
             &record.source,
         ),
+    }
+}
+
+fn compare_hash_fixture(expected: &Value, fixture: &str) -> Result<(), String> {
+    let expected = match expected {
+        Value::String(expected) => expected,
+        _ => return Err("stable hash fixture expects string value".into()),
+    };
+    let expected = expected
+        .strip_prefix("Public hash Integer ")
+        .unwrap_or(expected);
+    let fixture = match fixture.split(';').next() {
+        Some(value) => value.trim(),
+        None => fixture,
+    };
+    let fixture = match fixture.split(',').next() {
+        Some(value) => value.trim(),
+        None => fixture,
+    };
+    let value = if fixture.starts_with("Integer(0)") {
+        RuntimeValue::Integer(0_u8.into())
+    } else if fixture.starts_with("Integer(1)") {
+        RuntimeValue::Integer(1_u8.into())
+    } else if fixture.starts_with("Integer(-1)") {
+        RuntimeValue::Integer((-1_i8).into())
+    } else if fixture.starts_with("Integer(2)") {
+        RuntimeValue::Integer(2_u8.into())
+    } else if fixture.starts_with("Exact mathematical 3/2") {
+        RuntimeValue::Float64(1.5)
+    } else if fixture.starts_with("Positive infinity") {
+        RuntimeValue::Float64(f64::INFINITY)
+    } else if fixture.starts_with("Negative infinity") {
+        RuntimeValue::Float64(f64::NEG_INFINITY)
+    } else if fixture == "nil" {
+        RuntimeValue::Nil
+    } else if fixture == "false" {
+        RuntimeValue::Bool(false)
+    } else if fixture == "true" {
+        RuntimeValue::Bool(true)
+    } else {
+        return Err("unsupported stable hash fixture".into());
+    };
+    let actual = iris_runtime::public_hash(&value)
+        .map_err(|error| format!("error {error}"))?
+        .decimal_text();
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("value expected {expected}, actual {actual}"))
     }
 }
 
@@ -128,6 +185,7 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Class(_)
         | KernelError::Dispatch(_)
         | KernelError::Numeric(_)
+        | KernelError::StableHash(_)
         | KernelError::Arity
         | KernelError::MissingMethod => "RuntimeError",
     }
