@@ -173,6 +173,16 @@ fn error_code(error: &EvaluationError) -> &'static str {
         EvaluationError::UnsupportedConstruct => "UnsupportedConstruct",
         EvaluationError::ParseDiagnostic => "ParseDiagnostic",
         EvaluationError::Runtime(error) => kernel_error_code(error),
+        EvaluationError::Class(iris_runtime::ClassError::MetaCapabilityDenied { .. }) => {
+            "MetaOperationError"
+        }
+        EvaluationError::Class(_) => "RuntimeError",
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::NoSuperMethod { .. },
+        )) => "NoSuperMethodError",
+        EvaluationError::Construction(_)
+        | EvaluationError::Execution(_)
+        | EvaluationError::Symbol(_) => "RuntimeError",
     }
 }
 

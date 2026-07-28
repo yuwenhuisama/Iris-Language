@@ -1,5 +1,8 @@
 //! Minimal literal evaluation.
 
+mod source_method;
+mod source_runtime;
+
 use iris_lexer::{Literal, convert_literals};
 use iris_parser::parse;
 use iris_runtime::{BuiltinClass, Kernel, KernelError, NativeSelector, Value as RuntimeValue};
@@ -31,6 +34,14 @@ pub enum EvaluationError {
     ParseDiagnostic,
     /// The runtime rejected a native send.
     Runtime(KernelError),
+    /// The declaration publisher rejected a Class mutation.
+    Class(iris_runtime::ClassError),
+    /// Construction or dynamic instance dispatch failed.
+    Construction(iris_runtime::ConstructionError),
+    /// A source Method raised during execution.
+    Execution(iris_runtime::ExecutionError),
+    /// Source symbols are not yet representable as runtime Values.
+    Symbol(String),
 }
 
 /// Evaluates a source expression by sending every supported operator through the runtime kernel.
@@ -38,6 +49,9 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     let parsed = parse(source);
     if !parsed.program_accepted {
         return Err(EvaluationError::ParseDiagnostic);
+    }
+    if !parsed.program.declarations.is_empty() {
+        return source_runtime::evaluate(&parsed.program);
     }
     let mut evaluator = Evaluator {
         kernel: Kernel::new().map_err(EvaluationError::Runtime)?,
@@ -67,6 +81,9 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
+            Statement::Binding { .. } | Statement::Method(_) => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             Statement::Expression(expression) => self
                 .expression(expression)
                 .and_then(|value| self.value(value)),
@@ -413,6 +430,24 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(infix_result, member_result);
         assert_eq!(infix_result, Ok(RuntimeValue::Integer(2_u8.into())));
+    }
+
+    #[test]
+    fn executes_declared_method_through_member_and_named_infix_sends() {
+        // Given
+        let source = "class A { public fun scale(value: Integer) -> Integer { value * 2 } }; let a = A.new(); a.scale(3); a scale 3";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer(6_u8.into()),
+                RuntimeValue::Integer(6_u8.into()),
+            ]))
+        );
     }
 
     #[test]

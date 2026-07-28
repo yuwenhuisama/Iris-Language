@@ -8,7 +8,8 @@ mod expression_tests;
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
     ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression, MatchArm,
-    MatchBody, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
+    MatchBody, MethodDeclaration, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
+    Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -437,19 +438,48 @@ impl Parser {
         if self.consume("let") || self.consume("mut") || self.consume("const") {
             let binding = self.binding_name()?;
             if self.consume("=") {
-                return self.expression(0).map(Statement::Expression);
+                return self.expression(0).map(|value| Statement::Binding {
+                    name: binding,
+                    value,
+                });
             }
             return Some(Statement::Expression(Expression::Name(binding)));
         }
+        let visibility = if self.consume("public") {
+            Visibility::Public
+        } else if self.consume("protected") {
+            Visibility::Protected
+        } else {
+            self.consume("private");
+            Visibility::Private
+        };
         if self.consume("fun") {
-            self.selector()?;
+            let selector = self.selector()?;
             self.expect("(")?;
+            let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
-                self.advance();
+                let parameter = self.binding_name()?;
+                parameters.push(parameter);
+                if self.consume(":") {
+                    self.type_expression()?;
+                }
+                if !self.consume(",") {
+                    break;
+                }
             }
             self.expect(")")?;
-            self.body()?;
-            return Some(Statement::Expression(Expression::Name("fun".into())));
+            if self.consume("-") {
+                self.expect(">")?;
+                self.type_expression()?;
+            }
+            return self.body().map(|body| {
+                Statement::Method(MethodDeclaration {
+                    selector,
+                    parameters,
+                    visibility,
+                    body,
+                })
+            });
         }
         if self.consume("if") {
             let condition = self.expression(0)?;
@@ -1015,6 +1045,18 @@ mod tests {
             invalid.diagnostics[0].code,
             "PARSE_INVALID_ASSIGNMENT_OPERATOR"
         );
+    }
+
+    #[test]
+    fn accepts_source_method_declarations_and_bindings_in_declaration_programs() {
+        // Given
+        let source = "class A { public fun scale(value: Integer) -> Integer { value * 2 } }; let a = A.new(); a.scale(3)";
+
+        // When
+        let result = parse(source);
+
+        // Then
+        assert!(result.program_accepted, "{result:#?}");
     }
 
     #[test]

@@ -68,6 +68,11 @@ pub enum TypeExpression {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
+    Binding {
+        name: String,
+        value: Expression,
+    },
+    Method(MethodDeclaration),
     Expression(Expression),
     Return(Option<Expression>),
     Break {
@@ -91,6 +96,21 @@ pub enum Statement {
         arms: Vec<MatchArm>,
         fallback: Option<MatchBody>,
     },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MethodDeclaration {
+    pub selector: String,
+    pub parameters: Vec<String>,
+    pub visibility: Visibility,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Visibility {
+    Public,
+    Private,
+    Protected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
