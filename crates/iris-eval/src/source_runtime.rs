@@ -219,7 +219,10 @@ impl SourceEvaluator {
                     .map_err(EvaluationError::Execution)
             }
             value => iris_runtime::NativeSelector::from_source(selector).map_or(
-                Err(EvaluationError::UnsupportedConstruct),
+                Err(EvaluationError::MessageNotFound {
+                    receiver_class: receiver_class_name(&value).into(),
+                    selector: selector.into(),
+                }),
                 |native| {
                     self.kernel
                         .send(value, native, arguments)
@@ -252,5 +255,18 @@ impl SourceEvaluator {
         self.next_body += 1;
         self.bodies.insert(body.raw(), method);
         body
+    }
+}
+
+fn receiver_class_name(value: &Value) -> &'static str {
+    match value {
+        Value::Nil => "Nil",
+        Value::Bool(_) => "Bool",
+        Value::Integer(_) => "Integer",
+        Value::Float32(_) => "Float32",
+        Value::Float64(_) => "Float64",
+        Value::Array(_) => "Array",
+        Value::Class(_) => "Class",
+        Value::Object(_) => "Object",
     }
 }

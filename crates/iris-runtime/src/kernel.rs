@@ -122,7 +122,11 @@ pub enum KernelError {
     Arity,
     Type,
     Identity,
-    MissingMethod,
+    MessageNotFound {
+        receiver: ClassId,
+        selector: Selector,
+        arity: usize,
+    },
 }
 impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -134,7 +138,7 @@ impl fmt::Display for KernelError {
             Self::Arity => f.write_str("wrong Iris method arity"),
             Self::Type => f.write_str("wrong Iris receiver or argument type"),
             Self::Identity => f.write_str("identity requires identity-bearing operands"),
-            Self::MissingMethod => f.write_str("Iris method is missing"),
+            Self::MessageNotFound { .. } => f.write_str("Iris method is missing"),
         }
     }
 }
@@ -272,9 +276,19 @@ impl Kernel {
         let class = self.class_of(&receiver)?;
         match self.registry.dispatch(class, selector.id())? {
             DispatchOutcome::Invoke(method) => NativeSelector::from_raw(method.body().raw())
-                .ok_or(KernelError::MissingMethod)
+                .ok_or(KernelError::MessageNotFound {
+                    receiver: class,
+                    selector: selector.id(),
+                    arity: arguments.len(),
+                })
                 .and_then(|selected| self.invoke(selected, receiver, arguments)),
-            DispatchOutcome::WouldInvokeMethodMissing { .. } => Err(KernelError::MissingMethod),
+            DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                Err(KernelError::MessageNotFound {
+                    receiver: class,
+                    selector,
+                    arity: arguments.len(),
+                })
+            }
         }
     }
     pub fn construct(&self, class: ClassId, arguments: &[Value]) -> Result<Value, KernelError> {

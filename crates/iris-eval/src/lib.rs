@@ -42,6 +42,11 @@ pub enum EvaluationError {
     Execution(iris_runtime::ExecutionError),
     /// Source symbols are not yet representable as runtime Values.
     Symbol(String),
+    /// An ordinary selector was absent and the default `method_missing` applied.
+    MessageNotFound {
+        receiver_class: String,
+        selector: String,
+    },
 }
 
 /// Evaluates a source expression by sending every supported operator through the runtime kernel.
@@ -76,6 +81,11 @@ struct Evaluator {
 enum Evaluated {
     Value(RuntimeValue),
     Member(RuntimeValue, String),
+    UnresolvedClass(String),
+    UnresolvedClassMember {
+        class_name: String,
+        selector: String,
+    },
 }
 
 impl Evaluator {
@@ -110,11 +120,20 @@ impl Evaluator {
                 .map(RuntimeValue::Array)
                 .map(Evaluated::Value),
             Expression::Grouped(expression) => self.expression(expression),
-            Expression::Member { receiver, selector } => {
-                let receiver = self.expression(receiver)?;
-                let receiver = self.value(receiver)?;
-                Ok(Evaluated::Member(receiver, selector.clone()))
-            }
+            Expression::Member { receiver, selector } => match self.expression(receiver)? {
+                Evaluated::Value(receiver) => Ok(Evaluated::Member(receiver, selector.clone())),
+                Evaluated::Member(receiver, previous_selector) => {
+                    let receiver = self.value(Evaluated::Member(receiver, previous_selector))?;
+                    Ok(Evaluated::Member(receiver, selector.clone()))
+                }
+                Evaluated::UnresolvedClass(class_name) => Ok(Evaluated::UnresolvedClassMember {
+                    class_name,
+                    selector: selector.clone(),
+                }),
+                Evaluated::UnresolvedClassMember { .. } => {
+                    Err(EvaluationError::UnsupportedConstruct)
+                }
+            },
             Expression::Call { callee, arguments } => match self.expression(callee)? {
                 Evaluated::Member(receiver, selector) => {
                     let arguments = self.arguments(arguments, None)?;
@@ -127,7 +146,16 @@ impl Evaluator {
                         .map(Evaluated::Value)
                         .map_err(EvaluationError::Runtime)
                 }
-                Evaluated::Value(_) => Err(EvaluationError::UnsupportedConstruct),
+                Evaluated::UnresolvedClassMember {
+                    class_name,
+                    selector,
+                } => Err(EvaluationError::MessageNotFound {
+                    receiver_class: class_name,
+                    selector,
+                }),
+                Evaluated::Value(_) | Evaluated::UnresolvedClass(_) => {
+                    Err(EvaluationError::UnsupportedConstruct)
+                }
             },
             Expression::Unary { operator, operand } => {
                 let operand = self.expression(operand)?;
@@ -187,6 +215,9 @@ impl Evaluator {
                     .class(BuiltinClass::Float64)
                     .map_err(EvaluationError::Runtime)?,
             ),
+            _ if name.chars().next().is_some_and(char::is_uppercase) => {
+                return Ok(Evaluated::UnresolvedClass(name.into()));
+            }
             _ => return Err(EvaluationError::UnsupportedConstruct),
         };
         Ok(Evaluated::Value(value))
@@ -239,8 +270,12 @@ impl Evaluator {
         selector: &str,
         arguments: &[RuntimeValue],
     ) -> Result<Evaluated, EvaluationError> {
-        let selector =
-            NativeSelector::from_source(selector).ok_or(EvaluationError::UnsupportedConstruct)?;
+        let selector = NativeSelector::from_source(selector).ok_or_else(|| {
+            EvaluationError::MessageNotFound {
+                receiver_class: receiver_class_name(&receiver).into(),
+                selector: selector.into(),
+            }
+        })?;
         self.kernel
             .send(receiver, selector, arguments)
             .map(Evaluated::Value)
@@ -281,7 +316,23 @@ impl Evaluator {
             Evaluated::Member(receiver, selector) => self
                 .send(receiver, &selector, &[])
                 .and_then(|value| self.value(value)),
+            Evaluated::UnresolvedClass(_) | Evaluated::UnresolvedClassMember { .. } => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
         }
+    }
+}
+
+fn receiver_class_name(value: &RuntimeValue) -> &'static str {
+    match value {
+        RuntimeValue::Nil => "Nil",
+        RuntimeValue::Bool(_) => "Bool",
+        RuntimeValue::Integer(_) => "Integer",
+        RuntimeValue::Float32(_) => "Float32",
+        RuntimeValue::Float64(_) => "Float64",
+        RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Class(_) => "Class",
+        RuntimeValue::Object(_) => "Object",
     }
 }
 

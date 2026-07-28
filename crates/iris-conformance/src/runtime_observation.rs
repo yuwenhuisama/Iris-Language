@@ -183,6 +183,7 @@ fn error_code(error: &EvaluationError) -> &'static str {
         EvaluationError::Construction(_)
         | EvaluationError::Execution(_)
         | EvaluationError::Symbol(_) => "RuntimeError",
+        EvaluationError::MessageNotFound { .. } => "MessageNotFoundError",
     }
 }
 
@@ -192,12 +193,12 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Numeric(NumericError::Range) => "RangeError",
         KernelError::Type => "TypeError",
         KernelError::Identity => "IdentityError",
+        KernelError::MessageNotFound { .. } => "MessageNotFoundError",
         KernelError::Class(_)
         | KernelError::Dispatch(_)
         | KernelError::Numeric(_)
         | KernelError::StableHash(_)
-        | KernelError::Arity
-        | KernelError::MissingMethod => "RuntimeError",
+        | KernelError::Arity => "RuntimeError",
     }
 }
 
@@ -213,6 +214,40 @@ mod tests {
             id: "test".into(),
             source: "1 div 0".into(),
             expect: "{\"error\":{\"code\":\"DivisionByZeroError\"}}".into(),
+            tags: vec![],
+        };
+
+        // When
+        let result = compare_runtime(&record);
+
+        // Then
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn canonical_numeric_bytes_is_reported_as_message_not_found() {
+        // Given
+        let record = Record {
+            id: "test".into(),
+            source: "Integer(1).canonical_numeric_bytes()".into(),
+            expect: "{\"error\":{\"code\":\"MessageNotFoundError\"}}".into(),
+            tags: vec![],
+        };
+
+        // When
+        let result = compare_runtime(&record);
+
+        // Then
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn absent_class_selectors_are_reported_as_message_not_found() {
+        // Given
+        let record = Record {
+            id: "test".into(),
+            source: "A.new_current(); A.new_checked()".into(),
+            expect: "{\"error\":{\"code\":\"MessageNotFoundError\"}}".into(),
             tags: vec![],
         };
 

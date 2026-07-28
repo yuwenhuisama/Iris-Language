@@ -6,6 +6,58 @@ use iris_runtime::{
 use super::{EvaluationError, evaluate};
 
 #[test]
+fn missing_numeric_selector_reports_receiver_class_and_selector() {
+    // Given
+    let source = "Integer(1).canonical_numeric_bytes()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::MessageNotFound {
+            receiver_class: "Integer".into(),
+            selector: "canonical_numeric_bytes".into(),
+        })
+    );
+}
+
+#[test]
+fn known_numeric_selector_still_returns_its_stable_hash() {
+    // Given
+    let source = "Integer(1).hash";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Integer(17_824_117_788_395_916_856_u64.into()))
+    );
+}
+
+#[test]
+fn visibility_denial_does_not_report_message_not_found() {
+    // Given
+    let source = "class A { private fun secret() -> Integer { 1 } }; let a = A.new(); a.secret()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Construction(
+            iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::VisibilityDenied { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
 fn rejects_identity_less_operands_with_identity_error() {
     // Given
     let source = "Integer(1) same? Integer(1)";
