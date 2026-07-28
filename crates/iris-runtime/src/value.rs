@@ -122,6 +122,8 @@ pub enum Value {
     Float64(f64),
     /// A literal Iris Array.
     Array(Vec<Value>),
+    /// An interned Iris Symbol spelling.
+    Symbol(String),
     /// A logical built-in Class object.
     Class(ClassId),
     /// An object owned by the runtime heap.

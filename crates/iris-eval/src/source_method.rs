@@ -32,7 +32,7 @@ pub(super) fn invoke(
         return Ok(Value::Nil);
     };
     match expression {
-        Expression::Symbol(_) => Err(ExecutionError::Raised(Value::Nil)),
+        Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
         Expression::Binary {
             left,
             operator: BinaryOperator::Multiply,

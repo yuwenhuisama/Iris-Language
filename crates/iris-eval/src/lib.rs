@@ -331,6 +331,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Object(_) => "Object",
     }

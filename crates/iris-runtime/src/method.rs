@@ -37,7 +37,7 @@ pub struct Method {
 }
 
 impl Method {
-    pub(crate) const fn new(
+    pub const fn new(
         id: MethodId,
         owner: MethodOwner,
         selector: Selector,

@@ -19,6 +19,7 @@ pub enum Declaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClassDeclaration {
+    pub reopen: bool,
     pub name: String,
     pub parameters: Vec<String>,
     pub extends: Option<TypeExpression>,
@@ -100,10 +101,18 @@ pub enum Statement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodDeclaration {
+    pub kind: MethodKind,
     pub selector: String,
     pub parameters: Vec<String>,
     pub visibility: Visibility,
     pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MethodKind {
+    Instance,
+    Class,
+    Property,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -279,6 +288,7 @@ mod tests {
         // Given
         let program = Program {
             declarations: vec![Declaration::Class(ClassDeclaration {
+                reopen: false,
                 name: "Pair".into(),
                 parameters: vec!["T".into(), "U".into()],
                 extends: None,
@@ -437,6 +447,7 @@ mod tests {
 
     fn empty_class(name: &str, extends: Option<TypeExpression>) -> ClassDeclaration {
         ClassDeclaration {
+            reopen: false,
             name: name.into(),
             parameters: Vec::new(),
             extends,

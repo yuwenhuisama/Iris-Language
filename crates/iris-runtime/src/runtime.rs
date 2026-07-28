@@ -98,6 +98,11 @@ impl Runtime {
         &mut self.registry
     }
 
+    /// Exposes Class dispatch state to the embedding evaluator.
+    pub fn registry(&self) -> &ClassRegistry {
+        &self.registry
+    }
+
     /// Allocates a complete ordinary instance.
     pub fn allocate(&mut self, class: ClassId) -> Result<ObjectId, ConstructionError> {
         self.registry.class(class)?;

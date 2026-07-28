@@ -1,6 +1,6 @@
 use iris_runtime::{
-    BuiltinClass, Kernel, KernelError, MethodBody, NativeSelector, Value as RuntimeValue,
-    Visibility,
+    BuiltinClass, Kernel, KernelError, MethodBody, NativeSelector, Runtime, Selector, StaticSpine,
+    Value as RuntimeValue, Visibility,
 };
 
 use super::{EvaluationError, evaluate};
@@ -146,4 +146,140 @@ fn rejects_bare_infinity_outside_float64_construction() {
 
     // Then
     assert_eq!(result, Err(EvaluationError::UnsupportedConstruct));
+}
+
+#[test]
+fn source_method_returns_symbol_literal() {
+    // Given
+    let source = "class A { public fun m() -> Integer { :added } }; A.new().m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(result, Ok(value) if format!("{value:?}") == "Symbol(\"added\")"));
+}
+
+#[test]
+fn source_open_class_preserves_identity_and_updates_existing_instances() {
+    // Given
+    let source = "class A { public fun old() -> Integer { 1 } }; let before = A; let a = A.new(); open class A { public fun added() -> Integer { 2 } }; [before same? A, a.added()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Bool(true),
+            RuntimeValue::Integer(2_u8.into()),
+        ]))
+    );
+}
+
+#[test]
+fn source_class_fun_dispatches_on_the_class_object() {
+    // Given
+    let source = "class A { class fun build() -> Integer { 7 } }; A.build()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(7_u8.into())));
+}
+
+#[test]
+fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
+    // Given
+    let source = "class A { property fun name() -> Integer { :get } property fun name=(value: Integer) -> Integer { :set } }; let a = A.new(); [a.name, a.name = 1]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("get".into()),
+            RuntimeValue::Symbol("set".into()),
+        ]))
+    );
+}
+
+#[test]
+fn source_single_mixin_class_body_keeps_its_own_methods() {
+    // Given
+    let source = "class C mixin A { public fun t() -> Integer { 1 } }; C.new().t()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(1_u8.into())));
+}
+
+#[test]
+fn property_assignment_returns_its_setter_result_while_raw_ivar_assignment_returns_stored_value()
+-> Result<(), iris_runtime::ConstructionError> {
+    // Given
+    let mut runtime = Runtime::new();
+    let class = runtime
+        .registry_mut()
+        .define_class(StaticSpine::new(1), None)?;
+    let property = Selector::new(1);
+    runtime.registry_mut().publish_method(
+        class,
+        property,
+        MethodBody::new(1),
+        Visibility::Public,
+    )?;
+    let instance = runtime.allocate(class)?;
+    let stored = RuntimeValue::Integer(4_u8.into());
+    let setter_result = RuntimeValue::Symbol("set".into());
+
+    // When
+    let property_result = runtime.assign_property(
+        instance,
+        property,
+        stored.clone(),
+        |_runtime, _method, _receiver, _arguments| Ok(setter_result.clone()),
+    )?;
+    let ivar_result = runtime.assign_raw_ivar(instance, Selector::new(2), stored.clone())?;
+
+    // Then
+    assert_eq!(property_result, setter_result);
+    assert_eq!(ivar_result, stored);
+    Ok(())
+}
+
+#[test]
+fn source_super_selects_the_next_method_and_reports_no_successor() {
+    // Given
+    let source = "class B { public fun m() -> Integer { 1 } }; class C extends B { public fun m() -> Integer { super() } }; C.new().m()";
+    let no_successor = "class A { public fun m() -> Integer { super() } }; A.new().m()";
+
+    // When
+    let result = evaluate(source);
+    let missing = evaluate(no_successor);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(1_u8.into())));
+    assert_eq!(
+        format!("{missing:?}"),
+        "Err(Execution(Raised(Symbol(\"NoSuperMethodError\"))))"
+    );
+}
+
+#[test]
+fn source_mixins_resolve_in_reverse_declaration_order() {
+    // Given
+    let source = "class A { public fun m() -> Integer { 1 } }; class B { public fun m() -> Integer { 2 } }; class C mixin A, B { }; C.new().m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(2_u8.into())));
 }

@@ -8,8 +8,8 @@ mod expression_tests;
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
     ClassDeclaration, Constraint, ContractDeclaration, Declaration, Expression, MatchArm,
-    MatchBody, MethodDeclaration, ModuleDeclaration, Pattern, Program, Statement, TypeExpression,
-    Visibility,
+    MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration, Pattern, Program, Statement,
+    TypeExpression, Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -236,6 +236,9 @@ impl Parser {
                 continue;
             }
             match self.peek() {
+                Some("open") if self.peek_next() == Some("class") => self
+                    .class_declaration()
+                    .map(|value| program.declarations.push(Declaration::Class(value))),
                 Some("class") => self
                     .class_declaration()
                     .map(|value| program.declarations.push(Declaration::Class(value))),
@@ -253,6 +256,7 @@ impl Parser {
     }
 
     fn class_declaration(&mut self) -> Option<ClassDeclaration> {
+        let reopen = self.consume("open");
         self.expect("class")?;
         let name = self.name()?;
         let parameters = self.generic_parameters();
@@ -305,6 +309,7 @@ impl Parser {
         }
         let body = self.body()?;
         Some(ClassDeclaration {
+            reopen,
             name,
             parameters,
             extends,
@@ -446,15 +451,30 @@ impl Parser {
             return Some(Statement::Expression(Expression::Name(binding)));
         }
         let visibility = if self.consume("public") {
-            Visibility::Public
+            Some(Visibility::Public)
         } else if self.consume("protected") {
-            Visibility::Protected
+            Some(Visibility::Protected)
+        } else if self.consume("private") {
+            Some(Visibility::Private)
         } else {
-            self.consume("private");
-            Visibility::Private
+            None
         };
+        let kind = if self.consume("class") {
+            MethodKind::Class
+        } else if self.consume("property") {
+            MethodKind::Property
+        } else {
+            MethodKind::Instance
+        };
+        let visibility = visibility.unwrap_or(match kind {
+            MethodKind::Property => Visibility::Public,
+            MethodKind::Instance | MethodKind::Class => Visibility::Private,
+        });
         if self.consume("fun") {
-            let selector = self.selector()?;
+            let mut selector = self.selector()?;
+            if kind == MethodKind::Property && self.consume("=") {
+                selector.push('=');
+            }
             self.expect("(")?;
             let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
@@ -474,6 +494,7 @@ impl Parser {
             }
             return self.body().map(|body| {
                 Statement::Method(MethodDeclaration {
+                    kind,
                     selector,
                     parameters,
                     visibility,
