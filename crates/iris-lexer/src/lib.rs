@@ -319,9 +319,81 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_slash_as_division_after_an_integer_literal() {
+        // Given
+        let source = b"1 / 2";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert_eq!(
+            kinds(&result),
+            [
+                TokenKind::SourceCharacter,
+                TokenKind::Slash,
+                TokenKind::SourceCharacter,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexes_integer_division_by_zero_cleanly() {
+        // Given
+        let source = b"1 / 0";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert!(kinds(&result).contains(&TokenKind::Slash));
+    }
+
+    #[test]
+    fn lexes_integer_division_without_whitespace_cleanly() {
+        // Given
+        let source = b"1/0";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert!(kinds(&result).contains(&TokenKind::Slash));
+    }
+
+    #[test]
+    fn lexes_float_division_cleanly() {
+        // Given
+        let source = b"1.5 / 2.0";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert!(kinds(&result).contains(&TokenKind::Slash));
+    }
+
+    #[test]
+    fn lexes_hexadecimal_integer_division_cleanly() {
+        // Given
+        let source = b"0xFF / 2";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert!(kinds(&result).contains(&TokenKind::Slash));
+    }
+
+    #[test]
     fn tokenizes_slash_as_a_regex_at_expression_start() {
         // Given
-        let source = b"/x/";
+        let source = b"/abc/";
 
         // When
         let result = lex(source);

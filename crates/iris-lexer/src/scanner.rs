@@ -1,3 +1,4 @@
+use crate::literal::numeric_literal_width;
 use crate::{ByteOffset, Diagnostic, SourcePosition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,6 +160,16 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 push(&mut tokens, kind, offset);
                 advance(&mut index, width, &mut position);
                 expression_start = true;
+            }
+            byte if byte.is_ascii_digit()
+                || (byte == b'.'
+                    && (bytes.get(index + 1).is_some_and(u8::is_ascii_digit)
+                        || bytes.get(index + 1) == Some(&b'_'))) =>
+            {
+                let width = numeric_literal_width(&text[index..]);
+                push(&mut tokens, TokenKind::SourceCharacter, offset);
+                advance(&mut index, width, &mut position);
+                expression_start = false;
             }
             b'.' => punct(
                 &mut tokens,

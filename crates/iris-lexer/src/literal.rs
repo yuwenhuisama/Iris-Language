@@ -94,6 +94,10 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
     conversion
 }
 
+pub(crate) fn numeric_literal_width(source: &str) -> usize {
+    numeric::convert_number(source).width
+}
+
 pub(crate) struct Segment {
     width: usize,
     value: Option<Literal>,
