@@ -164,3 +164,27 @@ Consequence: the `passed: 60` target from section 3 is still the correct definit
 **Build-order step 13 — frontend expression surface.** Extend `iris-syntax` and `iris-parser` with array literals, Symbols, member access, and call expressions, then expose a typed method-body invocation on `iris-runtime` so `iris-eval` can bridge source to the kernel.
 
 Class and property declaration from source remains deferred; it serves the 21 declaration/fixture vectors and is tracked separately.
+
+## 11. Amendment correction: frontend gap closed
+
+Recorded after build-order step 13 landed. Section 10's table said only 5 of the 60 executable vectors were reachable without frontend expansion. **That figure is now obsolete and MUST NOT be cited as current state.** It described the tree before the frontend work.
+
+Landed since section 10 was written:
+
+| Commit | Change |
+| --- | --- |
+| `53e0d88` | Array, Symbol, Member, ContractView, Call AST nodes; identifier-digit lexer fix |
+| `bfb09d5` | Named infix retains its selector; `same?` parses as a distinct Identity operator |
+| `275c89b` | Evaluator bridged to the runtime kernel via `iris_eval::evaluate` |
+| `cdf9822` | Numeric tokens terminate at member-access dots |
+| `ba873c6` | Slash after a numeric literal lexes as division, not a Regex opener |
+| `8c8d3b4` | Member getters resolve as ordinary sends |
+| `0fa156e` | `<` family longest match and compound assignments lex as complete tokens |
+
+Measured directly with a probe over 21 sampled `executable` vectors:
+
+- 17 evaluate to their expected value
+- 2 correctly raise the expected typed error, `V060` DivisionByZero and `V069` Range
+- 2 remain genuinely blocked: `V016` needs an ordinary-object fixture, `V048` needs the `Float64(-Infinity)` construction form
+
+So 19 of 21 sampled rows already behave per spec. The remaining barrier to reporting a chapter-03 number is that no RUNTIME vector corpus or runner chapter exists yet, not frontend capability.
