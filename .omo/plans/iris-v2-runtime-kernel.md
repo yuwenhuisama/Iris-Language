@@ -134,3 +134,33 @@ Rationale for 3: the milestone-1 Integer representation is a decimal string, whi
 - If more than roughly half the 60 executable vectors turn out to require full chapter 04 control flow or chapter 05 contracts, split formally into M2a and M2b.
 - If any chapter-03 row proves internally inconsistent or references an undefined ID, record it in `docs/spec-defects-v1.md` and continue; do not guess.
 - If native embedding requirements surface before M2 ends, resist filling `iris-abi`; define internal opaque-handle invariants first and expose the C ABI in its own milestone.
+
+## 10. Amendment: frontend AST gap discovered during execution
+
+Recorded after build-order steps 1-12 landed. Not a change of goal; a correction of a planning omission.
+
+Section 6 listed "full chapter 04 conformance" as a non-goal and kept only "the minimum callable execution needed to run kernel vectors". Executing against the corpus showed that minimum is substantially larger than assumed.
+
+Verified facts:
+
+- `iris-syntax::Expression` carries only `Name`, `Literal`, `Unary`, `Binary`, `Assignment`, `Grouped`. It has no `Array`, `Symbol`, `Call`, or `Member` node.
+- `iris-runtime` dispatch resolves a `Method` but exposes no public typed method-body invocation returning a `Value`.
+- `iris-runtime` had zero dependents; `iris-eval` still wired only to `iris-lexer`.
+
+Re-classification of the 60 executable chapter-03 vectors by what their input actually requires:
+
+| Requirement | Count |
+| --- | ---: |
+| declarations or fixtures: class, property, super, mixin | 21 |
+| call and member-access syntax | 18 |
+| array literals | 4 |
+| plain operators, reachable with the current AST | 5 |
+| overview-only rows with no coverage fixture | 12 |
+
+Only 5 of 60 are reachable without extending the frontend. The remaining work is genuinely chapter-04 surface, not incidental.
+
+Consequence: the `passed: 60` target from section 3 is still the correct definition of chapter-03 executable coverage, but reaching it requires frontend AST and parser extension that section 5's build order never listed. Milestone 2 therefore needs an additional build step before any vector can be executed:
+
+**Build-order step 13 — frontend expression surface.** Extend `iris-syntax` and `iris-parser` with array literals, Symbols, member access, and call expressions, then expose a typed method-body invocation on `iris-runtime` so `iris-eval` can bridge source to the kernel.
+
+Class and property declaration from source remains deferred; it serves the 21 declaration/fixture vectors and is tracked separately.
