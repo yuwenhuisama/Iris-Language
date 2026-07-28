@@ -436,7 +436,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_integer_bitwise_not_and_right_shift_from_source() {
         // Given
-        let source = "[~0, -3 >> 1]";
+        let source = "[~0, -3 >> 1, 8 << -2]";
 
         // When
         let result = evaluate(source);
@@ -447,6 +447,7 @@ mod evaluator_bridge_tests {
             Ok(RuntimeValue::Array(vec![
                 RuntimeValue::Integer((-1_i8).into()),
                 RuntimeValue::Integer((-2_i8).into()),
+                RuntimeValue::Integer(2_u8.into()),
             ]))
         );
     }
@@ -472,14 +473,37 @@ mod evaluator_bridge_tests {
         // Given
         let equality = "Float64.nan == Float64.nan";
         let less_than = "Float64.nan < 1.0";
+        let comparison = "Float64.nan <=> 1.0";
 
         // When
         let equality_result = evaluate(equality);
         let less_than_result = evaluate(less_than);
+        let comparison_result = evaluate(comparison);
 
         // Then
         assert_eq!(equality_result, Ok(RuntimeValue::Bool(false)));
         assert_eq!(less_than_result, Ok(RuntimeValue::Bool(false)));
+        assert_eq!(comparison_result, Ok(RuntimeValue::Nil));
+    }
+
+    #[test]
+    fn evaluates_v063_large_and_negative_shift_counts() {
+        // Given
+        let source = "[1 >> 1000000, -1 >> 1000000, -3 >> 1000000, 1 << -2]";
+
+        // When
+        let result = evaluate(source);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer(0_u8.into()),
+                RuntimeValue::Integer((-1_i8).into()),
+                RuntimeValue::Integer((-1_i8).into()),
+                RuntimeValue::Integer(0_u8.into()),
+            ]))
+        );
     }
 
     #[test]

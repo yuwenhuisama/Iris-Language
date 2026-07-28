@@ -14,8 +14,30 @@ pub enum TokenKind {
     HashOpen,
     BangEqual,
     LessThan,
+    LessEqual,
+    Spaceship,
     GreaterThan,
+    GreaterEqual,
+    LeftShift,
     RightShift,
+    StarStar,
+    EqualEqual,
+    AndAnd,
+    PipePipe,
+    MatchArrow,
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    StarStarEqual,
+    AmpEqual,
+    PipeEqual,
+    CaretEqual,
+    PercentEqual,
+    LeftShiftEqual,
+    RightShiftEqual,
+    AndAndEqual,
+    PipePipeEqual,
     Slash,
     RegexLiteral,
     MutableStringLiteral,
@@ -185,8 +207,15 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 expression_start = true;
             }
             b'<' => {
-                push(&mut tokens, TokenKind::LessThan, offset);
-                advance(&mut index, 1, &mut position);
+                let (kind, width) = match &bytes[index..] {
+                    [b'<', b'<', b'=', ..] => (TokenKind::LeftShiftEqual, 3),
+                    [b'<', b'=', b'>', ..] => (TokenKind::Spaceship, 3),
+                    [b'<', b'<', ..] => (TokenKind::LeftShift, 2),
+                    [b'<', b'=', ..] => (TokenKind::LessEqual, 2),
+                    _ => (TokenKind::LessThan, 1),
+                };
+                push(&mut tokens, kind, offset);
+                advance(&mut index, width, &mut position);
                 expression_start = true;
             }
             b'>' if bytes.get(index + 1) == Some(&b'>') && matches!(mode, Mode::Type) => {
@@ -200,13 +229,28 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 expression_start = false;
             }
             b'>' if bytes.get(index + 1) == Some(&b'>') => {
-                push(&mut tokens, TokenKind::RightShift, offset);
-                advance(&mut index, 2, &mut position);
+                let (kind, width) = if bytes.get(index + 2) == Some(&b'=') {
+                    (TokenKind::RightShiftEqual, 3)
+                } else {
+                    (TokenKind::RightShift, 2)
+                };
+                push(&mut tokens, kind, offset);
+                advance(&mut index, width, &mut position);
                 expression_start = true;
             }
             b'>' => {
-                push(&mut tokens, TokenKind::GreaterThan, offset);
-                advance(&mut index, 1, &mut position);
+                let (kind, width) = if bytes.get(index + 1) == Some(&b'=') {
+                    (TokenKind::GreaterEqual, 2)
+                } else {
+                    (TokenKind::GreaterThan, 1)
+                };
+                push(&mut tokens, kind, offset);
+                advance(&mut index, width, &mut position);
+                expression_start = true;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'=') => {
+                push(&mut tokens, TokenKind::SlashEqual, offset);
+                advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
             b'/' if expression_start => match regex_end(bytes, index + 1) {
@@ -280,6 +324,12 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 offset,
                 true,
             ),
+            byte @ (b'+' | b'-' | b'*' | b'&' | b'|' | b'^' | b'%' | b'=') => {
+                let (kind, width) = fixed_operator(bytes, index, byte);
+                push(&mut tokens, kind, offset);
+                advance(&mut index, width, &mut position);
+                expression_start = true;
+            }
             b'"' | b'\'' => match quoted_end(bytes, index, bytes[index]) {
                 Some(end) => {
                     let width = end - index;
@@ -498,6 +548,33 @@ fn punct(
 }
 fn push(tokens: &mut Vec<Token>, kind: TokenKind, offset: ByteOffset) {
     tokens.push(Token { kind, offset });
+}
+fn fixed_operator(bytes: &[u8], index: usize, byte: u8) -> (TokenKind, usize) {
+    let remaining = &bytes[index..];
+    match remaining {
+        [b'*', b'*', b'=', ..] => (TokenKind::StarStarEqual, 3),
+        [b'&', b'&', b'=', ..] => (TokenKind::AndAndEqual, 3),
+        [b'|', b'|', b'=', ..] => (TokenKind::PipePipeEqual, 3),
+        [b'*', b'*', ..] => (TokenKind::StarStar, 2),
+        [b'&', b'&', ..] => (TokenKind::AndAnd, 2),
+        [b'|', b'|', ..] => (TokenKind::PipePipe, 2),
+        [b'=', b'=', ..] => (TokenKind::EqualEqual, 2),
+        [b'=', b'>', ..] => (TokenKind::MatchArrow, 2),
+        [b'+', b'=', ..] => (TokenKind::PlusEqual, 2),
+        [b'-', b'=', ..] => (TokenKind::MinusEqual, 2),
+        [b'*', b'=', ..] => (TokenKind::StarEqual, 2),
+        [b'&', b'=', ..] => (TokenKind::AmpEqual, 2),
+        [b'|', b'=', ..] => (TokenKind::PipeEqual, 2),
+        [b'^', b'=', ..] => (TokenKind::CaretEqual, 2),
+        [b'%', b'=', ..] => (TokenKind::PercentEqual, 2),
+        _ => (
+            match byte {
+                b'+' | b'-' | b'*' | b'&' | b'|' | b'^' | b'%' | b'=' => TokenKind::SourceCharacter,
+                _ => unreachable!(),
+            },
+            1,
+        ),
+    }
 }
 fn advance(index: &mut usize, count: usize, position: &mut SourcePosition) {
     *index += count;

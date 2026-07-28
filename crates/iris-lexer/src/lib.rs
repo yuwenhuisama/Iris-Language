@@ -259,6 +259,34 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_longest_match_relational_shift_and_assignment_operators() {
+        // Given
+        let cases = [
+            (b"8 << -2".as_slice(), TokenKind::LeftShift),
+            (b"a <=> b".as_slice(), TokenKind::Spaceship),
+            (b"a <= b".as_slice(), TokenKind::LessEqual),
+            (b"a >= b".as_slice(), TokenKind::GreaterEqual),
+            (b"a < b".as_slice(), TokenKind::LessThan),
+            (b"a > b".as_slice(), TokenKind::GreaterThan),
+            (b"a <<= b".as_slice(), TokenKind::LeftShiftEqual),
+            (b"a >>= b".as_slice(), TokenKind::RightShiftEqual),
+        ];
+
+        // When / Then
+        for (source, operator) in cases {
+            let result = lex(source);
+            assert!(result.is_clean(), "{result:#?}");
+            assert_eq!(
+                kinds(&result)
+                    .iter()
+                    .filter(|kind| **kind == operator)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
     fn rejects_invalid_literal_prefix_order() {
         // Given
         let source = b"rm\"x\"";

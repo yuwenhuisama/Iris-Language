@@ -70,7 +70,7 @@ pub fn parse(source: &str) -> ParseResult {
             cursor += 1;
         }
     }
-    let tokens = combine_fixed_operators(&raw);
+    let tokens = combine_numeric_literals(&raw);
     let mut parser = Parser {
         tokens,
         cursor: 0,
@@ -92,7 +92,31 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
     let remaining = source.get(start..).unwrap_or_default();
     let width = match kind {
         TokenKind::RangeInclusive | TokenKind::RangeExclusive => 3,
-        TokenKind::ContractView | TokenKind::BangEqual | TokenKind::RightShift => 2,
+        TokenKind::ContractView
+        | TokenKind::BangEqual
+        | TokenKind::LessEqual
+        | TokenKind::GreaterEqual
+        | TokenKind::LeftShift
+        | TokenKind::RightShift
+        | TokenKind::StarStar
+        | TokenKind::EqualEqual
+        | TokenKind::AndAnd
+        | TokenKind::PipePipe
+        | TokenKind::MatchArrow
+        | TokenKind::PlusEqual
+        | TokenKind::MinusEqual
+        | TokenKind::StarEqual
+        | TokenKind::SlashEqual
+        | TokenKind::AmpEqual
+        | TokenKind::PipeEqual
+        | TokenKind::CaretEqual
+        | TokenKind::PercentEqual => 2,
+        TokenKind::Spaceship
+        | TokenKind::StarStarEqual
+        | TokenKind::LeftShiftEqual
+        | TokenKind::RightShiftEqual
+        | TokenKind::AndAndEqual
+        | TokenKind::PipePipeEqual => 3,
         TokenKind::Identifier | TokenKind::Keyword | TokenKind::SetterSelector => remaining
             .bytes()
             .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
@@ -166,39 +190,12 @@ struct Token {
     text: String,
 }
 
-fn combine_fixed_operators(raw: &[(TokenKind, &str)]) -> Vec<Token> {
+fn combine_numeric_literals(raw: &[(TokenKind, &str)]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut cursor = 0;
     while cursor < raw.len() {
         let (kind, text) = raw[cursor];
-        let candidate = raw
-            .get(cursor + 1)
-            .filter(|(next_kind, _)| *next_kind == TokenKind::SourceCharacter)
-            .map(|(_, next)| format!("{text}{next}"));
-        let three_character_candidate = raw
-            .get(cursor + 1)
-            .zip(raw.get(cursor + 2))
-            .filter(|((next_kind, _), (last_kind, _))| {
-                *next_kind == TokenKind::SourceCharacter && *last_kind == TokenKind::SourceCharacter
-            })
-            .map(|((_, next), (_, last))| format!("{text}{next}{last}"));
-        if kind == TokenKind::SourceCharacter
-            && three_character_candidate
-                .as_deref()
-                .is_some_and(is_three_character_operator)
-        {
-            tokens.push(Token {
-                text: three_character_candidate.unwrap_or_default(),
-            });
-            cursor += 3;
-        } else if kind == TokenKind::SourceCharacter
-            && candidate.as_deref().is_some_and(is_two_character_operator)
-        {
-            tokens.push(Token {
-                text: candidate.unwrap_or_default(),
-            });
-            cursor += 2;
-        } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
+        if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
             let mut value = String::from(text);
             cursor += 1;
             while raw.get(cursor).is_some_and(|(next_kind, next)| {
@@ -214,31 +211,6 @@ fn combine_fixed_operators(raw: &[(TokenKind, &str)]) -> Vec<Token> {
         }
     }
     tokens
-}
-
-fn is_two_character_operator(value: &str) -> bool {
-    matches!(
-        value,
-        "**" | "<<"
-            | "<="
-            | ">="
-            | "=="
-            | "&&"
-            | "||"
-            | "+="
-            | "-="
-            | "*="
-            | "/="
-            | "&="
-            | "|="
-            | "^="
-            | "%="
-            | "=>"
-    )
-}
-
-fn is_three_character_operator(value: &str) -> bool {
-    matches!(value, "**=" | "<<=" | ">>=" | "&&=" | "||=")
 }
 
 struct Parser {
@@ -1025,6 +997,22 @@ mod tests {
         );
         assert_eq!(
             assignments.diagnostics[0].code,
+            "PARSE_INVALID_ASSIGNMENT_OPERATOR"
+        );
+    }
+
+    #[test]
+    fn parses_shift_assignments_from_single_lexer_tokens() {
+        // Given
+        let left = parse("a <<= b");
+        let right = parse("a >>= b");
+        let invalid = parse("a %= b");
+
+        // When / Then
+        assert!(left.program_accepted, "{left:#?}");
+        assert!(right.program_accepted, "{right:#?}");
+        assert_eq!(
+            invalid.diagnostics[0].code,
             "PARSE_INVALID_ASSIGNMENT_OPERATOR"
         );
     }
