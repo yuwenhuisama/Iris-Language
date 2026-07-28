@@ -111,7 +111,7 @@ mod tests {
         let records = corpus.runtime_records()?;
 
         // Then
-        assert_eq!(records.len(), 26);
+        assert_eq!(records.len(), 109);
         Ok(())
     }
 

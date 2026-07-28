@@ -124,6 +124,7 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Numeric(NumericError::DivisionByZero) => "DivisionByZeroError",
         KernelError::Numeric(NumericError::Range) => "RangeError",
         KernelError::Type => "TypeError",
+        KernelError::Identity => "IdentityError",
         KernelError::Class(_)
         | KernelError::Dispatch(_)
         | KernelError::Numeric(_)
