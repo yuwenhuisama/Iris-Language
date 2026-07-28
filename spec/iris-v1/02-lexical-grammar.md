@@ -1,6 +1,6 @@
 # Iris v1 Lexical Grammar
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.1, frozen semantics with owner-approved errata.
 
 IRIS-V1-GRAMMAR-C001: This chapter defines the normative source encoding, lexical token set, literals, reserved keywords, contextual token rules, precedence, associativity, declaration headers, calls, blocks, and EBNF grammar for Iris v1. Later semantic chapters MUST use the syntax anchors and token names in this chapter.
 
@@ -32,7 +32,7 @@ IRIS-V1-GRAMMAR-C012: A simple Symbol literal beginning with `:` accepts an ordi
 
 ## Reserved Keywords
 
-IRIS-V1-GRAMMAR-C013: The v1 reserved keyword set contains exactly 48 lowercase words. A conforming lexer MUST emit a keyword token for these spellings only when the complete normalized identifier text equals the keyword.
+IRIS-V1-GRAMMAR-C013: Superseding the v1.0 count in place under IRIS-V1-TRACE-C021, the v1.1 reserved keyword set contains exactly 49 lowercase words. A conforming lexer MUST emit a keyword token for these spellings only when the complete normalized identifier text equals the keyword.
 
 | Keyword     | Keyword      | Keyword      | Keyword       |
 | ----------- | ------------ | ------------ | ------------- |
@@ -48,6 +48,7 @@ IRIS-V1-GRAMMAR-C013: The v1 reserved keyword set contains exactly 48 lowercase 
 | `match`   | `try`      | `catch`    | `finally`   |
 | `raise`   | `return`   | `is`       | `nil`       |
 | `true`    | `false`    | `self`     | `super`     |
+| `typeof`  |            |            |             |
 
 IRIS-V1-GRAMMAR-C014: The words `and`, `or`, `not`, `repeat`, `switch`, `when`, `groan`, `order`, `serve`, `ignore`, `defer`, `implements`, `satisfies`, `interface`, `goto`, `retry`, `redo`, `static`, `alias`, and `undef` are not reserved by history alone. `new`, `using`, `close`, and `method_missing` are ordinary Method names. A lexer MUST classify these words as identifiers unless another rule in this specification later gives them a contextual role.
 
@@ -73,7 +74,7 @@ IRIS-V1-GRAMMAR-C015: The lexer MUST recognize the following 69 fixed token name
 | `INTERPOLATION_OPEN`  | `${`   | Opens interpolation only inside interpolated String or Regex text.                                 |
 | `ARROW`               | `->`   | Separates callable header from return type.                                                        |
 | `MATCH_ARROW`         | `=>`   | Separates match arm pattern from body.                                                             |
-| `AT`                  | `@`    | Starts a raw ivar token when followed by an ordinary identifier.                                   |
+| `AT`                  | `@`    | Starts a raw ivar token when followed by an ordinary identifier; in a declaration-prefix position, starts a decorator under IRIS-V1-GRAMMAR-C058. |
 | `DOUBLE_AT`           | `@@`   | Starts a shared storage token when followed by an ordinary identifier.                             |
 | `DOLLAR`              | `$`    | Starts a global storage token when followed by an ordinary identifier.                             |
 | `QUESTION`            | `?`    | Appears only as selector suffix or in contextual`as?`.                                           |
@@ -327,7 +328,9 @@ program            ::= terminator* declaration_or_statement (terminator+ declara
 terminator         ::= newline | ";" | eof
 declaration_or_statement ::= declaration | statement
 
-declaration        ::= class_decl | module_decl | contract_decl | method_decl | property_decl | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
+decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
 import_decl        ::= "import" qualified_type_name import_alias? | "from" qualified_type_name "import" import_spec_list
 import_alias       ::= "as" ordinary_name
 import_spec_list   ::= import_spec ("," import_spec)* ","?
@@ -348,8 +351,12 @@ meta_capability_list ::= meta_capability ("," meta_capability)* ","?
 meta_capability    ::= ordinary_name
 declaration_body   ::= "{" terminator* declaration_or_statement* "}"
 
-method_decl        ::= visibility? "override"? "impl"? "async"? "class"? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
-property_decl      ::= visibility? "override"? "impl"? "property" "fun" property_selector parameter_list return_type? where_clause? block_body
+method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
+property_decl      ::= visibility? "override"? "impl"? "property" (stored_property_decl | property_accessor_decl)
+stored_property_decl ::= ordinary_name ":" type_expr ("=" expression)? property_accessor_block?
+property_accessor_block ::= "{" property_accessor_member* "}"
+property_accessor_member ::= visibility? "get" ";" | visibility? "set" ";"
+property_accessor_decl ::= "fun" property_selector parameter_list return_type? where_clause? block_body
 property_selector  ::= selector "="?
 visibility         ::= "public" | "protected" | "private"
 parameter_list     ::= "(" parameter_sequence? ")"
@@ -434,7 +441,8 @@ type_expr          ::= type_union
 type_union         ::= type_intersection ("|" type_intersection)*
 type_intersection  ::= type_postfix ("&" type_postfix)*
 type_postfix       ::= type_primary "?"?
-type_primary       ::= qualified_type_name generic_args? | function_type | "(" type_expr ")"
+type_primary       ::= typeof_type | qualified_type_name generic_args? | function_type | "(" type_expr ")"
+typeof_type        ::= "typeof" "(" expression ")"
 qualified_type_name ::= type_name ("::" type_name)*
 generic_args       ::= "<" type_expr ("," type_expr)* ">"
 function_type      ::= "(" type_expr_list? ")" "->" type_expr
@@ -545,6 +553,8 @@ IRIS-V1-GRAMMAR-V007: Malformed vector `grammar.bad-parse` maps `;return nil` to
 ## Grammar Coverage Vectors
 
 IRIS-V1-GRAMMAR-C057: The following vectors are normative traceability vectors with concrete source input and expected parse or diagnostic observations.
+
+IRIS-V1-GRAMMAR-C058: The v1.1 errata grammar permits `@decorator(arguments)` before Class, Module, Contract, Method, and property declarations; its meaning is owned exclusively by IRIS-V1-META-C085 through IRIS-V1-META-C094. A Module declaration may use `module fun` as the mutually exclusive alternative to `class fun`; its installation surface is defined by IRIS-V1-CONTROL-C074. Stored-property shorthand is `property name: Type` with an optional initializer and optional accessor-visibility block, while `property fun` remains the explicit accessor form; its storage semantics are owned by IRIS-V1-RUNTIME-C065 and IRIS-V1-RUNTIME-C161. `typeof(expression)` is a Type-expression production whose semantics are owned by IRIS-V1-TYPES-C093.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 # Iris v1 Types, Contracts, And Generics
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.1, frozen semantics with owner-approved errata.
 
 IRIS-V1-TYPES-C001: This chapter defines gradual type Contracts, `Dynamic<T>`, runtime type tests and casts, Type objects, top and bottom types, nilability, `NonNil`, union and intersection algebra, callable subtyping, Contract declarations and views, generic constraints and materialization, Type aliases, and `Never` flow for Iris v1. It MUST be read after [README.md](README.md), [01-language-identity.md](01-language-identity.md), [02-lexical-grammar.md](02-lexical-grammar.md), [03-runtime-object-model.md](03-runtime-object-model.md), and [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md).
 
@@ -429,6 +429,8 @@ IRIS-V1-TYPES-C091: The conformance chapter MUST include positive, failure, diag
 ## Type Coverage Vectors
 
 IRIS-V1-TYPES-C092: The following vectors are normative traceability vectors with concrete type-checking inputs and expected observations.
+
+IRIS-V1-TYPES-C093: In a Type-expression position, `typeof(expression)` denotes the normalized static Type of `expression`; its operand is type-checked but not evaluated. It therefore copies the Type available at that program point, including applicable flow narrowing, rather than inspecting a runtime value or invoking a Method. If that static Type is not known, including when it comes from an omitted Method return annotation, `typeof(expression)` is `Dynamic<Object>`. This construct creates no overload dispatch and MUST NOT cause static Type, generic arguments, expected result, declaration order, or body facts to select a different ordinary Method, consistent with IRIS-V1-IDENTITY-C010 and IRIS-V1-TYPES-C003.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

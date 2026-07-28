@@ -1,6 +1,6 @@
 # Iris v1 类型、Contracts 与泛型
 
-状态：Iris v1 草案，语义已冻结。
+状态：Iris v1.1，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-TYPES-C001: 本章定义 Iris v1 的渐进类型 Contracts、`Dynamic<T>`、运行时类型测试与 cast、Type 对象、顶层和底层类型、nilability、`NonNil`、union 和 intersection 代数、callable 子类型、Contract 声明与视图、泛型约束与物化、Type aliases，以及 `Never` 流。它 MUST 在 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[02-lexical-grammar.md](02-lexical-grammar.md)、[03-runtime-object-model.md](03-runtime-object-model.md) 和 [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md) 之后阅读。
 
@@ -429,6 +429,8 @@ IRIS-V1-TYPES-C091: 一致性章节 MUST 为 IRIS-V1-TYPES-C017 中的每个 Typ
 ## 类型覆盖向量
 
 IRIS-V1-TYPES-C092: 下列向量是带有具体类型检查输入和预期观察的规范性可追溯向量。
+
+IRIS-V1-TYPES-C093：在 Type-expression 位置，`typeof(expression)` 表示 `expression` 的规范化静态 Type；其 operand 会被类型检查但不被求值。因此它复制该程序点可用的 Type，包括适用的 flow narrowing，而不是检查运行时值或调用 Method。若该静态 Type 不已知，包括其来自省略的 Method 返回注解时，`typeof(expression)` 是 `Dynamic<Object>`。该构造不创建 overload dispatch，且 MUST NOT 使静态 Type、泛型参数、预期结果、声明顺序或主体事实选择不同的普通 Method，这与 IRIS-V1-IDENTITY-C010 和 IRIS-V1-TYPES-C003 一致。
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

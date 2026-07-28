@@ -1,10 +1,20 @@
 # Iris v1 Specification Index
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.1, frozen semantics with owner-approved errata.
 
 IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `.omo/drafts/iris-language-specification.md`. Historical files under `Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
 
-IRIS-V1-TRACE-C001: The language semantics are closed for v1. Writers MUST preserve the frozen decisions, including later revisions that supersede earlier wording. Apparent gaps MUST be recorded as `DEFERRED V1` or escalated before writing. Writers MUST NOT add, remove, reinterpret, or silently complete a language feature.
+IRIS-V1-TRACE-C001: The language semantics are closed for v1. Writers MUST preserve the frozen decisions, including later revisions that supersede earlier wording. Apparent gaps MUST be recorded as `DEFERRED V1` or escalated before writing. Writers MUST NOT add, remove, reinterpret, or silently complete a language feature. This clause is qualified by the revision procedure in IRIS-V1-TRACE-C019 through IRIS-V1-TRACE-C022: a gap closed through that procedure is not a silent completion.
+
+## Revision Procedure
+
+IRIS-V1-TRACE-C019: Implementation experience MAY reveal that a frozen chapter states a semantic requirement without supplying the concrete source syntax needed to satisfy it, or omits a rule an implementation cannot avoid deciding. Such a finding is an errata candidate, not a licence to invent language features. A writer MUST NOT act on an errata candidate without recorded owner approval.
+
+IRIS-V1-TRACE-C020: An approved errata revision MUST increment the specification revision to `v1.1` and later `v1.n`, MUST preserve every published clause, example, and vector ID under IRIS-V1-TRACE-C007, and MUST add new material under the next available clause numbers. Renumbering or deleting a published ID remains prohibited. Both the English chapters and the Simplified Chinese translation under `zh-cn/` MUST be updated in the same revision so the two remain consistent.
+
+IRIS-V1-TRACE-C021: An errata revision MAY close a stated-but-unspecified gap, supply missing grammar productions for behavior another clause already requires, or record an inference rule an implementation must otherwise guess. It MUST NOT reinterpret a decided semantic, weaken a frozen guarantee, or remove a requirement. Where an errata revision widens a previously closed inventory, such as the reserved keyword set fixed by D-509, the revising clause MUST state the new total explicitly and supersede the superseded count in place.
+
+IRIS-V1-TRACE-C022: Every errata revision MUST be verified against the committed conformance corpus before publication. The revising writer MUST report any vector whose result changes, and MUST NOT adjust, retag, or delete a vector to conceal a behavior change introduced by the revision. A vector that legitimately fails under revised semantics is evidence to be reported, not a defect to be hidden.
 
 ## Artifact Inventory
 
@@ -124,7 +134,7 @@ IRIS-V1-TRACE-C009: Readers and writers SHOULD use this dependency order:
 
 IRIS-V1-TRACE-C017: The approved draft records `status: approved` and states that every semantic and design question in the current v1 scope is frozen or explicitly deferred. D-000 fixes this output directory. D-001 fixes the compatibility identity as a modern successor, not a source-compatible restoration. D-002 fixes the core language identity at the level of every-value objecthood, dynamic message dispatch, closures, constrained runtime mutation, exception raising, embedding, and native extension support.
 
-IRIS-V1-TRACE-C010: D-509 closes the v1 reserved keyword inventory. D-510 fixes contextual longest-match token handling for the listed conflicts. D-511 through D-514 fix decorator shape, deterministic planning, MetaCapabilities limits, failure behavior, replay, and reflection. Later chapters MUST preserve these decisions and link them to exact clauses rather than restating them loosely in prose.
+IRIS-V1-TRACE-C010: D-509 closes the v1 reserved keyword inventory. The v1.1 errata revision widens that inventory once, adding exactly `typeof`, under the procedure in IRIS-V1-TRACE-C019 through IRIS-V1-TRACE-C022; the authoritative count and table live in `IRIS-V1-GRAMMAR-C013`, which supersedes the earlier total in place. D-510 fixes contextual longest-match token handling for the listed conflicts. D-511 through D-514 fix decorator shape, deterministic planning, MetaCapabilities limits, failure behavior, replay, and reflection. Later chapters MUST preserve these decisions and link them to exact clauses rather than restating them loosely in prose.
 
 ## Implementation And Non-Goals
 
@@ -138,7 +148,7 @@ IRIS-V1-TRACE-C018: The following are explicit non-goals for this documentation 
 | Moving, rewriting, or relabeling archaeology under `Document/` | `OUT OF SCOPE` |
 | Treating the old PDF, generated parser files, or legacy implementation as normative by default | `OUT OF SCOPE` |
 | Backend-specific behavior that changes semantics between interpreter and JIT | `PROHIBITED` |
-| New language features or reinterpretation of frozen decisions | `PROHIBITED` |
+| New language features or reinterpretation of frozen decisions | `PROHIBITED except through the IRIS-V1-TRACE-C019 errata procedure` |
 | Extra product artifacts beyond the exact 14-file inventory | `PROHIBITED unless the plan changes` |
 
 IRIS-V1-TRACE-C012: Implementation freedom may be documented only when it preserves the observable behavior required by the frozen v1 semantics.

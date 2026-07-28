@@ -1,6 +1,6 @@
 # Iris v1 绑定、可调用体与控制流
 
-状态：Iris v1 草案，语义已冻结。
+状态：Iris v1.1，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-CONTROL-C001: 本章定义 Iris v1 的绑定、作用域、名称查找、可调用运行时种类、参数绑定、Closure 捕获与返回、调用与尾随块、赋值、条件、循环、match、Iterator 降低、异常，以及控制转移结果。它 MUST 在 [README.md](README.md)、[02-lexical-grammar.md](02-lexical-grammar.md) 和 [03-runtime-object-model.md](03-runtime-object-model.md) 之后阅读。
 
@@ -436,6 +436,10 @@ IRIS-V1-CONTROL-C070: 下列控制流向量表是规范性的。一致性章节 
 ## 控制覆盖向量
 
 IRIS-V1-CONTROL-C073: 下列向量是带有具体源输入和预期控制观察的规范性可追溯向量。
+
+IRIS-V1-CONTROL-C074：在 Module 声明内，`module fun` 将 Method 安装到该 Module 对象自身。该声明内未修饰的 `fun` 仍是 Module instance Method，在 Module 被组合时提供给 host；它不同于顶层可执行 Module body 的 `fun`，后者按 IRIS-V1-CONTROL-C012 安装在该 Module 的 `main` 接收者上。`module` 修饰符与 `class` 互斥；这与 `class fun` 安装到 Class 对象及其在 IRIS-V1-RUNTIME-C043 和 IRIS-V1-RUNTIME-C044 中的单例查找表面相对应。
+
+IRIS-V1-CONTROL-C075：当具名 Method 省略 `-> ReturnType` 时，其声明的静态和运行时返回 Contract 是 `Dynamic<Object>`，不受推断出的最终表达式或显式 return 的主体事实影响。实现 MAY 在本地使用这些主体事实进行诊断或优化，但 MUST NOT 将它们发布为 Method 签名元数据、用它们选择不同 Method 或 overload，或推断更窄的返回 Contract。若最终表达式的静态 Type 不已知，它在主体分析中是 `Dynamic<Object>`，且该 Method 声明的返回 Contract 仍是 `Dynamic<Object>`。
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

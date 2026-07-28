@@ -1,6 +1,6 @@
 # Iris v1 Runtime Object Model
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.1, frozen semantics with owner-approved errata.
 
 IRIS-V1-RUNTIME-C001: This chapter defines runtime values, objecthood, identity, dispatch, logical Class and active revision semantics, Module MRO, Method and BoundMethod identity, construction, properties, raw ivars, class variables, truthiness, missing-message handling, built-in numeric behavior, hashing, and built-in openness for Iris v1. It MUST be read after [README.md](README.md), [01-language-identity.md](01-language-identity.md), and [02-lexical-grammar.md](02-lexical-grammar.md).
 
@@ -564,6 +564,8 @@ IRIS-V1-RUNTIME-C156: The following runtime vector table is normative. The confo
 ## Runtime Coverage Vectors
 
 IRIS-V1-RUNTIME-C160: The following records are normative. Each Source/Input cell is executable Iris source or a complete controlled runtime fixture. Each decision is directly covered by its stated observable.
+
+IRIS-V1-RUNTIME-C161: A stored property named `name` creates the declared raw current-receiver slot `@name` in its revision-level typed instance storage. Its generated getter MUST read that exact slot, and its generated setter MUST check and write that exact slot. A compatible `property fun` replacement changes only the accessor Method body: it creates no second backing slot and does not implicitly read or write the slot unless its body explicitly uses `@name`; any such raw access is the same `(receiver, name)` slot required by IRIS-V1-RUNTIME-C066.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

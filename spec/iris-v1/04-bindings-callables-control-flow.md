@@ -1,6 +1,6 @@
 # Iris v1 Bindings, Callables, And Control Flow
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.1, frozen semantics with owner-approved errata.
 
 IRIS-V1-CONTROL-C001: This chapter defines bindings, scopes, name lookup, callable runtime kinds, parameter binding, Closure capture and return, calls and trailing blocks, assignment, conditionals, loops, match, Iterator lowering, exceptions, and control-transfer results for Iris v1. It MUST be read after [README.md](README.md), [02-lexical-grammar.md](02-lexical-grammar.md), and [03-runtime-object-model.md](03-runtime-object-model.md).
 
@@ -436,6 +436,10 @@ IRIS-V1-CONTROL-C070: The following control-flow vector table is normative. The 
 ## Control Coverage Vectors
 
 IRIS-V1-CONTROL-C073: The following vectors are normative traceability vectors with concrete source inputs and expected control observations.
+
+IRIS-V1-CONTROL-C074: Within a Module declaration, `module fun` installs a Method on that Module object itself. An unmodified `fun` in that declaration remains a Module instance Method supplied to a host when the Module is composed; it is distinct from a top-level executable Module-body `fun`, which installs on that Module's `main` receiver under IRIS-V1-CONTROL-C012. The `module` modifier is mutually exclusive with `class`; this parallels `class fun` installation on the Class object and its singleton lookup surface in IRIS-V1-RUNTIME-C043 and IRIS-V1-RUNTIME-C044.
+
+IRIS-V1-CONTROL-C075: When a named Method omits `-> ReturnType`, its declared static and runtime return Contract is `Dynamic<Object>`, regardless of any inferred final-expression or explicit-return body facts. Implementations MAY use those body facts locally for diagnostics or optimization, but MUST NOT publish them as Method signature metadata, use them to select a different Method or overload, or infer a narrower return Contract. If the final expression's static Type is not known, it is `Dynamic<Object>` for body analysis and the Method's declared return Contract remains `Dynamic<Object>`.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

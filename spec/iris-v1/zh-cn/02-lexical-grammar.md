@@ -1,6 +1,6 @@
 # Iris v1 词法语法
 
-状态：Iris v1 草案，语义已冻结。
+状态：Iris v1.1，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-GRAMMAR-C001：本章定义了 Iris v1 的规范源编码、词法标记集、字面量、保留关键字、上下文标记规则、优先级、结合性、声明头部、调用、块和 EBNF 语法。后面的语义章节 MUST 使用本章中的语法锚点和标记名称。
 
@@ -32,7 +32,7 @@ IRIS-V1-GRAMMAR-C012：以 `:` 开头的简单 Symbol 字面量接受普通标�
 
 ## 保留关键字
 
-IRIS-V1-GRAMMAR-C013：v1 保留关键字集恰好包含 48 个小写单词。仅当完整的规范化标识符文本等于关键字时，符合要求的词法分析器 MUST 才会发出这些拼写的关键字标记。
+IRIS-V1-GRAMMAR-C013：根据 IRIS-V1-TRACE-C021 就地取代 v1.0 计数，v1.1 保留关键字集恰好包含 49 个小写单词。仅当完整的规范化标识符文本等于关键字时，符合要求的词法分析器 MUST 才会发出这些拼写的关键字标记。
 
 | 关键字     | 关键字      | 关键字      | 关键字       |
 | ----------- | ------------ | ------------ | ------------- |
@@ -48,6 +48,7 @@ IRIS-V1-GRAMMAR-C013：v1 保留关键字集恰好包含 48 个小写单词。�
 | `match`   | `try`      | `catch`    | `finally`   |
 | `raise`   | `return`   | `is`       | `nil`       |
 | `true`    | `false`|`self`     | `super`     |
+| `typeof`  |          |           |             |
 
 IRIS-V1-GRAMMAR-C014：单词 `and`、`or`、`not`、`repeat`、`switch`、`when`、`groan`、 `order`、`serve`、`ignore`、`defer`、`implements`、`satisfies`、`interface`、`goto`、 `retry`、`redo`、`static`、`alias` 和 `undef` 并不只因历史而成为保留字。`new`、`using`、`close` 和 `method_missing` 是普通 Method 名称。词法分析器必须 (MUST) 将这些单词分类为标识符，除非本规范后续的另一条规则赋予它们上下文角色。
 
@@ -73,7 +74,7 @@ IRIS-V1-GRAMMAR-C015：词法分析器 MUST 识别以下 69 个固定标记名�
 | `INTERPOLATION_OPEN`  | `${`   | 仅在插值 String 或 Regex 文本内打开插值。                                 |
 | `ARROW`               | `->`|分隔可调用头部与返回类型。                                                        |
 | `MATCH_ARROW`         | `=>`   | 分隔 match 分支模式与主体。                                                             |
-| `AT`                  | `@`    | 后跟普通标识符时开始原始 ivar 标记。                                   |
+| `AT`                  | `@`    | 后跟普通标识符时开始原始 ivar 标记；在声明前缀位置，按 IRIS-V1-GRAMMAR-C058 开始 decorator。 |
 | `DOUBLE_AT`           | `@@`   | 后跟普通标识符时开始共享存储标记。                             |
 | `DOLLAR`              | `$`|后跟普通标识符时开始全局存储标记。                             |
 | `QUESTION`            | `?`    | 仅作为选择器后缀出现，或出现在上下文相关的 `as?` 中。                                           |
@@ -327,7 +328,9 @@ program            ::= terminator* declaration_or_statement (terminator+ declara
 terminator         ::= newline | ";" | eof
 declaration_or_statement ::= declaration | statement
 
-declaration        ::= class_decl | module_decl | contract_decl | method_decl | property_decl | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
+decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
 import_decl        ::= "import" qualified_type_name import_alias? | "from" qualified_type_name "import" import_spec_list
 import_alias       ::= "as" ordinary_name
 import_spec_list   ::= import_spec ("," import_spec)* ","?
@@ -348,8 +351,12 @@ meta_capability_list ::= meta_capability ("," meta_capability)* ","?
 meta_capability    ::= ordinary_name
 declaration_body   ::= "{" terminator* declaration_or_statement* "}"
 
-method_decl        ::= visibility? "override"? "impl"? "async"? "class"? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
-property_decl      ::= visibility? "override"? "impl"? "property" "fun" property_selector parameter_list return_type? where_clause? block_body
+method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
+property_decl      ::= visibility? "override"? "impl"? "property" (stored_property_decl | property_accessor_decl)
+stored_property_decl ::= ordinary_name ":" type_expr ("=" expression)? property_accessor_block?
+property_accessor_block ::= "{" property_accessor_member* "}"
+property_accessor_member ::= visibility? "get" ";" | visibility? "set" ";"
+property_accessor_decl ::= "fun" property_selector parameter_list return_type? where_clause? block_body
 property_selector  ::= selector "="?
 visibility         ::= "public" | "protected" | "private"
 parameter_list     ::= "(" parameter_sequence? ")"
@@ -434,7 +441,8 @@ type_expr          ::= type_union
 type_union         ::= type_intersection ("|" type_intersection)*
 type_intersection  ::= type_postfix ("&" type_postfix)*
 type_postfix       ::= type_primary "?"?
-type_primary       ::= qualified_type_name generic_args? | function_type | "(" type_expr ")"
+type_primary       ::= typeof_type | qualified_type_name generic_args? | function_type | "(" type_expr ")"
+typeof_type        ::= "typeof" "(" expression ")"
 qualified_type_name ::= type_name ("::" type_name)*
 generic_args       ::= "<" type_expr ("," type_expr)* ">"
 function_type      ::= "(" type_expr_list? ")" "->" type_expr
@@ -545,6 +553,8 @@ IRIS-V1-GRAMMAR-V007：畸形的向量 `grammar.bad-parse` 将 `;return nil` 映
 ## 语法覆盖向量
 
 IRIS-V1-GRAMMAR-C057：以下向量是规范的可追溯性向量，具有具体的源输入和预期的解析或诊断观察结果。
+
+IRIS-V1-GRAMMAR-C058：v1.1 勘误语法允许 `@decorator(arguments)` 位于 Class、Module、Contract、Method 和 property 声明之前；其含义仅由 IRIS-V1-META-C085 到 IRIS-V1-META-C094 拥有。Module 声明可使用 `module fun`，作为 `class fun` 的互斥替代；其安装表面由 IRIS-V1-CONTROL-C074 定义。存储属性简写是 `property name: Type`，带可选 initializer 和可选访问器可见性块，而 `property fun` 仍是显式访问器形式；其存储语义由 IRIS-V1-RUNTIME-C065 和 IRIS-V1-RUNTIME-C161 拥有。`typeof(expression)` 是 Type-expression 产生式，其语义由 IRIS-V1-TYPES-C093 拥有。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
