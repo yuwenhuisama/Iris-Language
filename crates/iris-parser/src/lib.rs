@@ -120,13 +120,25 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
 }
 
 fn numeric_end(source: &str, start: usize) -> usize {
-    source[start..]
-        .bytes()
-        .take_while(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'+' | b'-')
-        })
-        .count()
-        + start
+    let bytes = source.as_bytes();
+    let hexadecimal = bytes
+        .get(start..start + 2)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"0x"));
+    let mut end = start;
+    while let Some(byte) = bytes.get(end) {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'-') {
+            end += 1;
+            continue;
+        }
+        if *byte == b'.'
+            && (hexadecimal || matches!(bytes.get(end + 1), Some(next) if next.is_ascii_digit()))
+        {
+            end += 1;
+            continue;
+        }
+        break;
+    }
+    end
 }
 
 fn literal_end(remaining: &str) -> usize {
