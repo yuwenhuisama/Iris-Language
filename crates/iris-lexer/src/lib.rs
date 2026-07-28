@@ -1,14 +1,16 @@
 //! Source decoding, trivia scanning, and diagnostics for Iris v1.
 
 mod diagnostic;
+mod literal;
 mod scanner;
 
 pub use diagnostic::{ByteOffset, Diagnostic, SourcePosition};
+pub use literal::{Literal, LiteralConversion, convert_literals};
 pub use scanner::{LexedSource, Token, TokenKind, lex, lex_type};
 
 #[cfg(test)]
 mod tests {
-    use super::{TokenKind, lex, lex_type};
+    use super::{Literal, TokenKind, convert_literals, lex, lex_type};
 
     #[test]
     fn rejects_malformed_utf8_with_the_stable_code() {
@@ -339,6 +341,240 @@ mod tests {
 
         // Then
         assert_eq!(result.diagnostics()[0].code(), "LEX_UNTERMINATED_LITERAL");
+    }
+
+    #[test]
+    fn converts_radix_integers_and_preserves_leading_zero_decimal() {
+        // Given
+        let source = "[0b1010, 0o755, 00755, 0xFF]";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [
+                Literal::Integer("10".into()),
+                Literal::Integer("493".into()),
+                Literal::Integer("755".into()),
+                Literal::Integer("255".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn converts_hexadecimal_floats_without_reclassifying_hex_integer() {
+        // Given
+        let source = "[0x1.fp3, 0x1p0, 0x1.p0, 0x.8p0, 0x1e3]";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [
+                Literal::Float64(15.5),
+                Literal::Float64(1.0),
+                Literal::Float64(1.0),
+                Literal::Float64(0.5),
+                Literal::Integer("483".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn concatenates_escaped_raw_and_triple_string_segments() {
+        // Given
+        let source = "\"a\" 'b' r\"c\" \"\"\"d\"\"\"";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(result.values(), [Literal::String("abcd".into())]);
+    }
+
+    #[test]
+    fn converts_separated_numeric_literals_exactly() {
+        // Given
+        let source = "1_000 0xFF_FF 1.234_567";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [
+                Literal::Integer("1000".into()),
+                Literal::Integer("65535".into()),
+                Literal::Float64(1.234_567),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_bad_numeric_separators_and_empty_radix_prefixes_without_values() {
+        // Given
+        let source = "1__0 0x_FF";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert!(result.values().is_empty());
+        assert_eq!(
+            result.diagnostics(),
+            ["LEX_BAD_NUMERIC_SEPARATOR", "LEX_EMPTY_RADIX_PREFIX"]
+        );
+    }
+
+    #[test]
+    fn preserves_integers_larger_than_u64() {
+        // Given
+        let source = "18446744073709551616";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(
+            result.values(),
+            [Literal::Integer("18446744073709551616".into())]
+        );
+    }
+
+    #[test]
+    fn reports_each_required_literal_diagnostic_through_the_lexer() {
+        // Given
+        let cases = [
+            (b"1__0".as_slice(), "LEX_BAD_NUMERIC_SEPARATOR"),
+            (b"0x_FF".as_slice(), "LEX_EMPTY_RADIX_PREFIX"),
+            (b"0b102".as_slice(), "LEX_INVALID_RADIX_DIGIT"),
+            (b"1.0F32".as_slice(), "LEX_BAD_FLOAT_SUFFIX"),
+            (b"\"\\q\"".as_slice(), "LEX_BAD_ESCAPE"),
+            (b"r###\"x\"##".as_slice(), "LEX_BAD_RAW_FENCE"),
+            (
+                b"\"\"\"\n  good\n bad\n  \"\"\"".as_slice(),
+                "LEX_BAD_MULTILINE_INDENT",
+            ),
+        ];
+
+        // When / Then
+        for (source, code) in cases {
+            assert_eq!(lex(source).diagnostics()[0].code(), code);
+        }
+    }
+
+    #[test]
+    fn warns_only_when_a_nonzero_float_rounds_to_infinity_or_zero() {
+        // Given
+        let overflow = convert_literals("1e400");
+        let zero = convert_literals("1e-4000");
+        let subnormal = convert_literals("5e-324");
+
+        // When / Then
+        assert_eq!(overflow.warnings(), ["LEX_PRECISION_LOSS"]);
+        assert_eq!(zero.warnings(), ["LEX_PRECISION_LOSS"]);
+        assert!(subnormal.warnings().is_empty());
+    }
+
+    #[test]
+    fn rounds_hexadecimal_f64_midpoints_to_even_and_neighbors_up() {
+        // Given
+        let midpoint_down = convert_literals("0x1.00000000000008p0");
+        let midpoint_up = convert_literals("0x1.00000000000018p0");
+        let above_midpoint = convert_literals("0x1.000000000000081p0");
+
+        // When / Then
+        assert_eq!(float64_bits(&midpoint_down), 0x3ff0_0000_0000_0000);
+        assert_eq!(float64_bits(&midpoint_up), 0x3ff0_0000_0000_0002);
+        assert_eq!(float64_bits(&above_midpoint), 0x3ff0_0000_0000_0001);
+    }
+
+    #[test]
+    fn rounds_hexadecimal_f32_without_f64_double_rounding() {
+        // Given
+        let above_f32_midpoint = convert_literals("0x1.0000010000000001p0f32");
+
+        // When / Then
+        assert_eq!(float32_bits(&above_f32_midpoint), 0x3f80_0001);
+    }
+
+    #[test]
+    fn rounds_hexadecimal_f32_midpoints_to_even_and_neighbors_up() {
+        // Given
+        let midpoint = convert_literals("0x1.000001p0f32");
+        let midpoint_up = convert_literals("0x1.000003p0f32");
+        let above_midpoint = convert_literals("0x1.0000011p0f32");
+
+        // When / Then
+        assert_eq!(float32_bits(&midpoint), 0x3f80_0000);
+        assert_eq!(float32_bits(&midpoint_up), 0x3f80_0002);
+        assert_eq!(float32_bits(&above_midpoint), 0x3f80_0001);
+    }
+
+    #[test]
+    fn uses_hexadecimal_sticky_bits_beyond_sixty_four_bits() {
+        // Given
+        let source = "0x1.0000000000000800000000000001p0";
+
+        // When
+        let result = convert_literals(source);
+
+        // Then
+        assert_eq!(float64_bits(&result), 0x3ff0_0000_0000_0001);
+    }
+
+    #[test]
+    fn converts_hexadecimal_subnormal_results_at_both_widths() {
+        // Given
+        let f64_result = convert_literals("0x0.0000000000001p-1022");
+        let f32_result = convert_literals("0x0.000002p-126f32");
+
+        // When / Then
+        assert_eq!(float64_bits(&f64_result), 0x0000_0000_0000_0001);
+        assert_eq!(float32_bits(&f32_result), 0x0000_0001);
+    }
+
+    #[test]
+    fn parses_decimal_f32_directly_at_a_double_rounding_boundary() {
+        // Given
+        let midpoint = convert_literals("1.000000059604644775390625f32");
+        let above_midpoint = convert_literals("1.000000059604644830901699066162109375f32");
+
+        // When / Then
+        assert_eq!(float32_bits(&midpoint), 0x3f80_0000);
+        assert_eq!(float32_bits(&above_midpoint), 0x3f80_0001);
+    }
+
+    #[test]
+    fn warns_for_hexadecimal_overflow_and_underflow_to_zero() {
+        // Given
+        let overflow = convert_literals("0x1p1024");
+        let underflow = convert_literals("0x1p-1075");
+
+        // When / Then
+        assert_eq!(float64_bits(&overflow), 0x7ff0_0000_0000_0000);
+        assert_eq!(float64_bits(&underflow), 0);
+        assert_eq!(overflow.warnings(), ["LEX_PRECISION_LOSS"]);
+        assert_eq!(underflow.warnings(), ["LEX_PRECISION_LOSS"]);
+    }
+
+    fn float32_bits(result: &super::LiteralConversion) -> u32 {
+        match result.values() {
+            [Literal::Float32(value)] => value.to_bits(),
+            _ => 0,
+        }
+    }
+
+    fn float64_bits(result: &super::LiteralConversion) -> u64 {
+        match result.values() {
+            [Literal::Float64(value)] => value.to_bits(),
+            _ => 0,
+        }
     }
 
     fn kinds(result: &super::LexedSource) -> Vec<TokenKind> {

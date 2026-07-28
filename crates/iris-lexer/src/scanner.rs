@@ -71,6 +71,14 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
         Ok(value) => value,
         Err(diagnostic) => return fail(diagnostic),
     };
+    let literal_conversion = crate::convert_literals(text);
+    if let Some(code) = literal_conversion.diagnostics().first() {
+        return fail(Diagnostic::new(
+            code,
+            ByteOffset(base),
+            SourcePosition { line: 1, column: 1 },
+        ));
+    }
     let bytes = text.as_bytes();
     let mut tokens = Vec::new();
     let mut index = 0;
