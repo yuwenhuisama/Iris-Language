@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub enum Value {
     Array(Vec<Value>),
-    Bool,
+    Bool(bool),
     Null,
     Number,
     Object(BTreeMap<String, Value>),
@@ -36,8 +36,8 @@ impl Parser<'_> {
             Some(b'{') => self.object(),
             Some(b'[') => self.array(),
             Some(b'"') => self.string().map(Value::String),
-            Some(b't') => self.word(b"true", Value::Bool),
-            Some(b'f') => self.word(b"false", Value::Bool),
+            Some(b't') => self.word(b"true", Value::Bool(true)),
+            Some(b'f') => self.word(b"false", Value::Bool(false)),
             Some(b'n') => self.word(b"null", Value::Null),
             Some(b'-' | b'0'..=b'9') => self.number(),
             _ => Err("JSON value expected".into()),

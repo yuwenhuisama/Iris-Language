@@ -16,6 +16,21 @@ pub struct Record {
     pub tags: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Chapter {
+    Grammar,
+    Runtime,
+}
+
+impl Chapter {
+    pub const fn directory(self) -> &'static str {
+        match self {
+            Self::Grammar => "GRAMMAR",
+            Self::Runtime => "RUNTIME",
+        }
+    }
+}
+
 impl Corpus {
     pub fn workspace() -> Result<Self, String> {
         Ok(Self(
@@ -23,7 +38,16 @@ impl Corpus {
         ))
     }
     pub fn records(&self) -> Result<Vec<Record>, String> {
-        let directory = self.0.join("conformance/iris-v1/vectors/GRAMMAR");
+        self.records_for(Chapter::Grammar)
+    }
+    pub fn runtime_records(&self) -> Result<Vec<Record>, String> {
+        self.records_for(Chapter::Runtime)
+    }
+    pub fn records_for(&self, chapter: Chapter) -> Result<Vec<Record>, String> {
+        let directory = self
+            .0
+            .join("conformance/iris-v1/vectors")
+            .join(chapter.directory());
         let mut paths = fs::read_dir(&directory)
             .map_err(|error| error.to_string())?
             .map(|entry| {
@@ -65,10 +89,18 @@ fn load(path: &Path) -> Result<Record, String> {
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Record {
         id: string(root, "id")?.into(),
-        source: string(input, "source_text")?.into(),
+        source: input_source(input)?,
         expect: render(root.get("expect").ok_or("expect missing")?),
         tags,
     })
+}
+
+fn input_source(input: &std::collections::BTreeMap<String, Value>) -> Result<String, String> {
+    match input.get("source_text") {
+        Some(Value::String(source)) => Ok(source.clone()),
+        Some(_) => Err("string field source_text required".into()),
+        None => string(input, "fixture_ref").map(str::to_owned),
+    }
 }
 
 pub fn parse_expect(input: &str) -> Result<Value, String> {
@@ -110,7 +142,7 @@ pub fn render(value: &Value) -> String {
             "[{}]",
             values.iter().map(render).collect::<Vec<_>>().join(",")
         ),
-        Value::Bool => "true".into(),
+        Value::Bool(value) => value.to_string(),
         Value::Null => "null".into(),
         Value::Number => "0".into(),
         Value::Object(values) => format!(

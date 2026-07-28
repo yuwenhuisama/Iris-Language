@@ -17,6 +17,11 @@ impl FromStr for IntegerValue {
 }
 
 impl IntegerValue {
+    /// Returns the canonical base-10 text used for external observations.
+    pub fn decimal_text(&self) -> String {
+        self.0.to_string()
+    }
+
     pub(crate) fn from_bigint(value: BigInt) -> Self {
         Self(value)
     }

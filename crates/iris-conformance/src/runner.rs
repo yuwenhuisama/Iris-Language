@@ -1,4 +1,4 @@
-use crate::{model::Record, observation::compare};
+use crate::{model::Record, observation::compare, runtime_observation::compare_runtime};
 use iris_lexer::{convert_literals, lex};
 use iris_parser::parse;
 
@@ -28,6 +28,15 @@ pub enum Outcome {
     UnrunnableSource {
         id: String,
     },
+    NeedsSubsystem {
+        id: String,
+    },
+    NoFixture {
+        id: String,
+    },
+    Differential {
+        id: String,
+    },
 }
 impl Outcome {
     pub fn id(&self) -> &str {
@@ -36,7 +45,10 @@ impl Outcome {
             | Self::Failed { id, .. }
             | Self::Deferred { id }
             | Self::AuthoredExpect { id }
-            | Self::UnrunnableSource { id } => id,
+            | Self::UnrunnableSource { id }
+            | Self::NeedsSubsystem { id }
+            | Self::NoFixture { id }
+            | Self::Differential { id } => id,
         }
     }
 }
@@ -47,10 +59,20 @@ pub struct Report {
     pub deferred: usize,
     pub authored_expect: usize,
     pub unrunnable_source: usize,
+    pub needs_subsystem: usize,
+    pub no_fixture: usize,
+    pub differential: usize,
 }
 impl Report {
     pub fn total(self) -> usize {
-        self.passed + self.failed + self.deferred + self.authored_expect + self.unrunnable_source
+        self.passed
+            + self.failed
+            + self.deferred
+            + self.authored_expect
+            + self.unrunnable_source
+            + self.needs_subsystem
+            + self.no_fixture
+            + self.differential
     }
 }
 
@@ -90,6 +112,9 @@ pub fn diagnostics(source: &str) -> Vec<Diagnostic> {
 pub fn execute(records: &[Record]) -> Vec<Outcome> {
     records.iter().map(execute_record).collect()
 }
+pub fn execute_runtime(records: &[Record]) -> Vec<Outcome> {
+    records.iter().map(execute_runtime_record).collect()
+}
 pub fn report(outcomes: &[Outcome]) -> Report {
     outcomes
         .iter()
@@ -100,9 +125,45 @@ pub fn report(outcomes: &[Outcome]) -> Report {
                 Outcome::Deferred { .. } => report.deferred += 1,
                 Outcome::AuthoredExpect { .. } => report.authored_expect += 1,
                 Outcome::UnrunnableSource { .. } => report.unrunnable_source += 1,
+                Outcome::NeedsSubsystem { .. } => report.needs_subsystem += 1,
+                Outcome::NoFixture { .. } => report.no_fixture += 1,
+                Outcome::Differential { .. } => report.differential += 1,
             };
             report
         })
+}
+
+fn execute_runtime_record(record: &Record) -> Outcome {
+    match record
+        .tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix("bucket:"))
+    {
+        Some("needs-subsystem") => Outcome::NeedsSubsystem {
+            id: record.id.clone(),
+        },
+        Some("no-fixture") => Outcome::NoFixture {
+            id: record.id.clone(),
+        },
+        Some("differential") => Outcome::Differential {
+            id: record.id.clone(),
+        },
+        Some("executable") | None => match compare_runtime(record) {
+            Ok(()) => Outcome::Passed {
+                id: record.id.clone(),
+            },
+            Err(actual) => Outcome::Failed {
+                id: record.id.clone(),
+                expected: record.expect.clone(),
+                actual,
+            },
+        },
+        Some(bucket) => Outcome::Failed {
+            id: record.id.clone(),
+            expected: "a recognized runtime bucket".into(),
+            actual: format!("unrecognized runtime bucket {bucket:?}"),
+        },
+    }
 }
 
 fn execute_record(record: &Record) -> Outcome {

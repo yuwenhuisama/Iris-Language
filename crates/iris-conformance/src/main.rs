@@ -1,24 +1,44 @@
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    if std::env::args().skip(1).collect::<Vec<_>>().as_slice() != ["--chapter", "GRAMMAR"] {
-        eprintln!("usage: iris-conformance --chapter GRAMMAR");
-        return ExitCode::from(2);
-    }
+    let chapter = match std::env::args().skip(1).collect::<Vec<_>>().as_slice() {
+        [flag, chapter] if flag == "--chapter" && chapter == "GRAMMAR" => {
+            iris_conformance::Chapter::Grammar
+        }
+        [flag, chapter] if flag == "--chapter" && chapter == "RUNTIME" => {
+            iris_conformance::Chapter::Runtime
+        }
+        _ => {
+            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME");
+            return ExitCode::from(2);
+        }
+    };
     match iris_conformance::Corpus::workspace()
-        .and_then(|corpus| corpus.records())
-        .map(|records| iris_conformance::execute(&records))
-    {
+        .and_then(|corpus| corpus.records_for(chapter))
+        .map(|records| match chapter {
+            iris_conformance::Chapter::Grammar => iris_conformance::execute(&records),
+            iris_conformance::Chapter::Runtime => iris_conformance::execute_runtime(&records),
+        }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
-            println!(
-                "passed: {}, failed: {}, deferred: {}, authored_expect: {}, unrunnable_source: {}",
-                report.passed,
-                report.failed,
-                report.deferred,
-                report.authored_expect,
-                report.unrunnable_source
-            );
+            match chapter {
+                iris_conformance::Chapter::Grammar => println!(
+                    "passed: {}, failed: {}, deferred: {}, authored_expect: {}, unrunnable_source: {}",
+                    report.passed,
+                    report.failed,
+                    report.deferred,
+                    report.authored_expect,
+                    report.unrunnable_source
+                ),
+                iris_conformance::Chapter::Runtime => println!(
+                    "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
+                    report.passed,
+                    report.failed,
+                    report.needs_subsystem,
+                    report.no_fixture,
+                    report.differential
+                ),
+            }
             for outcome in outcomes {
                 match outcome {
                     iris_conformance::Outcome::Failed {
@@ -28,6 +48,13 @@ fn main() -> ExitCode {
                     } => println!("failed: {id}\n  expected: {expected}\n  actual: {actual}"),
                     iris_conformance::Outcome::UnrunnableSource { id } => {
                         println!("unrunnable_source: {id}")
+                    }
+                    iris_conformance::Outcome::NeedsSubsystem { id } => {
+                        println!("needs_subsystem: {id}")
+                    }
+                    iris_conformance::Outcome::NoFixture { id } => println!("no_fixture: {id}"),
+                    iris_conformance::Outcome::Differential { id } => {
+                        println!("differential: {id}")
                     }
                     iris_conformance::Outcome::Passed { .. }
                     | iris_conformance::Outcome::Deferred { .. }

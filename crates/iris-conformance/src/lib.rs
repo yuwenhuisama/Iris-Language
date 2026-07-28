@@ -4,9 +4,10 @@ mod json;
 mod model;
 mod observation;
 mod runner;
+mod runtime_observation;
 
-pub use model::Corpus;
-pub use runner::{Outcome, Report, diagnostics, execute, report};
+pub use model::{Chapter, Corpus};
+pub use runner::{Outcome, Report, diagnostics, execute, execute_runtime, report};
 
 pub fn run(corpus: &Corpus) -> Result<Report, String> {
     Ok(report(&execute(&corpus.records()?)))
@@ -97,6 +98,96 @@ mod tests {
                 .iter()
                 .find(|outcome| outcome.id() == "IRIS-V1-GRAMMAR-V177"),
             Some(Outcome::UnrunnableSource { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_records_load_every_authored_record() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+
+        // When
+        let records = corpus.runtime_records()?;
+
+        // Then
+        assert_eq!(records.len(), 26);
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_expected_raise_is_a_pass() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let records = corpus.runtime_records()?;
+
+        // When
+        let outcomes = super::execute_runtime(&records);
+
+        // Then
+        assert!(matches!(
+            outcomes
+                .iter()
+                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V060"),
+            Some(Outcome::Passed { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_bucket_counts_cover_every_authored_record() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let records = corpus.runtime_records()?;
+
+        // When
+        let outcomes = super::execute_runtime(&records);
+        let report = super::report(&outcomes);
+
+        // Then
+        assert_eq!(report.total(), records.len());
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_non_executable_record_never_passes() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let records = corpus.runtime_records()?;
+
+        // When
+        let outcomes = super::execute_runtime(&records);
+
+        // Then
+        assert!(matches!(
+            outcomes
+                .iter()
+                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V053"),
+            Some(Outcome::NeedsSubsystem { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn corrupting_runtime_expectation_is_reported_as_failed() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let mut records = corpus.runtime_records()?;
+        let record = records
+            .iter_mut()
+            .find(|record| record.id == "IRIS-V1-RUNTIME-V019")
+            .ok_or("missing V019")?;
+        record.expect = record.expect.replace("true", "false");
+
+        // When
+        let outcomes = super::execute_runtime(&records);
+
+        // Then
+        assert!(matches!(
+            outcomes
+                .iter()
+                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V019"),
+            Some(Outcome::Failed { .. })
         ));
         Ok(())
     }
