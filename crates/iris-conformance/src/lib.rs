@@ -1,11 +1,84 @@
 //! Schema checker and GRAMMAR vector runner.
 
+mod json;
+mod model;
+mod observation;
+mod runner;
+
+pub use model::Corpus;
+pub use runner::{Outcome, Report, diagnostics, execute, report};
+
+pub fn run(corpus: &Corpus) -> Result<Report, String> {
+    Ok(report(&execute(&corpus.records()?)))
+}
+
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn crate_identity_is_available_when_compiled() {
-        let crate_name = env!("CARGO_PKG_NAME");
+    use super::{Corpus, Outcome, run};
 
-        assert_ne!(crate_name, "");
+    #[test]
+    fn loads_all_committed_records() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+
+        // When
+        let records = corpus.records()?;
+
+        // Then
+        assert_eq!(records.len(), 41);
+        Ok(())
+    }
+
+    #[test]
+    fn report_buckets_cover_every_loaded_record() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+
+        // When
+        let report = run(&corpus)?;
+
+        // Then
+        assert_eq!(report.total(), 41);
+        Ok(())
+    }
+
+    #[test]
+    fn normalizes_numeric_separator_diagnostic_from_source() {
+        // Given
+        let source = "1__0";
+
+        // When
+        let diagnostics = super::diagnostics(source);
+
+        // Then
+        assert!(
+            diagnostics
+                .iter()
+                .any(|value| value.code == "LEX_BAD_NUMERIC_SEPARATOR")
+        );
+    }
+
+    #[test]
+    fn corrupted_expectation_is_reported_as_failed() -> Result<(), String> {
+        // Given
+        let corpus = Corpus::workspace()?;
+        let mut records = corpus.records()?;
+        let record = records
+            .iter_mut()
+            .find(|record| record.id == "IRIS-V1-GRAMMAR-V144")
+            .ok_or("missing V144")?;
+        record.expect = record.expect.replace("\"10\"", "\"11\"");
+
+        // When
+        let outcomes = super::execute(&records);
+
+        // Then
+        assert!(matches!(
+            outcomes
+                .iter()
+                .find(|outcome| outcome.id() == "IRIS-V1-GRAMMAR-V144"),
+            Some(Outcome::Failed { .. })
+        ));
+        Ok(())
     }
 }

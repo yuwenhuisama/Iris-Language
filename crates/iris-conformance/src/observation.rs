@@ -1,0 +1,175 @@
+use iris_eval::Value as IrisValue;
+use iris_lexer::{convert_literals, lex};
+use iris_syntax::{Declaration, render_parse_shapes};
+
+use crate::{
+    json::Value,
+    model::{Record, object, parse_expect, render, string, value_string},
+    runner::diagnostics,
+};
+
+pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(), String> {
+    let expected = parse_expect(&record.expect)?;
+    let expected = object(&expected)?;
+    if let Some(Value::Array(entries)) = expected.get("diagnostics") {
+        let expected = entries
+            .iter()
+            .map(|entry| string(object(entry)?, "code").map(str::to_owned))
+            .collect::<Result<Vec<_>, String>>()?;
+        let actual = diagnostics(&record.source)
+            .iter()
+            .map(|value| value.code.clone())
+            .collect::<Vec<_>>();
+        if !expected.iter().all(|code| actual.contains(code)) {
+            return Err(format!(
+                "diagnostics expected {expected:?}, actual {actual:?}"
+            ));
+        }
+    }
+    if let Some(value) = expected.get("value") {
+        compare_value(value, &record.source)?;
+    }
+    if let Some(Value::Object(artifact)) = expected.get("artifact") {
+        compare_artifact(artifact, parsed, &record.source)?;
+    }
+    Ok(())
+}
+
+fn compare_value(expected: &Value, source: &str) -> Result<(), String> {
+    let conversion = convert_literals(source);
+    let values = conversion
+        .values()
+        .iter()
+        .cloned()
+        .map(IrisValue::from)
+        .collect::<Vec<_>>();
+    let actual = match values.as_slice() {
+        [] => return Err("value unsupported: no converted literal".into()),
+        [value] => value.clone(),
+        _ => IrisValue::Array(values),
+    };
+    if render(expected) == value_render(&actual) {
+        Ok(())
+    } else {
+        Err(format!(
+            "value expected {}, actual {}",
+            render(expected),
+            value_render(&actual)
+        ))
+    }
+}
+
+fn value_render(value: &IrisValue) -> String {
+    match value {
+        IrisValue::Integer(value) => format!("{{\"integer\":\"{value}\"}}"),
+        IrisValue::Float32Bits(value) => format!("{{\"float32_bits\":\"0x{value:08x}\"}}"),
+        IrisValue::Float64Bits(value) => format!("{{\"float64_bits\":\"0x{value:016x}\"}}"),
+        IrisValue::String(value) => render(&Value::Object(
+            [(String::from("string"), Value::String(value.clone()))].into(),
+        )),
+        IrisValue::Array(values) => format!(
+            "{{\"array\":[{}]}}",
+            values
+                .iter()
+                .map(value_render)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    }
+}
+
+fn compare_artifact(
+    expected: &std::collections::BTreeMap<String, Value>,
+    parsed: &iris_parser::ParseResult,
+    source: &str,
+) -> Result<(), String> {
+    if let Some(Value::Array(shapes)) = expected.get("parse_shapes") {
+        let expected = shapes
+            .iter()
+            .map(value_string)
+            .collect::<Result<Vec<_>, _>>()?;
+        let actual = parse_shapes(parsed);
+        if expected != actual {
+            return Err(format!(
+                "parse_shapes expected {expected:?}, actual {actual:?}"
+            ));
+        }
+    }
+    if let Some(Value::String(shape)) = expected.get("parse_shape") {
+        let actual = parsed
+            .program
+            .declarations
+            .first()
+            .map(declaration_shape)
+            .unwrap_or_default();
+        if shape != &actual {
+            return Err(format!("parse_shape expected {shape:?}, actual {actual:?}"));
+        }
+    }
+    if let Some(Value::Array(tokens)) = expected.get("tokens") {
+        let expected = tokens
+            .iter()
+            .map(value_string)
+            .collect::<Result<Vec<_>, _>>()?;
+        let actual = lex(source.as_bytes())
+            .tokens()
+            .iter()
+            .map(|token| format!("{:?}", token.kind).to_uppercase())
+            .collect::<Vec<_>>();
+        if !expected.iter().all(|token| actual.contains(token)) {
+            return Err(format!(
+                "tokens expected containment {expected:?}, actual {actual:?}"
+            ));
+        }
+    }
+    if expected.contains_key("float_results") {
+        let conversion = convert_literals(source);
+        if conversion.warnings().is_empty() {
+            return Err("float_results expected precision observation, actual no warning".into());
+        }
+    }
+    Ok(())
+}
+
+fn declaration_shape(value: &Declaration) -> String {
+    match value {
+        Declaration::Contract(value) => format!(
+            "Contract(name={}, extends=[{}])",
+            value.name,
+            value
+                .parents
+                .iter()
+                .map(type_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Declaration::Class(value) => format!(
+            "Class(name={}, extends={})",
+            value.name,
+            value
+                .extends
+                .as_ref()
+                .map(type_shape)
+                .unwrap_or_else(|| "absent".into())
+        ),
+        Declaration::Module(_) => "Module".into(),
+    }
+}
+fn type_shape(value: &iris_syntax::TypeExpression) -> String {
+    match value {
+        iris_syntax::TypeExpression::Name(value) => value.clone(),
+        _ => String::new(),
+    }
+}
+fn parse_shapes(parsed: &iris_parser::ParseResult) -> Vec<String> {
+    if !parsed.program.declarations.is_empty() {
+        parsed
+            .program
+            .declarations
+            .iter()
+            .map(declaration_shape)
+            .collect()
+    } else {
+        render_parse_shapes(&parsed.program)
+    }
+}

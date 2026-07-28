@@ -6,3 +6,9 @@ rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+iris-eval = { path = "../iris-eval" }
+iris-lexer = { path = "../iris-lexer" }
+iris-parser = { path = "../iris-parser" }
+iris-syntax = { path = "../iris-syntax" }
