@@ -57,6 +57,9 @@
       statusBody: "The language semantics are frozen for specification review, but no reference implementation, compiler, package manager, playground, or downloadable runtime exists yet.",
       statusCta: "Implementation status",
       featuresTitle: "Language Surface",
+      positioningKicker: "Design intent, not a spec guarantee",
+      positioningTitle: "What Iris Is For",
+      positioningLede: "This section describes project direction, not shipped behavior: Iris is intended to fit both host embedding and standalone application work, while keeping capabilities outside the language core in versioned extensions.",
       dualityKicker: "IRIS-V1-IDENTITY-C013",
       dualityTitle: "Dynamic Behavior, Static Promises",
       dualityLede: "The defining Iris Programming Language design contract is not static versus dynamic. It is dynamic evolution held inside promises that compiled code, reflection, packages, native hosts, and conformance can trust.",
@@ -67,7 +70,7 @@
       featuresLede: "With the static/dynamic contract established, the remaining surface shows how Iris code sends messages, composes behavior, handles control flow, and crosses host boundaries.",
       tutorialTitle: "Tutorial",
       tutorialKicker: "Recommended start",
-      tutorialLede: "A guided path for newcomers is landing in Markdown now. Existing chapters render immediately; in-progress chapters keep their route and show a clear availability state until writers publish them.",
+      tutorialLede: "The complete guided tutorial is live: an index plus ten chapters, fully written in English and fully translated into Simplified Chinese, from first concepts through the path into the frozen specification.",
       specTitle: "Specification Index",
       specLede: "All chapters are rendered from the checked-in Markdown at runtime. English and Simplified Chinese files share the same filenames, so links preserve chapter position across languages.",
       footer: "Iris Programming Language draft specification preview. Source repository:",
@@ -98,6 +101,9 @@
       statusBody: "语言语义已冻结用于规范审阅，但尚无参考实现、编译器、包管理器、playground 或可下载运行时。",
       statusCta: "实现状态",
       featuresTitle: "语言表面",
+      positioningKicker: "设计意图，不是规范保证",
+      positioningTitle: "Iris 适合做什么",
+      positioningLede: "本节说明项目方向，而不是已经交付的行为：Iris 的目标是在 Host 嵌入和独立应用编写之间取得平衡，同时把语言核心之外的能力放进独立版本化的扩展。",
       dualityKicker: "IRIS-V1-IDENTITY-C013",
       dualityTitle: "动态行为，静态承诺",
       dualityLede: "Iris 的关键设计契约不是静态对动态，而是把真实的动态演进放进可被编译代码、反射、包、原生 Host 和一致性信任的承诺边界中。",
@@ -108,7 +114,7 @@
       featuresLede: "在静态/动态契约之外，这些特性展示 Iris 代码如何发送消息、组合行为、表达控制流并跨越 Host 边界。",
       tutorialTitle: "教程",
       tutorialKicker: "推荐起点",
-      tutorialLede: "面向新读者的引导路径正在以 Markdown 落地。已存在的章节会立即渲染；尚在撰写的章节会保留路由，并显示清晰的可用性状态。",
+      tutorialLede: "完整的引导式教程已经上线：包含索引和十章正文，英文已完整写成，简体中文也已完整翻译，覆盖从初始概念到进入冻结规范的路径。",
       specTitle: "规范索引",
       specLede: "所有章节都在运行时从仓库中的 Markdown 渲染。英文与简体中文目录使用相同文件名，因此切换语言会保留章节位置。",
       footer: "Iris Programming Language 草案规范预览。源码仓库：",
@@ -132,6 +138,41 @@
     ["Closures And Trailing Blocks", "Closure 与 trailing block", "Lexical Closures capture binding cells and receiver relation; trailing blocks use a dedicated block channel.", "词法 Closure 捕获绑定 cell 与接收者关系；trailing block 使用专用 block 通道。"],
     ["Single-Thread Async And Resources", "单线程 Async 与资源", "Task/Awaitable scheduling, ordinary using/Closeable cleanup, and structured diagnostics share the object model.", "Task/Awaitable 调度、普通 using/Closeable 清理与结构化诊断共享对象模型。"],
     ["Stable C Host ABI", "稳定 C Host ABI", "Embedding and native extension are specified around opaque handles, explicit signatures, and runtime-thread affinity.", "嵌入与原生扩展围绕不透明句柄、显式签名和运行时线程亲和性来定义。"]
+  ];
+
+  const positioningCards = [
+    {
+      en: "Embeddable by direction",
+      zh: "面向嵌入的方向",
+      bodyEn: "The intent is for Iris to drop into a native application as its scripting layer. The frozen FFI chapter backs the boundary shape with a stable C ABI, opaque value handles, runtime-thread affinity, thread-safe posting, and no foreign unwinding across the boundary.",
+      bodyZh: "Iris 的设计方向，是能放进已有原生应用中作为脚本层。冻结的 FFI 章节已经支撑了边界形状：稳定 C ABI、不透明值句柄、运行时线程亲和、线程安全投递，以及禁止 foreign unwinding 跨过边界。",
+      links: [
+        { id: "IRIS-V1-FFI-C003", stem: "09-native-host-ffi" },
+        { id: "IRIS-V1-FFI-C007", stem: "09-native-host-ffi" },
+        { id: "IRIS-V1-FFI-C012", stem: "09-native-host-ffi" },
+        { id: "IRIS-V1-FFI-C013", stem: "09-native-host-ffi" },
+        { id: "IRIS-V1-FFI-C019", stem: "09-native-host-ffi" }
+      ]
+    },
+    {
+      en: "Standalone by intent",
+      zh: "也面向独立使用",
+      bodyEn: "Iris is not positioned only as a guest language. The project direction keeps room for writing applications directly in Iris once an implementation and supporting libraries exist.",
+      bodyZh: "Iris 并不只被定位为宿主语言中的客体。项目方向也为未来在实现和支撑库存在之后，直接用 Iris 编写应用保留空间。",
+      links: []
+    },
+    {
+      en: "Small core, versioned extensions",
+      zh: "小核心，版本化扩展",
+      bodyEn: "The language core stays narrow. Standard-library growth, networking, databases, GUI, cryptography, advanced Regex, and HTTP are deferred to standard packages, using package identity, API-major identity, and SemVer range machinery.",
+      bodyZh: "语言核心保持收窄。标准库增长、网络、数据库、GUI、密码学、高级 Regex 与 HTTP 都延后到标准包，并使用 package_id、api_major 与 SemVer 范围机制。",
+      links: [
+        { id: "chapter 10 deferred packages", stem: "10-serialization-standard-library" },
+        { id: "package_id", stem: "08-modules-metaprogramming" },
+        { id: "api_major", stem: "08-modules-metaprogramming" },
+        { id: "SemVer ranges", stem: "08-modules-metaprogramming" }
+      ]
+    }
   ];
 
   const dualityLayers = [
@@ -444,6 +485,13 @@
         <div class="duality-grid">${dualityLayers.map((layer, index) => dualityCard(layer, index)).join("")}</div>
         <a class="duality-source" href="#/spec/${currentLang}/01-language-identity?h=dynamic-behavior-static-promises">${t("dualitySource")} <span>IRIS-V1-IDENTITY-C013</span></a>
       </section>
+      <section class="landing-section positioning-section" aria-labelledby="positioning-title">
+        <div class="section-heading positioning-heading">
+          <div><div class="section-kicker">${t("positioningKicker")}</div><h2 id="positioning-title">${t("positioningTitle")}</h2></div>
+          <p class="section-lede">${t("positioningLede")}</p>
+        </div>
+        <div class="positioning-grid">${positioningCards.map((card, index) => positioningCard(card, index)).join("")}</div>
+      </section>
       <section class="hero status-banner" aria-labelledby="status-title">
         <div class="status-icon" aria-hidden="true">v1</div>
         <div>
@@ -489,6 +537,20 @@
   function tutorialLink(chapter, index) {
     const title = currentLang === "zh" ? chapter.zh : chapter.en;
     return `<a href="#/tutorial/${currentLang}/${chapter.stem}"><span>${String(index + 1).padStart(2, "0")}</span>${title}</a>`;
+  }
+
+  function positioningCard(card, index) {
+    const title = currentLang === "zh" ? card.zh : card.en;
+    const body = currentLang === "zh" ? card.bodyZh : card.bodyEn;
+    const links = card.links.map((link) => `<a href="#/spec/${currentLang}/${link.stem}">${link.id}</a>`).join("");
+    return `<article class="positioning-card" style="--index: ${index}">
+      <span class="chapter-number">${String(index + 1).padStart(2, "0")}</span>
+      <div>
+        <h3>${title}</h3>
+        <p>${inlineCode(body)}</p>
+        ${links ? `<nav class="positioning-links" aria-label="${title}">${links}</nav>` : ""}
+      </div>
+    </article>`;
   }
 
   function dualityCard(layer, index) {

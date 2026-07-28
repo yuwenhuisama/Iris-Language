@@ -712,6 +712,77 @@ button { font: inherit; }
 
 .duality-source span { color: var(--color-accent-soft); }
 
+.positioning-section {
+  padding-block: var(--space-7);
+}
+
+.positioning-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.positioning-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  min-inline-size: 0;
+  border-block-start: 1px solid var(--color-border-subtle);
+  padding-block-start: var(--space-4);
+}
+
+.positioning-card h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  letter-spacing: -0.035em;
+  line-height: 1.18;
+}
+
+.positioning-card p {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--step--1);
+  line-height: 1.62;
+}
+
+.positioning-card code {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-1);
+  background: rgb(var(--color-text-rgb) / 0.055);
+  color: var(--color-accent-soft);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.08em 0.28em;
+}
+
+.positioning-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+}
+
+.positioning-links a {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  background: rgb(var(--color-text-rgb) / 0.035);
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+  line-height: 1.25;
+  padding: 0.35rem 0.6rem;
+  text-decoration: none;
+}
+
+.positioning-links a:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+  background: rgb(var(--color-text-rgb) / 0.055);
+}
+
 .section-heading {
   display: flex;
   align-items: end;
@@ -1091,6 +1162,7 @@ button { font: inherit; }
   .reader-shell { grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); }
   .reader-toc { display: none; }
   .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .positioning-grid { grid-template-columns: 1fr; }
   .duality-card { grid-template-columns: 1fr; }
   .duality-card header { border-inline-end: 0; border-block-end: 1px solid var(--color-border-subtle); padding-inline-end: 0; padding-block-end: var(--space-3); }
   .duality-example { grid-column: 1; }
