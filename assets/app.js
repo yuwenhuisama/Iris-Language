@@ -4,8 +4,9 @@
   const STORAGE_LANG = "iris-site-lang";
   const STORAGE_THEME = "iris-site-theme";
   const SPEC_BASE = "spec/iris-v1";
+  const TUTORIAL_BASE = "tutorial";
   const REPO_URL = "https://github.com/yuwenhuisama/Iris-Language";
-  // Deep section links use #/spec/<lang>/<file-stem>?h=<heading-id>. Rendered headings receive stable ordinal IDs so EN/ZH toggles preserve position; text slugs remain as fallbacks for incoming Markdown/GitHub-style anchors.
+  // Deep section links use #/<collection>/<lang>/<file-stem>?h=<heading-id>. Rendered headings receive stable ordinal IDs so EN/ZH toggles preserve position; text slugs remain as fallbacks for incoming Markdown/GitHub-style anchors.
 
   const chapters = [
     { file: "README.md", stem: "README", en: "Specification Index", zh: "规范索引", purposeEn: "Normative document index, editorial contract, terminology, status, and reading order.", purposeZh: "规范性文档索引、编辑契约、术语、状态和阅读顺序。" },
@@ -24,14 +25,29 @@
     { file: "traceability-matrix.md", stem: "traceability-matrix", en: "Traceability Matrix", zh: "可追溯性矩阵", purposeEn: "Every frozen D-ID mapped to exact normative clause(s), examples/vectors, divergence entry, or explicit deferred status.", purposeZh: "每个冻结 D-ID 映射到精确的规范性条款、示例/向量、差异条目或明确延后状态。" }
   ];
 
+  const tutorialChapters = [
+    { file: "README.md", stem: "README", en: "Tutorial index", zh: "教程索引", purposeEn: "Start here for the guided reading path before the normative specification.", purposeZh: "从这里开始，先按引导路径学习，再进入规范性文档。" },
+    { file: "01-getting-started.md", stem: "01-getting-started", en: "What Iris Is", zh: "Iris 是什么", purposeEn: "Meet the language goals, current release status, and the shape of a first Iris program.", purposeZh: "了解语言目标、当前发布状态，以及第一个 Iris 程序的样貌。" },
+    { file: "02-values-and-bindings.md", stem: "02-values-and-bindings", en: "Values and Bindings", zh: "值与绑定", purposeEn: "Learn object values, names, mutability, and the basic expression model.", purposeZh: "学习对象值、名称、可变性和基本表达式模型。" },
+    { file: "03-control-flow.md", stem: "03-control-flow", en: "Control Flow", zh: "控制流", purposeEn: "Walk through conditionals, loops, matching, and the way Iris code branches.", purposeZh: "了解条件、循环、match，以及 Iris 代码如何分支。" },
+    { file: "04-callables-and-closures.md", stem: "04-callables-and-closures", en: "Functions, Closures, Blocks", zh: "函数、闭包与块", purposeEn: "Use callable forms, captured state, parameters, and trailing blocks.", purposeZh: "使用可调用形式、捕获状态、参数和 trailing block。" },
+    { file: "05-classes-and-objects.md", stem: "05-classes-and-objects", en: "Classes and Objects", zh: "类与对象", purposeEn: "Build objects with Classes, Methods, properties, and dynamic revision in mind.", purposeZh: "围绕 Class、Method、属性和动态修订来构建对象。" },
+    { file: "06-modules-and-contracts.md", stem: "06-modules-and-contracts", en: "Modules and Contracts", zh: "模块与 Contract", purposeEn: "Compose behavior with Modules and express promises through Contracts.", purposeZh: "用 Module 组合行为，并用 Contract 表达承诺。" },
+    { file: "07-types-and-generics.md", stem: "07-types-and-generics", en: "Gradual Types", zh: "渐进类型", purposeEn: "Understand annotations, Dynamic, generic constraints, and runtime-checked views.", purposeZh: "理解标注、Dynamic、泛型约束和运行时检查视图。" },
+    { file: "08-errors-and-resources.md", stem: "08-errors-and-resources", en: "Errors and Resources", zh: "错误与资源", purposeEn: "Handle failures, cleanup, diagnostics, and resource lifetime patterns.", purposeZh: "处理失败、清理、诊断和资源生命周期模式。" },
+    { file: "09-dynamic-and-static.md", stem: "09-dynamic-and-static", en: "Dynamic Meets Static", zh: "动态与静态的交汇", purposeEn: "Tie dynamic behavior back to the promises static consumers can rely on.", purposeZh: "把动态行为重新连接到静态消费者可以依赖的承诺。" },
+    { file: "10-where-to-next.md", stem: "10-where-to-next", en: "Where To Next", zh: "下一步", purposeEn: "Move from tutorial knowledge into the specification, conformance, and implementation work.", purposeZh: "从教程知识进入规范、一致性和实现工作。" }
+  ];
+
   const strings = {
     en: {
-      nav: { spec: "Specification", github: "GitHub", chapters: "Chapters" },
+      nav: { tutorial: "Tutorial", spec: "Specification", github: "GitHub", chapters: "Chapters" },
       themeLight: "Light", themeDark: "Dark",
       heroKicker: "Frozen semantics preview",
       heroTitleA: "Iris",
       heroTitleB: "dynamic where it moves, promised where it matters.",
       heroLede: "Iris Programming Language is a new object-oriented scripting language with first-class dynamic behavior bounded by durable static promises. Every value is an object, operators are runtime-dispatched messages, composition blends single Class inheritance with Modules and Contracts, and host embedding is framed by a stable C ABI.",
+      readTutorial: "Start the tutorial",
       readSpec: "Read the spec",
       viewGithub: "View GitHub",
       statFiles: "spec artifacts",
@@ -49,22 +65,30 @@
       dualityExample: "Example",
       dualitySource: "Read the normative clause",
       featuresLede: "With the static/dynamic contract established, the remaining surface shows how Iris code sends messages, composes behavior, handles control flow, and crosses host boundaries.",
+      tutorialTitle: "Tutorial",
+      tutorialKicker: "Recommended start",
+      tutorialLede: "A guided path for newcomers is landing in Markdown now. Existing chapters render immediately; in-progress chapters keep their route and show a clear availability state until writers publish them.",
       specTitle: "Specification Index",
       specLede: "All chapters are rendered from the checked-in Markdown at runtime. English and Simplified Chinese files share the same filenames, so links preserve chapter position across languages.",
       footer: "Iris Programming Language draft specification preview. Source repository:",
       readerToc: "On this page",
       readerChapters: "Chapters",
-      loading: "Loading specification...",
-      errorTitle: "Specification fetch failed",
+      loading: "Loading document...",
+      specLabel: "Specification",
+      tutorialLabel: "Tutorial",
+      translationNoticeTitle: "Chinese tutorial translation pending",
+      translationNoticeBody: "This tutorial chapter is not translated yet, so the English source is shown for now. The language toggle and route stay on Chinese and will use the translation automatically when it lands.",
+      errorTitle: "Document fetch failed",
       errorHelp: "Serve the repository root over HTTP and check that the Markdown file exists at the relative path shown below."
     },
     zh: {
-      nav: { spec: "规范", github: "GitHub", chapters: "章节" },
+      nav: { tutorial: "教程", spec: "规范", github: "GitHub", chapters: "章节" },
       themeLight: "亮色", themeDark: "暗色",
       heroKicker: "冻结语义预览",
       heroTitleA: "Iris",
       heroTitleB: "让动态能力落在静态边界之内。",
       heroLede: "Iris Programming Language 是一门新的面向对象脚本语言：动态行为是一等能力，但始终受持久静态承诺约束。每个值都是对象，运算符是运行时动态派发的消息，组合使用单一 Class 继承加 Modules 与 Contracts，并以稳定 C ABI 定义 Host 嵌入边界。",
+      readTutorial: "开始教程",
       readSpec: "阅读规范",
       viewGithub: "查看 GitHub",
       statFiles: "规范产物",
@@ -82,13 +106,20 @@
       dualityExample: "示例",
       dualitySource: "阅读规范条款",
       featuresLede: "在静态/动态契约之外，这些特性展示 Iris 代码如何发送消息、组合行为、表达控制流并跨越 Host 边界。",
+      tutorialTitle: "教程",
+      tutorialKicker: "推荐起点",
+      tutorialLede: "面向新读者的引导路径正在以 Markdown 落地。已存在的章节会立即渲染；尚在撰写的章节会保留路由，并显示清晰的可用性状态。",
       specTitle: "规范索引",
       specLede: "所有章节都在运行时从仓库中的 Markdown 渲染。英文与简体中文目录使用相同文件名，因此切换语言会保留章节位置。",
       footer: "Iris Programming Language 草案规范预览。源码仓库：",
       readerToc: "本页目录",
       readerChapters: "章节",
-      loading: "正在加载规范...",
-      errorTitle: "规范获取失败",
+      loading: "正在加载文档...",
+      specLabel: "规范",
+      tutorialLabel: "教程",
+      translationNoticeTitle: "中文教程翻译待完成",
+      translationNoticeBody: "本教程章节尚未翻译，因此暂时显示英文源文。语言切换和路由会保留中文；翻译文件发布后会自动使用中文版本。",
+      errorTitle: "文档获取失败",
       errorHelp: "请通过 HTTP 服务仓库根目录，并检查下方相对路径中的 Markdown 文件是否存在。"
     }
   };
@@ -216,6 +247,34 @@
     }
   ];
 
+  const collections = {
+    spec: {
+      view: "spec",
+      base: SPEC_BASE,
+      labelKey: "specLabel",
+      chapters,
+      contentId: "reader-content",
+      sidebarId: "reader-sidebar",
+      getPath(chapter, lang) {
+        return `${SPEC_BASE}/${lang === "zh" ? "zh-cn/" : ""}${chapter.file}`;
+      }
+    },
+    tutorial: {
+      view: "tutorial",
+      base: TUTORIAL_BASE,
+      labelKey: "tutorialLabel",
+      chapters: tutorialChapters,
+      contentId: "reader-content",
+      sidebarId: "reader-sidebar",
+      getPath(chapter, lang) {
+        return `${TUTORIAL_BASE}/${lang === "zh" ? "zh-cn" : "en"}/${chapter.file}`;
+      },
+      getFallbackPath(chapter, lang) {
+        return lang === "zh" ? `${TUTORIAL_BASE}/en/${chapter.file}` : "";
+      }
+    }
+  };
+
   const heroCode = [
     "let klass = Counter",
     "let first = Counter.new()",
@@ -254,9 +313,9 @@
     updateStaticLabels();
     if (!options.silent) {
       const route = parseRoute();
-      if (route.view === "spec") {
+      if (collections[route.view]) {
         const anchor = visibleHeadingId() || route.anchor || "";
-        navigateSpec(currentLang, route.stem, anchor, true);
+        navigateReader(route.view, currentLang, route.stem, anchor, true);
       } else {
         renderLanding();
       }
@@ -275,7 +334,8 @@
     document.querySelectorAll("[data-i18n]").forEach((node) => {
       node.textContent = t(node.dataset.i18n);
     });
-    document.querySelector(".top-actions .nav-link")?.setAttribute("href", `#/spec/${currentLang}/README`);
+    document.querySelector('[data-nav="tutorial"]')?.setAttribute("href", `#/tutorial/${currentLang}/README`);
+    document.querySelector('[data-nav="spec"]')?.setAttribute("href", `#/spec/${currentLang}/README`);
     themeToggle.textContent = currentTheme === "dark" ? t("themeLight") : t("themeDark");
   }
 
@@ -284,14 +344,19 @@
     const [pathPart, queryString = ""] = rawHash.slice(1).split("?");
     const params = new URLSearchParams(queryString);
     const parts = pathPart.split("/").filter(Boolean);
-    if (parts[0] === "spec") {
-      return { view: "spec", lang: normalizeLang(parts[1]), stem: parts[2] || "README", anchor: params.get("h") || "" };
+    if (collections[parts[0]]) {
+      return { view: parts[0], lang: normalizeLang(parts[1]), stem: parts[2] || "README", anchor: params.get("h") || "" };
     }
     return { view: "landing" };
   }
 
   function navigateSpec(lang, stem, anchor, replace) {
-    const target = `#/spec/${normalizeLang(lang)}/${stem}${anchor ? `?h=${encodeURIComponent(anchor)}` : ""}`;
+    navigateReader("spec", lang, stem, anchor, replace);
+  }
+
+  function navigateReader(view, lang, stem, anchor, replace) {
+    const collection = collections[view] || collections.spec;
+    const target = `#/${collection.view}/${normalizeLang(lang)}/${stem}${anchor ? `?h=${encodeURIComponent(anchor)}` : ""}`;
     if (replace) {
       window.location.replace(target);
     } else {
@@ -360,7 +425,8 @@
           <h1 id="hero-title">${t("heroTitleA")}<span>${t("heroTitleB")}</span></h1>
           <p class="hero-lede">${t("heroLede")}</p>
           <div class="hero-actions">
-            <a class="primary-button" href="#/spec/${currentLang}/README">${t("readSpec")}</a>
+            <a class="primary-button" href="#/tutorial/${currentLang}/README">${t("readTutorial")}</a>
+            <a class="ghost-button" href="#/spec/${currentLang}/README">${t("readSpec")}</a>
             <a class="ghost-button" href="${REPO_URL}" target="_blank" rel="noopener">${t("viewGithub")}</a>
           </div>
           <dl class="hero-facts" aria-label="Specification facts"><div><dt>14</dt><dd>${t("statFiles")}</dd></div><div><dt>EN / ZH</dt><dd>${t("statLangs")}</dd></div><div><dt>0</dt><dd>${t("statImpl")}</dd></div></dl>
@@ -393,6 +459,16 @@
         </div>
         <div class="feature-grid">${features.map((feature) => `<article class="feature-card"><h3>${currentLang === "zh" ? feature[1] : feature[0]}</h3><p>${currentLang === "zh" ? feature[3] : feature[2]}</p></article>`).join("")}</div>
       </section>
+      <section class="landing-section tutorial-section" aria-labelledby="tutorial-index-title">
+        <div class="section-heading">
+          <div><div class="section-kicker">${t("tutorialKicker")}</div><h2 id="tutorial-index-title">${t("tutorialTitle")}</h2></div>
+          <p class="section-lede">${t("tutorialLede")}</p>
+        </div>
+        <div class="tutorial-strip">
+          <a class="chapter-card tutorial-card is-featured" href="#/tutorial/${currentLang}/README"><span class="chapter-number">00</span><span><h3>${currentLang === "zh" ? tutorialChapters[0].zh : tutorialChapters[0].en}</h3><p>${currentLang === "zh" ? tutorialChapters[0].purposeZh : tutorialChapters[0].purposeEn}</p></span></a>
+          <div class="tutorial-list" aria-label="${t("tutorialTitle")}">${tutorialChapters.slice(1).map((chapter, index) => tutorialLink(chapter, index)).join("")}</div>
+        </div>
+      </section>
       <section class="landing-section" aria-labelledby="spec-index-title">
         <div class="section-heading">
           <div><div class="section-kicker">14 artifacts</div><h2 id="spec-index-title">${t("specTitle")}</h2></div>
@@ -408,6 +484,11 @@
     const title = currentLang === "zh" ? chapter.zh : chapter.en;
     const purpose = currentLang === "zh" ? chapter.purposeZh : chapter.purposeEn;
     return `<a class="chapter-card" href="#/spec/${currentLang}/${chapter.stem}"><span class="chapter-number">${String(index + 1).padStart(2, "0")}</span><span><h3>${title}</h3><p>${purpose}</p></span></a>`;
+  }
+
+  function tutorialLink(chapter, index) {
+    const title = currentLang === "zh" ? chapter.zh : chapter.en;
+    return `<a href="#/tutorial/${currentLang}/${chapter.stem}"><span>${String(index + 1).padStart(2, "0")}</span>${title}</a>`;
   }
 
   function dualityCard(layer, index) {
@@ -438,26 +519,34 @@
     return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
   }
 
-  function chapterNav(activeStem) {
-    return `<nav class="chapter-nav" aria-label="${t("readerChapters")}">${chapters.map((chapter, index) => {
+  function chapterNav(collection, activeStem) {
+    return `<nav class="chapter-nav" aria-label="${t("readerChapters")}">${collection.chapters.map((chapter, index) => {
       const title = currentLang === "zh" ? chapter.zh : chapter.en;
-      return `<a href="#/spec/${currentLang}/${chapter.stem}" ${chapter.stem === activeStem ? 'aria-current="page"' : ""}><span class="meta-chip">${String(index + 1).padStart(2, "0")}</span><br>${title}</a>`;
+      return `<a href="#/${collection.view}/${currentLang}/${chapter.stem}" ${chapter.stem === activeStem ? 'aria-current="page"' : ""}><span class="meta-chip">${String(index + 1).padStart(2, "0")}</span><br>${title}</a>`;
     }).join("")}</nav>`;
   }
 
   async function renderSpec(route) {
+    return renderReader(collections.spec, route);
+  }
+
+  async function renderReader(collection, route) {
     const lang = normalizeLang(route.lang || currentLang);
     if (lang !== currentLang) setLanguage(lang, { silent: true });
-    const chapter = chapters.find((item) => item.stem === route.stem) || chapters[0];
-    const path = `${SPEC_BASE}/${currentLang === "zh" ? "zh-cn/" : ""}${chapter.file}`;
+    const chapter = collection.chapters.find((item) => item.stem === (route.stem || "README"));
+    if (!chapter) {
+      renderMissingChapter(collection, route.stem || "README");
+      return;
+    }
+    const path = collection.getPath(chapter, currentLang);
     document.title = `${currentLang === "zh" ? chapter.zh : chapter.en} - Iris Programming Language`;
     main.className = "reader-page";
     main.innerHTML = `
       <div class="reader-shell">
-        <aside class="reader-sidebar" id="spec-sidebar"><h2>${t("readerChapters")}</h2>${chapterNav(chapter.stem)}</aside>
+        <aside class="reader-sidebar" id="reader-sidebar"><h2>${t("readerChapters")}</h2>${chapterNav(collection, chapter.stem)}</aside>
         <article class="reader-panel" aria-live="polite">
-          <header class="reader-header"><div><span class="meta-chip">${currentLang === "zh" ? "规范" : "Specification"}</span><h1>${currentLang === "zh" ? chapter.zh : chapter.en}</h1></div><span class="reader-source">${path}</span></header>
-          <div class="markdown-body" id="spec-content"><p>${t("loading")}</p></div>
+          <header class="reader-header"><div><span class="meta-chip">${t(collection.labelKey)}</span><h1>${currentLang === "zh" ? chapter.zh : chapter.en}</h1></div><span class="reader-source">${path}</span></header>
+          <div class="markdown-body" id="reader-content"><p>${t("loading")}</p></div>
         </article>
         <aside class="reader-toc" aria-label="${t("readerToc")}"><h2>${t("readerToc")}</h2><nav class="toc-list" id="page-toc"></nav></aside>
       </div>
@@ -465,19 +554,69 @@
     sidebarToggle?.setAttribute("aria-expanded", "false");
     try {
       if (!window.marked) throw new Error("marked failed to load from CDN");
-      const response = await fetch(path, { cache: "no-cache" });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      const markdown = await response.text();
-      const content = document.getElementById("spec-content");
-      content.innerHTML = renderMarkdown(markdown);
-      postProcessMarkdown(content, chapter);
+      const result = await fetchMarkdown(collection, chapter, currentLang);
+      const content = document.getElementById(collection.contentId);
+      document.querySelector(".reader-source").textContent = result.path;
+      content.innerHTML = renderMarkdown(result.markdown);
+      if (result.notice) content.insertAdjacentHTML("afterbegin", result.notice);
+      postProcessMarkdown(content, collection, chapter);
       buildToc(content);
       observeSections();
       if (route.anchor) scrollToHeading(route.anchor);
     } catch (error) {
-      const content = document.getElementById("spec-content");
+      const content = document.getElementById(collection.contentId);
       content.innerHTML = `<div class="error-panel" role="alert"><h2>${t("errorTitle")}</h2><p>${t("errorHelp")}</p><p><code>${escapeHtml(path)}</code></p><p><code>${escapeHtml(error.message)}</code></p></div>`;
     }
+  }
+
+  function renderMissingChapter(collection, stem) {
+    const chapter = {
+      file: `${stem}.md`,
+      stem,
+      en: stem.replace(/-/g, " "),
+      zh: stem.replace(/-/g, " ")
+    };
+    const path = collection.getPath(chapter, currentLang);
+    document.title = `${currentLang === "zh" ? chapter.zh : chapter.en} - Iris Programming Language`;
+    main.className = "reader-page";
+    main.innerHTML = `
+      <div class="reader-shell">
+        <aside class="reader-sidebar" id="reader-sidebar"><h2>${t("readerChapters")}</h2>${chapterNav(collection, "")}</aside>
+        <article class="reader-panel" aria-live="polite">
+          <header class="reader-header"><div><span class="meta-chip">${t(collection.labelKey)}</span><h1>${currentLang === "zh" ? chapter.zh : chapter.en}</h1></div><span class="reader-source">${path}</span></header>
+          <div class="markdown-body" id="reader-content"><div class="error-panel" role="alert"><h2>${t("errorTitle")}</h2><p>${t("errorHelp")}</p><p><code>${escapeHtml(path)}</code></p><p><code>404 File not found</code></p></div></div>
+        </article>
+        <aside class="reader-toc" aria-label="${t("readerToc")}"><h2>${t("readerToc")}</h2><nav class="toc-list" id="page-toc"></nav></aside>
+      </div>
+    `;
+    sidebarToggle?.setAttribute("aria-expanded", "false");
+  }
+
+  async function fetchMarkdown(collection, chapter, lang) {
+    const path = collection.getPath(chapter, lang);
+    const fallbackPath = collection.getFallbackPath?.(chapter, lang) || "";
+    if (fallbackPath && collection.view === "tutorial") {
+      const fallbackResponse = await fetch(fallbackPath, { cache: "no-cache" });
+      if (!fallbackResponse.ok) throw new Error(`${fallbackResponse.status} ${fallbackResponse.statusText}`);
+      return {
+        markdown: await fallbackResponse.text(),
+        path: fallbackPath,
+        notice: `<aside class="translation-notice" role="note"><h2>${t("translationNoticeTitle")}</h2><p>${t("translationNoticeBody")}</p><p><code>${escapeHtml(fallbackPath)}</code></p></aside>`
+      };
+    }
+    const response = await fetch(path, { cache: "no-cache" });
+    if (response.ok) return { markdown: await response.text(), path, notice: "" };
+    if (fallbackPath) {
+      const fallbackResponse = await fetch(fallbackPath, { cache: "no-cache" });
+      if (fallbackResponse.ok) {
+        return {
+          markdown: await fallbackResponse.text(),
+          path: fallbackPath,
+          notice: `<aside class="translation-notice" role="note"><h2>${t("translationNoticeTitle")}</h2><p>${t("translationNoticeBody")}</p><p><code>${escapeHtml(fallbackPath)}</code></p></aside>`
+        };
+      }
+    }
+    throw new Error(`${response.status} ${response.statusText}`);
   }
 
   function renderMarkdown(markdown) {
@@ -498,7 +637,7 @@
     return marked.parse(markdown, { renderer });
   }
 
-  function postProcessMarkdown(content, chapter) {
+  function postProcessMarkdown(content, collection, chapter) {
     content.querySelectorAll("a[href]").forEach((link) => {
       const href = link.getAttribute("href");
       if (!href || href.startsWith("#")) return;
@@ -509,17 +648,18 @@
       }
       const match = href.match(/^([^#?]+\.md)(#[^?]+)?$/);
       if (match) {
-        const targetFile = match[1].split("/").pop();
-        const targetChapter = chapters.find((item) => item.file === targetFile);
-        if (targetChapter) {
+        const target = resolveMarkdownLink(match[1], collection);
+        if (target) {
           const anchor = match[2] ? `?h=${encodeURIComponent(match[2].slice(1))}` : "";
-          link.href = `#/spec/${currentLang}/${targetChapter.stem}${anchor}`;
+          link.href = `#/${target.collection.view}/${currentLang}/${target.chapter.stem}${anchor}`;
         }
       }
     });
     content.querySelectorAll('a[href^="#"]').forEach((link) => {
-      const hash = link.getAttribute("href").slice(1);
-      if (hash) link.href = `#/spec/${currentLang}/${chapter.stem}?h=${encodeURIComponent(hash)}`;
+      const href = link.getAttribute("href");
+      if (href.startsWith("#/")) return;
+      const hash = href.slice(1);
+      if (hash) link.href = `#/${collection.view}/${currentLang}/${chapter.stem}?h=${encodeURIComponent(hash)}`;
     });
     content.querySelectorAll("table").forEach((table) => {
       const wrapper = document.createElement("div");
@@ -529,8 +669,23 @@
     });
     content.querySelectorAll("h2, h3").forEach((heading) => {
       heading.tabIndex = -1;
-      heading.insertAdjacentHTML("beforeend", ` <a class="heading-anchor" href="#/spec/${currentLang}/${chapter.stem}?h=${encodeURIComponent(heading.id)}" aria-label="Link to section">#</a>`);
+      heading.insertAdjacentHTML("beforeend", ` <a class="heading-anchor" href="#/${collection.view}/${currentLang}/${chapter.stem}?h=${encodeURIComponent(heading.id)}" aria-label="Link to section">#</a>`);
     });
+  }
+
+  function resolveMarkdownLink(path, currentCollection) {
+    const normalized = path.replace(/\\/g, "/");
+    const file = normalized.split("/").pop();
+    if (/(^|\/)spec\/iris-v1\//.test(normalized)) {
+      const chapter = chapters.find((item) => item.file === file);
+      return chapter ? { collection: collections.spec, chapter } : null;
+    }
+    if (/(^|\/)tutorial\/(en|zh-cn)\//.test(normalized)) {
+      const chapter = tutorialChapters.find((item) => item.file === file);
+      return chapter ? { collection: collections.tutorial, chapter } : null;
+    }
+    const chapter = currentCollection.chapters.find((item) => item.file === file);
+    return chapter ? { collection: currentCollection, chapter } : null;
   }
 
   function buildToc(content) {
@@ -574,8 +729,8 @@
 
   function route() {
     const parsed = parseRoute();
-    if (parsed.view === "spec") {
-      renderSpec(parsed);
+    if (collections[parsed.view]) {
+      renderReader(collections[parsed.view], parsed);
     } else {
       setLanguage(currentLang, { silent: true });
       renderLanding();
@@ -586,7 +741,7 @@
   langToggle.addEventListener("click", () => setLanguage(currentLang === "en" ? "zh" : "en"));
   themeToggle.addEventListener("click", () => setTheme(currentTheme === "dark" ? "light" : "dark"));
   sidebarToggle.addEventListener("click", () => {
-    const sidebar = document.getElementById("spec-sidebar");
+    const sidebar = document.getElementById("reader-sidebar");
     if (!sidebar) return;
     const open = !sidebar.classList.contains("is-open");
     sidebar.classList.toggle("is-open", open);

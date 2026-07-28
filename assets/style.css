@@ -367,7 +367,8 @@ button { font: inherit; }
 .chapter-card,
 .status-banner,
 .code-window,
-.reader-panel {
+.reader-panel,
+.translation-notice {
   border: 1px solid var(--color-border);
   background: rgb(var(--color-text-rgb) / 0.025);
   box-shadow: var(--shadow-ring);
@@ -794,6 +795,61 @@ button { font: inherit; }
   font-size: var(--step--2);
 }
 
+.tutorial-section {
+  padding-block-start: var(--space-7);
+}
+
+.tutorial-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.tutorial-card.is-featured {
+  min-block-size: 100%;
+  background:
+    linear-gradient(135deg, rgb(var(--color-accent-rgb) / 0.14), rgb(var(--color-dynamic-rgb) / 0.055)),
+    rgb(var(--color-text-rgb) / 0.025);
+}
+
+.tutorial-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: rgb(var(--color-panel-rgb) / 0.5);
+  box-shadow: var(--shadow-ring);
+  padding: var(--space-3);
+}
+
+.tutorial-list a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  border-radius: var(--radius-2);
+  color: var(--color-text-muted);
+  font-size: var(--step--1);
+  line-height: 1.35;
+  padding: var(--space-3);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+
+.tutorial-list a:hover {
+  color: var(--color-text);
+  background: rgb(var(--color-text-rgb) / 0.045);
+}
+
+.tutorial-list span {
+  flex: 0 0 auto;
+  color: var(--color-accent-soft);
+  font-family: var(--font-mono);
+  font-size: var(--step--2);
+}
+
 .site-footer {
   display: flex;
   justify-content: space-between;
@@ -989,6 +1045,22 @@ button { font: inherit; }
   color: var(--color-text);
   padding: var(--space-5);
 }
+
+.translation-notice {
+  border-color: rgb(var(--color-accent-rgb) / 0.28);
+  border-radius: var(--radius-3);
+  background: rgb(var(--color-accent-rgb) / 0.08);
+  color: var(--color-text-muted);
+  margin-block-end: var(--space-5);
+  padding: var(--space-4);
+}
+
+.translation-notice h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--step-1);
+}
+
+.translation-notice p { margin: var(--space-2) 0 0; }
 
 .sh-keyword { color: var(--color-syntax-keyword); }
 .sh-type { color: var(--color-syntax-type); }
