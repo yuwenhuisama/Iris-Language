@@ -6,3 +6,6 @@ rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+iris-lexer = { path = "../iris-lexer" }
