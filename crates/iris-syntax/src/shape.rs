@@ -26,7 +26,25 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                     .collect::<Vec<_>>()
                     .join(", ")
             )),
-            Declaration::Class(_) | Declaration::Module(_) | Declaration::Contract(_) => None,
+            Declaration::Class(value) => Some(format!(
+                "Class(name={}, extends={})",
+                value.name,
+                value
+                    .extends
+                    .as_ref()
+                    .map_or_else(|| "absent".into(), type_expression_shape)
+            )),
+            Declaration::Contract(value) => Some(format!(
+                "Contract(name={}, extends=[{}])",
+                value.name,
+                value
+                    .parents
+                    .iter()
+                    .map(type_expression_shape)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Declaration::Module(_) => None,
         })
         .collect::<Vec<_>>();
     shapes.extend(

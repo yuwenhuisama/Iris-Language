@@ -1,6 +1,6 @@
 use iris_eval::Value as IrisValue;
 use iris_lexer::{convert_literals, lex};
-use iris_syntax::{Declaration, render_parse_shapes};
+use iris_syntax::render_parse_shapes;
 
 use crate::{
     json::Value,
@@ -96,12 +96,7 @@ fn compare_artifact(
         }
     }
     if let Some(Value::String(shape)) = expected.get("parse_shape") {
-        let actual = parsed
-            .program
-            .declarations
-            .first()
-            .map(declaration_shape)
-            .unwrap_or_default();
+        let actual = parse_shapes(parsed).into_iter().next().unwrap_or_default();
         if shape != &actual {
             return Err(format!("parse_shape expected {shape:?}, actual {actual:?}"));
         }
@@ -131,45 +126,25 @@ fn compare_artifact(
     Ok(())
 }
 
-fn declaration_shape(value: &Declaration) -> String {
-    match value {
-        Declaration::Contract(value) => format!(
-            "Contract(name={}, extends=[{}])",
-            value.name,
-            value
-                .parents
-                .iter()
-                .map(type_shape)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Declaration::Class(value) => format!(
-            "Class(name={}, extends={})",
-            value.name,
-            value
-                .extends
-                .as_ref()
-                .map(type_shape)
-                .unwrap_or_else(|| "absent".into())
-        ),
-        Declaration::Module(_) => "Module".into(),
-    }
-}
-fn type_shape(value: &iris_syntax::TypeExpression) -> String {
-    match value {
-        iris_syntax::TypeExpression::Name(value) => value.clone(),
-        _ => String::new(),
-    }
-}
 fn parse_shapes(parsed: &iris_parser::ParseResult) -> Vec<String> {
-    if !parsed.program.declarations.is_empty() {
-        parsed
-            .program
-            .declarations
-            .iter()
-            .map(declaration_shape)
-            .collect()
-    } else {
-        render_parse_shapes(&parsed.program)
+    render_parse_shapes(&parsed.program)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_shapes;
+    use iris_parser::parse;
+    use iris_syntax::render_parse_shapes;
+
+    #[test]
+    fn declaration_parse_shapes_match_syntax_renderer() {
+        // Given
+        let parsed = parse("class Pair<T, U> where T: A & B, U: C {}");
+
+        // When
+        let observed = parse_shapes(&parsed);
+
+        // Then
+        assert_eq!(observed, render_parse_shapes(&parsed.program));
     }
 }

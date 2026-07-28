@@ -193,9 +193,9 @@ pub enum AssignmentOperator {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssignmentOperator, BinaryOperator, ClassDeclaration, Constraint, Declaration, Expression,
-        PRECEDENCE_ROWS_COVERED, Program, Statement, TypeExpression, UnaryOperator,
-        render_parse_shape, render_parse_shapes,
+        AssignmentOperator, BinaryOperator, ClassDeclaration, Constraint, ContractDeclaration,
+        Declaration, Expression, PRECEDENCE_ROWS_COVERED, Program, Statement, TypeExpression,
+        UnaryOperator, render_parse_shape, render_parse_shapes,
     };
 
     #[test]
@@ -276,6 +276,58 @@ mod tests {
     }
 
     #[test]
+    fn renders_v192_contract_parents_byte_exactly() {
+        // Given
+        let program = Program {
+            declarations: vec![Declaration::Contract(ContractDeclaration {
+                name: "Child".into(),
+                parameters: Vec::new(),
+                parents: vec![
+                    TypeExpression::Name("ParentA".into()),
+                    TypeExpression::Name("ParentB".into()),
+                ],
+                constraints: Vec::new(),
+                meta_deny: Vec::new(),
+                body: Vec::new(),
+            })],
+            statements: Vec::new(),
+        };
+
+        // When
+        let shapes = render_parse_shapes(&program);
+
+        // Then
+        assert_eq!(shapes, ["Contract(name=Child, extends=[ParentA, ParentB])"]);
+    }
+
+    #[test]
+    fn renders_v193_class_roots_byte_exactly() {
+        // Given
+        let program = Program {
+            declarations: vec![
+                Declaration::Class(empty_class("ImplicitRoot", None)),
+                Declaration::Class(empty_class(
+                    "ExplicitRoot",
+                    Some(TypeExpression::Name("Object".into())),
+                )),
+            ],
+            statements: Vec::new(),
+        };
+
+        // When
+        let shapes = render_parse_shapes(&program);
+
+        // Then
+        assert_eq!(
+            shapes,
+            [
+                "Class(name=ImplicitRoot, extends=absent)",
+                "Class(name=ExplicitRoot, extends=Object)",
+            ]
+        );
+    }
+
+    #[test]
     fn render_parse_shape_renders_conformance_v011_chain_byte_exactly() {
         let chain = assign(
             logical_or(logical_and(named_infix(
@@ -325,6 +377,19 @@ mod tests {
 
     fn leaf(value: &str) -> Expression {
         Expression::Name(value.into())
+    }
+
+    fn empty_class(name: &str, extends: Option<TypeExpression>) -> ClassDeclaration {
+        ClassDeclaration {
+            name: name.into(),
+            parameters: Vec::new(),
+            extends,
+            implements: Vec::new(),
+            mixins: Vec::new(),
+            constraints: Vec::new(),
+            meta_deny: Vec::new(),
+            body: Vec::new(),
+        }
     }
 
     fn unary(value: &str) -> Expression {
