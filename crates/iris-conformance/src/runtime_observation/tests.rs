@@ -194,6 +194,42 @@ fn visibility_denial_is_reported_as_method_visibility_error() {
 }
 
 #[test]
+fn runtime_v067_observes_equal_rounding_results_and_float64_promotion() {
+    // Given
+    let record = record(
+        "",
+        vec![
+            "Float32.from_bits(0x3f800001).mul_add(Float32.from_bits(0x3f800001), Float32.from_bits(0xbf800000))",
+            "Float32.from_bits(0x3f800001) * Float32.from_bits(0x3f800001) + Float32.from_bits(0xbf800000)",
+            "Float32.from_bits(0x3f800000).mul_add(2, 3.0)",
+        ],
+        "{\"independent_expectations\":[{\"value\":{\"float32\":\"0.00000023841858\"}},{\"value\":{\"float32\":\"0.00000023841858\"}},{\"value\":{\"float64\":\"5\"},\"type\":\"Float64\"}]}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn runtime_v094_observes_unbound_method_alias_identity_and_slot_changes() {
+    // Given
+    let record = record(
+        "class Base { public fun g() -> Symbol { :base } }; class A extends Base { public fun g() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:f, :g); let aliases = Reflection::Class.method(A, :f) same? Reflection::Class.method(A, :g); let ignored_remove = A.remove_method(:g); let exposed = A.new().g(); let ignored_undef = A.undef_method(:g); [aliases, exposed, A.new().g()]",
+        vec![],
+        "{\"value\":{\"array\":[{\"bool\":true},{\"symbol\":\"base\"},{\"symbol\":\"missing\"}]}}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
 fn error_and_side_effects_assert_a_failed_declaration_is_not_published() {
     // Given
     let record = record(
