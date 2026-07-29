@@ -4,6 +4,8 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 
 `executable` means that the chapter gives a concrete controlled fixture or directly assertable runtime value/bit/hash artifact and a concrete observable within the milestone 2 object-kernel boundary. `no-fixture` means the overview gives only an incomplete prose scenario. `needs-subsystem` means the vector is concrete but its required observable depends on a subsystem excluded from that boundary. `differential` requires the interpreter/JIT comparison that does not yet exist.
 
+**The `needs-subsystem` reasons below were written before milestone 2 and several are now stale.** Array literals and the `Reflection::*` namespace are implemented, so any reason citing "the excluded collections library", "Array literals", or an excluded reflection API must be re-probed rather than trusted. `V105` was reclassified `executable` on exactly those grounds, and probing it uncovered a real `IRIS-V1-RUNTIME-C131` exactness defect that the stale bucket had been hiding from the suite. Rows still citing collections or an excluded reflection API at the time of writing are `V068`, `V075`, `V076`, `V091`, `V092`, and `V101`; each states a concrete source and a concrete expected aggregate, so each is a candidate for the same treatment once the built-in protocols it sends are in place. `V072` is NOT in that group: it needs a Hash literal, which genuinely is unimplemented.
+
 | Vector ID | Chapter 03 line(s) | Category | Bucket | Concrete runtime artifact or reason |
 | --- | --- | --- | --- | --- |
 | `IRIS-V1-RUNTIME-V001` | `:418` | stable hash | executable | Canonical numeric bytes `0000`, BLAKE3 digest prefix, and public Integer hash for zero. |
@@ -107,7 +109,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V102` | `:622` | positive | needs-subsystem | Required `%` rejection needs lexer/parser diagnostic support outside the object kernel. |
 | `IRIS-V1-RUNTIME-V103` | `:623` | positive | executable | Concrete special-value getter/setter replacement fixture observes replacement and no implicit storage. |
 | `IRIS-V1-RUNTIME-V104` | `:624` | positive | executable | Concrete NaN arithmetic source asserts quiet NaN at receiver/common width. |
-| `IRIS-V1-RUNTIME-V105` | `:625` | positive | needs-subsystem | Concrete source and asserted aggregate are Array literals, requiring collections. |
+| `IRIS-V1-RUNTIME-V105` | `:625` | positive | executable | Concrete mixed-numeric comparison source with a concrete asserted aggregate. Reclassified in milestone 2: the earlier `needs-subsystem` reason cited an excluded collections library, but Array literals are implemented, and probing this row exposed a real `C131` exactness defect in `Numeric::compare`. |
 | `IRIS-V1-RUNTIME-V106` | `:626` | positive | executable | Controlled built-in Method replacements assert independent `<=>` and `==` behavior. |
 | `IRIS-V1-RUNTIME-V107` | `:627` | negative | needs-subsystem | Requires excluded Dynamic return-Contract enforcement from contracts/generics. |
 | `IRIS-V1-RUNTIME-V108` | `:628` | negative | executable | Controlled MetaCapabilities validation asserts no Child publication after denied subclass creation. |

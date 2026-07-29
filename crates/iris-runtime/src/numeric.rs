@@ -219,9 +219,57 @@ impl Numeric {
 
     /// Returns a three-way numeric comparison, or nil-equivalent `None` for NaN.
     pub fn compare(left: &NumericValue, right: &NumericValue) -> Option<Ordering> {
-        let left = Self::as_f64(left);
-        let right = Self::as_f64(right);
-        left.partial_cmp(&right)
+        match (left, right) {
+            (NumericValue::Integer(left), NumericValue::Integer(right)) => {
+                Some(left.as_bigint().cmp(right.as_bigint()))
+            }
+            (NumericValue::Integer(integer), NumericValue::Float32(float)) => {
+                Self::compare_integer_to_float(integer, f64::from(*float))
+            }
+            (NumericValue::Integer(integer), NumericValue::Float64(float)) => {
+                Self::compare_integer_to_float(integer, *float)
+            }
+            (NumericValue::Float32(float), NumericValue::Integer(integer)) => {
+                Self::compare_integer_to_float(integer, f64::from(*float)).map(Ordering::reverse)
+            }
+            (NumericValue::Float64(float), NumericValue::Integer(integer)) => {
+                Self::compare_integer_to_float(integer, *float).map(Ordering::reverse)
+            }
+            _ => Self::as_f64(left).partial_cmp(&Self::as_f64(right)),
+        }
+    }
+
+    /// Compares an arbitrary-precision Integer against a float by exact
+    /// mathematical value, placing infinities by extended-real position.
+    ///
+    /// `IRIS-V1-RUNTIME-C131` requires exact comparison, so the Integer is never
+    /// rounded to a float first: a value beyond finite float range would round to
+    /// an infinity and compare equal to a genuine infinity.
+    fn compare_integer_to_float(integer: &IntegerValue, float: f64) -> Option<Ordering> {
+        if float.is_nan() {
+            return None;
+        }
+        if float.is_infinite() {
+            // Every Integer is finite, so it sits below +inf and above -inf.
+            return Some(if float.is_sign_positive() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            });
+        }
+        let truncated = Self::float_to_integer(float.trunc())?;
+        let ordering = integer.as_bigint().cmp(&truncated);
+        if ordering != Ordering::Equal {
+            return Some(ordering);
+        }
+        let fraction = float.fract();
+        Some(if fraction > 0.0 {
+            Ordering::Less
+        } else if fraction < 0.0 {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        })
     }
 
     /// Negates a primitive numeric value.

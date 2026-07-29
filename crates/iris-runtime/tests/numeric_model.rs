@@ -1,4 +1,5 @@
 use iris_runtime::{IntegerValue, Numeric, NumericError, NumericValue};
+use std::cmp::Ordering;
 
 fn integer(source: &str) -> IntegerValue {
     match source.parse() {
@@ -304,4 +305,79 @@ fn integer_arithmetic_exceeding_64_bits_remains_exact() -> Result<(), NumericErr
         ))
     );
     Ok(())
+}
+
+#[test]
+fn c131_integer_beyond_float_range_compares_below_infinity() {
+    // Given
+    let huge = NumericValue::Integer(integer(&format!("1{}", "0".repeat(1000))));
+    let infinity = NumericValue::Float64(f64::INFINITY);
+    let negative_infinity = NumericValue::Float64(f64::NEG_INFINITY);
+
+    // When
+    let below = Numeric::compare(&huge, &infinity);
+    let above = Numeric::compare(&huge, &negative_infinity);
+    let reversed = Numeric::compare(&infinity, &huge);
+
+    // Then
+    assert_eq!(below, Some(Ordering::Less));
+    assert_eq!(above, Some(Ordering::Greater));
+    assert_eq!(reversed, Some(Ordering::Greater));
+}
+
+#[test]
+fn c131_integer_beyond_float_precision_compares_exactly() {
+    // Given
+    let integer_value = NumericValue::Integer(integer("9007199254740993"));
+    let float_value = NumericValue::Float64(9_007_199_254_740_992.0);
+
+    // When
+    let ordering = Numeric::compare(&integer_value, &float_value);
+    let reversed = Numeric::compare(&float_value, &integer_value);
+
+    // Then
+    assert_eq!(ordering, Some(Ordering::Greater));
+    assert_eq!(reversed, Some(Ordering::Less));
+}
+
+#[test]
+fn c131_integer_to_float_comparison_is_symmetric_across_operand_order() {
+    // Given
+    let cases = [
+        (integer("1"), 1.5_f64, Ordering::Less),
+        (integer("2"), 1.5_f64, Ordering::Greater),
+        (integer("-1"), -1.5_f64, Ordering::Greater),
+        (integer("-2"), -1.5_f64, Ordering::Less),
+        (integer("3"), 3.0_f64, Ordering::Equal),
+        (integer("0"), -0.0_f64, Ordering::Equal),
+    ];
+
+    for (left, right, expected) in cases {
+        // When
+        let forward = Numeric::compare(
+            &NumericValue::Integer(left.clone()),
+            &NumericValue::Float64(right),
+        );
+        let backward =
+            Numeric::compare(&NumericValue::Float64(right), &NumericValue::Integer(left));
+
+        // Then
+        assert_eq!(forward, Some(expected));
+        assert_eq!(backward, Some(expected.reverse()));
+    }
+}
+
+#[test]
+fn c131_nan_compared_with_any_integer_yields_none() {
+    // Given
+    let nan = NumericValue::Float64(f64::NAN);
+    let huge = NumericValue::Integer(integer(&format!("1{}", "0".repeat(1000))));
+
+    // When
+    let forward = Numeric::compare(&huge, &nan);
+    let backward = Numeric::compare(&nan, &huge);
+
+    // Then
+    assert_eq!(forward, None);
+    assert_eq!(backward, None);
 }

@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 57, failed: 3, needs_subsystem: 28, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 58, failed: 3, needs_subsystem: 27, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 57.
+Milestone 2 opened at RUNTIME 41 and closed at 58.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -76,10 +76,11 @@ Three real defects surfaced through probing rather than through the corpus.
 - **Construction swallowed a raise.** `A.new()` returned an instance even when `initialize` raised. Fixed in `28acea8`.
 - **Self-sends from `initialize` failed.** Construction moved the runtime out of the evaluator before running the initializer, so a nested send resolved against an empty runtime; a separate path then erased the failure into a raise of `nil`. Fixed in `39c576e`. This regressed in `28acea8`.
 - **`instance_state` was never enforced.** The capability name was accepted but no check existed, so a denying class could still gain a slot. Fixed in `3773f7a`.
+- **Ordered numeric comparison was not exact.** `Numeric::compare` rounded both operands to `f64` while `Numeric::equal` already compared exactly, so an `Integer` beyond finite float range became an infinity and `Float64.infinity > 10 ** 1000` returned `false` against `RUNTIME-C131`. Found by re-probing a `needs-subsystem` vector whose bucket reason had gone stale, which is why no vector caught it.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 57 of the 60 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 58 of the 61 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -92,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 25 rows, 8 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 26 rows, 9 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -102,6 +103,7 @@ Building it is milestone-3 sized infrastructure.
 - `crates/iris-lexer/` changes need care. A rewrite there once introduced a non-terminating loop that killed the suite with a 64 GiB allocation.
 - Only `num-bigint` and `blake3` are approved dependencies. JSON stays hand-rolled.
 - Verify claims by probing through `iris_eval::evaluate` rather than by reading code. Most defects in this milestone were found that way.
+- Treat a `needs-subsystem` bucket reason as a claim to re-probe, not a fact. Several were written before the subsystems they cite existed. A stale one hid a real `C131` exactness defect for an entire milestone, because a bucketed vector is never executed and so never fails.
 
 ## Frozen Invariants
 
@@ -112,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 57 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 58 across the
 milestone, and every vector that implementation can close is closed. The three failures listed
 above are each blocked on an owner decision or on conformance-host infrastructure, never on
 missing language behaviour, and each has its own row in `docs/spec-defects-v1.md` stating the
