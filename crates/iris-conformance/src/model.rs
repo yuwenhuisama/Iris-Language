@@ -12,6 +12,7 @@ pub struct Corpus(pub PathBuf);
 pub struct Record {
     pub id: String,
     pub source: String,
+    pub independent_sources: Vec<String>,
     pub expect: String,
     pub tags: Vec<String>,
 }
@@ -90,16 +91,30 @@ fn load(path: &Path) -> Result<Record, String> {
     Ok(Record {
         id: string(root, "id")?.into(),
         source: input_source(input)?,
+        independent_sources: input_independent_sources(input)?,
         expect: render(root.get("expect").ok_or("expect missing")?),
         tags,
     })
+}
+
+fn input_independent_sources(
+    input: &std::collections::BTreeMap<String, Value>,
+) -> Result<Vec<String>, String> {
+    match input.get("independent_sources") {
+        Some(Value::Array(sources)) => sources.iter().map(value_string).collect(),
+        Some(_) => Err("array field independent_sources required".into()),
+        None => Ok(Vec::new()),
+    }
 }
 
 fn input_source(input: &std::collections::BTreeMap<String, Value>) -> Result<String, String> {
     match input.get("source_text") {
         Some(Value::String(source)) => Ok(source.clone()),
         Some(_) => Err("string field source_text required".into()),
-        None => string(input, "fixture_ref").map(str::to_owned),
+        None => match input.get("independent_sources") {
+            Some(_) => Ok(String::new()),
+            None => string(input, "fixture_ref").map(str::to_owned),
+        },
     }
 }
 

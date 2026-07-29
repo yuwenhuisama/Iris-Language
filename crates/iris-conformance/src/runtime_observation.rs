@@ -3,26 +3,60 @@ use iris_runtime::{KernelError, NumericError, Value as RuntimeValue};
 
 use crate::{
     json::Value,
-    model::{Record, object, parse_expect, render, string},
+    model::{Record, array, object, parse_expect, render, string},
 };
 
 pub fn compare_runtime(record: &Record) -> Result<(), String> {
     let expected = parse_expect(&record.expect)?;
     let expected = object(&expected)?;
+    if !record.independent_sources.is_empty() {
+        return compare_independent_sources(record, expected);
+    }
+    compare_runtime_source(record, expected, runtime_source(record)?)
+}
+
+fn compare_independent_sources(
+    record: &Record,
+    expected: &std::collections::BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let expectations = array(
+        expected
+            .get("independent_expectations")
+            .ok_or("independent expectations missing")?,
+    )?;
+    if expectations.len() != record.independent_sources.len() {
+        return Err("independent source and expectation counts differ".into());
+    }
+    record
+        .independent_sources
+        .iter()
+        .zip(expectations)
+        .enumerate()
+        .try_for_each(|(index, (source, expected))| {
+            compare_runtime_source(record, object(expected)?, source)
+                .map_err(|error| format!("independent source {index}: {error}"))
+        })
+}
+
+fn compare_runtime_source(
+    record: &Record,
+    expected: &std::collections::BTreeMap<String, Value>,
+    source: &str,
+) -> Result<(), String> {
     match expected.get("error") {
-        Some(error) => compare_error(error, runtime_source(record)?),
+        Some(error) => compare_error(error, source),
         None if record.source.contains("stable numeric hash")
             || record.source.contains("stable singleton hash") =>
         {
             compare_hash_fixture(
                 expected.get("value").ok_or("runtime value missing")?,
-                &record.source,
+                source,
             )
         }
         None => compare_value(
             expected.get("value").ok_or("runtime value missing")?,
             expected.get("type"),
-            runtime_source(record)?,
+            source,
         ),
     }
 }
@@ -208,6 +242,7 @@ fn error_code(error: &EvaluationError) -> &'static str {
 fn kernel_error_code(error: &KernelError) -> &'static str {
     match error {
         KernelError::Numeric(NumericError::DivisionByZero) => "DivisionByZeroError",
+        KernelError::Numeric(NumericError::Domain) => "DomainError",
         KernelError::Numeric(NumericError::Range) => "RangeError",
         KernelError::Type => "TypeError",
         KernelError::Identity => "IdentityError",
@@ -224,92 +259,4 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::compare_runtime;
-    use crate::model::Record;
-
-    #[test]
-    fn expected_division_by_zero_is_accepted() {
-        // Given
-        let record = Record {
-            id: "test".into(),
-            source: "1 div 0".into(),
-            expect: "{\"error\":{\"code\":\"DivisionByZeroError\"}}".into(),
-            tags: vec![],
-        };
-
-        // When
-        let result = compare_runtime(&record);
-
-        // Then
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn canonical_numeric_bytes_is_reported_as_message_not_found() {
-        // Given
-        let record = Record {
-            id: "test".into(),
-            source: "Integer(1).canonical_numeric_bytes()".into(),
-            expect: "{\"error\":{\"code\":\"MessageNotFoundError\"}}".into(),
-            tags: vec![],
-        };
-
-        // When
-        let result = compare_runtime(&record);
-
-        // Then
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn absent_class_selectors_are_reported_as_message_not_found() {
-        // Given
-        let record = Record {
-            id: "test".into(),
-            source: "A.new_current(); A.new_checked()".into(),
-            expect: "{\"error\":{\"code\":\"MessageNotFoundError\"}}".into(),
-            tags: vec![],
-        };
-
-        // When
-        let result = compare_runtime(&record);
-
-        // Then
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn runtime_v016_fixture_uses_a_fresh_bound_method_read() {
-        // Given
-        let record = Record {
-            id: "IRIS-V1-RUNTIME-V016".into(),
-            source: "obj.method same? obj.method".into(),
-            expect: "{\"value\":{\"bool\":false}}".into(),
-            tags: vec![],
-        };
-
-        // When
-        let result = compare_runtime(&record);
-
-        // Then
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn runtime_v093_fixture_observes_typed_no_super_method_error() {
-        // Given
-        let record = Record {
-            id: "IRIS-V1-RUNTIME-V093".into(),
-            source: "bare super; explicit super() with no successor".into(),
-            expect: "{\"error\":{\"code\":\"NoSuperMethodError\"}}".into(),
-            tags: vec![],
-        };
-
-        // When
-        let result = compare_runtime(&record);
-
-        // Then
-        assert_eq!(result, Ok(()));
-    }
-}
+mod tests;

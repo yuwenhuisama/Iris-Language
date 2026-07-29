@@ -102,6 +102,11 @@
           ]
         },
         "source_text": true,
+        "independent_sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "files": true,
         "package": true,
         "metadata": true,
@@ -115,6 +120,7 @@
       },
       "anyOf": [
         { "required": ["source_text"] },
+        { "required": ["independent_sources"] },
         { "required": ["files"] },
         { "required": ["package"] },
         { "required": ["metadata"] },
@@ -147,6 +153,11 @@
         "value": true,
         "type": true,
         "error": true,
+        "independent_expectations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "object" }
+        },
         "diagnostics": true,
         "status": true,
         "artifact": true,
