@@ -192,9 +192,10 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
         EvaluationError::TypeContractError => "TypeContractError".into(),
         EvaluationError::Runtime(error) => kernel_error_code(error).into(),
-        EvaluationError::Class(iris_runtime::ClassError::MetaCapabilityDenied { .. }) => {
-            "MetaOperationError".into()
-        }
+        EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+            | iris_runtime::ClassError::ProtectedSuperclass { .. },
+        ) => "MetaOperationError".into(),
         EvaluationError::Class(_) => "RuntimeError".into(),
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::NoSuperMethod { .. },

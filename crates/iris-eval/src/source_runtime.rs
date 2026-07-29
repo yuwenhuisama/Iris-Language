@@ -1193,6 +1193,13 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
                 self.remove_module(class, module).map(|()| Value::Nil)
             }
+            Value::Class(class) if selector == "set_superclass" => {
+                let [Value::Class(superclass)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.set_superclass(class, *superclass)
+            }
+            Value::Class(class) if selector == "ancestors" => self.ancestors(class),
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
                 if self.is_builtin_class(class) {
@@ -1334,6 +1341,18 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
                 self.remove_module(*class, module).map(|()| Value::Nil)
             }
+            ("Reflection::Class", "set_superclass") => {
+                let [Value::Class(target), Value::Class(superclass)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.set_superclass(*target, *superclass)
+            }
+            ("Reflection::Class", "ancestors") => {
+                let [Value::Class(target)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.ancestors(*target)
+            }
             _ => Err(EvaluationError::UnsupportedConstruct),
         }
     }
@@ -1454,6 +1473,50 @@ impl SourceEvaluator {
             .publish(candidate)
             .map(|_| ())
             .map_err(EvaluationError::Class)
+    }
+
+    fn set_superclass(
+        &mut self,
+        target: ClassId,
+        superclass: ClassId,
+    ) -> Result<Value, EvaluationError> {
+        if self.is_builtin_class(target) {
+            return Err(EvaluationError::Class(
+                iris_runtime::ClassError::ProtectedSuperclass { class: target },
+            ));
+        }
+        self.runtime
+            .registry()
+            .require_meta_capability(target, Capability::Superclass)
+            .map_err(EvaluationError::Class)?;
+        let mut candidate = self
+            .runtime
+            .registry_mut()
+            .open(target)
+            .map_err(EvaluationError::Class)?;
+        candidate.replace_runtime_superclass(Some(superclass));
+        self.runtime
+            .registry_mut()
+            .publish(candidate)
+            .map(|_| Value::Nil)
+            .map_err(EvaluationError::Class)
+    }
+
+    fn ancestors(&self, target: ClassId) -> Result<Value, EvaluationError> {
+        let mro = self
+            .runtime
+            .registry()
+            .active(target)
+            .map_err(EvaluationError::Class)?
+            .mro();
+        Ok(Value::Array(
+            mro.iter()
+                .filter_map(|entry| match entry {
+                    iris_runtime::MroEntry::Class(class) => Some(Value::Class(*class)),
+                    iris_runtime::MroEntry::Module(_) => None,
+                })
+                .collect(),
+        ))
     }
 
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
@@ -2340,6 +2403,32 @@ mod tests {
                 .active_revision(integer)
                 .map_err(crate::EvaluationError::Class)?,
             before
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn retained_method_binding_failure_does_not_execute_its_observable_body()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "let mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(crate::EvaluationError::Construction(
+                iris_runtime::ConstructionError::Dispatch(
+                    iris_runtime::DispatchError::MethodBinding { .. }
+                )
+            ))
+        ));
+        assert_eq!(
+            evaluator.names.get("log").map(|binding| &binding.value),
+            Some(&Value::Array(Vec::new()))
         );
         Ok(())
     }

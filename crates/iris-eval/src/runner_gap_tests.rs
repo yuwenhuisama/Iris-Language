@@ -1,6 +1,6 @@
 use iris_runtime::{
-    BuiltinClass, Kernel, KernelError, MethodBody, NativeSelector, Runtime, Selector, StaticSpine,
-    Value as RuntimeValue, Visibility,
+    BuiltinClass, ClassId, Kernel, KernelError, MethodBody, NativeSelector, Runtime, Selector,
+    StaticSpine, Value as RuntimeValue, Visibility,
 };
 
 use super::{EvaluationError, evaluate};
@@ -163,6 +163,68 @@ fn reflection_class_and_class_mixin_share_method_and_module_operations() {
             RuntimeValue::Nil,
         ]))
     );
+}
+
+#[test]
+fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
+    // Given
+    let source = "class A { }; class B extends A { }; class Other { }; let first = Reflection::Class.set_superclass(B, Other); let ancestors = Reflection::Class.ancestors(B); let direct = B.set_superclass(A); [first, ancestors, direct, Reflection::Class.ancestors(B)]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Array(vec![
+                RuntimeValue::Class(ClassId::new(1)),
+                RuntimeValue::Class(ClassId::new(2))
+            ]),
+            RuntimeValue::Nil,
+            RuntimeValue::Array(vec![
+                RuntimeValue::Class(ClassId::new(1)),
+                RuntimeValue::Class(ClassId::new(0))
+            ]),
+        ]))
+    );
+}
+
+#[test]
+fn runtime_superclass_change_rejects_retained_method_before_body_entry() {
+    // Given
+    let source = "let mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Construction(
+            iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::MethodBinding { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
+fn reflection_class_rejects_protected_builtin_superclass_mutation() {
+    // Given
+    let source = "class A { }; Reflection::Class.set_superclass(Integer, A)";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::ProtectedSuperclass { .. }
+        ))
+    ));
 }
 
 #[test]
