@@ -131,3 +131,52 @@ fn logical_operators_cannot_be_declared_as_class_methods() {
             .all(|result| result == Err(EvaluationError::ParseDiagnostic))
     );
 }
+
+#[test]
+fn overloadable_operator_methods_dispatch_independently() {
+    // Given
+    let add = "class V { public fun +(other: V) -> Symbol { :plus } }; V.new() + V.new()";
+    let compare = "class V { public fun <=>(other: V) -> Integer { 1 } }; V.new() <=> V.new()";
+    let equality = "class V { public fun ==(other: V) -> Bool { true } }; V.new() == V.new()";
+    let independent = "class V { public fun <=>(other: V) -> Integer { 1 } public fun ==(other: V) -> Bool { false } }; [V.new() <=> V.new(), V.new() == V.new()]";
+
+    // When
+    let add_result = evaluate(add);
+    let compare_result = evaluate(compare);
+    let equality_result = evaluate(equality);
+    let independent_result = evaluate(independent);
+
+    // Then
+    assert_eq!(add_result, Ok(RuntimeValue::Symbol("plus".into())));
+    assert_eq!(compare_result, Ok(RuntimeValue::Integer(1_u8.into())));
+    assert_eq!(equality_result, Ok(RuntimeValue::Bool(true)));
+    assert_eq!(
+        independent_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Bool(false),
+        ]))
+    );
+}
+
+#[test]
+fn source_class_variables_and_builtin_reopens_dispatch() {
+    // Given
+    let class_variable = "class P { shared mut @@n: Integer = 0 public fun t() -> Integer { @@n = @@n + 1 } }; [P.new().t(), P.new().t()]";
+    let builtin_reopen =
+        "open class Integer { public fun probe() -> Symbol { :p } }; Integer(1).probe()";
+
+    // When
+    let class_variable_result = evaluate(class_variable);
+    let builtin_reopen_result = evaluate(builtin_reopen);
+
+    // Then
+    assert_eq!(
+        class_variable_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Integer(2_u8.into()),
+        ]))
+    );
+    assert_eq!(builtin_reopen_result, Ok(RuntimeValue::Symbol("p".into())));
+}

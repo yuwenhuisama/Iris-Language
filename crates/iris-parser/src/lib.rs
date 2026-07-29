@@ -873,8 +873,39 @@ impl Parser {
         Some(values)
     }
     fn selector(&mut self) -> Option<String> {
+        if let Some(operator) = self.operator_selector() {
+            return Some(operator.into());
+        }
         let name = self.name()?;
         self.selector_suffix(name)
+    }
+
+    fn operator_selector(&mut self) -> Option<&'static str> {
+        let operator = match self.peek()? {
+            "+" => "+",
+            "-" => "-",
+            "*" => "*",
+            "**" => "**",
+            "/" => "/",
+            "&" => "&",
+            "|" => "|",
+            "^" => "^",
+            "~" => "~",
+            "<<" => "<<",
+            ">>" => ">>",
+            "<" => "<",
+            "<=" => "<=",
+            ">" => ">",
+            ">=" => ">=",
+            "<=>" => "<=>",
+            "=~" => "=~",
+            "!~" => "!~",
+            "==" => "==",
+            "!=" => "!=",
+            _ => return None,
+        };
+        self.advance();
+        Some(operator)
     }
     fn decorators(&mut self) -> Vec<Decorator> {
         let mut decorators = Vec::new();

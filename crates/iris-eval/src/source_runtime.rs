@@ -844,7 +844,23 @@ impl SourceEvaluator {
                 }
                 let right = self.expression(right, locals, receiver)?;
                 let selector = match operator {
+                    BinaryOperator::Power => "**",
                     BinaryOperator::Multiply => "*",
+                    BinaryOperator::Divide => "/",
+                    BinaryOperator::Add => "+",
+                    BinaryOperator::Subtract => "-",
+                    BinaryOperator::ShiftLeft => "<<",
+                    BinaryOperator::ShiftRight => ">>",
+                    BinaryOperator::BitwiseAnd => "&",
+                    BinaryOperator::BitwiseXor => "^",
+                    BinaryOperator::BitwiseOr => "|",
+                    BinaryOperator::Less => "<",
+                    BinaryOperator::LessEqual => "<=",
+                    BinaryOperator::Greater => ">",
+                    BinaryOperator::GreaterEqual => ">=",
+                    BinaryOperator::Compare => "<=>",
+                    BinaryOperator::Equal => "==",
+                    BinaryOperator::NotEqual => "!=",
                     BinaryOperator::NamedInfix { selector } => selector,
                     BinaryOperator::Identity => {
                         return Ok(Value::Bool(left == right));
