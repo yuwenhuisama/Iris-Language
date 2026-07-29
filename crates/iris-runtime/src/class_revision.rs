@@ -121,6 +121,7 @@ pub struct ClassRevision {
     mro: Vec<MroEntry>,
     modules: Vec<ModuleId>,
     methods: BTreeMap<Selector, MethodId>,
+    tombstones: BTreeSet<Selector>,
     singleton_methods: BTreeMap<Selector, MethodId>,
     properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
@@ -146,6 +147,7 @@ impl ClassRevision {
             mro: candidate.mro,
             modules: candidate.modules,
             methods: candidate.methods,
+            tombstones: candidate.tombstones,
             singleton_methods: candidate.singleton_methods,
             properties: candidate.properties,
             class_vars: candidate.class_vars,
@@ -200,6 +202,11 @@ impl ClassRevision {
         &self.methods
     }
 
+    /// Returns selectors whose local tombstones block ancestor lookup.
+    pub const fn tombstones(&self) -> &BTreeSet<Selector> {
+        &self.tombstones
+    }
+
     /// Returns singleton Methods installed on this Class object.
     pub const fn singleton_methods(&self) -> &BTreeMap<Selector, MethodId> {
         &self.singleton_methods
@@ -242,6 +249,7 @@ pub struct CandidateRevision {
     pub(crate) mro: Vec<MroEntry>,
     pub(crate) modules: Vec<ModuleId>,
     pub(crate) methods: BTreeMap<Selector, MethodId>,
+    pub(crate) tombstones: BTreeSet<Selector>,
     pub(crate) singleton_methods: BTreeMap<Selector, MethodId>,
     pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
@@ -269,6 +277,7 @@ impl CandidateRevision {
             mro,
             modules: Vec::new(),
             methods: BTreeMap::new(),
+            tombstones: BTreeSet::new(),
             singleton_methods: BTreeMap::new(),
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
@@ -289,6 +298,7 @@ impl CandidateRevision {
             mro: revision.mro.clone(),
             modules: revision.modules.clone(),
             methods: revision.methods.clone(),
+            tombstones: revision.tombstones.clone(),
             singleton_methods: revision.singleton_methods.clone(),
             properties: revision.properties.clone(),
             class_vars: revision.class_vars.clone(),
@@ -323,7 +333,18 @@ impl CandidateRevision {
     }
 
     pub(crate) fn replace_method(&mut self, selector: Selector, method: MethodId) {
+        self.tombstones.remove(&selector);
         self.methods.insert(selector, method);
+    }
+
+    pub(crate) fn remove_method(&mut self, selector: Selector) {
+        self.methods.remove(&selector);
+        self.tombstones.remove(&selector);
+    }
+
+    pub(crate) fn undef_method(&mut self, selector: Selector) {
+        self.methods.remove(&selector);
+        self.tombstones.insert(selector);
     }
 
     pub(crate) fn replace_singleton_method(&mut self, selector: Selector, method: MethodId) {
@@ -355,6 +376,7 @@ impl CandidateRevision {
         self.runtime_superclass = artifact.runtime_superclass();
         self.modules = artifact.modules().to_vec();
         self.methods = artifact.methods().clone();
+        self.tombstones = artifact.tombstones().clone();
         self.singleton_methods = artifact.singleton_methods().clone();
         self.properties = artifact.properties().to_vec();
         self.class_vars = artifact.class_vars().clone();

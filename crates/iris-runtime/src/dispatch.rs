@@ -27,6 +27,8 @@ pub enum DispatchError {
     MissingMethod { selector: Selector },
     /// The retained Method lexical owner is not in the receiver's current MRO.
     InvalidSuper { selector: Selector },
+    /// A reflected Method cannot be invoked on the receiver's current MRO.
+    MethodBinding { selector: Selector },
     /// No same-selector implementation follows the lexical owner in current MRO.
     NoSuperMethod { selector: Selector },
 }
@@ -136,6 +138,66 @@ impl crate::ClassRegistry {
         self.publish(candidate)?;
         self.methods.insert(method.id(), method);
         Ok(method)
+    }
+
+    /// Creates another local slot that references the selected Method identity.
+    pub fn alias_method(
+        &mut self,
+        class: ClassId,
+        alias: Selector,
+        original: Selector,
+    ) -> Result<(), ClassError> {
+        self.require_meta_capability(class, crate::Capability::MethodSet)?;
+        let method = self.resolve_local_or_ancestor_method(class, original)?;
+        let mut candidate = self.open(class)?;
+        candidate.replace_method(alias, method.id());
+        self.publish(candidate)?;
+        Ok(())
+    }
+
+    fn resolve_local_or_ancestor_method(
+        &self,
+        class: ClassId,
+        selector: Selector,
+    ) -> Result<Method, ClassError> {
+        for entry in self.active(class)?.mro() {
+            let method = match entry {
+                MroEntry::Class(owner) => {
+                    let revision = self.active(*owner)?;
+                    if revision.tombstones().contains(&selector) {
+                        return Err(ClassError::MethodSlotNotFound { class, selector });
+                    }
+                    revision
+                        .methods()
+                        .get(&selector)
+                        .and_then(|id| self.methods.get(id))
+                        .copied()
+                }
+                MroEntry::Module(module) => self.modules.method(*module, selector),
+            };
+            if let Some(method) = method {
+                return Ok(method);
+            }
+        }
+        Err(ClassError::MethodSlotNotFound { class, selector })
+    }
+
+    /// Removes only the current owner's local slot, allowing ancestors to resolve it.
+    pub fn remove_method(&mut self, class: ClassId, selector: Selector) -> Result<(), ClassError> {
+        self.require_meta_capability(class, crate::Capability::MethodSet)?;
+        let mut candidate = self.open(class)?;
+        candidate.remove_method(selector);
+        self.publish(candidate)?;
+        Ok(())
+    }
+
+    /// Installs a local tombstone that makes the selector absent despite ancestors.
+    pub fn undef_method(&mut self, class: ClassId, selector: Selector) -> Result<(), ClassError> {
+        self.require_meta_capability(class, crate::Capability::MethodSet)?;
+        let mut candidate = self.open(class)?;
+        candidate.undef_method(selector);
+        self.publish(candidate)?;
+        Ok(())
     }
 
     /// Publishes one singleton Method on a specific Class object.
@@ -281,13 +343,17 @@ impl crate::ClassRegistry {
     ) -> Result<DispatchOutcome, DispatchError> {
         for entry in self.active(class).map_err(DispatchError::Class)?.mro() {
             let found = match entry {
-                MroEntry::Class(owner) => self
-                    .active(*owner)
-                    .map_err(DispatchError::Class)?
-                    .methods()
-                    .get(&selector)
-                    .and_then(|id| self.methods.get(id))
-                    .copied(),
+                MroEntry::Class(owner) => {
+                    let revision = self.active(*owner).map_err(DispatchError::Class)?;
+                    if revision.tombstones().contains(&selector) {
+                        return Ok(DispatchOutcome::WouldInvokeMethodMissing { selector });
+                    }
+                    revision
+                        .methods()
+                        .get(&selector)
+                        .and_then(|id| self.methods.get(id))
+                        .copied()
+                }
                 MroEntry::Module(module) => self.modules.method(*module, selector),
             };
             if let Some(method) = found {
@@ -387,6 +453,40 @@ impl crate::ClassRegistry {
         }
     }
 
+    /// Validates a retained Method against the receiver's current MRO before body entry.
+    pub fn validate_method_binding(
+        &self,
+        receiver: ClassId,
+        method: Method,
+    ) -> Result<(), DispatchError> {
+        let owner = match method.owner() {
+            MethodOwner::Class(class) => MroEntry::Class(class),
+            MethodOwner::Module(module) => MroEntry::Module(module),
+        };
+        self.active(receiver)
+            .map_err(DispatchError::Class)?
+            .mro()
+            .contains(&owner)
+            .then_some(())
+            .ok_or(DispatchError::MethodBinding {
+                selector: method.selector(),
+            })
+    }
+
+    /// Validates a reflected Method before permitting its body to start.
+    pub fn invoke_reflective<T, F>(
+        &self,
+        receiver: ClassId,
+        method: Method,
+        invoke: F,
+    ) -> Result<T, DispatchError>
+    where
+        F: FnOnce(Method) -> Result<T, DispatchError>,
+    {
+        self.validate_method_binding(receiver, method)?;
+        invoke(method)
+    }
+
     /// Reports a missing qualified Contract slot without ordinary fallback.
     pub fn dispatch_contract(
         &self,
@@ -423,13 +523,17 @@ impl crate::ClassRegistry {
                 })?;
         for entry in &mro[index + 1..] {
             let successor = match entry {
-                MroEntry::Class(owner) => self
-                    .active(*owner)
-                    .map_err(DispatchError::Class)?
-                    .methods()
-                    .get(&selector)
-                    .and_then(|id| self.methods.get(id))
-                    .copied(),
+                MroEntry::Class(owner) => {
+                    let revision = self.active(*owner).map_err(DispatchError::Class)?;
+                    if revision.tombstones().contains(&selector) {
+                        return Err(DispatchError::NoSuperMethod { selector });
+                    }
+                    revision
+                        .methods()
+                        .get(&selector)
+                        .and_then(|id| self.methods.get(id))
+                        .copied()
+                }
                 MroEntry::Module(module) => self.modules.method(*module, selector),
             };
             if let Some(successor) = successor {

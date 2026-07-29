@@ -58,6 +58,74 @@ fn visibility_denial_does_not_report_message_not_found() {
 }
 
 #[test]
+fn user_defined_method_missing_handles_an_absent_ordinary_selector() {
+    // Given
+    let source = "class A { public fun method_missing(selector, arguments, block) -> Symbol { :handled } }; A.new().absent()";
+
+    // When
+    let result = crate::evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("handled".into())));
+}
+
+#[test]
+fn default_method_missing_reports_message_not_found() {
+    // Given
+    let source = "class A {}; A.new().absent()";
+
+    // When
+    let result = crate::evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::MessageNotFound { receiver_class, selector })
+            if receiver_class == "A" && selector == "absent"
+    ));
+}
+
+#[test]
+fn class_method_slot_operations_follow_d448_alias_remove_and_undef_rules() {
+    // Given
+    let source = "class Base { public fun f() -> Symbol { :base_f } public fun g() -> Symbol { :base_g } }; class A extends Base { public fun f() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:g, :f); let a = A.new(); let alias = a.g(); let ignored_remove = A.remove_method(:g); let removed = a.g(); let ignored_undef = A.undef_method(:f); [alias, removed, a.f()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("local".into()),
+            RuntimeValue::Symbol("base_g".into()),
+            RuntimeValue::Symbol("missing".into()),
+        ]))
+    );
+}
+
+#[test]
+fn class_method_slot_operations_require_method_set_capability() {
+    // Given
+    let source =
+        "class A meta deny method_set { public fun f() -> Symbol { :f } }; A.remove_method(:f)";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied {
+                operation: iris_runtime::Capability::MethodSet,
+                ..
+            }
+        ))
+    ));
+}
+
+#[test]
 fn rejects_identity_less_operands_with_identity_error() {
     // Given
     let source = "Integer(1) same? Integer(1)";

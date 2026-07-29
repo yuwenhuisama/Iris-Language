@@ -1010,7 +1010,7 @@ impl SourceEvaluator {
                 Err(error) => Err(EvaluationError::Runtime(error)),
             },
             Value::BoundMethod(bound) => self.invoke_method(
-                bound.method(),
+                self.validate_bound_method(bound)?,
                 match bound.receiver() {
                     iris_runtime::BoundReceiver::Class(class) => Value::Class(class),
                     iris_runtime::BoundReceiver::Object(object) => Value::Object(object),
@@ -1019,6 +1019,25 @@ impl SourceEvaluator {
             ),
             _ => Err(EvaluationError::UnsupportedConstruct),
         }
+    }
+
+    fn validate_bound_method(
+        &self,
+        bound: iris_runtime::BoundMethod,
+    ) -> Result<Method, EvaluationError> {
+        let receiver = match bound.receiver() {
+            iris_runtime::BoundReceiver::Class(class) => class,
+            iris_runtime::BoundReceiver::Object(object) => self
+                .runtime
+                .class_of(object)
+                .map_err(EvaluationError::Construction)?,
+        };
+        self.runtime
+            .registry()
+            .validate_method_binding(receiver, bound.method())
+            .map(|()| bound.method())
+            .map_err(iris_runtime::ConstructionError::from)
+            .map_err(EvaluationError::Construction)
     }
 
     fn construct(
@@ -1061,6 +1080,40 @@ impl SourceEvaluator {
         match receiver {
             Value::Class(class) if selector == "new" => {
                 self.construct(class, arguments).map(Value::Object)
+            }
+            Value::Class(class) if selector == "alias_method" => {
+                let [Value::Symbol(alias), Value::Symbol(original)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let alias = self.selector(alias);
+                let original = self.selector(original);
+                self.runtime
+                    .registry_mut()
+                    .alias_method(class, alias, original)
+                    .map(|()| Value::Nil)
+                    .map_err(EvaluationError::Class)
+            }
+            Value::Class(class) if selector == "remove_method" => {
+                let [Value::Symbol(selector)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let selector = self.selector(selector);
+                self.runtime
+                    .registry_mut()
+                    .remove_method(class, selector)
+                    .map(|()| Value::Nil)
+                    .map_err(EvaluationError::Class)
+            }
+            Value::Class(class) if selector == "undef_method" => {
+                let [Value::Symbol(selector)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let selector = self.selector(selector);
+                self.runtime
+                    .registry_mut()
+                    .undef_method(class, selector)
+                    .map(|()| Value::Nil)
+                    .map_err(EvaluationError::Class)
             }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
@@ -1116,6 +1169,11 @@ impl SourceEvaluator {
                     )) if selector == self.selector("to_bool") && arguments.is_empty() => {
                         Ok(Value::Bool(true))
                     }
+                    Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::MissingMethod { .. },
+                        ),
+                    )) => self.invoke_method_missing(object, selector, arguments),
                     Err(error) => Err(error),
                 }
             }
@@ -1349,6 +1407,64 @@ impl SourceEvaluator {
                 )),
             Err(error) => Err(EvaluationError::Construction(error)),
         }
+    }
+
+    fn invoke_method_missing(
+        &mut self,
+        object: iris_runtime::ObjectId,
+        missing: Selector,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let fallback = self.selector("method_missing");
+        if missing == fallback {
+            return Err(EvaluationError::MessageNotFound {
+                receiver_class: self.object_class_name(object)?,
+                selector: "method_missing".into(),
+            });
+        }
+        let method = match self.resolve_instance_method(object, fallback) {
+            Ok(method) => method,
+            Err(EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::MissingMethod { .. },
+            ))) => {
+                return Err(EvaluationError::MessageNotFound {
+                    receiver_class: self.object_class_name(object)?,
+                    selector: self.selector_name(missing),
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        self.invoke_method(
+            method,
+            Value::Object(object),
+            &[
+                Value::Symbol(self.selector_name(missing)),
+                Value::Array(arguments.to_vec()),
+                Value::Nil,
+            ],
+        )
+    }
+
+    fn selector_name(&self, selector: Selector) -> String {
+        self.selectors
+            .iter()
+            .find_map(|(name, id)| (*id == selector).then(|| name.clone()))
+            .unwrap_or_else(|| "<unknown>".into())
+    }
+
+    fn object_class_name(&self, object: iris_runtime::ObjectId) -> Result<String, EvaluationError> {
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        Ok(self
+            .names
+            .iter()
+            .find_map(|(name, binding)| {
+                matches!(binding.value, Value::Class(candidate) if candidate == class)
+                    .then(|| name.clone())
+            })
+            .unwrap_or_else(|| "Object".into()))
     }
 
     fn validate_module_overrides(

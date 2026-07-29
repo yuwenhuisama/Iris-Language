@@ -65,6 +65,10 @@ pub enum ClassError {
         class: ClassId,
         selector: crate::Selector,
     },
+    MethodSlotNotFound {
+        class: ClassId,
+        selector: crate::Selector,
+    },
 }
 
 impl fmt::Display for ClassError {
@@ -93,6 +97,7 @@ impl fmt::Display for ClassError {
             Self::DuplicateClassVariable { .. } => "Iris Class variable is already anchored",
             Self::OverrideRequired { .. } => "Iris Method replacement requires override",
             Self::OverrideWithoutTarget { .. } => "Iris override has no replacement target",
+            Self::MethodSlotNotFound { .. } => "Iris Method slot is absent",
         };
         formatter.write_str(message)
     }

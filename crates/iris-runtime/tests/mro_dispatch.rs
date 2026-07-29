@@ -233,3 +233,181 @@ fn missing_qualified_slot_returns_contract_dispatch_error() -> Result<(), ClassE
     ));
     Ok(())
 }
+
+#[test]
+fn alias_method_preserves_the_original_method_identity() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let class = define_class(&mut registry, None)?;
+    let original = Selector::new(8);
+    let alias = Selector::new(9);
+    let method =
+        registry.publish_method(class, original, MethodBody::new(80), Visibility::Public)?;
+
+    // When
+    registry.alias_method(class, alias, original)?;
+
+    // Then
+    assert_eq!(
+        registry.dispatch(class, alias),
+        Ok(DispatchOutcome::Invoke(method))
+    );
+    Ok(())
+}
+
+#[test]
+fn removing_a_local_slot_exposes_the_ancestor_implementation() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let parent = define_class(&mut registry, None)?;
+    let child = define_class(&mut registry, Some(parent))?;
+    let selector = Selector::new(10);
+    let inherited =
+        registry.publish_method(parent, selector, MethodBody::new(100), Visibility::Public)?;
+    registry.publish_method(child, selector, MethodBody::new(101), Visibility::Public)?;
+
+    // When
+    registry.remove_method(child, selector)?;
+
+    // Then
+    assert_eq!(
+        registry.dispatch(child, selector),
+        Ok(DispatchOutcome::Invoke(inherited))
+    );
+    Ok(())
+}
+
+#[test]
+fn undefining_a_local_slot_blocks_the_ancestor_implementation() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let parent = define_class(&mut registry, None)?;
+    let child = define_class(&mut registry, Some(parent))?;
+    let selector = Selector::new(11);
+    registry.publish_method(parent, selector, MethodBody::new(110), Visibility::Public)?;
+
+    // When
+    registry.undef_method(child, selector)?;
+
+    // Then
+    assert_eq!(
+        registry.dispatch(child, selector),
+        Ok(DispatchOutcome::WouldInvokeMethodMissing { selector })
+    );
+    Ok(())
+}
+
+#[test]
+fn reflective_invocation_requires_the_lexical_owner_in_the_current_mro() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let owner = define_class(&mut registry, None)?;
+    let receiver = define_class(&mut registry, None)?;
+    let method = registry.publish_method(
+        owner,
+        Selector::new(12),
+        MethodBody::new(120),
+        Visibility::Public,
+    )?;
+
+    // When
+    let result = registry.validate_method_binding(receiver, method);
+
+    // Then
+    assert!(matches!(result, Err(DispatchError::MethodBinding { .. })));
+    Ok(())
+}
+
+#[test]
+fn reflective_invocation_accepts_an_owner_in_the_current_mro() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let owner = define_class(&mut registry, None)?;
+    let receiver = define_class(&mut registry, Some(owner))?;
+    let method = registry.publish_method(
+        owner,
+        Selector::new(13),
+        MethodBody::new(130),
+        Visibility::Public,
+    )?;
+
+    // When
+    let result = registry.validate_method_binding(receiver, method);
+
+    // Then
+    assert_eq!(result, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn reflective_invocation_requires_a_module_owner_in_the_current_mro() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let module = registry.define_module(&[])?;
+    let receiver = define_class(&mut registry, None)?;
+    let method = registry.define_module_method(
+        module,
+        Selector::new(15),
+        MethodBody::new(150),
+        Visibility::Public,
+    )?;
+
+    // When
+    let result = registry.validate_method_binding(receiver, method);
+
+    // Then
+    assert!(matches!(result, Err(DispatchError::MethodBinding { .. })));
+    Ok(())
+}
+
+#[test]
+fn reflective_invocation_accepts_a_module_owner_in_the_current_mro() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let module = registry.define_module(&[])?;
+    let receiver = registry.define_class_with_capabilities_and_modules(
+        StaticSpine::new(1),
+        None,
+        iris_runtime::MetaCapabilities::all(),
+        &[module],
+    )?;
+    let method = registry.define_module_method(
+        module,
+        Selector::new(16),
+        MethodBody::new(160),
+        Visibility::Public,
+    )?;
+
+    // When
+    let result = registry.validate_method_binding(receiver, method);
+
+    // Then
+    assert_eq!(result, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn invalid_reflective_binding_prevents_the_method_body_from_executing() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let owner = define_class(&mut registry, None)?;
+    let receiver = define_class(&mut registry, None)?;
+    let method = registry.publish_method(
+        owner,
+        Selector::new(14),
+        MethodBody::new(140),
+        Visibility::Public,
+    )?;
+    let mut body_executed = false;
+
+    // When
+    let result = registry.invoke_reflective(receiver, method, |_| {
+        body_executed = true;
+        Ok(())
+    });
+
+    // Then
+    assert!(matches!(result, Err(DispatchError::MethodBinding { .. })));
+    assert!(!body_executed);
+    Ok(())
+}
