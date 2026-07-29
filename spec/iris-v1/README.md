@@ -1,8 +1,8 @@
 # Iris v1 Specification Index
 
-Status: Iris v1.7, frozen semantics with owner-approved errata.
+Status: Iris v1.8, frozen semantics with owner-approved errata.
 
-IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `.omo/drafts/iris-language-specification.md`. Historical files under `Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
+IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `spec/drafts/iris-language-specification.md`. Historical files under `Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
 
 IRIS-V1-TRACE-C001: The language semantics are closed for v1. Writers MUST preserve the frozen decisions, including later revisions that supersede earlier wording. Apparent gaps MUST be recorded as `DEFERRED V1` or escalated before writing. Writers MUST NOT add, remove, reinterpret, or silently complete a language feature. This clause is qualified by the revision procedure in IRIS-V1-TRACE-C019 through IRIS-V1-TRACE-C022: a gap closed through that procedure is not a silent completion.
 

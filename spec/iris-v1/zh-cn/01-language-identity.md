@@ -157,7 +157,7 @@ IRIS-V1-IDENTITY-C036: 以下向量是带有具体审计输入的规范性可追
 
 | 向量 ID | 类别 | 适用性 | 源/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
-| `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | 验证固定的 Iris v1 产物集和语义来源声明。 | `spec/iris-v1` 下恰好存在 14 个产品产物；`.omo/drafts/iris-language-specification.md` 是已批准的语义来源；没有实现文件或考古资料是规范性的。 | `D-000`, `D-001` |
+| `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | 验证固定的 Iris v1 产物集和语义来源声明。 | `spec/iris-v1` 下恰好存在 14 个产品产物；`spec/drafts/iris-language-specification.md` 是已批准的语义来源；没有实现文件或考古资料是规范性的。 | `D-000`, `D-001` |
 | `IRIS-V1-IDENTITY-V002` | diagnostic | documentation validator required; interpreter optional; JIT optional; native optional | 验证使用对象值、动态运算符 dispatch、Closure、抛出任意对象和 Host/native 边界声明的源码语料。 | 只有当这些身份表面存在，且没有被源码兼容的 Legacy Iris 恢复声明替代时，语料才被接受。 | `D-002` |
 
 ## 身份覆盖用例

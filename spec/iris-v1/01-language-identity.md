@@ -155,7 +155,7 @@ IRIS-V1-IDENTITY-C036: The following vectors are normative traceability vectors 
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
-| `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | Validate the fixed Iris v1 artifact set and semantic source declaration. | Exactly 14 product artifacts exist under `spec/iris-v1`; `.omo/drafts/iris-language-specification.md` is the approved semantic source; no implementation or archaeology file is normative. | `D-000`, `D-001` |
+| `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | Validate the fixed Iris v1 artifact set and semantic source declaration. | Exactly 14 product artifacts exist under `spec/iris-v1`; `spec/drafts/iris-language-specification.md` is the approved semantic source; no implementation or archaeology file is normative. | `D-000`, `D-001` |
 | `IRIS-V1-IDENTITY-V002` | diagnostic | documentation validator required; interpreter optional; JIT optional; native optional | Validate a source corpus using object values, dynamic operator dispatch, closures, raising arbitrary objects, and host/native boundary declarations. | Corpus is accepted only when those identity surfaces are present and not replaced by source-compatible Legacy Iris restoration claims. | `D-002` |
 
 ## Identity Coverage Cases

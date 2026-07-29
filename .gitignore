@@ -218,3 +218,11 @@ Iris.VC.db
 
 # Playwright test artifacts
 .playwright-mcp/
+
+# Agent working state: run logs, task evidence, plans, and analysis.
+# The conclusions live in docs/spec-defects-v1.md, docs/milestone-2-status.md,
+# and the conformance corpus, so the process material itself is not tracked.
+/.omo/
+
+# Codegraph index
+/.codegraph/
