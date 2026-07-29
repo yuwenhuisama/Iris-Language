@@ -786,6 +786,11 @@ impl SourceEvaluator {
                         .runtime
                         .class_raw_ivar(class, selector)
                         .map_err(EvaluationError::Construction),
+                    Value::Nil
+                    | Value::Bool(_)
+                    | Value::Integer(_)
+                    | Value::Float32(_)
+                    | Value::Float64(_) => Ok(Value::Nil),
                     _ => Err(EvaluationError::UnsupportedConstruct),
                 }
             }
@@ -1008,6 +1013,11 @@ impl SourceEvaluator {
                                 .assign_class_raw_ivar(class, selector, value)
                                 .map_err(EvaluationError::Construction)
                         }
+                        value @ (Value::Nil
+                        | Value::Bool(_)
+                        | Value::Integer(_)
+                        | Value::Float32(_)
+                        | Value::Float64(_)) => self.assign_value_raw_ivar(value),
                         _ => Err(EvaluationError::UnsupportedConstruct),
                     };
                 }
@@ -1628,6 +1638,28 @@ impl SourceEvaluator {
                 })
             }
         }
+    }
+
+    fn assign_value_raw_ivar(&self, receiver: Value) -> Result<Value, EvaluationError> {
+        let class = match receiver {
+            Value::Nil => self.kernel.class(iris_runtime::BuiltinClass::Nil),
+            Value::Bool(_) => self.kernel.class(iris_runtime::BuiltinClass::Bool),
+            Value::Integer(_) => self.kernel.class(iris_runtime::BuiltinClass::Integer),
+            Value::Float32(_) => self.kernel.class(iris_runtime::BuiltinClass::Float32),
+            Value::Float64(_) => self.kernel.class(iris_runtime::BuiltinClass::Float64),
+            Value::Array(_)
+            | Value::Symbol(_)
+            | Value::Class(_)
+            | Value::Object(_)
+            | Value::BoundMethod(_)
+            | Value::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Runtime)?;
+        self.kernel
+            .require_meta_capability(class, Capability::InstanceState)
+            .map_err(|_| iris_runtime::ConstructionError::InstanceState { class })
+            .map_err(EvaluationError::Construction)
+            .map(|()| receiver)
     }
 
     fn append_array_binding(

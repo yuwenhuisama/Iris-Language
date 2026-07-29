@@ -1090,6 +1090,72 @@ fn raw_ivar_forms_remain_parse_diagnostics() {
 }
 
 #[test]
+fn meta_denied_instance_state_rejects_first_raw_ivar_assignment() {
+    // Given
+    let source = "class A meta deny instance_state { public property fun px=(value: Integer) -> Integer { @x = value } }; let a = A.new(); a.px = 2";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(result, Err(EvaluationError::Construction(_))));
+}
+
+#[test]
+fn ordinary_instance_state_assignment_still_creates_a_raw_ivar() {
+    // Given
+    let source = "class A { public property fun px=(value: Integer) -> Integer { @x = value } public property fun px() -> Integer { @x } }; let a = A.new(); [a.px = 2, a.px]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(2_u8.into()),
+            RuntimeValue::Integer(2_u8.into()),
+        ]))
+    );
+}
+
+#[test]
+fn raw_ivar_assignment_on_a_value_receiver_reports_instance_state() {
+    // Given
+    let integer = "open class Integer { public property fun px=(value: Integer) -> Integer { @x = value } }; let n = 1; n.px = 2";
+    let float32 = "open class Float32 { public property fun px=(value: Integer) -> Integer { @x = value } }; let f = 1.0f32; f.px = 2";
+
+    // When
+    let results = [evaluate(integer), evaluate(float32)];
+
+    // Then
+    assert!(
+        results
+            .iter()
+            .all(|result| matches!(result, Err(EvaluationError::Construction(_))))
+    );
+}
+
+#[test]
+fn raw_ivar_read_returns_nil_without_materializing_value_receiver_state() {
+    // Given
+    let source =
+        "open class Integer { public property fun px() -> Nil { @x } }; let n = 1; [n.px, n.px]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Nil
+        ]))
+    );
+}
+
+#[test]
 fn source_member_read_creates_a_fresh_bound_method_while_parenthesized_send_invokes() {
     // Given
     let member_read = "class A { public fun m() -> Integer { 1 } }; let a = A.new(); a.m";

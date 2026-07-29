@@ -2,9 +2,9 @@ use core::{cmp::Ordering, fmt};
 use std::error::Error;
 
 use crate::{
-    BuiltinClass, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, IntegerValue,
-    Method, MethodBody, Numeric, NumericError, NumericValue, Selector, StableHashError,
-    StaticSpine, Value, Visibility,
+    BuiltinClass, Capability, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome,
+    IntegerValue, MetaCapabilities, Method, MethodBody, Numeric, NumericError, NumericValue,
+    Selector, StableHashError, StaticSpine, Value, Visibility,
 };
 
 /// Built-in selector identities executed by the native runtime kernel.
@@ -203,7 +203,13 @@ impl Kernel {
         {
             classes[index] = (
                 kind,
-                registry.define_builtin_class(kind, StaticSpine::new(1), None)?,
+                registry.define_builtin_class(
+                    kind,
+                    StaticSpine::new(1).with_meta_capabilities(MetaCapabilities::denying(&[
+                        Capability::InstanceState,
+                    ])),
+                    None,
+                )?,
             );
         }
         let mut kernel = Self { registry, classes };
@@ -300,6 +306,15 @@ impl Kernel {
 
     pub fn registry_mut(&mut self) -> &mut ClassRegistry {
         &mut self.registry
+    }
+
+    /// Enforces an operation against a built-in Class's active effective policy.
+    pub fn require_meta_capability(
+        &self,
+        class: ClassId,
+        operation: Capability,
+    ) -> Result<(), ClassError> {
+        self.registry.require_meta_capability(class, operation)
     }
     /// Resolves an ordinary selector for a built-in value through its active Class revision.
     pub fn dispatch_value(

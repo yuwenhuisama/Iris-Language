@@ -2,8 +2,8 @@ use core::fmt;
 use std::{collections::HashMap, error::Error};
 
 use crate::{
-    ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, HeapPayload, Method,
-    MethodId, MethodOwner, ObjectId, RuntimeHeap, Selector, Value, Visibility,
+    Capability, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, HeapPayload,
+    Method, MethodId, MethodOwner, ObjectId, RuntimeHeap, Selector, Value, Visibility,
 };
 
 /// An evaluator-raised Iris value or runtime storage failure.
@@ -47,6 +47,7 @@ pub enum ConstructionError {
     EscapedObjectMissing,
     MissingDeclaredClassVariable { class: ClassId, name: Selector },
     ImmutableClassVariable { class: ClassId, name: Selector },
+    InstanceState { class: ClassId },
 }
 
 impl fmt::Display for ConstructionError {
@@ -62,6 +63,7 @@ impl fmt::Display for ConstructionError {
             Self::ImmutableClassVariable { .. } => {
                 formatter.write_str("declared Iris Class variable storage is immutable")
             }
+            Self::InstanceState { .. } => formatter.write_str("InstanceStateError"),
         }
     }
 }
@@ -220,7 +222,16 @@ impl Runtime {
         name: Selector,
         value: Value,
     ) -> Result<Value, ConstructionError> {
-        self.class_of(instance)?;
+        let class = self.class_of(instance)?;
+        let absent = self
+            .raw_ivars
+            .get(&instance)
+            .is_none_or(|slots| !slots.contains_key(&name));
+        if absent {
+            self.registry
+                .require_meta_capability(class, Capability::InstanceState)
+                .map_err(|_| ConstructionError::InstanceState { class })?;
+        }
         self.raw_ivars
             .entry(instance)
             .or_default()

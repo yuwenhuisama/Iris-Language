@@ -228,13 +228,14 @@ impl ClassRegistry {
         candidate.meta_capabilities = self
             .effective_meta_capabilities(static_spine, runtime_superclass)?
             .narrowed_by(self.mro_meta_capabilities(&candidate.mro)?);
+        let candidate_capabilities = candidate.meta_capabilities;
         self.revisions.insert(
             revision,
             ClassRevision::from_candidate(
                 candidate,
                 revision,
                 next_commit_id,
-                effective_capabilities,
+                candidate_capabilities,
             ),
         );
         self.classes
@@ -252,7 +253,11 @@ impl ClassRegistry {
         static_spine: StaticSpine,
         runtime_superclass: Option<ClassId>,
     ) -> Result<ClassId, ClassError> {
-        let class = self.define_class(static_spine, runtime_superclass)?;
+        let class = self.define_class_with_capabilities(
+            static_spine,
+            runtime_superclass,
+            static_spine.meta_capabilities(),
+        )?;
         self.builtins.insert(class, kind);
         Ok(class)
     }

@@ -1,6 +1,6 @@
 use iris_runtime::{
-    ClassId, ConstructionError, ExecutionError, MethodBody, Runtime, Selector, StaticSpine, Value,
-    Visibility,
+    Capability, ClassId, ConstructionError, ExecutionError, MethodBody, Runtime, Selector,
+    StaticSpine, Value, Visibility,
 };
 
 const INITIALIZE: Selector = Selector::new(1);
@@ -189,6 +189,38 @@ fn undeclared_raw_ivar_read_returns_nil_without_creating_storage() -> Result<(),
     // Then
     assert_eq!(value, Value::Nil);
     assert_eq!(runtime.raw_ivar_count(instance)?, 0);
+    Ok(())
+}
+
+#[test]
+fn instance_state_denial_rejects_absent_slots_but_allows_existing_slot_writes()
+-> Result<(), ConstructionError> {
+    // Given
+    let mut runtime = Runtime::new();
+    let class = define_class(&mut runtime, None)?;
+    let instance = runtime.allocate(class)?;
+    runtime.assign_raw_ivar(instance, IVAR, Value::Integer(1_u8.into()))?;
+    let mut candidate = runtime
+        .registry()
+        .open(class)
+        .map_err(ConstructionError::Class)?;
+    candidate.deny_meta(&[Capability::InstanceState]);
+    runtime
+        .registry_mut()
+        .publish(candidate)
+        .map_err(ConstructionError::Class)?;
+
+    // When
+    let existing = runtime.assign_raw_ivar(instance, IVAR, Value::Integer(2_u8.into()));
+    let absent = runtime.assign_raw_ivar(instance, Selector::new(7), Value::Integer(3_u8.into()));
+
+    // Then
+    assert_eq!(existing, Ok(Value::Integer(2_u8.into())));
+    assert_eq!(absent, Err(ConstructionError::InstanceState { class }));
+    assert_eq!(
+        runtime.raw_ivar(instance, IVAR)?,
+        Value::Integer(2_u8.into())
+    );
     Ok(())
 }
 

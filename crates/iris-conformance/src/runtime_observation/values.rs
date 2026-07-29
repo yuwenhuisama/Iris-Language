@@ -212,6 +212,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::InvalidSuper { .. },
         )) => "InvalidSuperError".into(),
+        EvaluationError::Construction(iris_runtime::ConstructionError::InstanceState {
+            ..
+        }) => "InstanceStateError".into(),
         EvaluationError::Construction(_)
         | EvaluationError::Execution(_)
         | EvaluationError::Symbol(_) => "RuntimeError".into(),
