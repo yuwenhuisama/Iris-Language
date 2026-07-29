@@ -180,7 +180,12 @@ impl Evaluator {
                 let selector = match operator {
                     UnaryOperator::Negate => NativeSelector::Negate,
                     UnaryOperator::BitwiseNot => NativeSelector::BitwiseNot,
-                    UnaryOperator::Plus | UnaryOperator::Not => {
+                    UnaryOperator::Not => {
+                        return self
+                            .truthy(operand)
+                            .map(|value| Evaluated::Value(RuntimeValue::Bool(!value)));
+                    }
+                    UnaryOperator::Plus => {
                         return Err(EvaluationError::UnsupportedConstruct);
                     }
                 };
@@ -196,6 +201,20 @@ impl Evaluator {
             } => {
                 let left = self.expression(left)?;
                 let left = self.value(left)?;
+                if matches!(operator, BinaryOperator::LogicalAnd) {
+                    return if self.truthy(left.clone())? {
+                        self.expression(right)
+                    } else {
+                        Ok(Evaluated::Value(left))
+                    };
+                }
+                if matches!(operator, BinaryOperator::LogicalOr) {
+                    return if self.truthy(left.clone())? {
+                        Ok(Evaluated::Value(left))
+                    } else {
+                        self.expression(right)
+                    };
+                }
                 let right = self.expression(right)?;
                 let right = self.value(right)?;
                 match operator {
@@ -327,6 +346,25 @@ impl Evaluator {
             .send(left, selector, &[right])
             .map(Evaluated::Value)
             .map_err(EvaluationError::Runtime)
+    }
+
+    fn truthy(&self, value: RuntimeValue) -> Result<bool, EvaluationError> {
+        match self
+            .kernel
+            .send(value, NativeSelector::ToBool, &[])
+            .map_err(EvaluationError::Runtime)?
+        {
+            RuntimeValue::Bool(value) => Ok(value),
+            RuntimeValue::Nil
+            | RuntimeValue::Integer(_)
+            | RuntimeValue::Float32(_)
+            | RuntimeValue::Float64(_)
+            | RuntimeValue::Array(_)
+            | RuntimeValue::Symbol(_)
+            | RuntimeValue::Class(_)
+            | RuntimeValue::Object(_)
+            | RuntimeValue::BoundMethod(_) => Err(EvaluationError::TypeContractError),
+        }
     }
 
     fn value(&self, value: Evaluated) -> Result<RuntimeValue, EvaluationError> {
@@ -743,6 +781,9 @@ mod evaluator_bridge_tests {
 
 #[cfg(test)]
 mod runner_gap_tests;
+
+#[cfg(test)]
+mod operator_super_tests;
 
 impl From<Literal> for Value {
     fn from(literal: Literal) -> Self {

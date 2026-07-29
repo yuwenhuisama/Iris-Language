@@ -375,6 +375,16 @@ impl crate::ClassRegistry {
 
     /// Resolves the same selector after a Method's lexical owner in current receiver MRO.
     pub fn dispatch_super(&self, class: ClassId, method: Method) -> Result<Method, DispatchError> {
+        self.dispatch_super_selector(class, method, method.selector())
+    }
+
+    /// Resolves a selector after a Method's lexical owner in current receiver MRO.
+    pub fn dispatch_super_selector(
+        &self,
+        class: ClassId,
+        method: Method,
+        selector: Selector,
+    ) -> Result<Method, DispatchError> {
         let mro = self.active(class).map_err(DispatchError::Class)?.mro();
         let owner = match method.owner() {
             MethodOwner::Class(owner) => MroEntry::Class(owner),
@@ -392,18 +402,16 @@ impl crate::ClassRegistry {
                     .active(*owner)
                     .map_err(DispatchError::Class)?
                     .methods()
-                    .get(&method.selector())
+                    .get(&selector)
                     .and_then(|id| self.methods.get(id))
                     .copied(),
-                MroEntry::Module(module) => self.modules.method(*module, method.selector()),
+                MroEntry::Module(module) => self.modules.method(*module, selector),
             };
             if let Some(successor) = successor {
                 return Ok(successor);
             }
         }
-        Err(DispatchError::NoSuperMethod {
-            selector: method.selector(),
-        })
+        Err(DispatchError::NoSuperMethod { selector })
     }
 
     /// Resolves the same selector after a Class object's singleton Method owner.
@@ -411,6 +419,16 @@ impl crate::ClassRegistry {
         &self,
         class: ClassId,
         method: Method,
+    ) -> Result<Method, DispatchError> {
+        self.dispatch_class_object_super_selector(class, method, method.selector())
+    }
+
+    /// Resolves a selector after a Class object's singleton Method owner.
+    pub fn dispatch_class_object_super_selector(
+        &self,
+        class: ClassId,
+        method: Method,
+        selector: Selector,
     ) -> Result<Method, DispatchError> {
         let MethodOwner::Class(owner) = method.owner() else {
             return Err(DispatchError::InvalidSuper {
@@ -427,7 +445,7 @@ impl crate::ClassRegistry {
                         self.active(successor).map_err(DispatchError::Class)?;
                     if let Some(found) = successor_revision
                         .singleton_methods()
-                        .get(&method.selector())
+                        .get(&selector)
                         .and_then(|id| self.methods.get(id))
                         .copied()
                     {
@@ -439,9 +457,7 @@ impl crate::ClassRegistry {
             }
             current = revision.runtime_superclass();
         }
-        Err(DispatchError::NoSuperMethod {
-            selector: method.selector(),
-        })
+        Err(DispatchError::NoSuperMethod { selector })
     }
 
     pub(crate) fn next_method(&mut self) -> Result<MethodId, ClassError> {

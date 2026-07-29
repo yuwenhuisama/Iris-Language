@@ -30,6 +30,7 @@ struct SourceEvaluator {
     mixins: HashMap<ClassId, Vec<ClassId>>,
     static_superclasses: HashMap<ClassId, Option<ClassId>>,
     lexical_class: Option<ClassId>,
+    current_method: Option<Method>,
     active_exception: Option<Value>,
     next_selector: u64,
     next_body: u64,
@@ -95,6 +96,7 @@ impl SourceEvaluator {
             mixins: HashMap::new(),
             static_superclasses: HashMap::new(),
             lexical_class: None,
+            current_method: None,
             active_exception: None,
             next_selector: 1_000,
             next_body: 10_000,
@@ -702,6 +704,10 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<bool, EvaluationError> {
         let value = self.expression(expression, locals, receiver)?;
+        self.truthy(value)
+    }
+
+    fn truthy(&mut self, value: Value) -> Result<bool, EvaluationError> {
         let result = self.send(value.clone(), "to_bool", &[])?;
         let method = TruthinessMethod::Returns(result);
         Truthiness::test(&value, method).map_err(|error| match error {
@@ -719,6 +725,14 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match expression {
+            Expression::Name(name) if name == "super" => Err(EvaluationError::Runtime(
+                iris_runtime::KernelError::Dispatch(iris_runtime::DispatchError::InvalidSuper {
+                    selector: self
+                        .current_method
+                        .ok_or(EvaluationError::UnsupportedConstruct)?
+                        .selector(),
+                }),
+            )),
             Expression::Name(name) => locals
                 .get(name)
                 .cloned()
@@ -762,6 +776,15 @@ impl SourceEvaluator {
                     .map(|argument| self.expression(argument, locals, receiver.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 match callee.as_ref() {
+                    Expression::Name(name) if name == "super" => {
+                        self.super_send(receiver, &arguments, None)
+                    }
+                    Expression::Member {
+                        receiver: target,
+                        selector,
+                    } if matches!(target.as_ref(), Expression::Name(name) if name == "super") => {
+                        self.super_send(receiver, &arguments, Some(selector))
+                    }
                     Expression::Member {
                         receiver: target,
                         selector,
@@ -805,6 +828,20 @@ impl SourceEvaluator {
                 right,
             } => {
                 let left = self.expression(left, locals, receiver.clone())?;
+                if matches!(operator, BinaryOperator::LogicalAnd) {
+                    return if self.truthy(left.clone())? {
+                        self.expression(right, locals, receiver)
+                    } else {
+                        Ok(left)
+                    };
+                }
+                if matches!(operator, BinaryOperator::LogicalOr) {
+                    return if self.truthy(left.clone())? {
+                        Ok(left)
+                    } else {
+                        self.expression(right, locals, receiver)
+                    };
+                }
                 let right = self.expression(right, locals, receiver)?;
                 let selector = match operator {
                     BinaryOperator::Multiply => "*",
@@ -816,9 +853,18 @@ impl SourceEvaluator {
                 };
                 self.send(left, selector, &[right])
             }
-            Expression::Unary { .. } | Expression::ContractView { .. } => {
-                Err(EvaluationError::UnsupportedConstruct)
-            }
+            Expression::Unary { operator, operand } => match operator {
+                iris_syntax::UnaryOperator::Not => self
+                    .expression(operand, locals, receiver)
+                    .and_then(|value| self.truthy(value))
+                    .map(|value| Value::Bool(!value)),
+                iris_syntax::UnaryOperator::Plus
+                | iris_syntax::UnaryOperator::Negate
+                | iris_syntax::UnaryOperator::BitwiseNot => {
+                    Err(EvaluationError::UnsupportedConstruct)
+                }
+            },
+            Expression::ContractView { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Assignment { left, right, .. } => {
                 if let Expression::Name(name) = left.as_ref() {
                     if locals.contains_key(name) {
@@ -1247,12 +1293,15 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
         let previous_lexical_class = self.lexical_class;
+        let previous_method = self.current_method;
         self.lexical_class = match method.owner() {
             MethodOwner::Class(class) => Some(class),
             MethodOwner::Module(module) => self.module_classes.get(&module).copied(),
         };
+        self.current_method = Some(method);
         let result = self.invoke_method_with_context(method, receiver, arguments);
         self.lexical_class = previous_lexical_class;
+        self.current_method = previous_method;
         result
     }
 
@@ -1267,38 +1316,6 @@ impl SourceEvaluator {
                 iris_runtime::ExecutionError::Raised(Value::Nil),
             ));
         };
-        if matches!(declaration.body.last(), Some(Statement::Expression(Expression::Name(name))) if name == "super")
-        {
-            return Err(EvaluationError::Runtime(
-                iris_runtime::KernelError::Dispatch(iris_runtime::DispatchError::InvalidSuper {
-                    selector: method.selector(),
-                }),
-            ));
-        }
-        if matches!(declaration.body.last(), Some(Statement::Expression(Expression::Call { callee, .. })) if matches!(callee.as_ref(), Expression::Name(name) if name == "super"))
-        {
-            let successor = match receiver {
-                Value::Object(object) => {
-                    let class = self
-                        .runtime
-                        .class_of(object)
-                        .map_err(EvaluationError::Construction)?;
-                    self.runtime
-                        .registry()
-                        .dispatch_super(class, method)
-                        .map_err(iris_runtime::KernelError::from)
-                        .map_err(EvaluationError::Runtime)?
-                }
-                Value::Class(class) => self
-                    .runtime
-                    .registry()
-                    .dispatch_class_object_super(class, method)
-                    .map_err(iris_runtime::KernelError::from)
-                    .map_err(EvaluationError::Runtime)?,
-                _ => return Err(EvaluationError::UnsupportedConstruct),
-            };
-            return self.invoke_method(successor, receiver, arguments);
-        }
         let parameters = declaration.parameters.clone();
         let body = declaration.body.clone();
         let mut locals = HashMap::new();
@@ -1306,6 +1323,40 @@ impl SourceEvaluator {
             locals.insert(parameter.clone(), argument.clone());
         }
         self.block(&body, &locals, Some(receiver))
+    }
+
+    fn super_send(
+        &mut self,
+        receiver: Option<Value>,
+        arguments: &[Value],
+        selector: Option<&str>,
+    ) -> Result<Value, EvaluationError> {
+        let receiver = receiver.ok_or(EvaluationError::UnsupportedConstruct)?;
+        let method = self
+            .current_method
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let selector = selector.map_or(method.selector(), |name| self.selector(name));
+        let successor = match receiver.clone() {
+            Value::Object(object) => {
+                let class = self
+                    .runtime
+                    .class_of(object)
+                    .map_err(EvaluationError::Construction)?;
+                self.runtime
+                    .registry()
+                    .dispatch_super_selector(class, method, selector)
+                    .map_err(iris_runtime::KernelError::from)
+                    .map_err(EvaluationError::Runtime)?
+            }
+            Value::Class(class) => self
+                .runtime
+                .registry()
+                .dispatch_class_object_super_selector(class, method, selector)
+                .map_err(iris_runtime::KernelError::from)
+                .map_err(EvaluationError::Runtime)?,
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        };
+        self.invoke_method(successor, receiver, arguments)
     }
 }
 
