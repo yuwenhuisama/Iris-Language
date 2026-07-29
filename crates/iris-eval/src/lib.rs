@@ -40,6 +40,10 @@ pub enum EvaluationError {
     Construction(iris_runtime::ConstructionError),
     /// A source Method raised during execution.
     Execution(iris_runtime::ExecutionError),
+    /// An Iris raise escaped the current source evaluation.
+    Raised(RuntimeValue),
+    /// Source code attempted to write an immutable lexical binding.
+    ImmutableBinding,
     /// Source symbols are not yet representable as runtime Values.
     Symbol(String),
     /// A truthiness `to_bool` Method returned a value other than Bool.
@@ -113,6 +117,9 @@ impl Evaluator {
             | Statement::While { .. }
             | Statement::For { .. }
             | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
+            Statement::Raise(_) | Statement::Try { .. } => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
         }
     }
 
@@ -362,6 +369,7 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         | Statement::While { .. }
         | Statement::For { .. }
         | Statement::Match { .. } => false,
+        Statement::Raise(_) | Statement::Try { .. } => true,
     }
 }
 

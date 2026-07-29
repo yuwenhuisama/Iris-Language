@@ -63,7 +63,9 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                 | Statement::Continue(_)
                 | Statement::While { .. }
                 | Statement::For { .. }
-                | Statement::Match { .. } => None,
+                | Statement::Match { .. }
+                | Statement::Raise(_)
+                | Statement::Try { .. } => None,
             }),
     );
     shapes

@@ -594,3 +594,107 @@ fn source_decorated_class_publishes_and_evaluates_its_method() {
     // Then
     assert_eq!(result, Ok(RuntimeValue::Integer(1_u8.into())));
 }
+
+#[test]
+fn raise_propagates_as_a_typed_outcome_with_its_original_symbol() {
+    // Given
+    let source = "raise :sentinel";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol(
+            "sentinel".into()
+        )))
+    );
+}
+
+#[test]
+fn try_catch_binds_and_returns_the_raised_value() {
+    // Given
+    let source = "try { raise :boom } catch error { error }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("boom".into())));
+}
+
+#[test]
+fn typed_catch_filter_leaves_non_matching_raise_unhandled() {
+    // Given
+    let source = "try { raise :boom } catch error: Integer { error }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol("boom".into())))
+    );
+}
+
+#[test]
+fn first_matching_catch_runs_before_later_matches() {
+    // Given
+    let source = "try { raise :boom } catch first { :first } catch second { :second }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("first".into())));
+}
+
+#[test]
+fn finally_preserves_normal_and_handled_results() {
+    // Given
+    let normal = "try { :value } finally { :ignored }";
+    let raised = "try { raise :boom } catch error { error } finally { :ignored }";
+
+    // When
+    let results = [evaluate(normal), evaluate(raised)];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Symbol("value".into())),
+            Ok(RuntimeValue::Symbol("boom".into())),
+        ]
+    );
+}
+
+#[test]
+fn method_raise_propagates_through_its_call() {
+    // Given
+    let source = "class A { public fun boom() { raise :sentinel } }; A.new().boom()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol(
+            "sentinel".into()
+        )))
+    );
+}
+
+#[test]
+fn catch_binding_is_immutable() {
+    // Given
+    let source = "try { raise :boom } catch error { error = :other }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Err(EvaluationError::ImmutableBinding));
+}

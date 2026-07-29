@@ -7,9 +7,9 @@ mod expression_tests;
 
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
-    ClassDeclaration, Constraint, ContractDeclaration, Declaration, Decorator, Expression,
-    MatchArm, MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration, Pattern, Program,
-    ProgramEntry, Statement, TypeExpression, Visibility,
+    CatchBinding, CatchClause, ClassDeclaration, Constraint, ContractDeclaration, Declaration,
+    Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration,
+    Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression, Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -632,6 +632,39 @@ impl Parser {
                 None
             }));
         }
+        if self.consume("raise") {
+            if self.is_terminator() {
+                return Some(Statement::Raise(None));
+            }
+            let value = self.expression(0)?;
+            let cause = if self.consume("from") {
+                Some(self.expression(0)?)
+            } else {
+                None
+            };
+            return Some(Statement::Raise(Some(Raise { value, cause })));
+        }
+        if self.consume("try") {
+            let body = self.body()?;
+            let mut catches = Vec::new();
+            while self.consume("catch") {
+                catches.push(self.catch_clause()?);
+            }
+            let finally = if self.consume("finally") {
+                Some(self.body()?)
+            } else {
+                None
+            };
+            if catches.is_empty() && finally.is_none() {
+                self.error("PARSE_TRY_REQUIRES_HANDLER");
+                return None;
+            }
+            return Some(Statement::Try {
+                body,
+                catches,
+                finally,
+            });
+        }
         if self.is_name() && self.peek_next() == Some(":") {
             let label = self.name()?;
             self.expect(":")?;
@@ -669,6 +702,38 @@ impl Parser {
             return self.match_statement();
         }
         self.expression(0).map(Statement::Expression)
+    }
+
+    fn catch_clause(&mut self) -> Option<CatchClause> {
+        if self.check("{") {
+            return Some(CatchClause {
+                binding: None,
+                filter: None,
+                context: None,
+                body: self.body()?,
+            });
+        }
+        let binding = if self.consume("_") {
+            CatchBinding::Discard
+        } else {
+            CatchBinding::Name(self.binding_name()?)
+        };
+        let filter = if self.consume(":") {
+            Some(self.type_expression()?)
+        } else {
+            None
+        };
+        let context = if self.consume(",") {
+            Some(self.binding_name()?)
+        } else {
+            None
+        };
+        Some(CatchClause {
+            binding: Some(binding),
+            filter,
+            context,
+            body: self.body()?,
+        })
     }
 
     fn match_statement(&mut self) -> Option<Statement> {
@@ -1258,5 +1323,35 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn raise_and_try_forms_have_statement_nodes() {
+        // Given
+        let source = "try { raise :boom } catch error: Symbol, context { error } finally { nil }";
+
+        // When
+        let result = parse(source);
+
+        // Then
+        assert!(result.program_accepted, "{result:#?}");
+        assert!(matches!(
+            result.program.statements.as_slice(),
+            [Statement::Try { catches, finally: Some(_), .. }]
+                if matches!(catches.as_slice(), [iris_syntax::CatchClause { binding: Some(iris_syntax::CatchBinding::Name(name)), filter: Some(TypeExpression::Name(filter)), context: Some(context), .. }]
+                    if name == "error" && filter == "Symbol" && context == "context")
+        ));
+    }
+
+    #[test]
+    fn try_without_catch_or_finally_is_rejected() {
+        // Given
+        let source = "try { :value }";
+
+        // When
+        let result = parse(source);
+
+        // Then
+        assert!(!result.program_accepted);
     }
 }

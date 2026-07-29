@@ -129,6 +129,32 @@ pub enum Statement {
         arms: Vec<MatchArm>,
         fallback: Option<MatchBody>,
     },
+    Raise(Option<Raise>),
+    Try {
+        body: Vec<Statement>,
+        catches: Vec<CatchClause>,
+        finally: Option<Vec<Statement>>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Raise {
+    pub value: Expression,
+    pub cause: Option<Expression>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatchClause {
+    pub binding: Option<CatchBinding>,
+    pub filter: Option<TypeExpression>,
+    pub context: Option<String>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CatchBinding {
+    Name(String),
+    Discard,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

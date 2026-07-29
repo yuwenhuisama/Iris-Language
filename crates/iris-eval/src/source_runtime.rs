@@ -30,6 +30,7 @@ struct SourceEvaluator {
     mixins: HashMap<ClassId, Vec<ClassId>>,
     static_superclasses: HashMap<ClassId, Option<ClassId>>,
     lexical_class: Option<ClassId>,
+    active_exception: Option<Value>,
     next_selector: u64,
     next_body: u64,
 }
@@ -49,6 +50,7 @@ impl SourceEvaluator {
             mixins: HashMap::new(),
             static_superclasses: HashMap::new(),
             lexical_class: None,
+            active_exception: None,
             next_selector: 1_000,
             next_body: 10_000,
         })
@@ -473,6 +475,21 @@ impl SourceEvaluator {
                     Ok(Value::Nil)
                 }
             }
+            Statement::Raise(raise) => {
+                let value = match raise {
+                    Some(raise) => self.expression(&raise.value, locals, receiver)?,
+                    None => self
+                        .active_exception
+                        .clone()
+                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                };
+                Err(EvaluationError::Raised(value))
+            }
+            Statement::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_statement(body, catches, finally, locals, receiver),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_)
@@ -499,9 +516,10 @@ impl SourceEvaluator {
                     let value = self.expression(value, &locals, receiver.clone())?;
                     locals.insert(name.clone(), value);
                 }
-                Statement::Expression(_) | Statement::If { .. } => {
+                Statement::Expression(_) | Statement::If { .. } | Statement::Try { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
+                Statement::Raise(_) => return self.statement(statement, &locals, receiver.clone()),
                 Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
@@ -514,6 +532,101 @@ impl SourceEvaluator {
             }
         }
         Ok(result)
+    }
+
+    fn try_statement(
+        &mut self,
+        body: &[Statement],
+        catches: &[iris_syntax::CatchClause],
+        finally: &Option<Vec<Statement>>,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let result = match self.block(body, locals, receiver.clone()) {
+            Ok(value) => Ok(value),
+            Err(EvaluationError::Raised(value)) => {
+                self.catch_exception(value, catches, locals, receiver.clone())
+            }
+            Err(error) => Err(error),
+        };
+        if let Some(finally) = finally {
+            let pending = match &result {
+                Err(EvaluationError::Raised(value)) => Some(value.clone()),
+                Ok(_) | Err(_) => None,
+            };
+            let previous = self.active_exception.clone();
+            self.active_exception = pending;
+            let final_result = self.block(finally, locals, receiver);
+            self.active_exception = previous;
+            final_result?;
+        }
+        result
+    }
+
+    fn catch_exception(
+        &mut self,
+        value: Value,
+        catches: &[iris_syntax::CatchClause],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        for catch in catches {
+            if !catch
+                .filter
+                .as_ref()
+                .is_none_or(|filter| self.catch_matches(&value, filter))
+            {
+                continue;
+            }
+            let mut catch_locals = locals.clone();
+            if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
+                catch_locals.insert(name.clone(), value.clone());
+            }
+            let previous = self.active_exception.replace(value.clone());
+            let result = self.block(&catch.body, &catch_locals, receiver);
+            self.active_exception = previous;
+            return result;
+        }
+        Err(EvaluationError::Raised(value))
+    }
+
+    fn catch_matches(&self, value: &Value, filter: &iris_syntax::TypeExpression) -> bool {
+        match filter {
+            iris_syntax::TypeExpression::Name(name) => match (name.as_str(), value) {
+                ("Symbol", Value::Symbol(_))
+                | ("Integer", Value::Integer(_))
+                | ("Nil", Value::Nil)
+                | ("Bool", Value::Bool(_)) => true,
+                (_, Value::Object(object)) => self
+                    .class_name(name)
+                    .ok()
+                    .flatten()
+                    .and_then(|filter| {
+                        self.runtime
+                            .class_of(*object)
+                            .ok()
+                            .map(|class| (class, filter))
+                    })
+                    .is_some_and(|(mut class, filter)| {
+                        loop {
+                            if class == filter {
+                                break true;
+                            }
+                            let Some(superclass) =
+                                self.static_superclasses.get(&class).copied().flatten()
+                            else {
+                                break false;
+                            };
+                            class = superclass;
+                        }
+                    }),
+                _ => false,
+            },
+            iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Intersection(_)
+            | iris_syntax::TypeExpression::Union(_)
+            | iris_syntax::TypeExpression::Generic { .. } => false,
+        }
     }
 
     fn condition(
@@ -654,6 +767,9 @@ impl SourceEvaluator {
                 Err(EvaluationError::UnsupportedConstruct)
             }
             Expression::Assignment { left, right, .. } => {
+                if matches!(left.as_ref(), Expression::Name(_)) {
+                    return Err(EvaluationError::ImmutableBinding);
+                }
                 if let Expression::RawIvar(name) = left.as_ref() {
                     let selector = self.selector(name);
                     return match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {

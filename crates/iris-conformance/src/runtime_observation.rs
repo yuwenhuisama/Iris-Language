@@ -218,24 +218,27 @@ fn render_evaluation_error(error: EvaluationError) -> String {
     format!("error {}", error_code(&error))
 }
 
-fn error_code(error: &EvaluationError) -> &'static str {
+fn error_code(error: &EvaluationError) -> String {
     match error {
-        EvaluationError::LexicalDiagnostic(code) => code,
-        EvaluationError::UnsupportedConstruct => "UnsupportedConstruct",
-        EvaluationError::ParseDiagnostic => "ParseDiagnostic",
-        EvaluationError::TypeContractError => "TypeContractError",
-        EvaluationError::Runtime(error) => kernel_error_code(error),
+        EvaluationError::LexicalDiagnostic(code) => (*code).into(),
+        EvaluationError::UnsupportedConstruct => "UnsupportedConstruct".into(),
+        EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
+        EvaluationError::TypeContractError => "TypeContractError".into(),
+        EvaluationError::Runtime(error) => kernel_error_code(error).into(),
         EvaluationError::Class(iris_runtime::ClassError::MetaCapabilityDenied { .. }) => {
-            "MetaOperationError"
+            "MetaOperationError".into()
         }
-        EvaluationError::Class(_) => "RuntimeError",
+        EvaluationError::Class(_) => "RuntimeError".into(),
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::NoSuperMethod { .. },
-        )) => "NoSuperMethodError",
+        )) => "NoSuperMethodError".into(),
         EvaluationError::Construction(_)
         | EvaluationError::Execution(_)
-        | EvaluationError::Symbol(_) => "RuntimeError",
-        EvaluationError::MessageNotFound { .. } => "MessageNotFoundError",
+        | EvaluationError::Symbol(_) => "RuntimeError".into(),
+        EvaluationError::Raised(RuntimeValue::Symbol(value)) => value.clone(),
+        EvaluationError::Raised(_) => "Raised".into(),
+        EvaluationError::ImmutableBinding => "ImmutableBindingError".into(),
+        EvaluationError::MessageNotFound { .. } => "MessageNotFoundError".into(),
     }
 }
 
