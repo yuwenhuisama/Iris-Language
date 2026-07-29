@@ -90,6 +90,11 @@ pub enum Statement {
     },
     Method(MethodDeclaration),
     Expression(Expression),
+    If {
+        condition: Expression,
+        then_body: Vec<Statement>,
+        else_body: Option<Vec<Statement>>,
+    },
     Return(Option<Expression>),
     Break {
         label: Option<String>,

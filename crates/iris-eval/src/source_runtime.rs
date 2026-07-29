@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    ClassId, Kernel, Method, MethodBody, ModuleId, Runtime, Selector, StaticSpine, Value,
+    ClassId, Kernel, Method, MethodBody, ModuleId, Runtime, Selector, StaticSpine, Truthiness,
+    TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -289,6 +290,19 @@ impl SourceEvaluator {
                 Ok(value)
             }
             Statement::Expression(expression) => self.expression(expression, locals, receiver),
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                if self.condition(condition, locals, receiver.clone())? {
+                    self.block(then_body, locals, receiver)
+                } else if let Some(else_body) = else_body {
+                    self.block(else_body, locals, receiver)
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
             Statement::StoredProperty { .. }
             | Statement::Method(_)
             | Statement::Return(_)
@@ -298,6 +312,66 @@ impl SourceEvaluator {
             | Statement::For { .. }
             | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
+    }
+
+    fn block(
+        &mut self,
+        statements: &[Statement],
+        parent: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let mut locals = parent.clone();
+        let mut result = Value::Nil;
+        for statement in statements {
+            match statement {
+                Statement::Binding { name, value } => {
+                    let value = self.expression(value, &locals, receiver.clone())?;
+                    locals.insert(name.clone(), value);
+                }
+                Statement::Expression(_) | Statement::If { .. } => {
+                    result = self.statement(statement, &locals, receiver.clone())?;
+                }
+                Statement::StoredProperty { .. }
+                | Statement::Method(_)
+                | Statement::Return(_)
+                | Statement::Break { .. }
+                | Statement::Continue(_)
+                | Statement::While { .. }
+                | Statement::For { .. }
+                | Statement::Match { .. } => return Err(EvaluationError::UnsupportedConstruct),
+            }
+        }
+        Ok(result)
+    }
+
+    fn condition(
+        &mut self,
+        expression: &Expression,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<bool, EvaluationError> {
+        let value = self.expression(expression, locals, receiver)?;
+        let to_bool = self.selector("to_bool");
+        let method = match value {
+            Value::Object(object) => match self.resolve_instance_method(object, to_bool) {
+                Ok(method) => TruthinessMethod::Returns(self.invoke_method(
+                    method,
+                    Value::Object(object),
+                    &[],
+                )?),
+                Err(EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+                    iris_runtime::DispatchError::MissingMethod { .. },
+                ))) => TruthinessMethod::Default,
+                Err(error) => return Err(error),
+            },
+            _ => TruthinessMethod::Default,
+        };
+        Truthiness::test(&value, method).map_err(|error| match error {
+            TruthinessError::TypeContract => EvaluationError::TypeContractError,
+            TruthinessError::Raised(value) => {
+                EvaluationError::Execution(iris_runtime::ExecutionError::Raised(value))
+            }
+        })
     }
 
     fn expression(
@@ -680,7 +754,13 @@ impl SourceEvaluator {
             };
             return self.invoke_method(successor, receiver, arguments);
         }
-        invoke(&self.bodies, method, receiver, arguments).map_err(EvaluationError::Execution)
+        let parameters = declaration.parameters.clone();
+        let body = declaration.body.clone();
+        let mut locals = HashMap::new();
+        for (parameter, argument) in parameters.iter().zip(arguments) {
+            locals.insert(parameter.clone(), argument.clone());
+        }
+        self.block(&body, &locals, Some(receiver))
     }
 }
 

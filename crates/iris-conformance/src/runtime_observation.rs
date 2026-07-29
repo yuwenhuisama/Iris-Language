@@ -189,6 +189,7 @@ fn error_code(error: &EvaluationError) -> &'static str {
         EvaluationError::LexicalDiagnostic(code) => code,
         EvaluationError::UnsupportedConstruct => "UnsupportedConstruct",
         EvaluationError::ParseDiagnostic => "ParseDiagnostic",
+        EvaluationError::TypeContractError => "TypeContractError",
         EvaluationError::Runtime(error) => kernel_error_code(error),
         EvaluationError::Class(iris_runtime::ClassError::MetaCapabilityDenied { .. }) => {
             "MetaOperationError"

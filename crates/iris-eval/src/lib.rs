@@ -42,6 +42,8 @@ pub enum EvaluationError {
     Execution(iris_runtime::ExecutionError),
     /// Source symbols are not yet representable as runtime Values.
     Symbol(String),
+    /// A truthiness `to_bool` Method returned a value other than Bool.
+    TypeContractError,
     /// An ordinary selector was absent and the default `method_missing` applied.
     MessageNotFound {
         receiver_class: String,
@@ -60,7 +62,7 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
             .program
             .statements
             .iter()
-            .any(|statement| matches!(statement, Statement::Binding { .. }))
+            .any(source_runtime_statement)
     {
         return source_runtime::evaluate(&parsed.program);
     }
@@ -103,7 +105,8 @@ impl Evaluator {
             Statement::Expression(expression) => self
                 .expression(expression)
                 .and_then(|value| self.value(value)),
-            Statement::Return(_)
+            Statement::If { .. }
+            | Statement::Return(_)
             | Statement::Break { .. }
             | Statement::Continue(_)
             | Statement::While { .. }
@@ -342,6 +345,21 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
+    }
+}
+
+fn source_runtime_statement(statement: &Statement) -> bool {
+    match statement {
+        Statement::Binding { .. } | Statement::If { .. } => true,
+        Statement::StoredProperty { .. }
+        | Statement::Method(_)
+        | Statement::Expression(_)
+        | Statement::Return(_)
+        | Statement::Break { .. }
+        | Statement::Continue(_)
+        | Statement::While { .. }
+        | Statement::For { .. }
+        | Statement::Match { .. } => false,
     }
 }
 

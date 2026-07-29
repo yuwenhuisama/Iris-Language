@@ -56,6 +56,7 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                 Statement::Binding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
+                | Statement::If { .. }
                 | Statement::Return(_)
                 | Statement::Break { .. }
                 | Statement::Continue(_)

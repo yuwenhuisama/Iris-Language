@@ -41,6 +41,12 @@ pub(super) fn invoke(
         Expression::Name(name) => values
             .get(name)
             .cloned()
+            .or(match name.as_str() {
+                "nil" => Some(Value::Nil),
+                "true" => Some(Value::Bool(true)),
+                "false" => Some(Value::Bool(false)),
+                _ => None,
+            })
             .ok_or(ExecutionError::Raised(Value::Nil)),
         Expression::Literal(value) => {
             literal(value).map_err(|_| ExecutionError::Raised(Value::Nil))
@@ -85,6 +91,12 @@ pub(super) fn visibility(method: &MethodDeclaration) -> Visibility {
 }
 
 pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
+    match source {
+        "nil" => return Ok(Value::Nil),
+        "true" => return Ok(Value::Bool(true)),
+        "false" => return Ok(Value::Bool(false)),
+        _ => {}
+    }
     source
         .parse::<iris_runtime::IntegerValue>()
         .map(Value::Integer)

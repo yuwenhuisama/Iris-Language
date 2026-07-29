@@ -545,15 +545,21 @@ impl Parser {
         }
         if self.consume("if") {
             let condition = self.expression(0)?;
-            self.body()?;
-            if self.consume("else") {
+            let then_body = self.body()?;
+            let else_body = if self.consume("else") {
                 if self.check("if") {
-                    self.statement()?;
+                    Some(vec![self.statement()?])
                 } else {
-                    self.body()?;
+                    Some(self.body()?)
                 }
-            }
-            return Some(Statement::Expression(condition));
+            } else {
+                None
+            };
+            return Some(Statement::If {
+                condition,
+                then_body,
+                else_body,
+            });
         }
         if self.consume("return") {
             return Some(Statement::Return(if self.is_terminator() {

@@ -161,6 +161,73 @@ fn source_method_returns_symbol_literal() {
 }
 
 #[test]
+fn source_if_returns_the_selected_branch_value() {
+    // Given
+    let true_symbol = "if true { :yes }";
+    let missing_else = "if false { :yes }";
+    let true_integer = "if true { 1 }";
+    let true_else = "if true { 1 } else { 2 }";
+    let false_else = "if false { 1 } else { 2 }";
+    let else_if = "if false { 1 } else if false { 2 } else { 3 }";
+
+    assert!(iris_parser::parse(true_symbol).program_accepted);
+
+    // When
+    let results = [
+        evaluate(true_symbol),
+        evaluate(missing_else),
+        evaluate(true_integer),
+        evaluate(true_else),
+        evaluate(false_else),
+        evaluate(else_if),
+    ];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Symbol("yes".into())),
+            Ok(RuntimeValue::Nil),
+            Ok(RuntimeValue::Integer(1_u8.into())),
+            Ok(RuntimeValue::Integer(1_u8.into())),
+            Ok(RuntimeValue::Integer(2_u8.into())),
+            Ok(RuntimeValue::Integer(3_u8.into())),
+        ]
+    );
+}
+
+#[test]
+fn source_if_uses_truthiness_and_keeps_branches_scoped() {
+    // Given
+    let custom_false =
+        "class A { public fun to_bool() -> Bool { false } }; if A.new() { :then } else { :else }";
+    let non_bool = "class A { public fun to_bool() -> Bool { :not_bool } }; if A.new() { :then }";
+    let skipped_branch = "class A { property count: Integer = 0; property fun count=(value: Integer) -> Integer { @count = value } }; let a = A.new(); if true { :selected } else { a.count = 1 }; a.count";
+    let scoped_binding = "if true { let hidden = 1; hidden }; hidden";
+
+    // When
+    let custom_false_result = evaluate(custom_false);
+    let non_bool_result = evaluate(non_bool);
+    let skipped_branch_result = evaluate(skipped_branch);
+    let scoped_binding_result = evaluate(scoped_binding);
+
+    // Then
+    assert_eq!(custom_false_result, Ok(RuntimeValue::Symbol("else".into())));
+    assert_eq!(non_bool_result, Err(EvaluationError::TypeContractError));
+    assert_eq!(
+        skipped_branch_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("selected".into()),
+            RuntimeValue::Integer(0_u8.into()),
+        ]))
+    );
+    assert_eq!(
+        scoped_binding_result,
+        Err(EvaluationError::UnsupportedConstruct)
+    );
+}
+
+#[test]
 fn source_open_class_preserves_identity_and_updates_existing_instances() {
     // Given
     let source = "class A { public fun old() -> Integer { 1 } }; let before = A; let a = A.new(); open class A { public fun added() -> Integer { 2 } }; [before same? A, a.added()]";
