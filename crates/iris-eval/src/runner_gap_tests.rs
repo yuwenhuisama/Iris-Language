@@ -246,6 +246,84 @@ fn source_open_class_preserves_identity_and_updates_existing_instances() {
 }
 
 #[test]
+fn reopen_override_replaces_method_for_new_send() {
+    // Given
+    let source = "class A { public fun m() { :old } }; let value = A.new(); open class A { override public fun m() { :new } }; value.m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("new".into())));
+}
+
+#[test]
+fn reopen_preserves_class_identity() {
+    // Given
+    let source = "class A { public fun m() { :old } }; let before = A; open class A { override public fun m() { :new } }; before same? A";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Bool(true)));
+}
+
+#[test]
+fn bound_method_captured_before_reopen_keeps_original_method() {
+    // Given
+    let source = "class A { public fun method() { :old } }; let obj = A.new(); let saved = obj.method; open class A { override public fun method() { :new } }; [saved same? saved, saved(), obj.method()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Bool(true),
+            RuntimeValue::Symbol("old".into()),
+            RuntimeValue::Symbol("new".into()),
+        ]))
+    );
+}
+
+#[test]
+fn reopen_adding_method_preserves_existing_methods() {
+    // Given
+    let source = "class A { public fun old() { :old } }; let value = A.new(); open class A { public fun added() { :added } }; [value.old(), value.added()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("old".into()),
+            RuntimeValue::Symbol("added".into()),
+        ]))
+    );
+}
+
+#[test]
+fn reopen_replacement_without_override_is_rejected() {
+    // Given
+    let source = "class A { public fun m() { :old } }; open class A { public fun m() { :new } }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::OverrideRequired { .. }
+        ))
+    ));
+}
+
+#[test]
 fn source_class_fun_dispatches_on_the_class_object() {
     // Given
     let source = "class A { class fun build() -> Integer { 7 } }; A.build()";

@@ -8,6 +8,13 @@ pub use shape::{PRECEDENCE_ROWS_COVERED, render_parse_shape, render_parse_shapes
 pub struct Program {
     pub declarations: Vec<Declaration>,
     pub statements: Vec<Statement>,
+    pub entries: Vec<ProgramEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProgramEntry {
+    Declaration(Declaration),
+    Statement(Statement),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -127,6 +134,7 @@ pub enum Statement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodDeclaration {
     pub decorators: Vec<Decorator>,
+    pub is_override: bool,
     pub kind: MethodKind,
     pub selector: String,
     pub parameters: Vec<String>,
@@ -304,6 +312,7 @@ mod tests {
                     },
                 )),
             ],
+            entries: Vec::new(),
         };
 
         assert_eq!(
@@ -341,6 +350,7 @@ mod tests {
                 body: Vec::new(),
             })],
             statements: Vec::new(),
+            entries: Vec::new(),
         };
 
         // When
@@ -367,6 +377,7 @@ mod tests {
                 body: Vec::new(),
             })],
             statements: Vec::new(),
+            entries: Vec::new(),
         };
 
         // When
@@ -388,6 +399,7 @@ mod tests {
                 )),
             ],
             statements: Vec::new(),
+            entries: Vec::new(),
         };
 
         // When
@@ -446,6 +458,7 @@ mod tests {
         let rendered = render_parse_shapes(&Program {
             declarations: Vec::new(),
             statements: vec![Statement::Expression(power("2", power("3", leaf("2"))))],
+            entries: Vec::new(),
         });
 
         assert_ne!(rendered[0], "2 ** (3 ** 3)");
@@ -463,6 +476,7 @@ mod tests {
                 }),
                 arguments: vec![Expression::Symbol("zero".into())],
             })],
+            entries: Vec::new(),
         };
 
         // When

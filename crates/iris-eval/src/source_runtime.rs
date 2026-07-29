@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    ClassId, Kernel, Method, MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine,
-    Truthiness, TruthinessError, TruthinessMethod, Value,
+    ClassError, ClassId, DispatchError, DispatchOutcome, Kernel, Method, MethodBody, MethodOwner,
+    ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
-    Program, Statement,
+    Program, ProgramEntry, Statement,
 };
 
 use crate::EvaluationError;
@@ -55,20 +55,24 @@ impl SourceEvaluator {
     }
 
     fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
-        for declaration in &program.declarations {
-            match declaration {
-                iris_syntax::Declaration::Class(class) => self.class(class)?,
-                iris_syntax::Declaration::Module(module) => self.module(module)?,
-                iris_syntax::Declaration::Contract(_) => {
+        let mut values = Vec::new();
+        for entry in &program.entries {
+            match entry {
+                ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) => {
+                    self.class(class)?;
+                }
+                ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
+                    self.module(module)?;
+                }
+                ProgramEntry::Declaration(iris_syntax::Declaration::Contract(_)) => {
                     return Err(EvaluationError::UnsupportedConstruct);
                 }
-            }
-        }
-        let mut values = Vec::new();
-        for statement in &program.statements {
-            let value = self.statement(statement, &HashMap::new(), None)?;
-            if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
-                values.push(value);
+                ProgramEntry::Statement(statement) => {
+                    let value = self.statement(statement, &HashMap::new(), None)?;
+                    if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
+                        values.push(value);
+                    }
+                }
             }
         }
         match values.as_slice() {
@@ -148,7 +152,9 @@ impl SourceEvaluator {
                     name,
                     value,
                 } => self.shared_binding(class, *mutable, name, value)?,
-                Statement::Method(method) => self.class_method(class, builtin, method)?,
+                Statement::Method(method) => {
+                    self.class_method(class, builtin, declaration.reopen, method)?;
+                }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
@@ -182,10 +188,24 @@ impl SourceEvaluator {
         &mut self,
         class: ClassId,
         builtin: bool,
+        requires_override: bool,
         method: &MethodDeclaration,
     ) -> Result<(), EvaluationError> {
-        let body = self.register_body(method.clone());
         let selector = self.selector(&method.selector);
+        let replaces = self.replaces_method(class, builtin, method.kind, selector)?;
+        if method.is_override && !replaces {
+            return Err(EvaluationError::Class(ClassError::OverrideWithoutTarget {
+                class,
+                selector,
+            }));
+        }
+        if requires_override && replaces && !method.is_override {
+            return Err(EvaluationError::Class(ClassError::OverrideRequired {
+                class,
+                selector,
+            }));
+        }
+        let body = self.register_body(method.clone());
         let decorators = self.decorator_transforms(&method.decorators);
         match method.kind {
             MethodKind::Instance => {
@@ -259,6 +279,40 @@ impl SourceEvaluator {
         Ok(())
     }
 
+    fn replaces_method(
+        &mut self,
+        class: ClassId,
+        builtin: bool,
+        kind: MethodKind,
+        selector: Selector,
+    ) -> Result<bool, EvaluationError> {
+        let result = match (builtin, kind) {
+            (true, MethodKind::Class) => self
+                .kernel
+                .registry_mut()
+                .dispatch_class_object(class, selector),
+            (false, MethodKind::Class) => self
+                .runtime
+                .registry()
+                .dispatch_class_object(class, selector),
+            (true, MethodKind::Instance | MethodKind::Property) => {
+                self.kernel.registry_mut().dispatch(class, selector)
+            }
+            (false, MethodKind::Instance | MethodKind::Property) => {
+                self.runtime.registry().dispatch(class, selector)
+            }
+            (_, MethodKind::Module) => return Err(EvaluationError::UnsupportedConstruct),
+        };
+        match result {
+            Ok(DispatchOutcome::Invoke(_)) | Err(DispatchError::VisibilityDenied { .. }) => {
+                Ok(true)
+            }
+            Ok(DispatchOutcome::WouldInvokeMethodMissing { .. }) => Ok(false),
+            Err(DispatchError::Class(error)) => Err(EvaluationError::Class(error)),
+            Err(_) => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
     fn stored_property(
         &mut self,
         class: ClassId,
@@ -269,6 +323,7 @@ impl SourceEvaluator {
     ) -> Result<(), EvaluationError> {
         let getter = MethodDeclaration {
             decorators: Vec::new(),
+            is_override: false,
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -279,6 +334,7 @@ impl SourceEvaluator {
         };
         let setter = MethodDeclaration {
             decorators: Vec::new(),
+            is_override: false,
             kind: MethodKind::Property,
             selector: format!("{name}="),
             parameters: vec!["value".into()],
@@ -291,6 +347,7 @@ impl SourceEvaluator {
         };
         let initializer = MethodDeclaration {
             decorators: Vec::new(),
+            is_override: false,
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -301,8 +358,8 @@ impl SourceEvaluator {
                 right: Box::new(initializer),
             })],
         };
-        self.class_method(class, builtin, &getter)?;
-        self.class_method(class, builtin, &setter)?;
+        self.class_method(class, builtin, false, &getter)?;
+        self.class_method(class, builtin, false, &setter)?;
         let body = self.register_body(initializer);
         let property = self.selector(&format!("@{name}"));
         let decorators = self.decorator_transforms(decorators);
@@ -735,12 +792,21 @@ impl SourceEvaluator {
                 }
                 let method = match self.class_dispatch(class, selector_id)? {
                     iris_runtime::DispatchOutcome::Invoke(method) => method,
-                    iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
-                        return Err(EvaluationError::MessageNotFound {
-                            receiver_class: "Class".into(),
-                            selector: selector.into(),
-                        });
-                    }
+                    iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => self
+                        .runtime
+                        .registry()
+                        .dispatch(class, selector_id)
+                        .map_err(iris_runtime::ConstructionError::from)
+                        .map_err(EvaluationError::Construction)
+                        .and_then(|outcome| match outcome {
+                            iris_runtime::DispatchOutcome::Invoke(method) => Ok(method),
+                            iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
+                                Err(EvaluationError::MessageNotFound {
+                                    receiver_class: "Class".into(),
+                                    selector: selector.into(),
+                                })
+                            }
+                        })?,
                 };
                 self.invoke_selected(method, Value::Class(class), arguments)
             }
@@ -1382,7 +1448,7 @@ mod tests {
     fn open_builtin_replaces_compatible_method_and_preserves_singletons_and_float_bits()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "open class Integer { public fun hash() -> Integer { 2 } }; [Integer(1).hash, nil.hash, false.hash, true.hash]";
+        let source = "open class Integer { override public fun hash() -> Integer { 2 } }; [Integer(1).hash, nil.hash, false.hash, true.hash]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When

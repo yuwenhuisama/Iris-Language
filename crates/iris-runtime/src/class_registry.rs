@@ -46,6 +46,14 @@ pub enum ClassError {
         class: ClassId,
         name: crate::Selector,
     },
+    OverrideRequired {
+        class: ClassId,
+        selector: crate::Selector,
+    },
+    OverrideWithoutTarget {
+        class: ClassId,
+        selector: crate::Selector,
+    },
 }
 
 impl fmt::Display for ClassError {
@@ -72,6 +80,8 @@ impl fmt::Display for ClassError {
                 "Iris decorator changed forbidden declaration metadata"
             }
             Self::DuplicateClassVariable { .. } => "Iris Class variable is already anchored",
+            Self::OverrideRequired { .. } => "Iris Method replacement requires override",
+            Self::OverrideWithoutTarget { .. } => "Iris override has no replacement target",
         };
         formatter.write_str(message)
     }

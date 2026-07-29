@@ -9,7 +9,7 @@ use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
     ClassDeclaration, Constraint, ContractDeclaration, Declaration, Decorator, Expression,
     MatchArm, MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration, Pattern, Program,
-    Statement, TypeExpression, Visibility,
+    ProgramEntry, Statement, TypeExpression, Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -239,21 +239,32 @@ impl Parser {
             }
             let decorators = self.decorators();
             match self.peek() {
-                Some("open") if self.peek_next() == Some("class") => self
-                    .class_declaration(decorators)
-                    .map(|value| program.declarations.push(Declaration::Class(value))),
-                Some("class") => self
-                    .class_declaration(decorators)
-                    .map(|value| program.declarations.push(Declaration::Class(value))),
-                Some("module") => self
-                    .module_declaration(decorators)
-                    .map(|value| program.declarations.push(Declaration::Module(value))),
-                Some("contract") => self
-                    .contract_declaration(decorators)
-                    .map(|value| program.declarations.push(Declaration::Contract(value))),
-                _ if decorators.is_empty() => {
-                    self.statement().map(|value| program.statements.push(value))
+                Some("open") if self.peek_next() == Some("class") => {
+                    self.class_declaration(decorators).map(|value| {
+                        let declaration = Declaration::Class(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
                 }
+                Some("class") => self.class_declaration(decorators).map(|value| {
+                    let declaration = Declaration::Class(value);
+                    program.declarations.push(declaration.clone());
+                    program.entries.push(ProgramEntry::Declaration(declaration));
+                }),
+                Some("module") => self.module_declaration(decorators).map(|value| {
+                    let declaration = Declaration::Module(value);
+                    program.declarations.push(declaration.clone());
+                    program.entries.push(ProgramEntry::Declaration(declaration));
+                }),
+                Some("contract") => self.contract_declaration(decorators).map(|value| {
+                    let declaration = Declaration::Contract(value);
+                    program.declarations.push(declaration.clone());
+                    program.entries.push(ProgramEntry::Declaration(declaration));
+                }),
+                _ if decorators.is_empty() => self.statement().map(|value| {
+                    program.statements.push(value.clone());
+                    program.entries.push(ProgramEntry::Statement(value));
+                }),
                 _ => {
                     self.error("PARSE_UNEXPECTED_TOKEN");
                     None
@@ -495,6 +506,7 @@ impl Parser {
             }
             return Some(Statement::Expression(Expression::Name(binding)));
         }
+        let is_override = self.consume("override");
         let visibility = if self.consume("public") {
             Some(Visibility::Public)
         } else if self.consume("protected") {
@@ -542,6 +554,7 @@ impl Parser {
             return self.body().map(|body| {
                 Statement::Method(MethodDeclaration {
                     decorators,
+                    is_override,
                     kind,
                     selector,
                     parameters,
