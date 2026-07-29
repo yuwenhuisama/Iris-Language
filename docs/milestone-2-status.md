@@ -115,10 +115,28 @@ Building it is milestone-3 sized infrastructure.
 ## Milestone Status
 
 **Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 59 across the
-milestone, and every vector that implementation can close is closed. The three failures listed
-above are each blocked on an owner decision or on conformance-host infrastructure, never on
-missing language behaviour, and each has its own row in `docs/spec-defects-v1.md` stating the
-blocker and what closing it would require.
+milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
+conformance-host infrastructure, never on missing language behaviour, and each has its own row
+in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
+
+Work remains, but it is in the `needs_subsystem` bucket rather than in the failures. `V068` and
+`V105` were closed after the milestone was first declared done, both by re-probing bucket
+reasons that had gone stale, and `V105` exposed a real `C131` exactness defect that had been
+invisible for a milestone because a bucketed vector is never executed.
+
+### Next work, in order of value
+
+1. **Unify the two `ClassRegistry` instances.** `SourceEvaluator` holds a `Runtime` and a
+   `Kernel` that each own one, so their `ClassId` spaces are disjoint. This single blocker holds
+   `V075`, `V076` and `V100`. `Object` is already registered as a sixth `BuiltinClass` with its
+   protocol selectors installed; it is simply unreachable from source. Needs an owner ruling on
+   how much surgery to authorize, recorded in `docs/owner-decisions-pending.md`.
+2. **`@@x` hierarchy binding cells** shared across a subclass, with redeclaration rejected, for
+   `V091`.
+3. **Ordered stored-property initialization** across the MRO during construction, for `V092`.
+4. **Built-in Class openness**: Module composition into `Nil` and Method addition to `Bool` and
+   `Integer`, for `V101`.
+5. **Hash literals**, for `V072`.
 
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 
