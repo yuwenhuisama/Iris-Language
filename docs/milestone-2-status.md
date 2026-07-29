@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.7 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.8 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -54,6 +54,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.5 | `META-C118`, `C119` | The reflective Method surface and the `Reflection::*` layering |
 | v1.6 | `META-C120` | `set_superclass` and `ancestors` |
 | v1.7 | — | Amended two vector rows whose frozen text was unsatisfiable |
+| v1.8 | — | Moved the approved semantic source into `spec/drafts/` and repointed its references |
 
 ### Permanence exceptions
 
