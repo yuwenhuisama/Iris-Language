@@ -180,3 +180,58 @@ fn source_class_variables_and_builtin_reopens_dispatch() {
     );
     assert_eq!(builtin_reopen_result, Ok(RuntimeValue::Symbol("p".into())));
 }
+
+#[test]
+fn comparison_operators_cover_numeric_orderings_and_user_declared_greater() {
+    // Given
+    let numeric = "[1 > 2, 2 > 1, 1 <= 2, 2 <= 1, 1 >= 2, 2 >= 1]";
+    let declared = "class V { public fun >(other: V) -> Bool { true } }; V.new() > V.new()";
+
+    // When
+    let numeric_result = evaluate(numeric);
+    let declared_result = evaluate(declared);
+
+    // Then
+    assert_eq!(
+        numeric_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Bool(false),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(false),
+            RuntimeValue::Bool(false),
+            RuntimeValue::Bool(true),
+        ]))
+    );
+    assert_eq!(declared_result, Ok(RuntimeValue::Bool(true)));
+}
+
+#[test]
+fn default_comparisons_delegate_to_replaced_spaceship_but_not_replaced_equal() {
+    // Given
+    let source = "open class Integer { override public fun <=>(other: Integer) -> Integer { 1 } }; [1 < 2, 1 <= 2, 1 > 2, 1 >= 2, 1 == 2, 1 != 2]; open class Integer { override public fun ==(other: Integer) -> Bool { true } }; [1 <=> 2, 1 < 2, 1 > 2, 1 == 2]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Array(vec![
+                RuntimeValue::Bool(false),
+                RuntimeValue::Bool(false),
+                RuntimeValue::Bool(true),
+                RuntimeValue::Bool(true),
+                RuntimeValue::Bool(false),
+                RuntimeValue::Bool(true),
+            ]),
+            RuntimeValue::Array(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Bool(false),
+                RuntimeValue::Bool(true),
+                RuntimeValue::Bool(true),
+            ]),
+        ]))
+    );
+}

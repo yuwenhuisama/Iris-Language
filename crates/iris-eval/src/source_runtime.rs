@@ -1176,6 +1176,35 @@ impl SourceEvaluator {
             .map_err(EvaluationError::Runtime)?
         {
             iris_runtime::DispatchOutcome::Invoke(method) => {
+                if matches!(selector, "==" | "!=" | "<" | "<=" | ">" | ">=")
+                    && !self.bodies.contains_key(&method.body().raw())
+                {
+                    let comparison = self.value_send(receiver, "<=>", arguments)?;
+                    let result = match comparison {
+                        Value::Nil => selector == "!=",
+                        Value::Integer(value) if value == (-1_i8).into() => {
+                            matches!(selector, "!=" | "<" | "<=")
+                        }
+                        Value::Integer(value) if value == 0_u8.into() => {
+                            matches!(selector, "==" | "<=" | ">=")
+                        }
+                        Value::Integer(value) if value == 1_u8.into() => {
+                            matches!(selector, "!=" | ">" | ">=")
+                        }
+                        Value::Integer(_)
+                        | Value::Bool(_)
+                        | Value::Float32(_)
+                        | Value::Float64(_)
+                        | Value::Array(_)
+                        | Value::Symbol(_)
+                        | Value::Class(_)
+                        | Value::Object(_)
+                        | Value::BoundMethod(_) => {
+                            return Err(EvaluationError::UnsupportedConstruct);
+                        }
+                    };
+                    return Ok(Value::Bool(result));
+                }
                 self.invoke_selected(method, receiver, arguments)
             }
             iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {

@@ -337,6 +337,9 @@ impl Evaluator {
             BinaryOperator::Equal => NativeSelector::Equal,
             BinaryOperator::NotEqual => NativeSelector::NotEqual,
             BinaryOperator::Less => NativeSelector::Less,
+            BinaryOperator::LessEqual => NativeSelector::LessEqual,
+            BinaryOperator::Greater => NativeSelector::Greater,
+            BinaryOperator::GreaterEqual => NativeSelector::GreaterEqual,
             BinaryOperator::Compare => NativeSelector::Compare,
             BinaryOperator::NamedInfix { selector } => NativeSelector::from_source(selector)
                 .ok_or(EvaluationError::UnsupportedConstruct)?,

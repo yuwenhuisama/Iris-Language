@@ -23,6 +23,9 @@ pub enum NativeSelector {
     Equal,
     NotEqual,
     Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     Compare,
     Negate,
     FromBits,
@@ -52,6 +55,9 @@ impl NativeSelector {
             "==" => Some(Self::Equal),
             "!=" => Some(Self::NotEqual),
             "<" => Some(Self::Less),
+            "<=" => Some(Self::LessEqual),
+            ">" => Some(Self::Greater),
+            ">=" => Some(Self::GreaterEqual),
             "<=>" => Some(Self::Compare),
             "negate" => Some(Self::Negate),
             "from_bits" => Some(Self::FromBits),
@@ -86,6 +92,9 @@ impl NativeSelector {
             Self::NotEqual => 19,
             Self::Hash => 20,
             Self::ToBool => 21,
+            Self::LessEqual => 22,
+            Self::Greater => 23,
+            Self::GreaterEqual => 24,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -111,6 +120,9 @@ impl NativeSelector {
             19 => Some(Self::NotEqual),
             20 => Some(Self::Hash),
             21 => Some(Self::ToBool),
+            22 => Some(Self::LessEqual),
+            23 => Some(Self::Greater),
+            24 => Some(Self::GreaterEqual),
             _ => None,
         }
     }
@@ -219,6 +231,9 @@ impl Kernel {
                 NativeSelector::Equal,
                 NativeSelector::NotEqual,
                 NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
                 NativeSelector::MulAdd,
@@ -237,6 +252,9 @@ impl Kernel {
                 NativeSelector::Equal,
                 NativeSelector::NotEqual,
                 NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
                 NativeSelector::FromBits,
@@ -258,6 +276,9 @@ impl Kernel {
                 NativeSelector::Equal,
                 NativeSelector::NotEqual,
                 NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
                 NativeSelector::Compare,
                 NativeSelector::Negate,
                 NativeSelector::FromBits,
@@ -419,6 +440,18 @@ impl Kernel {
                 Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?)
                     == Some(Ordering::Less),
             )),
+            NativeSelector::LessEqual => Ok(Value::Bool(matches!(
+                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                Some(Ordering::Less | Ordering::Equal)
+            ))),
+            NativeSelector::Greater => Ok(Value::Bool(
+                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?)
+                    == Some(Ordering::Greater),
+            )),
+            NativeSelector::GreaterEqual => Ok(Value::Bool(matches!(
+                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                Some(Ordering::Equal | Ordering::Greater)
+            ))),
             NativeSelector::Compare => Ok(
                 match Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?) {
                     Some(Ordering::Less) => Value::Integer((-1_i8).into()),

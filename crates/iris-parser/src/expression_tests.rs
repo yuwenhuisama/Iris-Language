@@ -187,6 +187,25 @@ fn parses_suffixed_named_infix_selectors() {
 }
 
 #[test]
+fn rejects_if_in_expression_positions() {
+    // Given
+    let sources = [
+        "let result = if true { :yes } else { :no }; result",
+        "[if true { :yes } else { :no }]",
+    ];
+
+    // When
+    let results = sources.map(parse);
+
+    // Then
+    assert!(
+        results
+            .into_iter()
+            .all(|result| !result.program_accepted && !result.diagnostics.is_empty())
+    );
+}
+
+#[test]
 fn rejects_dot_sigil_storage_accesses() {
     // Given
     let sources = ["obj.@@x", "A.@@x", "other.@x"];

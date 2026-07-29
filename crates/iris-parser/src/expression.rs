@@ -107,6 +107,10 @@ impl Parser {
         if self.consume(":") {
             return self.selector().map(Expression::Symbol);
         }
+        if self.check("if") {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            return None;
+        }
         let Some(value) = self.advance().map(|token| token.text) else {
             self.error("PARSE_UNEXPECTED_TOKEN");
             return None;
