@@ -10,7 +10,7 @@ use iris_syntax::{
 };
 
 use crate::EvaluationError;
-use crate::source_method::{builtin, invoke, literal, visibility};
+use crate::source_method::{builtin, literal, visibility};
 
 pub(super) fn evaluate(program: &Program) -> Result<Value, EvaluationError> {
     let mut evaluator = SourceEvaluator::new()?;
@@ -20,7 +20,7 @@ pub(super) fn evaluate(program: &Program) -> Result<Value, EvaluationError> {
 struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
-    names: HashMap<String, Value>,
+    names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
     module_names: HashMap<String, ModuleId>,
@@ -33,6 +33,51 @@ struct SourceEvaluator {
     active_exception: Option<Value>,
     next_selector: u64,
     next_body: u64,
+}
+
+#[derive(Clone)]
+struct Binding {
+    value: Value,
+    mutable: bool,
+}
+
+impl Binding {
+    const fn new(value: Value, mutable: bool) -> Self {
+        Self { value, mutable }
+    }
+
+    const fn immutable(value: Value) -> Self {
+        Self::new(value, false)
+    }
+
+    fn value(&self) -> Value {
+        self.value.clone()
+    }
+
+    fn assign(&mut self, value: Value) -> Result<Value, ()> {
+        if self.mutable {
+            self.value = value.clone();
+            Ok(value)
+        } else {
+            Err(())
+        }
+    }
+}
+
+fn construction_error(error: iris_runtime::ConstructionError) -> EvaluationError {
+    match error {
+        iris_runtime::ConstructionError::Runtime(iris_runtime::ExecutionError::Raised(value)) => {
+            EvaluationError::Raised(value)
+        }
+        error => EvaluationError::Construction(error),
+    }
+}
+
+fn execution_error(error: EvaluationError) -> iris_runtime::ExecutionError {
+    match error {
+        EvaluationError::Raised(value) => iris_runtime::ExecutionError::Raised(value),
+        _ => iris_runtime::ExecutionError::Raised(Value::Nil),
+    }
 }
 
 impl SourceEvaluator {
@@ -132,8 +177,24 @@ impl SourceEvaluator {
                 .registry_mut()
                 .define_class(StaticSpine::new(1), superclass)
                 .map_err(EvaluationError::Class)?;
-            self.names
-                .insert(declaration.name.clone(), Value::Class(class));
+            self.class_method(
+                class,
+                false,
+                false,
+                &MethodDeclaration {
+                    decorators: Vec::new(),
+                    is_override: false,
+                    kind: MethodKind::Instance,
+                    selector: "to_bool".into(),
+                    parameters: Vec::new(),
+                    visibility: iris_syntax::Visibility::Public,
+                    body: vec![Statement::Expression(Expression::Literal("true".into()))],
+                },
+            )?;
+            self.names.insert(
+                declaration.name.clone(),
+                Binding::immutable(Value::Class(class)),
+            );
             self.mixins.insert(class, mixins);
             self.static_superclasses.insert(class, superclass);
             class
@@ -456,9 +517,14 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match statement {
-            Statement::Binding { name, value } => {
+            Statement::Binding {
+                mutable,
+                name,
+                value,
+            } => {
                 let value = self.expression(value, locals, receiver)?;
-                self.names.insert(name.clone(), value.clone());
+                self.names
+                    .insert(name.clone(), Binding::new(value.clone(), *mutable));
                 Ok(value)
             }
             Statement::Expression(expression) => self.expression(expression, locals, receiver),
@@ -512,7 +578,7 @@ impl SourceEvaluator {
         let mut result = Value::Nil;
         for statement in statements {
             match statement {
-                Statement::Binding { name, value } => {
+                Statement::Binding { name, value, .. } => {
                     let value = self.expression(value, &locals, receiver.clone())?;
                     locals.insert(name.clone(), value);
                 }
@@ -636,21 +702,8 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<bool, EvaluationError> {
         let value = self.expression(expression, locals, receiver)?;
-        let to_bool = self.selector("to_bool");
-        let method = match value {
-            Value::Object(object) => match self.resolve_instance_method(object, to_bool) {
-                Ok(method) => TruthinessMethod::Returns(self.invoke_method(
-                    method,
-                    Value::Object(object),
-                    &[],
-                )?),
-                Err(EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
-                    iris_runtime::DispatchError::MissingMethod { .. },
-                ))) => TruthinessMethod::Default,
-                Err(error) => return Err(error),
-            },
-            _ => TruthinessMethod::Default,
-        };
+        let result = self.send(value.clone(), "to_bool", &[])?;
+        let method = TruthinessMethod::Returns(result);
         Truthiness::test(&value, method).map_err(|error| match error {
             TruthinessError::TypeContract => EvaluationError::TypeContractError,
             TruthinessError::Raised(value) => {
@@ -668,8 +721,8 @@ impl SourceEvaluator {
         match expression {
             Expression::Name(name) => locals
                 .get(name)
-                .or_else(|| self.names.get(name))
                 .cloned()
+                .or_else(|| self.names.get(name).map(Binding::value))
                 .or_else(|| (name == "self").then_some(receiver).flatten())
                 .or_else(|| builtin(name, &self.kernel))
                 .ok_or(EvaluationError::UnsupportedConstruct),
@@ -767,8 +820,18 @@ impl SourceEvaluator {
                 Err(EvaluationError::UnsupportedConstruct)
             }
             Expression::Assignment { left, right, .. } => {
-                if matches!(left.as_ref(), Expression::Name(_)) {
-                    return Err(EvaluationError::ImmutableBinding);
+                if let Expression::Name(name) = left.as_ref() {
+                    if locals.contains_key(name) {
+                        return Err(EvaluationError::ImmutableBinding);
+                    }
+                    let value = self.expression(right, locals, receiver)?;
+                    let binding = self
+                        .names
+                        .get_mut(name)
+                        .ok_or(EvaluationError::ImmutableBinding)?;
+                    return binding
+                        .assign(value)
+                        .map_err(|()| EvaluationError::ImmutableBinding);
                 }
                 if let Expression::RawIvar(name) = left.as_ref() {
                     let selector = self.selector(name);
@@ -851,12 +914,14 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
-        let bodies = &self.bodies;
-        self.runtime
-            .construct(class, arguments, |runtime, method, receiver, arguments| {
-                let Some(declaration) = bodies.get(&method.body().raw()) else {
-                    return Err(iris_runtime::ExecutionError::Raised(Value::Nil));
-                };
+        let mut runtime = std::mem::take(&mut self.runtime);
+        let result =
+            runtime.construct(class, arguments, |_runtime, method, receiver, arguments| {
+                let declaration = self
+                    .bodies
+                    .get(&method.body().raw())
+                    .cloned()
+                    .ok_or(iris_runtime::ExecutionError::Raised(Value::Nil))?;
                 if let Some(Statement::Expression(Expression::Assignment { left, right, .. })) =
                     declaration.body.last()
                     && matches!(left.as_ref(), Expression::RawIvar(_))
@@ -864,13 +929,15 @@ impl SourceEvaluator {
                 {
                     let value = literal(value)
                         .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil))?;
-                    return runtime
+                    return _runtime
                         .assign_raw_ivar(receiver, method.selector(), value)
                         .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil));
                 }
-                invoke(bodies, method, Value::Object(receiver), arguments)
-            })
-            .map_err(EvaluationError::Construction)
+                self.invoke_method(method, Value::Object(receiver), arguments)
+                    .map_err(execution_error)
+            });
+        self.runtime = runtime;
+        result.map_err(construction_error)
     }
 
     fn send(
@@ -928,8 +995,17 @@ impl SourceEvaluator {
             }
             Value::Object(object) => {
                 let selector = self.selector(selector);
-                let method = self.resolve_instance_method(object, selector)?;
-                self.invoke_method(method, Value::Object(object), arguments)
+                match self.resolve_instance_method(object, selector) {
+                    Ok(method) => self.invoke_method(method, Value::Object(object), arguments),
+                    Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::MissingMethod { .. },
+                        ),
+                    )) if selector == self.selector("to_bool") && arguments.is_empty() => {
+                        Ok(Value::Bool(true))
+                    }
+                    Err(error) => Err(error),
+                }
             }
             value => self.value_send(value, selector, arguments),
         }
@@ -959,7 +1035,10 @@ impl SourceEvaluator {
 
     fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
         match self.names.get(name) {
-            Some(Value::Class(class)) => Ok(Some(*class)),
+            Some(Binding {
+                value: Value::Class(class),
+                ..
+            }) => Ok(Some(*class)),
             Some(_) => Err(EvaluationError::UnsupportedConstruct),
             None => Ok(builtin(name, &self.kernel).and_then(|value| match value {
                 Value::Class(class) => Some(class),
@@ -1046,6 +1125,9 @@ impl SourceEvaluator {
     }
 
     fn selector(&mut self, name: &str) -> Selector {
+        if name == "initialize" {
+            return Selector::new(1);
+        }
         if let Some(selector) = self.selectors.get(name) {
             return *selector;
         }
@@ -1380,9 +1462,10 @@ mod tests {
             .registry_mut()
             .define_class(iris_runtime::StaticSpine::new(1), parent_id)
             .map_err(crate::EvaluationError::Class)?;
-        evaluator
-            .names
-            .insert(child.name.clone(), Value::Class(child_id));
+        evaluator.names.insert(
+            child.name.clone(),
+            super::Binding::immutable(Value::Class(child_id)),
+        );
         evaluator.static_superclasses.insert(child_id, parent_id);
         let before = evaluator
             .runtime

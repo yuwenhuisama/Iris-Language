@@ -30,6 +30,7 @@ pub enum NativeSelector {
     Infinity,
     MulAdd,
     Hash,
+    ToBool,
 }
 
 impl NativeSelector {
@@ -58,6 +59,7 @@ impl NativeSelector {
             "infinity" => Some(Self::Infinity),
             "mul_add" => Some(Self::MulAdd),
             "hash" => Some(Self::Hash),
+            "to_bool" => Some(Self::ToBool),
             _ => None,
         }
     }
@@ -83,6 +85,7 @@ impl NativeSelector {
             Self::MulAdd => 18,
             Self::NotEqual => 19,
             Self::Hash => 20,
+            Self::ToBool => 21,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -107,6 +110,7 @@ impl NativeSelector {
             18 => Some(Self::MulAdd),
             19 => Some(Self::NotEqual),
             20 => Some(Self::Hash),
+            21 => Some(Self::ToBool),
             _ => None,
         }
     }
@@ -191,8 +195,14 @@ impl Kernel {
             );
         }
         let mut kernel = Self { registry, classes };
-        kernel.install(BuiltinClass::Nil, &[NativeSelector::Hash])?;
-        kernel.install(BuiltinClass::Bool, &[NativeSelector::Hash])?;
+        kernel.install(
+            BuiltinClass::Nil,
+            &[NativeSelector::Hash, NativeSelector::ToBool],
+        )?;
+        kernel.install(
+            BuiltinClass::Bool,
+            &[NativeSelector::Hash, NativeSelector::ToBool],
+        )?;
         kernel.install(
             BuiltinClass::Integer,
             &[
@@ -213,6 +223,7 @@ impl Kernel {
                 NativeSelector::Negate,
                 NativeSelector::MulAdd,
                 NativeSelector::Hash,
+                NativeSelector::ToBool,
             ],
         )?;
         kernel.install(
@@ -233,6 +244,7 @@ impl Kernel {
                 NativeSelector::Infinity,
                 NativeSelector::MulAdd,
                 NativeSelector::Hash,
+                NativeSelector::ToBool,
             ],
         )?;
         kernel.install(
@@ -253,6 +265,7 @@ impl Kernel {
                 NativeSelector::Infinity,
                 NativeSelector::MulAdd,
                 NativeSelector::Hash,
+                NativeSelector::ToBool,
             ],
         )?;
         Ok(kernel)
@@ -420,6 +433,7 @@ impl Kernel {
             NativeSelector::Infinity => self.special(receiver, arguments, false),
             NativeSelector::MulAdd => self.mul_add(receiver, arguments),
             NativeSelector::Hash => self.hash(receiver, arguments),
+            NativeSelector::ToBool => self.to_bool(receiver, arguments),
         }
     }
     fn binary(
@@ -522,6 +536,17 @@ impl Kernel {
             return Err(KernelError::Arity);
         }
         Ok(Value::Integer(crate::public_hash(&receiver)?))
+    }
+    fn to_bool(&self, receiver: Value, arguments: &[Value]) -> Result<Value, KernelError> {
+        if !arguments.is_empty() {
+            return Err(KernelError::Arity);
+        }
+        Ok(match receiver {
+            Value::Nil => Value::Bool(false),
+            Value::Bool(value) => Value::Bool(value),
+            Value::Integer(_) | Value::Float32(_) | Value::Float64(_) => Value::Bool(true),
+            _ => return Err(KernelError::Type),
+        })
     }
 }
 fn numeric(value: &Value) -> Result<NumericValue, KernelError> {

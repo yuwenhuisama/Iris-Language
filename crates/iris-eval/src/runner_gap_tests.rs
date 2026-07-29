@@ -688,6 +688,136 @@ fn method_raise_propagates_through_its_call() {
 }
 
 #[test]
+fn initialize_raise_propagates_and_returns_no_instance() {
+    // Given
+    let source = "class A { public fun initialize() { raise :sentinel } }; A.new()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol(
+            "sentinel".into()
+        )))
+    );
+}
+
+#[test]
+fn catch_receives_a_value_raised_by_initialize() {
+    // Given
+    let source = "class A { public fun initialize() { raise :sentinel } }; try { A.new() } catch error { error }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("sentinel".into())));
+}
+
+#[test]
+fn escaped_receiver_from_failed_initialize_remains_usable() {
+    // Given
+    let source = "let mut escaped = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; try { A.new() } catch error { escaped.to_bool() }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Bool(true)));
+}
+
+#[test]
+fn ordinary_object_to_bool_returns_true_and_drives_if() {
+    // Given
+    let direct = "class A { }; A.new().to_bool()";
+    let conditional = "class A { }; if A.new() { :then } else { :else }";
+
+    // When
+    let results = [evaluate(direct), evaluate(conditional)];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Bool(true)),
+            Ok(RuntimeValue::Symbol("then".into())),
+        ]
+    );
+}
+
+#[test]
+fn builtin_to_bool_methods_dispatch_per_c094() {
+    // Given
+    let source = "[nil.to_bool(), false.to_bool(), true.to_bool()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Bool(false),
+            RuntimeValue::Bool(false),
+            RuntimeValue::Bool(true),
+        ]))
+    );
+}
+
+#[test]
+fn user_defined_to_bool_overrides_the_installed_default_and_drives_if() {
+    // Given
+    let direct = "class A { public fun to_bool() -> Bool { false } }; A.new().to_bool()";
+    let conditional =
+        "class A { public fun to_bool() -> Bool { false } }; if A.new() { :yes } else { :no }";
+
+    // When
+    let results = [evaluate(direct), evaluate(conditional)];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Bool(false)),
+            Ok(RuntimeValue::Symbol("no".into())),
+        ]
+    );
+}
+
+#[test]
+fn method_assignment_updates_an_enclosing_mutable_binding() {
+    // Given
+    let source = "let mut value = 1; class A { public fun update() -> Integer { value = 2 } }; A.new().update(); value";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(2_u8.into()),
+            RuntimeValue::Integer(2_u8.into()),
+        ]))
+    );
+}
+
+#[test]
+fn method_assignment_rejects_an_enclosing_immutable_binding() {
+    // Given
+    let source =
+        "let value = 1; class A { public fun update() -> Integer { value = 2 } }; A.new().update()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Err(EvaluationError::ImmutableBinding));
+}
+
+#[test]
 fn catch_binding_is_immutable() {
     // Given
     let source = "try { raise :boom } catch error { error = :other }";

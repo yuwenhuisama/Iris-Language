@@ -92,6 +92,7 @@ pub enum Statement {
         value: Expression,
     },
     Binding {
+        mutable: bool,
         name: String,
         value: Expression,
     },

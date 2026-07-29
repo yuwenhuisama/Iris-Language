@@ -489,7 +489,15 @@ impl Parser {
                 value,
             });
         }
-        if self.consume("let") || self.consume("mut") || self.consume("const") {
+        if self.check("let") || self.check("mut") || self.check("const") {
+            let mutable = if self.consume("let") {
+                self.consume("mut")
+            } else if self.consume("mut") {
+                true
+            } else {
+                self.consume("const");
+                false
+            };
             if !decorators.is_empty() {
                 self.error("PARSE_UNEXPECTED_TOKEN");
                 return None;
@@ -500,6 +508,7 @@ impl Parser {
             }
             if self.consume("=") {
                 return self.expression(0).map(|value| Statement::Binding {
+                    mutable,
                     name: binding,
                     value,
                 });
