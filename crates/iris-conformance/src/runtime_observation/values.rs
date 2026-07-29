@@ -1,4 +1,4 @@
-use iris_eval::{EvaluationError, evaluate};
+use iris_eval::{EvaluationError, evaluate, evaluate_with_class_publication};
 use iris_runtime::{KernelError, NumericError, Value as RuntimeValue};
 
 use crate::{
@@ -99,6 +99,37 @@ pub(super) fn compare_error(expected: &Value, source: &str) -> Result<(), String
             }
         }
     }
+}
+
+pub(super) fn compare_error_and_side_effects(
+    expected_error: &Value,
+    expected_side_effects: &Value,
+    source: &str,
+) -> Result<(), String> {
+    let class = unpublished_class(expected_side_effects)?;
+    let expected = string(object(expected_error)?, "code")?;
+    let (outcome, published) = evaluate_with_class_publication(source, class);
+    match outcome {
+        Ok(value) => Err(format!(
+            "error expected {expected}, actual value {}",
+            render_value(&value)
+        )),
+        Err(error) if error_code(&error) != expected => Err(format!(
+            "error expected {expected}, actual {}",
+            error_code(&error)
+        )),
+        Err(_) if published => Err(format!("side_effects expected {class} is not published")),
+        Err(_) => Ok(()),
+    }
+}
+
+fn unpublished_class(expected: &Value) -> Result<&str, String> {
+    let Value::String(expected) = expected else {
+        return Err("error side_effects must name an unpublished Class".into());
+    };
+    expected
+        .strip_suffix(" is not published.")
+        .ok_or_else(|| "error side_effects must use '<Class> is not published.'".into())
 }
 
 fn render_value(value: &RuntimeValue) -> String {

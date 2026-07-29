@@ -35,8 +35,10 @@ pub enum ClassError {
         class: ClassId,
     },
     MetaCapabilityDenied {
-        class: ClassId,
-        capability: Capability,
+        target: ClassId,
+        operation: Capability,
+        policy_origin: ClassId,
+        reason: &'static str,
     },
     DecoratorViolation {
         class: ClassId,
@@ -75,7 +77,7 @@ impl fmt::Display for ClassError {
             Self::UnknownModuleId(_) => "unknown Iris Module identity",
             Self::ModuleCompositionCycle(_) => "cyclic Iris Module composition",
             Self::ProtectedSuperclass { .. } => "Iris built-in Class superclass is protected",
-            Self::MetaCapabilityDenied { .. } => "Iris Class meta capability denied",
+            Self::MetaCapabilityDenied { .. } => "MetaCapabilityError",
             Self::DecoratorViolation { .. } => {
                 "Iris decorator changed forbidden declaration metadata"
             }
@@ -130,6 +132,12 @@ impl ClassRegistry {
         runtime_superclass: Option<ClassId>,
         capabilities: MetaCapabilities,
     ) -> Result<ClassId, ClassError> {
+        let static_spine = static_spine.with_meta_capabilities(capabilities);
+        if let Some(superclass) = runtime_superclass {
+            self.require_meta_capability(superclass, Capability::Subclass)?;
+        }
+        let effective_capabilities =
+            self.effective_meta_capabilities(static_spine, runtime_superclass)?;
         let class = ClassId::new(self.next_class_id);
         let revision = RevisionId::new(self.next_revision_id);
         let next_class_id = self
@@ -150,10 +158,16 @@ impl ClassRegistry {
             static_spine,
             runtime_superclass,
             self.origin_mro(class, runtime_superclass)?,
+            effective_capabilities,
         );
         self.revisions.insert(
             revision,
-            ClassRevision::from_candidate(candidate, revision, next_commit_id, capabilities),
+            ClassRevision::from_candidate(
+                candidate,
+                revision,
+                next_commit_id,
+                effective_capabilities,
+            ),
         );
         self.classes
             .insert(class, LogicalClass::new(class, revision));
@@ -203,6 +217,54 @@ impl ClassRegistry {
     /// Returns the current revision's immutable effective meta policy.
     pub fn active_meta_capabilities(&self, class: ClassId) -> Result<MetaCapabilities, ClassError> {
         Ok(self.active(class)?.meta_capabilities())
+    }
+
+    /// Enforces one operation against the current effective policy and reports its origin.
+    pub fn require_meta_capability(
+        &self,
+        target: ClassId,
+        operation: Capability,
+    ) -> Result<(), ClassError> {
+        let revision = self.active(target)?;
+        if revision.meta_capabilities().allows(operation) {
+            return Ok(());
+        }
+        let policy_origin = revision
+            .mro()
+            .iter()
+            .find_map(|entry| match entry {
+                crate::MroEntry::Class(class) => self
+                    .active(*class)
+                    .ok()
+                    .filter(|candidate| {
+                        !candidate
+                            .static_spine()
+                            .meta_capabilities()
+                            .allows(operation)
+                    })
+                    .map(|_| *class),
+                crate::MroEntry::Module(_) => None,
+            })
+            .unwrap_or(target);
+        Err(ClassError::MetaCapabilityDenied {
+            target,
+            operation,
+            policy_origin,
+            reason: "the active effective policy denies this meta operation",
+        })
+    }
+
+    pub(crate) fn effective_meta_capabilities(
+        &self,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+    ) -> Result<MetaCapabilities, ClassError> {
+        match runtime_superclass {
+            Some(superclass) => Ok(static_spine
+                .meta_capabilities()
+                .narrowed_by(self.active_meta_capabilities(superclass)?)),
+            None => Ok(static_spine.meta_capabilities()),
+        }
     }
 
     /// Opens a candidate from the Class's sole active revision.

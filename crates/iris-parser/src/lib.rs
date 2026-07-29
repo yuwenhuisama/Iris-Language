@@ -870,6 +870,10 @@ impl Parser {
         while self.consume(",") {
             values.push(self.name()?);
         }
+        if values.iter().any(|value| !is_meta_capability(value)) {
+            self.error("PARSE_UNKNOWN_META_CAPABILITY");
+            return None;
+        }
         Some(values)
     }
     fn selector(&mut self) -> Option<String> {
@@ -1089,6 +1093,24 @@ fn is_identifier(value: &str) -> bool {
         .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
 }
 
+fn is_meta_capability(value: &str) -> bool {
+    matches!(
+        value,
+        "method_set"
+            | "method_body"
+            | "property_set"
+            | "property_body"
+            | "modules"
+            | "superclass"
+            | "subclass"
+            | "shape"
+            | "class_state_set"
+            | "class_state_write"
+            | "instance_state"
+            | "native"
+    )
+}
+
 fn is_reserved_keyword(value: &str) -> bool {
     matches!(
         value,
@@ -1239,6 +1261,40 @@ mod tests {
 
         assert_eq!(empty.diagnostics[0].code, "PARSE_EMPTY_STATEMENT");
         assert_eq!(body_meta.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+    }
+
+    #[test]
+    fn meta_deny_accepts_only_the_complete_c073_vocabulary() {
+        // Given
+        let accepted = [
+            "method_set",
+            "method_body",
+            "property_set",
+            "property_body",
+            "modules",
+            "superclass",
+            "subclass",
+            "shape",
+            "class_state_set",
+            "class_state_write",
+            "instance_state",
+            "native",
+        ];
+
+        // When
+        let results =
+            accepted.map(|capability| parse(&format!("class A meta deny {capability} {{}}")));
+        let unknown = parse("class A meta deny bogus_name {}");
+
+        // Then
+        assert!(results.iter().all(|result| result.is_clean()));
+        assert!(!unknown.program_accepted);
+        assert!(
+            unknown
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "PARSE_UNKNOWN_META_CAPABILITY")
+        );
     }
 
     #[test]

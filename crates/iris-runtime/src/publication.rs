@@ -15,6 +15,12 @@ impl ClassRegistry {
             .into_iter()
             .map(|mut candidate| {
                 candidate.mro = self.compute_mro(&candidate)?;
+                candidate.meta_capabilities = self
+                    .effective_meta_capabilities(
+                        candidate.static_spine,
+                        candidate.runtime_superclass,
+                    )?
+                    .narrowed_by(candidate.meta_capabilities);
                 Ok(candidate)
             })
             .collect::<Result<Vec<_>, ClassError>>()?;

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    ClassError, ClassId, DispatchError, DispatchOutcome, Kernel, Method, MethodBody, MethodOwner,
-    ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
+    Capability, ClassError, ClassId, DispatchError, DispatchOutcome, Kernel, MetaCapabilities,
+    Method, MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness,
+    TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -17,7 +18,7 @@ pub(super) fn evaluate(program: &Program) -> Result<Value, EvaluationError> {
     evaluator.program(program)
 }
 
-struct SourceEvaluator {
+pub(super) struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
     names: HashMap<String, Binding>,
@@ -82,7 +83,7 @@ fn execution_error(error: EvaluationError) -> iris_runtime::ExecutionError {
 }
 
 impl SourceEvaluator {
-    fn new() -> Result<Self, EvaluationError> {
+    pub(super) fn new() -> Result<Self, EvaluationError> {
         Ok(Self {
             runtime: Runtime::new(),
             kernel: Kernel::new().map_err(EvaluationError::Runtime)?,
@@ -103,7 +104,7 @@ impl SourceEvaluator {
         })
     }
 
-    fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
+    pub(super) fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
         let mut values = Vec::new();
         for entry in &program.entries {
             match entry {
@@ -172,27 +173,36 @@ impl SourceEvaluator {
             if superclass.is_some() || !mixins.is_empty() {
                 return Err(EvaluationError::UnsupportedConstruct);
             }
+            if !declaration.meta_deny.is_empty() {
+                return Err(EvaluationError::Class(ClassError::MetaCapabilityDenied {
+                    target: class,
+                    operation: Capability::MethodSet,
+                    policy_origin: class,
+                    reason: "open declarations cannot change MetaCapabilities policy",
+                }));
+            }
             class
         } else {
+            let capabilities = meta_capabilities(&declaration.meta_deny)?;
             let class = self
                 .runtime
                 .registry_mut()
-                .define_class(StaticSpine::new(1), superclass)
+                .define_class_with_capabilities(StaticSpine::new(1), superclass, capabilities)
                 .map_err(EvaluationError::Class)?;
-            self.class_method(
-                class,
-                false,
-                false,
-                &MethodDeclaration {
-                    decorators: Vec::new(),
-                    is_override: false,
-                    kind: MethodKind::Instance,
-                    selector: "to_bool".into(),
-                    parameters: Vec::new(),
-                    visibility: iris_syntax::Visibility::Public,
-                    body: vec![Statement::Expression(Expression::Literal("true".into()))],
-                },
-            )?;
+            let body = self.register_body(MethodDeclaration {
+                decorators: Vec::new(),
+                is_override: false,
+                kind: MethodKind::Instance,
+                selector: "to_bool".into(),
+                parameters: Vec::new(),
+                visibility: iris_syntax::Visibility::Public,
+                body: vec![Statement::Expression(Expression::Literal("true".into()))],
+            });
+            let selector = self.selector("to_bool");
+            self.runtime
+                .registry_mut()
+                .publish_origin_method(class, selector, body, iris_runtime::Visibility::Public)
+                .map_err(EvaluationError::Class)?;
             self.names.insert(
                 declaration.name.clone(),
                 Binding::immutable(Value::Class(class)),
@@ -1109,7 +1119,7 @@ impl SourceEvaluator {
         }
     }
 
-    fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
+    pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
         match self.names.get(name) {
             Some(Binding {
                 value: Value::Class(class),
@@ -1443,6 +1453,29 @@ impl SourceEvaluator {
         };
         self.invoke_method(successor, receiver, arguments)
     }
+}
+
+fn meta_capabilities(names: &[String]) -> Result<MetaCapabilities, EvaluationError> {
+    let mut denied = Vec::with_capacity(names.len());
+    for name in names {
+        let capability = match name.as_str() {
+            "method_set" => Capability::MethodSet,
+            "method_body" => Capability::MethodBody,
+            "property_set" => Capability::PropertySet,
+            "property_body" => Capability::PropertyBody,
+            "modules" => Capability::Modules,
+            "superclass" => Capability::Superclass,
+            "subclass" => Capability::Subclass,
+            "shape" => Capability::Shape,
+            "class_state_set" => Capability::ClassStateSet,
+            "class_state_write" => Capability::ClassStateWrite,
+            "instance_state" => Capability::InstanceState,
+            "native" => Capability::Native,
+            _ => return Err(EvaluationError::ParseDiagnostic),
+        };
+        denied.push(capability);
+    }
+    Ok(MetaCapabilities::denying(&denied))
 }
 
 fn receiver_class_name(value: &Value) -> &'static str {

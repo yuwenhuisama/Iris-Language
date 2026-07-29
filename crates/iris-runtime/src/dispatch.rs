@@ -57,6 +57,28 @@ impl DispatchContext {
 }
 
 impl crate::ClassRegistry {
+    /// Installs a runtime-required origin Method before source-level policy applies.
+    pub fn publish_origin_method(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        body: MethodBody,
+        visibility: Visibility,
+    ) -> Result<Method, ClassError> {
+        let method = Method::new(
+            self.next_method()?,
+            MethodOwner::Class(class),
+            selector,
+            body,
+            visibility,
+        );
+        let mut candidate = self.open(class)?;
+        candidate.replace_method(selector, method.id());
+        self.publish(candidate)?;
+        self.methods.insert(method.id(), method);
+        Ok(method)
+    }
+
     /// Defines a closed Module with its ordered composition edges.
     pub fn define_module(&mut self, components: &[ModuleId]) -> Result<ModuleId, ClassError> {
         self.modules.define(components).map_err(Self::module_error)
@@ -90,9 +112,7 @@ impl crate::ClassRegistry {
         } else {
             crate::Capability::MethodSet
         };
-        if !self.active_meta_capabilities(class)?.allows(capability) {
-            return Err(ClassError::MetaCapabilityDenied { class, capability });
-        }
+        self.require_meta_capability(class, capability)?;
         let method = Method::new(
             self.next_method()?,
             MethodOwner::Class(class),
@@ -143,9 +163,7 @@ impl crate::ClassRegistry {
         } else {
             crate::Capability::MethodSet
         };
-        if !self.active_meta_capabilities(class)?.allows(capability) {
-            return Err(ClassError::MetaCapabilityDenied { class, capability });
-        }
+        self.require_meta_capability(class, capability)?;
         let method = Method::new(
             self.next_method()?,
             MethodOwner::Class(class),
@@ -178,9 +196,7 @@ impl crate::ClassRegistry {
         } else {
             crate::Capability::PropertySet
         };
-        if !self.active_meta_capabilities(class)?.allows(capability) {
-            return Err(ClassError::MetaCapabilityDenied { class, capability });
-        }
+        self.require_meta_capability(class, capability)?;
         let mut candidate = self.open(class)?;
         candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
         self.publish(candidate)?;
@@ -205,9 +221,7 @@ impl crate::ClassRegistry {
         } else {
             crate::Capability::PropertySet
         };
-        if !self.active_meta_capabilities(class)?.allows(capability) {
-            return Err(ClassError::MetaCapabilityDenied { class, capability });
-        }
+        self.require_meta_capability(class, capability)?;
         let mut candidate = self.open(class)?;
         candidate.stage_decorators(decorators);
         candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));

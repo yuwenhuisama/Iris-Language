@@ -86,6 +86,24 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     }
 }
 
+/// Evaluates source and reports whether a named Class was published before failure.
+pub fn evaluate_with_class_publication(
+    source: &str,
+    class_name: &str,
+) -> (Result<RuntimeValue, EvaluationError>, bool) {
+    let parsed = parse(source);
+    if !parsed.program_accepted {
+        return (Err(EvaluationError::ParseDiagnostic), false);
+    }
+    let mut evaluator = match source_runtime::SourceEvaluator::new() {
+        Ok(evaluator) => evaluator,
+        Err(error) => return (Err(error), false),
+    };
+    let outcome = evaluator.program(&parsed.program);
+    let published = matches!(evaluator.class_name(class_name), Ok(Some(_)));
+    (outcome, published)
+}
+
 struct Evaluator {
     kernel: Kernel,
 }

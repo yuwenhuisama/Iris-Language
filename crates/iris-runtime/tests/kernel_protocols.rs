@@ -221,8 +221,10 @@ fn meta_deny_only_narrows_and_method_capabilities_are_independent() -> Result<()
     assert_eq!(
         add,
         Err(ClassError::MetaCapabilityDenied {
-            class,
-            capability: Capability::MethodSet
+            target: class,
+            operation: Capability::MethodSet,
+            policy_origin: class,
+            reason: "the active effective policy denies this meta operation",
         })
     );
     assert!(body.is_ok());
@@ -254,8 +256,10 @@ fn property_set_and_property_body_are_independently_deniable() -> Result<(), Cla
     assert_eq!(
         add,
         Err(ClassError::MetaCapabilityDenied {
-            class,
-            capability: Capability::PropertySet
+            target: class,
+            operation: Capability::PropertySet,
+            policy_origin: class,
+            reason: "the active effective policy denies this meta operation",
         })
     );
     assert!(replace.is_ok());
@@ -287,8 +291,39 @@ fn decorated_method_publication_respects_method_set_capability() -> Result<(), C
     assert_eq!(
         result,
         Err(ClassError::MetaCapabilityDenied {
-            class,
-            capability: Capability::MethodSet,
+            target: class,
+            operation: Capability::MethodSet,
+            policy_origin: class,
+            reason: "the active effective policy denies this meta operation",
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn meta_capability_error_reports_target_operation_origin_and_reason() -> Result<(), ClassError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let policy = MetaCapabilities::denying(&[Capability::MethodSet]);
+    let base = registry.define_class_with_capabilities(StaticSpine::new(1), None, policy)?;
+    let child = registry.define_class(StaticSpine::new(1), Some(base))?;
+
+    // When
+    let result = registry.publish_method(
+        child,
+        Selector::new(120),
+        MethodBody::new(1),
+        Visibility::Public,
+    );
+
+    // Then
+    assert_eq!(
+        result,
+        Err(ClassError::MetaCapabilityDenied {
+            target: child,
+            operation: Capability::MethodSet,
+            policy_origin: base,
+            reason: "the active effective policy denies this meta operation",
         })
     );
     Ok(())

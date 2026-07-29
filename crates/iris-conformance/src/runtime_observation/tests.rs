@@ -176,3 +176,19 @@ fn side_effects_without_value_are_accepted_from_a_single_item_observation() {
     // Then
     assert_eq!(result, Ok(()));
 }
+
+#[test]
+fn error_and_side_effects_assert_a_failed_declaration_is_not_published() {
+    // Given
+    let record = record(
+        "class Base meta deny subclass { }; class Child extends Base { }",
+        vec![],
+        "{\"error\":{\"code\":\"MetaOperationError\"},\"side_effects\":\"Child is not published.\"}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}

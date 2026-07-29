@@ -54,12 +54,31 @@ impl From<ModuleId> for MroEntry {
 
 /// Immutable nominal promises established by a class origin declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StaticSpine(u64);
+pub struct StaticSpine {
+    identity: u64,
+    meta_capabilities: MetaCapabilities,
+}
 
 impl StaticSpine {
     /// Creates a runtime-owned static-spine identity.
     pub const fn new(raw: u64) -> Self {
-        Self(raw)
+        Self {
+            identity: raw,
+            meta_capabilities: MetaCapabilities::all(),
+        }
+    }
+
+    /// Sets the immutable origin policy before the Class is defined.
+    pub const fn with_meta_capabilities(self, meta_capabilities: MetaCapabilities) -> Self {
+        Self {
+            identity: self.identity,
+            meta_capabilities,
+        }
+    }
+
+    /// Returns the immutable policy declared by this Class origin.
+    pub const fn meta_capabilities(self) -> MetaCapabilities {
+        self.meta_capabilities
     }
 }
 
@@ -239,6 +258,7 @@ impl CandidateRevision {
         static_spine: StaticSpine,
         runtime_superclass: Option<ClassId>,
         mro: Vec<MroEntry>,
+        meta_capabilities: MetaCapabilities,
     ) -> Self {
         Self {
             base,
@@ -253,7 +273,7 @@ impl CandidateRevision {
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
             immutable_class_vars: BTreeSet::new(),
-            meta_capabilities: MetaCapabilities::all(),
+            meta_capabilities,
             decorators: Vec::new(),
             pending_decorators: Vec::new(),
         }

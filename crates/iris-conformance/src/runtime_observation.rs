@@ -44,11 +44,13 @@ fn compare_runtime_source(
     expected: &std::collections::BTreeMap<String, Value>,
     source: &str,
 ) -> Result<(), String> {
-    if expected.contains_key("side_effects") && expected.contains_key("error") {
-        return Err("side_effects cannot accompany an error expectation".into());
-    }
     match expected.get("error") {
-        Some(error) => values::compare_error(error, source),
+        Some(error) => match expected.get("side_effects") {
+            Some(side_effects) => {
+                values::compare_error_and_side_effects(error, side_effects, source)
+            }
+            None => values::compare_error(error, source),
+        },
         None if record.source.contains("stable numeric hash")
             || record.source.contains("stable singleton hash") =>
         {

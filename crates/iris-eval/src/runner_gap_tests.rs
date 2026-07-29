@@ -455,6 +455,91 @@ fn reopen_adding_method_preserves_existing_methods() {
 }
 
 #[test]
+fn meta_subclass_denial_rejects_child_before_publication() {
+    // Given
+    let source = "class Base meta deny subclass { }; class Child extends Base { }; 1";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+        ))
+    ));
+}
+
+#[test]
+fn meta_method_set_denial_blocks_a_reopen_but_subclass_denial_does_not() {
+    // Given
+    let denied =
+        "class A meta deny method_set { }; open class A { public fun added() { :added } }; 1";
+    let orthogonal = "class A meta deny subclass { }; open class A { public fun added() { :added } }; A.new().added()";
+
+    // When
+    let results = [evaluate(denied), evaluate(orthogonal)];
+
+    // Then
+    assert!(matches!(
+        results[0],
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+        ))
+    ));
+    assert_eq!(results[1], Ok(RuntimeValue::Symbol("added".into())));
+}
+
+#[test]
+fn meta_denial_is_inherited_and_a_child_can_only_narrow() {
+    // Given
+    let inherited = "class Base meta deny method_set { }; class Child extends Base { }; open class Child { public fun added() { :added } }; 1";
+    let narrowed = "class Base { }; class Child extends Base meta deny method_set { }; open class Child { public fun added() { :added } }; 1";
+
+    // When
+    let results = [evaluate(inherited), evaluate(narrowed)];
+
+    // Then
+    assert!(matches!(
+        results[0],
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+        ))
+    ));
+    assert!(matches!(
+        results[1],
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+        ))
+    ));
+}
+
+#[test]
+fn class_without_meta_clause_keeps_default_capabilities() {
+    // Given
+    let source = "class A { }; open class A { public fun added() { :added } }; A.new().added()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("added".into())));
+}
+
+#[test]
+fn meta_policy_is_immutable_across_reopen() {
+    // Given
+    let source = "class A meta deny method_set { }; open class A meta deny subclass { }; 1";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(result, Err(EvaluationError::Class(_))));
+}
+
+#[test]
 fn reopen_replacement_without_override_is_rejected() {
     // Given
     let source = "class A { public fun m() { :old } }; open class A { public fun m() { :new } }";
