@@ -94,3 +94,69 @@ fn c091_and_c092_cross_category_comparison_is_symmetric() {
     // Then
     assert_eq!(result, "Array([Nil, Nil, Nil, Nil])");
 }
+
+#[test]
+fn c115_signaling_nan_is_classified_without_being_quieted() {
+    // Given
+    let source = "let x = Float64.from_bits(0x7ff0000000000001); \
+                  [x.is_nan(), x.is_signaling_nan(), x.is_infinite(), x.to_bits()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(true), Bool(false), \
+         Integer(IntegerValue(9218868437227405313))])"
+    );
+}
+
+#[test]
+fn c115_canonical_nan_is_quiet_and_infinity_is_not_nan() {
+    // Given
+    let source = "[Float64.nan.is_nan(), Float64.nan.is_signaling_nan(), \
+                  Float64.infinity.is_infinite(), Float64.infinity.is_nan()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(false)])"
+    );
+}
+
+#[test]
+fn c115_classifies_finite_subnormal_zero_and_sign() {
+    // Given
+    let source = "let s = Float64.from_bits(0x0000000000000001); \
+                  let n = Float64.from_bits(0x8000000000000000); \
+                  [s.is_subnormal(), s.is_normal(), s.is_finite(), n.is_zero(), n.sign_bit()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(true), Bool(true)])"
+    );
+}
+
+#[test]
+fn c114_float32_bit_classification_round_trips_through_to_bits() {
+    // Given
+    let source = "let f = Float32.from_bits(0x7f800001); \
+                  [f.is_nan(), f.is_signaling_nan(), f.is_finite(), f.to_bits()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(true), Bool(false), Integer(IntegerValue(2139095041))])"
+    );
+}

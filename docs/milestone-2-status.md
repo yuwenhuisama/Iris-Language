@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 58, failed: 3, needs_subsystem: 27, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 59, failed: 3, needs_subsystem: 26, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 58.
+Milestone 2 opened at RUNTIME 41 and closed at 59.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 58 of the 61 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 59 of the 62 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 28 rows, 10 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 29 rows, 11 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 58 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 59 across the
 milestone, and every vector that implementation can close is closed. The three failures listed
 above are each blocked on an owner decision or on conformance-host infrastructure, never on
 missing language behaviour, and each has its own row in `docs/spec-defects-v1.md` stating the

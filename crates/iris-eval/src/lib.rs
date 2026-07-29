@@ -838,7 +838,7 @@ mod operator_super_tests;
 mod module_composition_tests;
 
 #[cfg(test)]
-mod singleton_comparison_tests;
+mod builtin_protocol_tests;
 
 impl From<Literal> for Value {
     fn from(literal: Literal) -> Self {

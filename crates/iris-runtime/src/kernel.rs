@@ -34,6 +34,15 @@ pub enum NativeSelector {
     MulAdd,
     Hash,
     ToBool,
+    IsNan,
+    IsSignalingNan,
+    IsInfinite,
+    IsFinite,
+    IsNormal,
+    IsSubnormal,
+    IsZero,
+    SignBit,
+    ToBits,
 }
 
 impl NativeSelector {
@@ -66,6 +75,15 @@ impl NativeSelector {
             "mul_add" => Some(Self::MulAdd),
             "hash" => Some(Self::Hash),
             "to_bool" => Some(Self::ToBool),
+            "is_nan" => Some(Self::IsNan),
+            "is_signaling_nan" => Some(Self::IsSignalingNan),
+            "is_infinite" => Some(Self::IsInfinite),
+            "is_finite" => Some(Self::IsFinite),
+            "is_normal" => Some(Self::IsNormal),
+            "is_subnormal" => Some(Self::IsSubnormal),
+            "is_zero" => Some(Self::IsZero),
+            "sign_bit" => Some(Self::SignBit),
+            "to_bits" => Some(Self::ToBits),
             _ => None,
         }
     }
@@ -95,6 +113,15 @@ impl NativeSelector {
             Self::LessEqual => 22,
             Self::Greater => 23,
             Self::GreaterEqual => 24,
+            Self::IsNan => 25,
+            Self::IsSignalingNan => 26,
+            Self::IsInfinite => 27,
+            Self::IsFinite => 28,
+            Self::IsNormal => 29,
+            Self::IsSubnormal => 30,
+            Self::IsZero => 31,
+            Self::SignBit => 32,
+            Self::ToBits => 33,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -123,6 +150,15 @@ impl NativeSelector {
             22 => Some(Self::LessEqual),
             23 => Some(Self::Greater),
             24 => Some(Self::GreaterEqual),
+            25 => Some(Self::IsNan),
+            26 => Some(Self::IsSignalingNan),
+            27 => Some(Self::IsInfinite),
+            28 => Some(Self::IsFinite),
+            29 => Some(Self::IsNormal),
+            30 => Some(Self::IsSubnormal),
+            31 => Some(Self::IsZero),
+            32 => Some(Self::SignBit),
+            33 => Some(Self::ToBits),
             _ => None,
         }
     }
@@ -301,6 +337,15 @@ impl Kernel {
                 NativeSelector::MulAdd,
                 NativeSelector::Hash,
                 NativeSelector::ToBool,
+                NativeSelector::IsNan,
+                NativeSelector::IsSignalingNan,
+                NativeSelector::IsInfinite,
+                NativeSelector::IsFinite,
+                NativeSelector::IsNormal,
+                NativeSelector::IsSubnormal,
+                NativeSelector::IsZero,
+                NativeSelector::SignBit,
+                NativeSelector::ToBits,
             ],
         )?;
         kernel.install(
@@ -325,6 +370,15 @@ impl Kernel {
                 NativeSelector::MulAdd,
                 NativeSelector::Hash,
                 NativeSelector::ToBool,
+                NativeSelector::IsNan,
+                NativeSelector::IsSignalingNan,
+                NativeSelector::IsInfinite,
+                NativeSelector::IsFinite,
+                NativeSelector::IsNormal,
+                NativeSelector::IsSubnormal,
+                NativeSelector::IsZero,
+                NativeSelector::SignBit,
+                NativeSelector::ToBits,
             ],
         )?;
         Ok(kernel)
@@ -516,6 +570,28 @@ impl Kernel {
             NativeSelector::MulAdd => self.mul_add(receiver, arguments),
             NativeSelector::Hash => self.hash(receiver, arguments),
             NativeSelector::ToBool => self.to_bool(receiver, arguments),
+            NativeSelector::IsNan
+            | NativeSelector::IsSignalingNan
+            | NativeSelector::IsInfinite
+            | NativeSelector::IsFinite
+            | NativeSelector::IsNormal
+            | NativeSelector::IsSubnormal
+            | NativeSelector::IsZero
+            | NativeSelector::SignBit => classify(selector, &receiver, arguments),
+            NativeSelector::ToBits => {
+                if !arguments.is_empty() {
+                    return Err(KernelError::Arity);
+                }
+                match &receiver {
+                    Value::Float32(_) => Ok(Value::Integer(Numeric::float32_to_bits(&numeric(
+                        &receiver,
+                    )?)?)),
+                    Value::Float64(_) => Ok(Value::Integer(Numeric::float64_to_bits(&numeric(
+                        &receiver,
+                    )?)?)),
+                    _ => Err(KernelError::Type),
+                }
+            }
         }
     }
     /// Orders a receiver against its single argument.
@@ -660,6 +736,59 @@ impl Kernel {
 /// numeric path. `IRIS-V1-RUNTIME-C091` keeps Bool distinct from `Integer(0)`
 /// and `Integer(1)`, so a Bool compared with a numeric is unequal rather than a
 /// type error.
+/// Classifies a float by its interchange bits alone.
+///
+/// `IRIS-V1-RUNTIME-C115` requires these Methods to be pure bit classification:
+/// they must not perform floating arithmetic, quiet a signaling NaN, alter
+/// payload or sign, or change `to_bits()`. Both widths are therefore decomposed
+/// into sign, biased exponent and trailing significand rather than routed
+/// through any arithmetic path, and a signaling NaN is recognised by IEEE-754 as
+/// a NaN whose leading significand bit is clear.
+fn classify(
+    selector: NativeSelector,
+    receiver: &Value,
+    arguments: &[Value],
+) -> Result<Value, KernelError> {
+    if !arguments.is_empty() {
+        return Err(KernelError::Arity);
+    }
+    let (sign, exponent, significand, exponent_max, quiet_bit) = match receiver {
+        Value::Float32(value) => {
+            let bits = value.to_bits();
+            (
+                bits >> 31 == 1,
+                u64::from((bits >> 23) & 0xff),
+                u64::from(bits & 0x007f_ffff),
+                0xff_u64,
+                1_u64 << 22,
+            )
+        }
+        Value::Float64(value) => {
+            let bits = value.to_bits();
+            (
+                bits >> 63 == 1,
+                (bits >> 52) & 0x7ff,
+                bits & 0x000f_ffff_ffff_ffff,
+                0x7ff_u64,
+                1_u64 << 51,
+            )
+        }
+        _ => return Err(KernelError::Type),
+    };
+    let is_nan = exponent == exponent_max && significand != 0;
+    Ok(Value::Bool(match selector {
+        NativeSelector::IsNan => is_nan,
+        NativeSelector::IsSignalingNan => is_nan && significand & quiet_bit == 0,
+        NativeSelector::IsInfinite => exponent == exponent_max && significand == 0,
+        NativeSelector::IsFinite => exponent != exponent_max,
+        NativeSelector::IsNormal => exponent != 0 && exponent != exponent_max,
+        NativeSelector::IsSubnormal => exponent == 0 && significand != 0,
+        NativeSelector::IsZero => exponent == 0 && significand == 0,
+        NativeSelector::SignBit => sign,
+        _ => return Err(KernelError::Type),
+    }))
+}
+
 fn singleton_equal(receiver: &Value, arguments: &[Value]) -> Result<Option<bool>, KernelError> {
     let [argument] = arguments else {
         return Err(KernelError::Arity);
