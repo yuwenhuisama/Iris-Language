@@ -184,14 +184,15 @@ impl From<StableHashError> for KernelError {
 #[derive(Debug)]
 pub struct Kernel {
     registry: ClassRegistry,
-    classes: [(BuiltinClass, ClassId); 5],
+    classes: [(BuiltinClass, ClassId); 6],
 }
 
 impl Kernel {
     pub fn new() -> Result<Self, KernelError> {
         let mut registry = ClassRegistry::new();
-        let mut classes = [(BuiltinClass::Nil, ClassId::new(0)); 5];
+        let mut classes = [(BuiltinClass::Object, ClassId::new(0)); 6];
         for (index, kind) in [
+            BuiltinClass::Object,
             BuiltinClass::Nil,
             BuiltinClass::Bool,
             BuiltinClass::Integer,
@@ -201,18 +202,29 @@ impl Kernel {
         .into_iter()
         .enumerate()
         {
-            classes[index] = (
-                kind,
-                registry.define_builtin_class(
-                    kind,
-                    StaticSpine::new(1).with_meta_capabilities(MetaCapabilities::denying(&[
-                        Capability::InstanceState,
-                    ])),
-                    None,
-                )?,
-            );
+            let spine = if kind == BuiltinClass::Object {
+                StaticSpine::new(1)
+            } else {
+                StaticSpine::new(1)
+                    .with_meta_capabilities(MetaCapabilities::denying(&[Capability::InstanceState]))
+            };
+            classes[index] = (kind, registry.define_builtin_class(kind, spine, None)?);
         }
         let mut kernel = Self { registry, classes };
+        kernel.install(
+            BuiltinClass::Object,
+            &[
+                NativeSelector::Equal,
+                NativeSelector::NotEqual,
+                NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
+                NativeSelector::Compare,
+                NativeSelector::Hash,
+                NativeSelector::ToBool,
+            ],
+        )?;
         kernel.install(
             BuiltinClass::Nil,
             &[

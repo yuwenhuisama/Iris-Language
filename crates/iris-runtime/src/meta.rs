@@ -18,6 +18,7 @@ pub enum Capability {
 /// Stable built-in Class categories with protected runtime superclasses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuiltinClass {
+    Object,
     Nil,
     Bool,
     Integer,
