@@ -1,6 +1,6 @@
 # Iris v1 运行时对象模型
 
-状态：Iris v1.1，冻结语义并有所有者批准的勘误。
+状态：Iris v1.2，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-RUNTIME-C001：本章定义 Iris v1 的运行时值、对象性、身份、派发、逻辑 Class 与活动修订语义、Module MRO、Method 与 BoundMethod 身份、构造、属性、原始 ivar、类变量、真值性、缺失消息处理、内置数值行为、哈希以及内置开放性。本章 MUST 在 [README.md](README.md)、[01-language-identity.md](01-language-identity.md) 和 [02-lexical-grammar.md](02-lexical-grammar.md) 之后阅读。
 
@@ -566,6 +566,8 @@ IRIS-V1-RUNTIME-C156：以下运行时向量表是规范的。一致性章节 MU
 IRIS-V1-RUNTIME-C160：以下记录是规范的。每个源/输入单元都是可执行的 Iris 源或完整的受控运行时夹具。每个决策都直接由其声明的可观察到的内容覆盖。
 
 IRIS-V1-RUNTIME-C161：名为 `name` 的存储属性在其修订级类型化实例存储中创建已声明的当前接收者原始槽 `@name`。其生成的 getter MUST 读取该确切槽，其生成的 setter MUST 检查并写入该确切槽。兼容的 `property fun` 替换只改变访问器 Method 主体：它不创建第二个 backing slot，且除非其主体显式使用 `@name`，否则不隐式读写该槽；任何这种原始访问都是 IRIS-V1-RUNTIME-C066 要求的同一 `(receiver, name)` 槽。
+
+IRIS-V1-RUNTIME-C162：按 IRIS-V1-GRAMMAR-C059 编写的 `shared_decl` 创建 IRIS-V1-RUNTIME-C073 所描述的已声明层次结构绑定单元，并将其锚定到外围逻辑 Class 或 Module。`shared let` 创建不可变单元，任何后续赋值 MUST 失败；`shared mut` 创建可赋值单元。由于 IRIS-V1-RUNTIME-C075 禁止子类隐藏或重新声明锚定单元，其名称已在声明 Class 的静态词法 Class 祖先层次结构中任何位置锚定的 `shared_decl` MUST 被拒绝为重复声明，并且事务 MUST 不发布候选修订。对从未由任何 `shared_decl` 声明的名称赋值，仍会按 IRIS-V1-CONTROL-C009 作为缺少已声明存储而失败。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

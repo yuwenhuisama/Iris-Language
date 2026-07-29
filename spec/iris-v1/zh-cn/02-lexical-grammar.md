@@ -1,6 +1,6 @@
 # Iris v1 词法语法
 
-状态：Iris v1.1，冻结语义并有所有者批准的勘误。
+状态：Iris v1.2，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-GRAMMAR-C001：本章定义了 Iris v1 的规范源编码、词法标记集、字面量、保留关键字、上下文标记规则、优先级、结合性、声明头部、调用、块和 EBNF 语法。后面的语义章节 MUST 使用本章中的语法锚点和标记名称。
 
@@ -328,7 +328,7 @@ program            ::= terminator* declaration_or_statement (terminator+ declara
 terminator         ::= newline | ";" | eof
 declaration_or_statement ::= declaration | statement
 
-declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | shared_decl | let_decl
 decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
 decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
 import_decl        ::= "import" qualified_type_name import_alias? | "from" qualified_type_name "import" import_spec_list
@@ -338,6 +338,7 @@ import_spec        ::= ordinary_name import_alias?
 export_decl        ::= "export" (declaration | ordinary_name ("," ordinary_name)* ","?)
 type_alias_decl    ::= "type" type_name generic_params? "=" type_expr where_clause?
 global_decl        ::= "global" ("let" | "mut") global_name type_annotation? "=" expression
+shared_decl        ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression
 class_decl         ::= "open"? "class" type_name generic_params? class_extends? class_for? class_mixin? where_clause? meta_clause? declaration_body
 class_extends      ::= "extends" type_expr
 class_for          ::= "for" type_expr_list
@@ -555,6 +556,8 @@ IRIS-V1-GRAMMAR-V007：畸形的向量 `grammar.bad-parse` 将 `;return nil` 映
 IRIS-V1-GRAMMAR-C057：以下向量是规范的可追溯性向量，具有具体的源输入和预期的解析或诊断观察结果。
 
 IRIS-V1-GRAMMAR-C058：v1.1 勘误语法允许 `@decorator(arguments)` 位于 Class、Module、Contract、Method 和 property 声明之前；其含义仅由 IRIS-V1-META-C085 到 IRIS-V1-META-C094 拥有。Module 声明可使用 `module fun`，作为 `class fun` 的互斥替代；其安装表面由 IRIS-V1-CONTROL-C074 定义。存储属性简写是 `property name: Type`，带可选 initializer 和可选访问器可见性块，而 `property fun` 仍是显式访问器形式；其存储语义由 IRIS-V1-RUNTIME-C065 和 IRIS-V1-RUNTIME-C161 拥有。`typeof(expression)` 是 Type-expression 产生式，其语义由 IRIS-V1-TYPES-C093 拥有。
+
+IRIS-V1-GRAMMAR-C059：v1.2 勘误语法添加 `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` 并将其纳入 `declaration`。这提供了 IRIS-V1-CONTROL-C009 和 IRIS-V1-RUNTIME-C073 已预设的类变量声明形式，并且它镜像 `global_decl`，使两个存储族共享一种形状。自 v1.0 起由 IRIS-V1-GRAMMAR-C013 保留但没有产生式的 `shared` 关键字现在恰好在此使用。`shared_decl` MUST 出现在 Class 或 Module 声明体中；`let` 声明不可变单元，`mut` 声明可赋值单元。已声明单元的语义、层次结构锚定和查找规则仍由 IRIS-V1-RUNTIME-C073 至 IRIS-V1-RUNTIME-C075 拥有。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

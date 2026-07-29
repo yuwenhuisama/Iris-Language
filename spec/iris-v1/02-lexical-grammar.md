@@ -1,6 +1,6 @@
 # Iris v1 Lexical Grammar
 
-Status: Iris v1.1, frozen semantics with owner-approved errata.
+Status: Iris v1.2, frozen semantics with owner-approved errata.
 
 IRIS-V1-GRAMMAR-C001: This chapter defines the normative source encoding, lexical token set, literals, reserved keywords, contextual token rules, precedence, associativity, declaration headers, calls, blocks, and EBNF grammar for Iris v1. Later semantic chapters MUST use the syntax anchors and token names in this chapter.
 
@@ -328,7 +328,7 @@ program            ::= terminator* declaration_or_statement (terminator+ declara
 terminator         ::= newline | ";" | eof
 declaration_or_statement ::= declaration | statement
 
-declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | let_decl
+declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | shared_decl | let_decl
 decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
 decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
 import_decl        ::= "import" qualified_type_name import_alias? | "from" qualified_type_name "import" import_spec_list
@@ -338,6 +338,7 @@ import_spec        ::= ordinary_name import_alias?
 export_decl        ::= "export" (declaration | ordinary_name ("," ordinary_name)* ","?)
 type_alias_decl    ::= "type" type_name generic_params? "=" type_expr where_clause?
 global_decl        ::= "global" ("let" | "mut") global_name type_annotation? "=" expression
+shared_decl        ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression
 class_decl         ::= "open"? "class" type_name generic_params? class_extends? class_for? class_mixin? where_clause? meta_clause? declaration_body
 class_extends      ::= "extends" type_expr
 class_for          ::= "for" type_expr_list
@@ -555,6 +556,8 @@ IRIS-V1-GRAMMAR-V007: Malformed vector `grammar.bad-parse` maps `;return nil` to
 IRIS-V1-GRAMMAR-C057: The following vectors are normative traceability vectors with concrete source input and expected parse or diagnostic observations.
 
 IRIS-V1-GRAMMAR-C058: The v1.1 errata grammar permits `@decorator(arguments)` before Class, Module, Contract, Method, and property declarations; its meaning is owned exclusively by IRIS-V1-META-C085 through IRIS-V1-META-C094. A Module declaration may use `module fun` as the mutually exclusive alternative to `class fun`; its installation surface is defined by IRIS-V1-CONTROL-C074. Stored-property shorthand is `property name: Type` with an optional initializer and optional accessor-visibility block, while `property fun` remains the explicit accessor form; its storage semantics are owned by IRIS-V1-RUNTIME-C065 and IRIS-V1-RUNTIME-C161. `typeof(expression)` is a Type-expression production whose semantics are owned by IRIS-V1-TYPES-C093.
+
+IRIS-V1-GRAMMAR-C059: The v1.2 errata grammar adds `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` and admits it in `declaration`. This supplies the class-variable declaration form that IRIS-V1-CONTROL-C009 and IRIS-V1-RUNTIME-C073 already presuppose, and it mirrors `global_decl` so the two storage families share one shape. The `shared` keyword, reserved by IRIS-V1-GRAMMAR-C013 since v1.0 without a production, is now used exactly here. A `shared_decl` MUST appear in a Class or Module declaration body; `let` declares an immutable cell and `mut` declares an assignable one. The declared cell semantics, hierarchy anchoring, and lookup rules remain owned by IRIS-V1-RUNTIME-C073 through IRIS-V1-RUNTIME-C075.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
