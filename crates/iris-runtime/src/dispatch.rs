@@ -107,6 +107,28 @@ impl crate::ClassRegistry {
         Ok(method)
     }
 
+    /// Publishes one singleton Method on a specific Class object.
+    pub fn publish_singleton_method(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        body: MethodBody,
+        visibility: Visibility,
+    ) -> Result<Method, ClassError> {
+        let method = Method::new(
+            self.next_method()?,
+            MethodOwner::Class(class),
+            selector,
+            body,
+            visibility,
+        );
+        let mut candidate = self.open(class)?;
+        candidate.replace_singleton_method(selector, method.id());
+        self.publish(candidate)?;
+        self.methods.insert(method.id(), method);
+        Ok(method)
+    }
+
     /// Publishes a decorator-transformed Method through the ordinary capability-checked candidate.
     pub fn publish_decorated_method(
         &mut self,
@@ -237,6 +259,28 @@ impl crate::ClassRegistry {
         Ok(DispatchOutcome::WouldInvokeMethodMissing { selector })
     }
 
+    /// Resolves a selector sent to a Class object through singleton superclass lookup.
+    pub fn dispatch_class_object(
+        &self,
+        class: ClassId,
+        selector: Selector,
+    ) -> Result<DispatchOutcome, DispatchError> {
+        let mut current = Some(class);
+        while let Some(owner) = current {
+            let revision = self.active(owner).map_err(DispatchError::Class)?;
+            if let Some(method) = revision
+                .singleton_methods()
+                .get(&selector)
+                .and_then(|id| self.methods.get(id))
+                .copied()
+            {
+                return Ok(DispatchOutcome::Invoke(method));
+            }
+            current = revision.runtime_superclass();
+        }
+        Ok(DispatchOutcome::WouldInvokeMethodMissing { selector })
+    }
+
     fn authorizes(
         &self,
         receiver: ClassId,
@@ -319,6 +363,44 @@ impl crate::ClassRegistry {
             if let Some(successor) = successor {
                 return Ok(successor);
             }
+        }
+        Err(DispatchError::NoSuperMethod {
+            selector: method.selector(),
+        })
+    }
+
+    /// Resolves the same selector after a Class object's singleton Method owner.
+    pub fn dispatch_class_object_super(
+        &self,
+        class: ClassId,
+        method: Method,
+    ) -> Result<Method, DispatchError> {
+        let MethodOwner::Class(owner) = method.owner() else {
+            return Err(DispatchError::InvalidSuper {
+                selector: method.selector(),
+            });
+        };
+        let mut current = Some(class);
+        while let Some(candidate) = current {
+            let revision = self.active(candidate).map_err(DispatchError::Class)?;
+            if candidate == owner {
+                current = revision.runtime_superclass();
+                while let Some(successor) = current {
+                    let successor_revision =
+                        self.active(successor).map_err(DispatchError::Class)?;
+                    if let Some(found) = successor_revision
+                        .singleton_methods()
+                        .get(&method.selector())
+                        .and_then(|id| self.methods.get(id))
+                        .copied()
+                    {
+                        return Ok(found);
+                    }
+                    current = successor_revision.runtime_superclass();
+                }
+                break;
+            }
+            current = revision.runtime_superclass();
         }
         Err(DispatchError::NoSuperMethod {
             selector: method.selector(),

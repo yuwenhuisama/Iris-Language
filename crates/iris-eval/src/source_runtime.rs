@@ -22,7 +22,6 @@ struct SourceEvaluator {
     names: HashMap<String, Value>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
-    class_methods: HashMap<(ClassId, Selector), Method>,
     module_names: HashMap<String, ModuleId>,
     module_methods: HashMap<(ModuleId, Selector), Method>,
     mixins: HashMap<ClassId, Vec<ClassId>>,
@@ -38,7 +37,6 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
-            class_methods: HashMap::new(),
             module_names: HashMap::new(),
             module_methods: HashMap::new(),
             mixins: HashMap::new(),
@@ -138,16 +136,10 @@ impl SourceEvaluator {
                     .map_err(EvaluationError::Class)?;
             }
             MethodKind::Class => {
-                self.class_methods.insert(
-                    (class, selector),
-                    Method::new(
-                        iris_runtime::MethodId::new(body.raw()),
-                        iris_runtime::MethodOwner::Class(class),
-                        selector,
-                        body,
-                        visibility(method),
-                    ),
-                );
+                self.runtime
+                    .registry_mut()
+                    .publish_singleton_method(class, selector, body, visibility(method))
+                    .map_err(EvaluationError::Class)?;
             }
             MethodKind::Property => {
                 let method_visibility = visibility(method);
@@ -436,19 +428,17 @@ impl SourceEvaluator {
                 };
                 let value = self.expression(right, locals, receiver)?;
                 let setter = self.selector(&format!("{selector}="));
-                let class = self
-                    .runtime
-                    .class_of(object)
-                    .map_err(EvaluationError::Construction)?;
                 let method = match self.runtime.dispatch_instance(object, setter) {
                     Ok(method) => method,
                     Err(iris_runtime::ConstructionError::Dispatch(
                         iris_runtime::DispatchError::MissingMethod { .. },
-                    )) => self.class_methods.get(&(class, setter)).copied().ok_or(
-                        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
-                            iris_runtime::DispatchError::MissingMethod { selector: setter },
-                        )),
-                    )?,
+                    )) => {
+                        return Err(EvaluationError::Construction(
+                            iris_runtime::ConstructionError::Dispatch(
+                                iris_runtime::DispatchError::MissingMethod { selector: setter },
+                            ),
+                        ));
+                    }
                     Err(error) => return Err(EvaluationError::Construction(error)),
                 };
                 self.invoke_method(method, Value::Object(object), &[value])
@@ -502,14 +492,21 @@ impl SourceEvaluator {
             }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
-                let method = self
-                    .class_methods
-                    .get(&(class, selector_id))
-                    .copied()
-                    .ok_or(EvaluationError::MessageNotFound {
-                        receiver_class: "Class".into(),
-                        selector: selector.into(),
-                    })?;
+                let method = match self
+                    .runtime
+                    .registry()
+                    .dispatch_class_object(class, selector_id)
+                    .map_err(iris_runtime::ConstructionError::from)
+                    .map_err(EvaluationError::Construction)?
+                {
+                    iris_runtime::DispatchOutcome::Invoke(method) => method,
+                    iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
+                        return Err(EvaluationError::MessageNotFound {
+                            receiver_class: "Class".into(),
+                            selector: selector.into(),
+                        });
+                    }
+                };
                 self.invoke_method(method, Value::Class(class), arguments)
             }
             Value::Object(object) => {
@@ -617,27 +614,41 @@ impl SourceEvaluator {
         }
         if matches!(declaration.body.last(), Some(Statement::Expression(Expression::Call { callee, .. })) if matches!(callee.as_ref(), Expression::Name(name) if name == "super"))
         {
-            let Value::Object(object) = receiver else {
-                return Err(EvaluationError::UnsupportedConstruct);
+            let successor = match receiver {
+                Value::Object(object) => {
+                    let class = self
+                        .runtime
+                        .class_of(object)
+                        .map_err(EvaluationError::Construction)?;
+                    self.runtime
+                        .registry()
+                        .dispatch_super(class, method)
+                        .map_err(|error| {
+                            let raised = match error {
+                                iris_runtime::DispatchError::NoSuperMethod { .. } => {
+                                    Value::Symbol("NoSuperMethodError".into())
+                                }
+                                _ => Value::Nil,
+                            };
+                            EvaluationError::Execution(iris_runtime::ExecutionError::Raised(raised))
+                        })?
+                }
+                Value::Class(class) => self
+                    .runtime
+                    .registry()
+                    .dispatch_class_object_super(class, method)
+                    .map_err(|error| {
+                        let raised = match error {
+                            iris_runtime::DispatchError::NoSuperMethod { .. } => {
+                                Value::Symbol("NoSuperMethodError".into())
+                            }
+                            _ => Value::Nil,
+                        };
+                        EvaluationError::Execution(iris_runtime::ExecutionError::Raised(raised))
+                    })?,
+                _ => return Err(EvaluationError::UnsupportedConstruct),
             };
-            let class = self
-                .runtime
-                .class_of(object)
-                .map_err(EvaluationError::Construction)?;
-            let successor = self
-                .runtime
-                .registry()
-                .dispatch_super(class, method)
-                .map_err(|error| {
-                    let raised = match error {
-                        iris_runtime::DispatchError::NoSuperMethod { .. } => {
-                            Value::Symbol("NoSuperMethodError".into())
-                        }
-                        _ => Value::Nil,
-                    };
-                    EvaluationError::Execution(iris_runtime::ExecutionError::Raised(raised))
-                })?;
-            return self.invoke_method(successor, Value::Object(object), arguments);
+            return self.invoke_method(successor, receiver, arguments);
         }
         invoke(&self.bodies, method, receiver, arguments).map_err(EvaluationError::Execution)
     }

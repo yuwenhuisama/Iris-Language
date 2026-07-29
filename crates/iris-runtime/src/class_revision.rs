@@ -102,6 +102,7 @@ pub struct ClassRevision {
     mro: Vec<MroEntry>,
     modules: Vec<ModuleId>,
     methods: BTreeMap<Selector, MethodId>,
+    singleton_methods: BTreeMap<Selector, MethodId>,
     properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
     meta_capabilities: MetaCapabilities,
@@ -125,6 +126,7 @@ impl ClassRevision {
             mro: candidate.mro,
             modules: candidate.modules,
             methods: candidate.methods,
+            singleton_methods: candidate.singleton_methods,
             properties: candidate.properties,
             class_vars: candidate.class_vars,
             meta_capabilities,
@@ -177,6 +179,11 @@ impl ClassRevision {
         &self.methods
     }
 
+    /// Returns singleton Methods installed on this Class object.
+    pub const fn singleton_methods(&self) -> &BTreeMap<Selector, MethodId> {
+        &self.singleton_methods
+    }
+
     /// Returns the inert property-table metadata slot.
     pub fn properties(&self) -> &[StoredProperty] {
         &self.properties
@@ -209,6 +216,7 @@ pub struct CandidateRevision {
     pub(crate) mro: Vec<MroEntry>,
     pub(crate) modules: Vec<ModuleId>,
     pub(crate) methods: BTreeMap<Selector, MethodId>,
+    pub(crate) singleton_methods: BTreeMap<Selector, MethodId>,
     pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
     pub(crate) meta_capabilities: MetaCapabilities,
@@ -233,6 +241,7 @@ impl CandidateRevision {
             mro,
             modules: Vec::new(),
             methods: BTreeMap::new(),
+            singleton_methods: BTreeMap::new(),
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
             meta_capabilities: MetaCapabilities::all(),
@@ -251,6 +260,7 @@ impl CandidateRevision {
             mro: revision.mro.clone(),
             modules: revision.modules.clone(),
             methods: revision.methods.clone(),
+            singleton_methods: revision.singleton_methods.clone(),
             properties: revision.properties.clone(),
             class_vars: revision.class_vars.clone(),
             meta_capabilities: revision.meta_capabilities,
@@ -286,6 +296,10 @@ impl CandidateRevision {
         self.methods.insert(selector, method);
     }
 
+    pub(crate) fn replace_singleton_method(&mut self, selector: Selector, method: MethodId) {
+        self.singleton_methods.insert(selector, method);
+    }
+
     pub(crate) fn add_stored_property(&mut self, property: StoredProperty) {
         if let Some(existing) = self
             .properties
@@ -302,6 +316,7 @@ impl CandidateRevision {
         self.runtime_superclass = artifact.runtime_superclass();
         self.modules = artifact.modules().to_vec();
         self.methods = artifact.methods().clone();
+        self.singleton_methods = artifact.singleton_methods().clone();
         self.properties = artifact.properties().to_vec();
         self.class_vars = artifact.class_vars().clone();
     }
