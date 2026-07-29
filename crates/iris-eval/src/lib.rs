@@ -229,7 +229,8 @@ impl Evaluator {
             | Expression::RawIvar(_)
             | Expression::ClassVar(_)
             | Expression::ContractView { .. }
-            | Expression::Assignment { .. } => Err(EvaluationError::UnsupportedConstruct),
+            | Expression::Assignment { .. }
+            | Expression::If { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
     }
 
@@ -400,10 +401,11 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
 
 fn source_runtime_statement(statement: &Statement) -> bool {
     match statement {
-        Statement::SharedBinding { .. } | Statement::Binding { .. } | Statement::If { .. } => true,
+        Statement::SharedBinding { .. } | Statement::Binding { .. } => true,
+        Statement::Expression(expression) => source_runtime_expression(expression),
+        Statement::If { .. } => true,
         Statement::StoredProperty { .. }
         | Statement::Method(_)
-        | Statement::Expression(_)
         | Statement::Return(_)
         | Statement::Break { .. }
         | Statement::Continue(_)
@@ -411,6 +413,30 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         | Statement::For { .. }
         | Statement::Match { .. } => false,
         Statement::Raise(_) | Statement::Try { .. } => true,
+    }
+}
+
+fn source_runtime_expression(expression: &Expression) -> bool {
+    match expression {
+        Expression::If { .. } => true,
+        Expression::Array(values) => values.iter().any(source_runtime_expression),
+        Expression::Member { receiver, .. }
+        | Expression::ContractView { receiver, .. }
+        | Expression::Grouped(receiver)
+        | Expression::Unary {
+            operand: receiver, ..
+        } => source_runtime_expression(receiver),
+        Expression::Call { callee, arguments } => {
+            source_runtime_expression(callee) || arguments.iter().any(source_runtime_expression)
+        }
+        Expression::Binary { left, right, .. } | Expression::Assignment { left, right, .. } => {
+            source_runtime_expression(left) || source_runtime_expression(right)
+        }
+        Expression::Name(_)
+        | Expression::Literal(_)
+        | Expression::Symbol(_)
+        | Expression::RawIvar(_)
+        | Expression::ClassVar(_) => false,
     }
 }
 

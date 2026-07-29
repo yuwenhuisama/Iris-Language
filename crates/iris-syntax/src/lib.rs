@@ -236,6 +236,11 @@ pub enum Expression {
         operator: AssignmentOperator,
         right: Box<Expression>,
     },
+    If {
+        condition: Box<Expression>,
+        then_body: Vec<Statement>,
+        else_body: Option<Vec<Statement>>,
+    },
     Grouped(Box<Expression>),
     RawIvar(String),
     ClassVar(String),

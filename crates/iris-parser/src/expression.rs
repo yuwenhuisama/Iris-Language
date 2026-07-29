@@ -1,4 +1,4 @@
-use iris_syntax::{BinaryOperator, Expression, UnaryOperator};
+use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 
 use crate::{Associativity, Parser, is_identifier, is_reserved_keyword};
 
@@ -107,9 +107,8 @@ impl Parser {
         if self.consume(":") {
             return self.selector().map(Expression::Symbol);
         }
-        if self.check("if") {
-            self.error("PARSE_UNEXPECTED_TOKEN");
-            return None;
+        if self.consume("if") {
+            return self.if_expression();
         }
         let Some(value) = self.advance().map(|token| token.text) else {
             self.error("PARSE_UNEXPECTED_TOKEN");
@@ -119,6 +118,25 @@ impl Parser {
             Expression::Literal(value)
         } else {
             Expression::Name(value)
+        })
+    }
+
+    pub(super) fn if_expression(&mut self) -> Option<Expression> {
+        let condition = self.expression(0)?;
+        let then_body = self.body()?;
+        let else_body = if self.consume("else") {
+            if self.consume("if") {
+                Some(vec![Statement::Expression(self.if_expression()?)])
+            } else {
+                Some(self.body()?)
+            }
+        } else {
+            None
+        };
+        Some(Expression::If {
+            condition: Box::new(condition),
+            then_body,
+            else_body,
         })
     }
 

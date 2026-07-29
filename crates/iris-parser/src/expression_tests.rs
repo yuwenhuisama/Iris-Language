@@ -187,22 +187,20 @@ fn parses_suffixed_named_infix_selectors() {
 }
 
 #[test]
-fn rejects_if_in_expression_positions() {
+fn accepts_if_in_expression_positions() {
     // Given
     let sources = [
         "let result = if true { :yes } else { :no }; result",
         "[if true { :yes } else { :no }]",
+        "let result = if false { :yes }; result",
+        "let result = if false { :first } else if true { :second } else { :third }; result",
     ];
 
     // When
     let results = sources.map(parse);
 
     // Then
-    assert!(
-        results
-            .into_iter()
-            .all(|result| !result.program_accepted && !result.diagnostics.is_empty())
-    );
+    assert!(results.into_iter().all(|result| result.program_accepted));
 }
 
 #[test]

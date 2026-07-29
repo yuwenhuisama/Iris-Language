@@ -758,6 +758,19 @@ impl SourceEvaluator {
                 .map(|value| self.expression(value, locals, receiver.clone()))
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::Array),
+            Expression::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                if self.condition(condition, locals, receiver.clone())? {
+                    self.block(then_body, locals, receiver)
+                } else if let Some(else_body) = else_body {
+                    self.block(else_body, locals, receiver)
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
             Expression::Member {
                 receiver: target,
                 selector,

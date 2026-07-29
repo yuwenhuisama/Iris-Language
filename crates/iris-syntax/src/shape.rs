@@ -148,6 +148,7 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             ),
             1,
         ),
+        Expression::If { .. } => ("if".into(), 17),
     };
     if precedence < enclosing_precedence {
         format!("({shape})")
@@ -226,6 +227,7 @@ fn structural_shape(expression: &Expression) -> String {
                 structural_shape(right)
             )
         }
+        Expression::If { .. } => "if".into(),
     }
 }
 

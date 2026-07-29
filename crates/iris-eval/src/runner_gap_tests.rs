@@ -280,6 +280,71 @@ fn source_if_returns_the_selected_branch_value() {
 }
 
 #[test]
+fn conditional_expressions_return_values_in_bindings_and_arrays() {
+    // Given
+    let source = "let bound = if true { :yes } else { :no }; [bound, if false { :yes } else { :no }, if false { :missing }, if false { :first } else if true { :second } else { :third }]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("yes".into()),
+            RuntimeValue::Symbol("no".into()),
+            RuntimeValue::Nil,
+            RuntimeValue::Symbol("second".into()),
+        ]))
+    );
+}
+
+#[test]
+fn conditional_expressions_are_evaluated_in_standalone_array_elements() {
+    // Given
+    let singleton = "[if true { :y } else { :n }]";
+    let mixed = "[1, if true { :y } else { :n }]";
+
+    // When
+    let results = [evaluate(singleton), evaluate(mixed)];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Array(vec![RuntimeValue::Symbol("y".into())])),
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Symbol("y".into()),
+            ])),
+        ]
+    );
+}
+
+#[test]
+fn conditional_expressions_use_to_bool_once_and_preserve_statement_behavior() {
+    // Given
+    let expression = "class Probe { shared mut @@n: Integer = 0; public fun to_bool() -> Bool { @@n = @@n + 1; false } class fun count() -> Integer { @@n } }; let value = if Probe.new() { :yes } else { :no }; [value, Probe.count(), if nil { :yes } else { :no }]";
+    let statement = "if true { :yes } else { :no }";
+
+    // When
+    let results = [evaluate(expression), evaluate(statement)];
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Ok(RuntimeValue::Array(vec![
+                RuntimeValue::Symbol("no".into()),
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Symbol("no".into()),
+            ])),
+            Ok(RuntimeValue::Symbol("yes".into())),
+        ]
+    );
+}
+
+#[test]
 fn source_if_uses_truthiness_and_keeps_branches_scoped() {
     // Given
     let custom_false =

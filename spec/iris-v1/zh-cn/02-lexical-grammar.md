@@ -384,7 +384,7 @@ labeled_break_payload ::= ordinary_name ":" expression
 continue_statement ::= "continue" ordinary_name?
 raise_statement    ::= "raise" | "raise" expression raise_cause?
 raise_cause        ::= "from" expression
-if_statement       ::= "if" expression block_body ("else" (if_statement | block_body))?
+if_statement       ::= if_expression
 while_statement    ::= loop_label? "while" expression block_body
 for_statement      ::= loop_label? "for" binding_pattern "in" expression block_body
 loop_label         ::= ordinary_name ":"
@@ -427,7 +427,8 @@ index_suffix       ::= "[" call_argument_list? "]"
 property_suffix    ::= "." selector
 contract_view_suffix ::= ".." selector call_suffix?
 trailing_block     ::= closure_literal
-primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal
+primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression
+if_expression      ::= "if" expression block_body ("else" (if_expression | block_body))?
 grouped_or_tuple   ::= "(" expression ("," expression)* ","? ")"
 closure_literal    ::= "{" closure_header? closure_body "}"
 closure_header     ::= "|" closure_parameters? "|" return_type? (terminator | ";")
@@ -558,6 +559,8 @@ IRIS-V1-GRAMMAR-C057：以下向量是规范的可追溯性向量，具有具体
 IRIS-V1-GRAMMAR-C058：v1.1 勘误语法允许 `@decorator(arguments)` 位于 Class、Module、Contract、Method 和 property 声明之前；其含义仅由 IRIS-V1-META-C085 到 IRIS-V1-META-C094 拥有。Module 声明可使用 `module fun`，作为 `class fun` 的互斥替代；其安装表面由 IRIS-V1-CONTROL-C074 定义。存储属性简写是 `property name: Type`，带可选 initializer 和可选访问器可见性块，而 `property fun` 仍是显式访问器形式；其存储语义由 IRIS-V1-RUNTIME-C065 和 IRIS-V1-RUNTIME-C161 拥有。`typeof(expression)` 是 Type-expression 产生式，其语义由 IRIS-V1-TYPES-C093 拥有。
 
 IRIS-V1-GRAMMAR-C059：v1.2 勘误语法添加 `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` 并将其纳入 `declaration`。这提供了 IRIS-V1-CONTROL-C009 和 IRIS-V1-RUNTIME-C073 已预设的类变量声明形式，并且它镜像 `global_decl`，使两个存储族共享一种形状。自 v1.0 起由 IRIS-V1-GRAMMAR-C013 保留但没有产生式的 `shared` 关键字现在恰好在此使用。`shared_decl` MUST 出现在 Class 或 Module 声明体中；`let` 声明不可变单元，`mut` 声明可赋值单元。已声明单元的语义、层次结构锚定和查找规则仍由 IRIS-V1-RUNTIME-C073 至 IRIS-V1-RUNTIME-C075 拥有。
+
+IRIS-V1-GRAMMAR-C060：v1.3 勘误允许 `if_expression` 出现在表达式位置，并依照该产生式定义 `if_statement`。其值、分支作用域、缺少 `else` 时的结果和可达分支结果类型仍完全由 IRIS-V1-CONTROL-C041 规定。在 `match_arm` 中，`match_guard` 在解析 guard `expression` 之前消耗其开头的 `if`；因此 `if_expression` 只在需要主表达式的位置开始。`if_expression` 后的 `block_body` 以 `{` 开始，而 Hash 字面量使用 IRIS-V1-GRAMMAR-C021 要求的不同 `%{` 开场。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

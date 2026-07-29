@@ -384,7 +384,7 @@ labeled_break_payload ::= ordinary_name ":" expression
 continue_statement ::= "continue" ordinary_name?
 raise_statement    ::= "raise" | "raise" expression raise_cause?
 raise_cause        ::= "from" expression
-if_statement       ::= "if" expression block_body ("else" (if_statement | block_body))?
+if_statement       ::= if_expression
 while_statement    ::= loop_label? "while" expression block_body
 for_statement      ::= loop_label? "for" binding_pattern "in" expression block_body
 loop_label         ::= ordinary_name ":"
@@ -427,7 +427,8 @@ index_suffix       ::= "[" call_argument_list? "]"
 property_suffix    ::= "." selector
 contract_view_suffix ::= ".." selector call_suffix?
 trailing_block     ::= closure_literal
-primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal
+primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression
+if_expression      ::= "if" expression block_body ("else" (if_expression | block_body))?
 grouped_or_tuple   ::= "(" expression ("," expression)* ","? ")"
 closure_literal    ::= "{" closure_header? closure_body "}"
 closure_header     ::= "|" closure_parameters? "|" return_type? (terminator | ";")
@@ -558,6 +559,8 @@ IRIS-V1-GRAMMAR-C057: The following vectors are normative traceability vectors w
 IRIS-V1-GRAMMAR-C058: The v1.1 errata grammar permits `@decorator(arguments)` before Class, Module, Contract, Method, and property declarations; its meaning is owned exclusively by IRIS-V1-META-C085 through IRIS-V1-META-C094. A Module declaration may use `module fun` as the mutually exclusive alternative to `class fun`; its installation surface is defined by IRIS-V1-CONTROL-C074. Stored-property shorthand is `property name: Type` with an optional initializer and optional accessor-visibility block, while `property fun` remains the explicit accessor form; its storage semantics are owned by IRIS-V1-RUNTIME-C065 and IRIS-V1-RUNTIME-C161. `typeof(expression)` is a Type-expression production whose semantics are owned by IRIS-V1-TYPES-C093.
 
 IRIS-V1-GRAMMAR-C059: The v1.2 errata grammar adds `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` and admits it in `declaration`. This supplies the class-variable declaration form that IRIS-V1-CONTROL-C009 and IRIS-V1-RUNTIME-C073 already presuppose, and it mirrors `global_decl` so the two storage families share one shape. The `shared` keyword, reserved by IRIS-V1-GRAMMAR-C013 since v1.0 without a production, is now used exactly here. A `shared_decl` MUST appear in a Class or Module declaration body; `let` declares an immutable cell and `mut` declares an assignable one. The declared cell semantics, hierarchy anchoring, and lookup rules remain owned by IRIS-V1-RUNTIME-C073 through IRIS-V1-RUNTIME-C075.
+
+IRIS-V1-GRAMMAR-C060: The v1.3 errata admits `if_expression` in expression position and defines `if_statement` in terms of that production. Its value, branch scope, missing-`else` result, and reachable-branch result type remain exclusively as specified by IRIS-V1-CONTROL-C041. In a `match_arm`, `match_guard` consumes its leading `if` before its guard `expression` is parsed; `if_expression` therefore begins only where a primary expression is required. The `block_body` following an `if_expression` starts with `{`, while Hash literals start with the distinct `%{` opener required by IRIS-V1-GRAMMAR-C021.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
