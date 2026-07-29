@@ -3,8 +3,8 @@ use std::error::Error;
 
 use crate::{
     BuiltinClass, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, IntegerValue,
-    MethodBody, Numeric, NumericError, NumericValue, Selector, StableHashError, StaticSpine, Value,
-    Visibility,
+    Method, MethodBody, Numeric, NumericError, NumericValue, Selector, StableHashError,
+    StaticSpine, Value, Visibility,
 };
 
 /// Built-in selector identities executed by the native runtime kernel.
@@ -267,6 +267,43 @@ impl Kernel {
     pub fn registry_mut(&mut self) -> &mut ClassRegistry {
         &mut self.registry
     }
+    /// Resolves an ordinary selector for a built-in value through its active Class revision.
+    pub fn dispatch_value(
+        &self,
+        receiver: &Value,
+        selector: Selector,
+    ) -> Result<DispatchOutcome, KernelError> {
+        self.registry
+            .dispatch(self.class_of(receiver)?, selector)
+            .map_err(KernelError::from)
+    }
+
+    /// Resolves a selector sent to a built-in Class object through its active revision.
+    pub fn dispatch_class_object(
+        &self,
+        class: ClassId,
+        selector: Selector,
+    ) -> Result<DispatchOutcome, KernelError> {
+        self.registry
+            .dispatch_class_object(class, selector)
+            .map_err(KernelError::from)
+    }
+
+    /// Invokes a native Method selected by ordinary runtime dispatch.
+    pub fn invoke_selected(
+        &self,
+        method: Method,
+        receiver: Value,
+        arguments: &[Value],
+    ) -> Result<Value, KernelError> {
+        NativeSelector::from_raw(method.body().raw())
+            .ok_or(KernelError::MessageNotFound {
+                receiver: self.class_of(&receiver)?,
+                selector: method.selector(),
+                arity: arguments.len(),
+            })
+            .and_then(|selector| self.invoke(selector, receiver, arguments))
+    }
     pub fn send(
         &self,
         receiver: Value,
@@ -275,13 +312,7 @@ impl Kernel {
     ) -> Result<Value, KernelError> {
         let class = self.class_of(&receiver)?;
         match self.registry.dispatch(class, selector.id())? {
-            DispatchOutcome::Invoke(method) => NativeSelector::from_raw(method.body().raw())
-                .ok_or(KernelError::MessageNotFound {
-                    receiver: class,
-                    selector: selector.id(),
-                    arity: arguments.len(),
-                })
-                .and_then(|selected| self.invoke(selected, receiver, arguments)),
+            DispatchOutcome::Invoke(method) => self.invoke_selected(method, receiver, arguments),
             DispatchOutcome::WouldInvokeMethodMissing { selector } => {
                 Err(KernelError::MessageNotFound {
                     receiver: class,

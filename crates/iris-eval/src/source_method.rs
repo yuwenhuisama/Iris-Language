@@ -112,6 +112,22 @@ pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {
             .class(iris_runtime::BuiltinClass::Integer)
             .ok()
             .map(Value::Class),
+        "Nil" => kernel
+            .class(iris_runtime::BuiltinClass::Nil)
+            .ok()
+            .map(Value::Class),
+        "Bool" => kernel
+            .class(iris_runtime::BuiltinClass::Bool)
+            .ok()
+            .map(Value::Class),
+        "Float32" => kernel
+            .class(iris_runtime::BuiltinClass::Float32)
+            .ok()
+            .map(Value::Class),
+        "Float64" => kernel
+            .class(iris_runtime::BuiltinClass::Float64)
+            .ok()
+            .map(Value::Class),
         _ => None,
     }
 }

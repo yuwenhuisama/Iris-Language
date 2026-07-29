@@ -48,7 +48,7 @@ impl SourceEvaluator {
             static_superclasses: HashMap::new(),
             lexical_class: None,
             next_selector: 1_000,
-            next_body: 1,
+            next_body: 10_000,
         })
     }
 
@@ -94,11 +94,30 @@ impl SourceEvaluator {
             }
         }
         let class = if declaration.reopen {
+            let class = self
+                .class_name(&declaration.name)?
+                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            if self.is_builtin_class(class) && declaration.extends.is_some() {
+                let replacement = self
+                    .kernel
+                    .class(iris_runtime::BuiltinClass::Nil)
+                    .map_err(EvaluationError::Runtime)?;
+                let mut candidate = self
+                    .kernel
+                    .registry_mut()
+                    .open(class)
+                    .map_err(EvaluationError::Class)?;
+                candidate.replace_runtime_superclass(Some(replacement));
+                self.kernel
+                    .registry_mut()
+                    .publish(candidate)
+                    .map_err(EvaluationError::Class)?;
+                return Ok(());
+            }
             if superclass.is_some() || !mixins.is_empty() {
                 return Err(EvaluationError::UnsupportedConstruct);
             }
-            self.class_name(&declaration.name)?
-                .ok_or(EvaluationError::UnsupportedConstruct)?
+            class
         } else {
             let class = self
                 .runtime
@@ -111,6 +130,7 @@ impl SourceEvaluator {
             self.static_superclasses.insert(class, superclass);
             class
         };
+        let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
         self.publish_decorators(class, &declaration.decorators)?;
         for statement in &declaration.body {
             match statement {
@@ -119,9 +139,9 @@ impl SourceEvaluator {
                     name,
                     initializer,
                 } => {
-                    self.stored_property(class, decorators, name, initializer.clone())?;
+                    self.stored_property(class, builtin, decorators, name, initializer.clone())?;
                 }
-                Statement::Method(method) => self.class_method(class, method)?,
+                Statement::Method(method) => self.class_method(class, builtin, method)?,
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
@@ -131,6 +151,7 @@ impl SourceEvaluator {
     fn class_method(
         &mut self,
         class: ClassId,
+        builtin: bool,
         method: &MethodDeclaration,
     ) -> Result<(), EvaluationError> {
         let body = self.register_body(method.clone());
@@ -138,26 +159,69 @@ impl SourceEvaluator {
         let decorators = self.decorator_transforms(&method.decorators);
         match method.kind {
             MethodKind::Instance => {
-                let defined = self
-                    .runtime
-                    .registry_mut()
-                    .publish_decorated_method(class, selector, body, visibility(method), decorators)
-                    .map_err(EvaluationError::Class)?;
+                let defined = if builtin {
+                    self.kernel
+                        .registry_mut()
+                        .publish_decorated_method(
+                            class,
+                            selector,
+                            body,
+                            visibility(method),
+                            decorators,
+                        )
+                        .map_err(EvaluationError::Class)?
+                } else {
+                    self.runtime
+                        .registry_mut()
+                        .publish_decorated_method(
+                            class,
+                            selector,
+                            body,
+                            visibility(method),
+                            decorators,
+                        )
+                        .map_err(EvaluationError::Class)?
+                };
                 self.property_methods.insert(defined.id(), false);
             }
             MethodKind::Class => {
-                self.runtime
-                    .registry_mut()
-                    .publish_singleton_method(class, selector, body, visibility(method))
-                    .map_err(EvaluationError::Class)?;
+                if builtin {
+                    self.kernel
+                        .registry_mut()
+                        .publish_singleton_method(class, selector, body, visibility(method))
+                        .map_err(EvaluationError::Class)?;
+                } else {
+                    self.runtime
+                        .registry_mut()
+                        .publish_singleton_method(class, selector, body, visibility(method))
+                        .map_err(EvaluationError::Class)?;
+                }
             }
             MethodKind::Property => {
                 let method_visibility = visibility(method);
-                let defined = self
-                    .runtime
-                    .registry_mut()
-                    .publish_decorated_method(class, selector, body, method_visibility, decorators)
-                    .map_err(EvaluationError::Class)?;
+                let defined = if builtin {
+                    self.kernel
+                        .registry_mut()
+                        .publish_decorated_method(
+                            class,
+                            selector,
+                            body,
+                            method_visibility,
+                            decorators,
+                        )
+                        .map_err(EvaluationError::Class)?
+                } else {
+                    self.runtime
+                        .registry_mut()
+                        .publish_decorated_method(
+                            class,
+                            selector,
+                            body,
+                            method_visibility,
+                            decorators,
+                        )
+                        .map_err(EvaluationError::Class)?
+                };
                 self.property_methods.insert(defined.id(), true);
             }
             MethodKind::Module => return Err(EvaluationError::UnsupportedConstruct),
@@ -168,6 +232,7 @@ impl SourceEvaluator {
     fn stored_property(
         &mut self,
         class: ClassId,
+        builtin: bool,
         decorators: &[iris_syntax::Decorator],
         name: &str,
         initializer: Expression,
@@ -206,8 +271,8 @@ impl SourceEvaluator {
                 right: Box::new(initializer),
             })],
         };
-        self.class_method(class, &getter)?;
-        self.class_method(class, &setter)?;
+        self.class_method(class, builtin, &getter)?;
+        self.class_method(class, builtin, &setter)?;
         let body = self.register_body(initializer);
         let property = self.selector(&format!("@{name}"));
         let decorators = self.decorator_transforms(decorators);
@@ -460,13 +525,9 @@ impl SourceEvaluator {
                         let target = self.expression(target, locals, receiver)?;
                         self.send(target, selector, &arguments)
                     }
-                    Expression::Name(name) => self
-                        .names
-                        .get(name)
-                        .cloned()
-                        .map_or(Err(EvaluationError::UnsupportedConstruct), |value| {
-                            self.call(value, &arguments)
-                        }),
+                    Expression::Name(_) => self
+                        .expression(callee, locals, receiver)
+                        .and_then(|value| self.call(value, &arguments)),
                     _ => Err(EvaluationError::UnsupportedConstruct),
                 }
             }
@@ -548,7 +609,13 @@ impl SourceEvaluator {
 
     fn call(&mut self, value: Value, arguments: &[Value]) -> Result<Value, EvaluationError> {
         match value {
-            Value::Class(class) => self.construct(class, arguments).map(Value::Object),
+            Value::Class(class) => match self.kernel.construct(class, arguments) {
+                Ok(value) => Ok(value),
+                Err(iris_runtime::KernelError::Type) => {
+                    self.construct(class, arguments).map(Value::Object)
+                }
+                Err(error) => Err(EvaluationError::Runtime(error)),
+            },
             Value::BoundMethod(bound) => self.invoke_method(
                 bound.method(),
                 match bound.receiver() {
@@ -600,13 +667,28 @@ impl SourceEvaluator {
             }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
-                let method = match self
-                    .runtime
-                    .registry()
-                    .dispatch_class_object(class, selector_id)
-                    .map_err(iris_runtime::ConstructionError::from)
-                    .map_err(EvaluationError::Construction)?
-                {
+                if self.is_builtin_class(class) {
+                    match self
+                        .kernel
+                        .dispatch_class_object(class, selector_id)
+                        .map_err(EvaluationError::Runtime)?
+                    {
+                        iris_runtime::DispatchOutcome::Invoke(method) => {
+                            return self.invoke_selected(method, Value::Class(class), arguments);
+                        }
+                        iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
+                            if let Some(native) =
+                                iris_runtime::NativeSelector::from_source(selector)
+                            {
+                                return self
+                                    .kernel
+                                    .send(Value::Class(class), native, arguments)
+                                    .map_err(EvaluationError::Runtime);
+                            }
+                        }
+                    }
+                }
+                let method = match self.class_dispatch(class, selector_id)? {
                     iris_runtime::DispatchOutcome::Invoke(method) => method,
                     iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
                         return Err(EvaluationError::MessageNotFound {
@@ -615,24 +697,14 @@ impl SourceEvaluator {
                         });
                     }
                 };
-                self.invoke_method(method, Value::Class(class), arguments)
+                self.invoke_selected(method, Value::Class(class), arguments)
             }
             Value::Object(object) => {
                 let selector = self.selector(selector);
                 let method = self.resolve_instance_method(object, selector)?;
                 self.invoke_method(method, Value::Object(object), arguments)
             }
-            value => iris_runtime::NativeSelector::from_source(selector).map_or(
-                Err(EvaluationError::MessageNotFound {
-                    receiver_class: receiver_class_name(&value).into(),
-                    selector: selector.into(),
-                }),
-                |native| {
-                    self.kernel
-                        .send(value, native, arguments)
-                        .map_err(EvaluationError::Runtime)
-                },
-            ),
+            value => self.value_send(value, selector, arguments),
         }
     }
 
@@ -662,7 +734,87 @@ impl SourceEvaluator {
         match self.names.get(name) {
             Some(Value::Class(class)) => Ok(Some(*class)),
             Some(_) => Err(EvaluationError::UnsupportedConstruct),
-            None => Ok(None),
+            None => Ok(builtin(name, &self.kernel).and_then(|value| match value {
+                Value::Class(class) => Some(class),
+                _ => None,
+            })),
+        }
+    }
+
+    fn is_builtin_class(&self, class: ClassId) -> bool {
+        if self.runtime.registry().active(class).is_ok() {
+            return false;
+        }
+        [
+            iris_runtime::BuiltinClass::Nil,
+            iris_runtime::BuiltinClass::Bool,
+            iris_runtime::BuiltinClass::Integer,
+            iris_runtime::BuiltinClass::Float32,
+            iris_runtime::BuiltinClass::Float64,
+        ]
+        .into_iter()
+        .any(|kind| {
+            self.kernel
+                .class(kind)
+                .is_ok_and(|candidate| candidate == class)
+        })
+    }
+
+    fn class_dispatch(
+        &self,
+        class: ClassId,
+        selector: Selector,
+    ) -> Result<iris_runtime::DispatchOutcome, EvaluationError> {
+        if self.is_builtin_class(class) {
+            return self
+                .kernel
+                .dispatch_class_object(class, selector)
+                .map_err(EvaluationError::Runtime);
+        }
+        self.runtime
+            .registry()
+            .dispatch_class_object(class, selector)
+            .map_err(iris_runtime::ConstructionError::from)
+            .map_err(EvaluationError::Construction)
+    }
+
+    fn invoke_selected(
+        &mut self,
+        method: Method,
+        receiver: Value,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        if self.bodies.contains_key(&method.body().raw()) {
+            self.invoke_method(method, receiver, arguments)
+        } else {
+            self.kernel
+                .invoke_selected(method, receiver, arguments)
+                .map_err(EvaluationError::Runtime)
+        }
+    }
+
+    fn value_send(
+        &mut self,
+        receiver: Value,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let selector_id = iris_runtime::NativeSelector::from_source(selector)
+            .map_or_else(|| self.selector(selector), iris_runtime::NativeSelector::id);
+        match self
+            .kernel
+            .dispatch_value(&receiver, selector_id)
+            .map_err(EvaluationError::Runtime)?
+        {
+            iris_runtime::DispatchOutcome::Invoke(method) => {
+                self.invoke_selected(method, receiver, arguments)
+            }
+            iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => {
+                Err(EvaluationError::MessageNotFound {
+                    receiver_class: receiver_class_name(&receiver).into(),
+                    selector: selector.into(),
+                })
+            }
         }
     }
 
@@ -670,8 +822,14 @@ impl SourceEvaluator {
         if let Some(selector) = self.selectors.get(name) {
             return *selector;
         }
-        let selector = Selector::new(self.next_selector);
-        self.next_selector += 1;
+        let selector = iris_runtime::NativeSelector::from_source(name).map_or_else(
+            || {
+                let selector = Selector::new(self.next_selector);
+                self.next_selector += 1;
+                selector
+            },
+            iris_runtime::NativeSelector::id,
+        );
         self.selectors.insert(name.into(), selector);
         selector
     }
@@ -943,6 +1101,7 @@ mod tests {
         let result = evaluator.statement(&program.statements[0], &Default::default(), None);
 
         // Then
+        eprintln!("{result:?}");
         assert!(matches!(
             result,
             Err(crate::EvaluationError::Construction(
@@ -987,6 +1146,110 @@ mod tests {
                 Value::Integer(2_u8.into()),
             ]))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn open_builtin_integer_adds_a_source_method_without_replacing_native_hash()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "open class Integer { public fun doubled() -> Integer { 2 } }; [Integer(1).doubled(), Integer(1).hash]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(2_u8.into()),
+                Value::Integer(17_824_117_788_395_916_856_u64.into()),
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn open_builtin_with_extends_is_rejected_without_publishing_a_revision()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "open class Integer extends Object { }";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        let Some(iris_syntax::Declaration::Class(class)) = program.declarations.first() else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        let integer = evaluator
+            .kernel
+            .class(iris_runtime::BuiltinClass::Integer)
+            .map_err(crate::EvaluationError::Runtime)?;
+        let before = evaluator
+            .kernel
+            .registry_mut()
+            .active_revision(integer)
+            .map_err(crate::EvaluationError::Class)?;
+
+        // When
+        let result = evaluator.class(class);
+
+        // Then
+        assert_eq!(
+            result,
+            Err(crate::EvaluationError::Class(
+                iris_runtime::ClassError::ProtectedSuperclass { class: integer }
+            ))
+        );
+        assert_eq!(
+            evaluator
+                .kernel
+                .registry_mut()
+                .active_revision(integer)
+                .map_err(crate::EvaluationError::Class)?,
+            before
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn open_builtin_replaces_compatible_method_and_preserves_singletons_and_float_bits()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "open class Integer { public fun hash() -> Integer { 2 } }; [Integer(1).hash, nil.hash, false.hash, true.hash]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert!(matches!(
+            result,
+            Ok(Value::Array(values))
+                if matches!(
+                    values.as_slice(),
+                    [
+                        Value::Integer(replaced),
+                        Value::Integer(nil_hash),
+                        Value::Integer(false_hash),
+                        Value::Integer(true_hash),
+                    ] if replaced == &2_u8.into()
+                        && nil_hash == &11_850_167_709_044_604_115_u64.into()
+                        && false_hash == &17_921_396_551_637_717_540_u64.into()
+                        && true_hash == &14_186_115_676_603_356_736_u64.into()
+                )
+        ));
+        assert!(matches!(
+            evaluator.kernel.send(
+                Value::Class(
+                    evaluator
+                        .kernel
+                        .class(iris_runtime::BuiltinClass::Float64)
+                        .map_err(crate::EvaluationError::Runtime)?,
+                ),
+                iris_runtime::NativeSelector::FromBits,
+                &[Value::Integer(0x8000_0000_0000_0000_u64.into())],
+            ),
+            Ok(Value::Float64(value)) if value.to_bits() == 0x8000_0000_0000_0000
+        ));
         Ok(())
     }
 }
