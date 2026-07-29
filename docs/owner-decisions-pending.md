@@ -26,9 +26,10 @@ Resolved entries are struck from this file and recorded in
 Classes live in the `Kernel` registry. Their `ClassId` spaces are disjoint, so an
 id from one is meaningless in the other.
 
-This blocks `Object` as the implicit root Class, which in turn blocks
-`IRIS-V1-RUNTIME-V076` (one term away from passing) and `IRIS-V1-RUNTIME-V100`
-(cannot pass at all). Naming the kernel `Object` as a declared Class's
+This blocks `Object` as the implicit root Class, which in turn blocks three
+vectors: `IRIS-V1-RUNTIME-V076` (one term away from passing),
+`IRIS-V1-RUNTIME-V100` (cannot pass at all), and `IRIS-V1-RUNTIME-V075` (needs
+the default `==` that `C005` assigns to `Object`). Naming the kernel `Object` as a declared Class's
 superclass currently resolves to an unrelated id and surfaces as
 `UnknownClassId(ClassId(0))`.
 
