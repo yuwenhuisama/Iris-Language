@@ -36,9 +36,11 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::Integer(value) => numeric_hash(&NumericValue::Integer(value.clone())),
         Value::Float32(value) => numeric_hash(&NumericValue::Float32(*value)),
         Value::Float64(value) => numeric_hash(&NumericValue::Float64(*value)),
-        Value::Array(_) | Value::Symbol(_) | Value::Class(_) | Value::Object(_) => {
-            Err(StableHashError::UnsupportedValue)
-        }
+        Value::Array(_)
+        | Value::Symbol(_)
+        | Value::Class(_)
+        | Value::Object(_)
+        | Value::BoundMethod(_) => Err(StableHashError::UnsupportedValue),
     }
 }
 

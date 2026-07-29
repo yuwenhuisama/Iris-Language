@@ -1,6 +1,6 @@
 use crate::{
-    BoundMethod, ClassError, ClassId, DecoratorTransform, Method, MethodBody, MethodId,
-    MethodOwner, ModuleId, MroEntry, Selector, Visibility,
+    BoundMethod, BoundReceiver, ClassError, ClassId, DecoratorTransform, Method, MethodBody,
+    MethodId, MethodOwner, ModuleId, MroEntry, Selector, Visibility,
 };
 
 /// Result of resolving an ordinary send before evaluator invocation.
@@ -316,9 +316,30 @@ impl crate::ClassRegistry {
         selector: Selector,
     ) -> Result<BoundMethod, DispatchError> {
         match self.dispatch(class, selector)? {
-            DispatchOutcome::Invoke(method) => {
-                Ok(BoundMethod::new(self.next_bound_method()?, class, method))
+            DispatchOutcome::Invoke(method) => Ok(BoundMethod::new(
+                self.next_bound_method()?,
+                BoundReceiver::Class(class),
+                method,
+            )),
+            DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                Err(DispatchError::MissingMethod { selector })
             }
+        }
+    }
+
+    /// Binds the exact Method identity selected for one ordinary object receiver.
+    pub fn bind_instance(
+        &mut self,
+        receiver: crate::ObjectId,
+        class: ClassId,
+        selector: Selector,
+    ) -> Result<BoundMethod, DispatchError> {
+        match self.dispatch(class, selector)? {
+            DispatchOutcome::Invoke(method) => Ok(BoundMethod::new(
+                self.next_bound_method()?,
+                BoundReceiver::Object(receiver),
+                method,
+            )),
             DispatchOutcome::WouldInvokeMethodMissing { selector } => {
                 Err(DispatchError::MissingMethod { selector })
             }

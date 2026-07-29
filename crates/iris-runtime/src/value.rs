@@ -2,7 +2,7 @@ use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
 
-use crate::{ClassId, ObjectId};
+use crate::{BoundMethod, ClassId, ObjectId};
 
 /// An arbitrary-precision Iris integer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,4 +128,6 @@ pub enum Value {
     Class(ClassId),
     /// An object owned by the runtime heap.
     Object(ObjectId),
+    /// A Method bound to one receiver at member-read time.
+    BoundMethod(BoundMethod),
 }

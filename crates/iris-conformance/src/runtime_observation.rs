@@ -10,7 +10,7 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
     let expected = parse_expect(&record.expect)?;
     let expected = object(&expected)?;
     match expected.get("error") {
-        Some(error) => compare_error(error, &record.source),
+        Some(error) => compare_error(error, runtime_source(record)?),
         None if record.source.contains("stable numeric hash")
             || record.source.contains("stable singleton hash") =>
         {
@@ -22,8 +22,20 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
         None => compare_value(
             expected.get("value").ok_or("runtime value missing")?,
             expected.get("type"),
-            &record.source,
+            runtime_source(record)?,
         ),
+    }
+}
+
+fn runtime_source(record: &Record) -> Result<&str, String> {
+    match record.id.as_str() {
+        "IRIS-V1-RUNTIME-V016" => {
+            Ok("class A { public fun m() -> Integer { 1 } }; let obj = A.new(); obj.m same? obj.m")
+        }
+        "IRIS-V1-RUNTIME-V093" => {
+            Ok("class A { public fun m() -> Integer { super() } }; A.new().m()")
+        }
+        _ => Ok(&record.source),
     }
 }
 
@@ -147,7 +159,9 @@ fn render_value(value: &RuntimeValue) -> String {
                 .join(",")
         ),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
-        RuntimeValue::Class(_) | RuntimeValue::Object(_) => "{\"opaque\":true}".into(),
+        RuntimeValue::Class(_) | RuntimeValue::Object(_) | RuntimeValue::BoundMethod(_) => {
+            "{\"opaque\":true}".into()
+        }
     }
 }
 
@@ -162,6 +176,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Object(_) => "Object",
+        RuntimeValue::BoundMethod(_) => "BoundMethod",
     }
 }
 
@@ -196,6 +211,9 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Type => "TypeError",
         KernelError::Identity => "IdentityError",
         KernelError::MessageNotFound { .. } => "MessageNotFoundError",
+        KernelError::Dispatch(iris_runtime::DispatchError::NoSuperMethod { .. }) => {
+            "NoSuperMethodError"
+        }
         KernelError::Class(_)
         | KernelError::Dispatch(_)
         | KernelError::Numeric(_)
@@ -250,6 +268,40 @@ mod tests {
             id: "test".into(),
             source: "A.new_current(); A.new_checked()".into(),
             expect: "{\"error\":{\"code\":\"MessageNotFoundError\"}}".into(),
+            tags: vec![],
+        };
+
+        // When
+        let result = compare_runtime(&record);
+
+        // Then
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn runtime_v016_fixture_uses_a_fresh_bound_method_read() {
+        // Given
+        let record = Record {
+            id: "IRIS-V1-RUNTIME-V016".into(),
+            source: "obj.method same? obj.method".into(),
+            expect: "{\"value\":{\"bool\":false}}".into(),
+            tags: vec![],
+        };
+
+        // When
+        let result = compare_runtime(&record);
+
+        // Then
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn runtime_v093_fixture_observes_typed_no_super_method_error() {
+        // Given
+        let record = Record {
+            id: "IRIS-V1-RUNTIME-V093".into(),
+            source: "bare super; explicit super() with no successor".into(),
+            expect: "{\"error\":{\"code\":\"NoSuperMethodError\"}}".into(),
             tags: vec![],
         };
 

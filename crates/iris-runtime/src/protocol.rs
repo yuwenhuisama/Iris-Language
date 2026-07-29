@@ -86,7 +86,8 @@ impl ComparisonProtocol {
             | Value::Array(_)
             | Value::Symbol(_)
             | Value::Class(_)
-            | Value::Object(_) => {
+            | Value::Object(_)
+            | Value::BoundMethod(_) => {
                 return Err(ComparisonError::Contract);
             }
         };
@@ -145,7 +146,8 @@ impl Truthiness {
                 | Value::Array(_)
                 | Value::Symbol(_)
                 | Value::Class(_)
-                | Value::Object(_) => Value::Bool(true),
+                | Value::Object(_)
+                | Value::BoundMethod(_) => Value::Bool(true),
             },
             TruthinessMethod::Returns(value) => value,
             TruthinessMethod::Raises(error) => return Err(TruthinessError::Raised(error)),
@@ -159,7 +161,8 @@ impl Truthiness {
             | Value::Array(_)
             | Value::Symbol(_)
             | Value::Class(_)
-            | Value::Object(_) => Err(TruthinessError::TypeContract),
+            | Value::Object(_)
+            | Value::BoundMethod(_) => Err(TruthinessError::TypeContract),
         }
     }
 

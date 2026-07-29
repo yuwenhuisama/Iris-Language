@@ -277,6 +277,25 @@ fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
 }
 
 #[test]
+fn source_member_read_creates_a_fresh_bound_method_while_parenthesized_send_invokes() {
+    // Given
+    let member_read = "class A { public fun m() -> Integer { 1 } }; let a = A.new(); a.m";
+    let identity_read =
+        "class A { public fun m() -> Integer { 1 } }; let a = A.new(); a.m same? a.m";
+    let invocation = "class A { public fun m() -> Integer { 1 } }; let a = A.new(); a.m()";
+
+    // When
+    let read = evaluate(member_read);
+    let identity = evaluate(identity_read);
+    let called = evaluate(invocation);
+
+    // Then
+    assert!(matches!(read, Ok(value) if format!("{value:?}").contains("BoundMethod")));
+    assert_eq!(identity, Ok(RuntimeValue::Bool(false)));
+    assert_eq!(called, Ok(RuntimeValue::Integer(1_u8.into())));
+}
+
+#[test]
 fn source_single_mixin_class_body_keeps_its_own_methods() {
     // Given
     let source = "class C mixin A { public fun t() -> Integer { 1 } }; C.new().t()";
@@ -323,7 +342,7 @@ fn property_assignment_returns_its_setter_result_while_raw_ivar_assignment_retur
 }
 
 #[test]
-fn source_super_selects_the_next_method_and_reports_no_successor() {
+fn source_super_selects_the_next_method_and_reports_typed_no_successor() {
     // Given
     let source = "class B { public fun m() -> Integer { 1 } }; class C extends B { public fun m() -> Integer { super() } }; C.new().m()";
     let no_successor = "class A { public fun m() -> Integer { super() } }; A.new().m()";
@@ -334,10 +353,29 @@ fn source_super_selects_the_next_method_and_reports_no_successor() {
 
     // Then
     assert_eq!(result, Ok(RuntimeValue::Integer(1_u8.into())));
-    assert_eq!(
-        format!("{missing:?}"),
-        "Err(Execution(Raised(Symbol(\"NoSuperMethodError\"))))"
-    );
+    assert!(matches!(
+        missing,
+        Err(EvaluationError::Runtime(KernelError::Dispatch(
+            iris_runtime::DispatchError::NoSuperMethod { .. }
+        )))
+    ));
+}
+
+#[test]
+fn source_bare_super_is_rejected() {
+    // Given
+    let source = "class A { public fun m() -> Integer { super } }; A.new().m()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Runtime(KernelError::Dispatch(
+            iris_runtime::DispatchError::InvalidSuper { .. }
+        )))
+    ));
 }
 
 #[test]

@@ -28,7 +28,7 @@ pub use heap::{HeapObject, HeapPayload, RuntimeError, RuntimeHeap};
 pub use identity::{ClassId, MethodId, ModuleId, ObjectId, RevisionId, Selector};
 pub use kernel::{Kernel, KernelError, NativeSelector};
 pub use meta::{BuiltinClass, Capability, MetaCapabilities};
-pub use method::{BoundMethod, Method, MethodBody, MethodOwner, Visibility};
+pub use method::{BoundMethod, BoundReceiver, Method, MethodBody, MethodOwner, Visibility};
 pub use numeric::{Numeric, NumericError, NumericValue};
 pub use protocol::{
     ComparisonError, ComparisonProtocol, ComparisonSlot, Truthiness, TruthinessError,

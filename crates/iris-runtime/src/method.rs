@@ -87,16 +87,25 @@ pub enum MethodOwner {
     Module(ModuleId),
 }
 
-/// Identity-bearing pairing of an object receiver and one exact Method.
+/// Receiver captured by an identity-bearing BoundMethod.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoundReceiver {
+    /// A logical Class receiver.
+    Class(ClassId),
+    /// A runtime object receiver.
+    Object(ObjectId),
+}
+
+/// Identity-bearing pairing of a receiver and one exact Method.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundMethod {
     id: ObjectId,
-    receiver: ClassId,
+    receiver: BoundReceiver,
     method: Method,
 }
 
 impl BoundMethod {
-    pub(crate) const fn new(id: ObjectId, receiver: ClassId, method: Method) -> Self {
+    pub(crate) const fn new(id: ObjectId, receiver: BoundReceiver, method: Method) -> Self {
         Self {
             id,
             receiver,
@@ -109,8 +118,8 @@ impl BoundMethod {
         self.id
     }
 
-    /// Returns the captured receiver identity.
-    pub const fn receiver(&self) -> ClassId {
+    /// Returns the captured receiver.
+    pub const fn receiver(&self) -> BoundReceiver {
         self.receiver
     }
 

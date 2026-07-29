@@ -341,6 +341,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Object(_) => "Object",
+        RuntimeValue::BoundMethod(_) => "BoundMethod",
     }
 }
 
