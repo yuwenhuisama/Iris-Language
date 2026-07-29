@@ -771,6 +771,11 @@ impl SourceEvaluator {
                 .or_else(|| self.names.get(name).map(Binding::value))
                 .or_else(|| (name == "self").then_some(receiver).flatten())
                 .or_else(|| builtin(name, &self.kernel))
+                .or_else(|| {
+                    self.module_names
+                        .contains_key(name)
+                        .then(|| Value::Symbol(name.clone()))
+                })
                 .ok_or(EvaluationError::UnsupportedConstruct),
             Expression::RawIvar(name) => {
                 let selector = self.selector(name);
@@ -824,6 +829,25 @@ impl SourceEvaluator {
                     Expression::Member {
                         receiver: target,
                         selector,
+                    } if matches!(target.as_ref(), Expression::Name(name) if name.starts_with("Reflection::")) =>
+                    {
+                        let Expression::Name(namespace) = target.as_ref() else {
+                            return Err(EvaluationError::UnsupportedConstruct);
+                        };
+                        self.reflection(namespace, selector, &arguments)
+                    }
+                    Expression::Member {
+                        receiver: target,
+                        selector,
+                    } if matches!(selector.as_str(), "method" | "remove_module")
+                        && !matches!(target.as_ref(), Expression::Name(name) if self.module_names.contains_key(name)) =>
+                    {
+                        let target = self.expression(target, locals, receiver)?;
+                        self.send(target, selector, &arguments)
+                    }
+                    Expression::Member {
+                        receiver: target,
+                        selector,
                     } if selector == "append" => {
                         self.append_array_binding(target, &arguments, locals)
                     }
@@ -848,6 +872,26 @@ impl SourceEvaluator {
                             .module_names
                             .get(name)
                             .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        if selector == "method" {
+                            let [Value::Symbol(name)] = arguments.as_slice() else {
+                                return Err(EvaluationError::UnsupportedConstruct);
+                            };
+                            let selector = self.selector(name);
+                            return Ok(self
+                                .module_methods
+                                .get(&(module, selector))
+                                .copied()
+                                .map(Value::Method)
+                                .unwrap_or(Value::Nil));
+                        }
+                        if selector == "invoke" {
+                            let [Value::Method(method), receiver, Value::Array(args)] =
+                                arguments.as_slice()
+                            else {
+                                return Err(EvaluationError::UnsupportedConstruct);
+                            };
+                            return self.reflective_invoke(*method, receiver.clone(), args);
+                        }
                         let selector_name = selector.clone();
                         let selector = self.selector(&selector_name);
                         let method = self
@@ -1021,6 +1065,7 @@ impl SourceEvaluator {
                 },
                 arguments,
             ),
+            Value::Method(_) => Err(EvaluationError::UnsupportedConstruct),
             _ => Err(EvaluationError::UnsupportedConstruct),
         }
     }
@@ -1119,6 +1164,35 @@ impl SourceEvaluator {
                     .map(|()| Value::Nil)
                     .map_err(EvaluationError::Class)
             }
+            Value::Class(class) if selector == "method" => {
+                let [Value::Symbol(selector)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let selector = self.selector(selector);
+                match self.runtime.registry().dispatch(class, selector) {
+                    Ok(iris_runtime::DispatchOutcome::Invoke(method)) => Ok(Value::Method(method)),
+                    Ok(iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. }) => {
+                        Ok(Value::Nil)
+                    }
+                    Err(error) => Err(EvaluationError::Construction(error.into())),
+                }
+            }
+            Value::Class(_) if selector == "invoke" => {
+                let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.reflective_invoke(*method, receiver.clone(), args)
+            }
+            Value::Class(class) if selector == "remove_module" => {
+                let [Value::Symbol(module)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let module = *self
+                    .module_names
+                    .get(module)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                self.remove_module(class, module).map(|()| Value::Nil)
+            }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
                 if self.is_builtin_class(class) {
@@ -1205,6 +1279,181 @@ impl SourceEvaluator {
                 .map_err(iris_runtime::ConstructionError::from)
                 .map_err(EvaluationError::Construction)
         }
+    }
+
+    fn reflection(
+        &mut self,
+        namespace: &str,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        match (namespace, selector) {
+            ("Reflection::Object", "list_ivars") => {
+                let [target] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.list_ivars(target)
+            }
+            ("Reflection::Object", "get_ivar") => {
+                let [target, Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.get_ivar(target, name)
+            }
+            ("Reflection::Object", "set_ivar") => {
+                let [target, Value::Symbol(name), value] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.set_ivar(target, name, value.clone())
+            }
+            ("Reflection::Object", "remove_ivar") => {
+                let [target, Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.remove_ivar(target, name)
+            }
+            ("Reflection::Class", "method") | ("Reflection::Module", "method") => {
+                let [target, Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.reflection_method(target, name)
+            }
+            ("Reflection::Class", "invoke") | ("Reflection::Module", "invoke") => {
+                let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.reflective_invoke(*method, receiver.clone(), args)
+            }
+            ("Reflection::Class", "remove_module") => {
+                let [Value::Class(class), Value::Symbol(module)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let module = *self
+                    .module_names
+                    .get(module)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                self.remove_module(*class, module).map(|()| Value::Nil)
+            }
+            _ => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn list_ivars(&self, target: &Value) -> Result<Value, EvaluationError> {
+        let names = match target {
+            Value::Object(object) => self.runtime.raw_ivar_names(*object),
+            Value::Class(class) => self.runtime.class_raw_ivar_names(*class),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Construction)?;
+        Ok(Value::Array(
+            names
+                .into_iter()
+                .map(|name| Value::Symbol(self.selector_name(name)))
+                .collect(),
+        ))
+    }
+
+    fn get_ivar(&mut self, target: &Value, name: &str) -> Result<Value, EvaluationError> {
+        let selector = self.selector_id(name)?;
+        match target {
+            Value::Object(object) => self.runtime.raw_ivar(*object, selector),
+            Value::Class(class) => self.runtime.class_raw_ivar(*class, selector),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Construction)
+    }
+
+    fn set_ivar(
+        &mut self,
+        target: &Value,
+        name: &str,
+        value: Value,
+    ) -> Result<Value, EvaluationError> {
+        let selector = self.selector_id(name)?;
+        match target {
+            Value::Object(object) => self.runtime.assign_raw_ivar(*object, selector, value),
+            Value::Class(class) => self.runtime.assign_class_raw_ivar(*class, selector, value),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Construction)
+    }
+
+    fn remove_ivar(&mut self, target: &Value, name: &str) -> Result<Value, EvaluationError> {
+        let selector = self.selector_id(name)?;
+        let value = match target {
+            Value::Object(object) => self.runtime.remove_raw_ivar(*object, selector),
+            Value::Class(class) => self.runtime.remove_class_raw_ivar(*class, selector),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Construction)?;
+        value.ok_or(EvaluationError::UnsupportedConstruct)
+    }
+
+    fn selector_id(&mut self, name: &str) -> Result<Selector, EvaluationError> {
+        if name.starts_with('@') {
+            Ok(self.selector(name))
+        } else {
+            Err(EvaluationError::UnsupportedConstruct)
+        }
+    }
+
+    fn reflection_method(&mut self, target: &Value, name: &str) -> Result<Value, EvaluationError> {
+        let selector = self.selector(name);
+        match target {
+            Value::Class(class) => match self.runtime.registry().dispatch(*class, selector) {
+                Ok(iris_runtime::DispatchOutcome::Invoke(method)) => Ok(Value::Method(method)),
+                Ok(iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. }) => {
+                    Ok(Value::Nil)
+                }
+                Err(error) => Err(EvaluationError::Construction(error.into())),
+            },
+            Value::Symbol(module) => self
+                .module_names
+                .get(module)
+                .and_then(|module| self.module_methods.get(&(*module, selector)))
+                .copied()
+                .map(Value::Method)
+                .ok_or(EvaluationError::UnsupportedConstruct),
+            _ => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn reflective_invoke(
+        &mut self,
+        method: Method,
+        receiver: Value,
+        args: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let class = match receiver {
+            Value::Object(object) => self.runtime.class_of(object),
+            Value::Class(class) => Ok(class),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+        .map_err(EvaluationError::Construction)?;
+        self.runtime
+            .registry()
+            .validate_method_binding(class, method)
+            .map_err(iris_runtime::ConstructionError::from)
+            .map_err(EvaluationError::Construction)?;
+        self.invoke_method(method, receiver, args)
+    }
+
+    fn remove_module(&mut self, class: ClassId, module: ModuleId) -> Result<(), EvaluationError> {
+        self.runtime
+            .registry()
+            .require_meta_capability(class, Capability::Modules)
+            .map_err(EvaluationError::Class)?;
+        let mut candidate = self
+            .runtime
+            .registry_mut()
+            .open(class)
+            .map_err(EvaluationError::Class)?;
+        candidate.remove_module(module);
+        self.runtime
+            .registry_mut()
+            .publish(candidate)
+            .map(|_| ())
+            .map_err(EvaluationError::Class)
     }
 
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
@@ -1310,7 +1559,8 @@ impl SourceEvaluator {
                         | Value::Symbol(_)
                         | Value::Class(_)
                         | Value::Object(_)
-                        | Value::BoundMethod(_) => {
+                        | Value::BoundMethod(_)
+                        | Value::Method(_) => {
                             return Err(EvaluationError::UnsupportedConstruct);
                         }
                     };
@@ -1703,6 +1953,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Class(_) => "Class",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
+        Value::Method(_) => "Method",
     }
 }
 

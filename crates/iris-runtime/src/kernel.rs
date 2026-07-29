@@ -404,9 +404,11 @@ impl Kernel {
             Value::Float32(_) => self.class(BuiltinClass::Float32),
             Value::Float64(_) => self.class(BuiltinClass::Float64),
             Value::Class(class) => Ok(*class),
-            Value::Array(_) | Value::Symbol(_) | Value::Object(_) | Value::BoundMethod(_) => {
-                Err(KernelError::Type)
-            }
+            Value::Array(_)
+            | Value::Symbol(_)
+            | Value::Object(_)
+            | Value::BoundMethod(_)
+            | Value::Method(_) => Err(KernelError::Type),
         }
     }
     fn invoke(

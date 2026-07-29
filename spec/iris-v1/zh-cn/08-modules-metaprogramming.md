@@ -272,7 +272,7 @@ IRIS-V1-META-C098: `respond_to?(selector, include_non_public: false)` 报告 rec
 
 IRIS-V1-META-C099: 可选 `respond_to_missing?` 是独立动态 hint，且 MUST NOT 改变 `respond_to?` 真值。Qualified Contract slots 使用 Contract-view-specific `respond_to_contract?`。Ordinary 和 qualified namespaces MUST NOT 合并。
 
-IRIS-V1-META-C100: Raw ivar reflection 使用普通 API `Reflection.list_ivars(obj)`、`Reflection.get_ivar(obj, name)`、`Reflection.set_ivar(obj, name, value)` 和 `Reflection.remove_ivar(obj, name)`。Authorization ambient 于当前执行 package 或 Module context，受 Host-configured ReflectionPolicy 和 manifest grants 控制。
+IRIS-V1-META-C100: Raw ivar reflection 使用普通 API `Reflection::Object.list_ivars(obj)`、`Reflection::Object.get_ivar(obj, name)`、`Reflection::Object.set_ivar(obj, name, value)` 和 `Reflection::Object.remove_ivar(obj, name)`。Authorization ambient 于当前执行 package 或 Module context，受 Host-configured ReflectionPolicy 和 manifest grants 控制。
 
 IRIS-V1-META-C101: Iris v1 没有一等 reflection token system。Reflection calls MUST NOT 接受、创建、派生、委派、撤销或传递历史 `ReflectionCapability` token。Method visibility、Dynamic typing、Module private authorization、MetaCapabilities、Host code execution 和 native extension execution 本身不授予 reflection。
 
@@ -372,6 +372,10 @@ IRIS-V1-META-N001: Informative note: IRIS-V1-META-C049 中的 import-site replac
 ## Audit-Exact 一致性向量
 
 IRIS-V1-META-C117: 以下规范性 audit-exact vectors 各自命名具体 package、source、manifest 或 transaction fixture、category、backend applicability、精确 observable result，以及直接覆盖的 decision metadata。
+
+IRIS-V1-META-C118: Reflective Method surface 是 `Reflection::Class.method(target, selector)`，它返回 unbound Method reflective object，缺失时返回 `nil`；`Reflection::Class.invoke(method, receiver, args)`；`Reflection::Class.remove_module(target, module)`；以及 Module-side counterpart `Reflection::Module.method(target, selector)` 和 `Reflection::Module.invoke(method, receiver, args)`。Entry validation 与 `MethodBindingError` 由 `IRIS-V1-RUNTIME-C015` 和 `D-104` 拥有；retained Method 的 `super` 与 `InvalidSuperError` 由 `IRIS-V1-RUNTIME-C014` 和 `D-103` 拥有；package identity 由 `IRIS-V1-META-C105` 拥有；缺失 lookup 按 `IRIS-V1-META-C109` 返回 `nil`；`method` 在 `IRIS-V1-META-C102` 下需要 `inspect`，`invoke` 和 `remove_module` 需要 `mutate`；`remove_module` transaction semantics 由 `IRIS-V1-META-C060` 和 `IRIS-V1-META-C078` 拥有，其 capability gating 由 `IRIS-V1-META-C055` 的 `modules` 拥有，token passing 仍被 `IRIS-V1-META-C101` 禁止。
+
+IRIS-V1-META-C119: Reflection operations 在对应的 `Reflection::*` sub-Modules 中只实现一次，`Class` 和 `Module` 通过 mixin 获得对应成员，因此 `A.remove_module(M)` 与 `Reflection::Class.remove_module(A, M)` 是同一实现的两个入口。该 weaving 以 `IRIS-V1-RUNTIME-C043` 和 `IRIS-V1-RUNTIME-C044` 为基础。不需要 grammar change：既有 `qualified_type_name` 和 `mixin_entry` productions 已经能推导 `mixin Reflection::Class`。
 
 | Vector ID | Category | 适用性 | 来源/输入 | 预期可观察结果 | Decisions |
 | --------------------- | ------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |

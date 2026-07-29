@@ -40,7 +40,8 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::Symbol(_)
         | Value::Class(_)
         | Value::Object(_)
-        | Value::BoundMethod(_) => Err(StableHashError::UnsupportedValue),
+        | Value::BoundMethod(_)
+        | Value::Method(_) => Err(StableHashError::UnsupportedValue),
     }
 }
 

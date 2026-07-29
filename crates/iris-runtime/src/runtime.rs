@@ -234,6 +234,29 @@ impl Runtime {
         Ok(self.raw_ivars.get(&instance).map_or(0, HashMap::len))
     }
 
+    /// Returns the materialized raw ivar names for a receiver.
+    pub fn raw_ivar_names(&self, instance: ObjectId) -> Result<Vec<Selector>, ConstructionError> {
+        self.class_of(instance)?;
+        Ok(self
+            .raw_ivars
+            .get(&instance)
+            .map(|slots| slots.keys().copied().collect())
+            .unwrap_or_default())
+    }
+
+    /// Removes and returns a materialized raw ivar when it exists.
+    pub fn remove_raw_ivar(
+        &mut self,
+        instance: ObjectId,
+        name: Selector,
+    ) -> Result<Option<Value>, ConstructionError> {
+        self.class_of(instance)?;
+        Ok(self
+            .raw_ivars
+            .get_mut(&instance)
+            .and_then(|slots| slots.remove(&name)))
+    }
+
     /// Stores a Class variable cell and returns its stored value.
     pub fn declare_class_var(
         &mut self,
@@ -275,6 +298,29 @@ impl Runtime {
             .or_default()
             .insert(name, value.clone());
         Ok(value)
+    }
+
+    /// Returns materialized raw ivar names on a Class object.
+    pub fn class_raw_ivar_names(&self, class: ClassId) -> Result<Vec<Selector>, ConstructionError> {
+        self.registry.class(class)?;
+        Ok(self
+            .class_raw_ivars
+            .get(&class)
+            .map(|slots| slots.keys().copied().collect())
+            .unwrap_or_default())
+    }
+
+    /// Removes and returns a materialized raw ivar from a Class object.
+    pub fn remove_class_raw_ivar(
+        &mut self,
+        class: ClassId,
+        name: Selector,
+    ) -> Result<Option<Value>, ConstructionError> {
+        self.registry.class(class)?;
+        Ok(self
+            .class_raw_ivars
+            .get_mut(&class)
+            .and_then(|slots| slots.remove(&name)))
     }
 
     /// Stores an existing Class variable cell and returns its stored value.

@@ -126,6 +126,167 @@ fn class_method_slot_operations_require_method_set_capability() {
 }
 
 #[test]
+fn reflection_object_ivar_operations_are_layered_under_reflection_object() {
+    // Given
+    let source = "class A { }; let a = A.new(); let missing = Reflection::Object.get_ivar(a, :@x); let written = Reflection::Object.set_ivar(a, :@x, :value); let names = Reflection::Object.list_ivars(a); let removed = Reflection::Object.remove_ivar(a, :@x); [missing, written, names, removed, Reflection::Object.get_ivar(a, :@x)]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Symbol("value".into()),
+            RuntimeValue::Array(vec![RuntimeValue::Symbol("@x".into())]),
+            RuntimeValue::Symbol("value".into()),
+            RuntimeValue::Nil,
+        ]))
+    );
+}
+
+#[test]
+fn reflection_class_and_class_mixin_share_method_and_module_operations() {
+    // Given
+    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let reflected = Reflection::Class.method(A, :m); let direct = A.method(:m); let a = A.new(); let before = Reflection::Class.invoke(reflected, a, []); let same = Reflection::Class.invoke(direct, a, []); let ignored = A.remove_module(M); [before, same, ignored]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("module".into()),
+            RuntimeValue::Symbol("module".into()),
+            RuntimeValue::Nil,
+        ]))
+    );
+}
+
+#[test]
+fn reflection_module_and_module_mixin_share_method_and_invoke_operations() {
+    // Given
+    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let direct = M.method(:m); let a = A.new(); M.invoke(direct, a, [])";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("module".into())));
+}
+
+#[test]
+fn nested_reflection_module_declarations_and_mixin_qualified_names_parse() {
+    // Given
+    let source = "module Reflection::Class { }; module Reflection::Module { }; class A mixin Reflection::Class { }";
+
+    // When
+    let result = iris_parser::parse(source);
+
+    // Then
+    assert!(result.is_clean(), "{result:#?}");
+}
+
+#[test]
+fn qualified_expression_sends_reach_reflection_and_nested_module_members() {
+    // Given
+    let reflection = "class A { }; Reflection::Object.list_ivars(A.new())";
+    let module = "module R::S { module fun f() -> Symbol { :f } }; R::S.f()";
+
+    let reflection_parse = iris_parser::parse(reflection);
+    let module_parse = iris_parser::parse(module);
+    assert!(reflection_parse.is_clean(), "{reflection_parse:#?}");
+    assert!(module_parse.is_clean(), "{module_parse:#?}");
+
+    // When
+    let reflection_result = evaluate(reflection);
+    let module_result = evaluate(module);
+
+    // Then
+    assert_eq!(reflection_result, Ok(RuntimeValue::Array(vec![])));
+    assert_eq!(module_result, Ok(RuntimeValue::Symbol("f".into())));
+}
+
+#[test]
+fn class_invoke_validates_binding_before_the_method_body_can_raise() {
+    // Given
+    let source = "class A { public fun m() -> Nil { raise :body } }; class B { }; let mm = A.method(:m); B.invoke(mm, B.new(), [])";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Construction(
+            iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::MethodBinding { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
+fn reflection_operations_are_reachable_through_every_public_entry_point() {
+    // Given
+    let object = "class A { }; let a = A.new(); let first = Reflection::Object.set_ivar(a, :@x, :value); [Reflection::Object.list_ivars(a), Reflection::Object.get_ivar(a, :@x), first, Reflection::Object.remove_ivar(a, :@x)]";
+    let class = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Class.method(A, :m); let woven = A.method(:m); [Reflection::Class.invoke(reflected, a, []), A.invoke(woven, a, []), Reflection::Class.remove_module(A, :M)]";
+    let module = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Module.method(M, :m); let woven = M.method(:m); [Reflection::Module.invoke(reflected, a, []), M.invoke(woven, a, [])]";
+
+    // When
+    let object_result = evaluate(object);
+    let class_result = evaluate(class);
+    let module_result = evaluate(module);
+
+    // Then
+    assert_eq!(
+        object_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Array(vec![RuntimeValue::Symbol("@x".into())]),
+            RuntimeValue::Symbol("value".into()),
+            RuntimeValue::Symbol("value".into()),
+            RuntimeValue::Symbol("value".into()),
+        ]))
+    );
+    assert_eq!(
+        class_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("m".into()),
+            RuntimeValue::Symbol("m".into()),
+            RuntimeValue::Nil,
+        ]))
+    );
+    assert_eq!(
+        module_result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("m".into()),
+            RuntimeValue::Symbol("m".into()),
+        ]))
+    );
+}
+
+#[test]
+fn retained_module_method_removal_fails_at_invocation_entry() {
+    // Given
+    let source = "class Base { public fun m() -> Symbol { :base } }; module M { override public fun m() -> Symbol { super() } }; class A extends Base mixin M { }; let method = M.method(:m); A.remove_module(M); A.invoke(method, A.new(), [])";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(EvaluationError::Construction(
+            iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::MethodBinding { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
 fn rejects_identity_less_operands_with_identity_error() {
     // Given
     let source = "Integer(1) same? Integer(1)";

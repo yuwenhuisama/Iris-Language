@@ -158,9 +158,10 @@ fn render_value(value: &RuntimeValue) -> String {
                 .join(",")
         ),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
-        RuntimeValue::Class(_) | RuntimeValue::Object(_) | RuntimeValue::BoundMethod(_) => {
-            "{\"opaque\":true}".into()
-        }
+        RuntimeValue::Class(_)
+        | RuntimeValue::Object(_)
+        | RuntimeValue::BoundMethod(_)
+        | RuntimeValue::Method(_) => "{\"opaque\":true}".into(),
     }
 }
 
@@ -176,6 +177,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
+        RuntimeValue::Method(_) => "Method",
     }
 }
 

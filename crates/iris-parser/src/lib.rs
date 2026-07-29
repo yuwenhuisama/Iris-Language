@@ -199,7 +199,10 @@ fn combine_numeric_literals(raw: &[(TokenKind, &str)]) -> Vec<Token> {
     let mut cursor = 0;
     while cursor < raw.len() {
         let (kind, text) = raw[cursor];
-        if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
+        if text == ":" && raw.get(cursor + 1).is_some_and(|(_, next)| *next == ":") {
+            tokens.push(Token { text: "::".into() });
+            cursor += 2;
+        } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
             let mut value = String::from(text);
             cursor += 1;
             while raw.get(cursor).is_some_and(|(next_kind, next)| {
@@ -279,7 +282,7 @@ impl Parser {
     fn class_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ClassDeclaration> {
         let reopen = self.consume("open");
         self.expect("class")?;
-        let name = self.name()?;
+        let name = self.qualified_name()?;
         let parameters = self.generic_parameters();
         let mut extends = None;
         let mut implements = Vec::new();
@@ -345,7 +348,7 @@ impl Parser {
 
     fn module_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ModuleDeclaration> {
         self.expect("module")?;
-        let name = self.name()?;
+        let name = self.qualified_name()?;
         let parameters = self.generic_parameters();
         let mut mixins = Vec::new();
         let mut constraints = Vec::new();
@@ -853,7 +856,7 @@ impl Parser {
             self.expect(")")?;
             TypeExpression::Typeof(Box::new(expression))
         } else {
-            TypeExpression::Name(self.name()?)
+            TypeExpression::Name(self.qualified_name()?)
         };
         let mut values = vec![first];
         while self.consume("&") {
@@ -1028,6 +1031,19 @@ impl Parser {
             self.error("PARSE_UNEXPECTED_TOKEN");
             None
         }
+    }
+
+    pub(crate) fn qualified_name(&mut self) -> Option<String> {
+        let mut name = self.name()?;
+        while self.consume_qualified_separator() {
+            name.push_str("::");
+            name.push_str(&self.name()?);
+        }
+        Some(name)
+    }
+
+    pub(crate) fn consume_qualified_separator(&mut self) -> bool {
+        self.consume("::") || (self.consume(":") && self.consume(":"))
     }
     fn is_name(&self) -> bool {
         self.peek().is_some_and(is_identifier)

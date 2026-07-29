@@ -2,7 +2,7 @@ use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
 
-use crate::{BoundMethod, ClassId, ObjectId};
+use crate::{BoundMethod, ClassId, Method, ObjectId};
 
 /// An arbitrary-precision Iris integer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -130,4 +130,6 @@ pub enum Value {
     Object(ObjectId),
     /// A Method bound to one receiver at member-read time.
     BoundMethod(BoundMethod),
+    /// An unbound reflective Method object.
+    Method(Method),
 }

@@ -105,10 +105,18 @@ impl Parser {
             return self.array();
         }
         if self.consume(":") {
+            if self.consume("@") {
+                return self
+                    .name()
+                    .map(|name| Expression::Symbol(format!("@{name}")));
+            }
             return self.selector().map(Expression::Symbol);
         }
         if self.consume("if") {
             return self.if_expression();
+        }
+        if self.is_name() {
+            return self.qualified_name().map(Expression::Name);
         }
         let Some(value) = self.advance().map(|token| token.text) else {
             self.error("PARSE_UNEXPECTED_TOKEN");
