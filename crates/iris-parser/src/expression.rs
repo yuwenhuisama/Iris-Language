@@ -1,6 +1,6 @@
 use iris_syntax::{BinaryOperator, Expression, UnaryOperator};
 
-use crate::{Associativity, Parser, is_identifier};
+use crate::{Associativity, Parser, is_identifier, is_reserved_keyword};
 
 impl Parser {
     pub(super) fn expression(&mut self, minimum: u8) -> Option<Expression> {
@@ -161,7 +161,9 @@ impl Parser {
             "==" | "!=" => (4, Associativity::NonAssociative),
             "&&" => (2, Associativity::Left),
             "||" => (1, Associativity::Left),
-            value if is_identifier(value) => (3, Associativity::Left),
+            value if is_identifier(value) && !is_reserved_keyword(value) => {
+                (3, Associativity::Left)
+            }
             _ => return None,
         };
         Some(operator)
@@ -191,7 +193,7 @@ impl Parser {
             "!=" => BinaryOperator::NotEqual,
             "&&" => BinaryOperator::LogicalAnd,
             "||" => BinaryOperator::LogicalOr,
-            selector if is_identifier(selector) => {
+            selector if is_identifier(selector) && !is_reserved_keyword(selector) => {
                 let selector = self.selector_suffix(token)?;
                 if selector == "same?" {
                     BinaryOperator::Identity

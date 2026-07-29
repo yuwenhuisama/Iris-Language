@@ -24,6 +24,7 @@ struct SourceEvaluator {
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
     module_names: HashMap<String, ModuleId>,
+    module_classes: HashMap<ModuleId, ClassId>,
     module_methods: HashMap<(ModuleId, Selector), Method>,
     property_methods: HashMap<iris_runtime::MethodId, bool>,
     mixins: HashMap<ClassId, Vec<ClassId>>,
@@ -42,6 +43,7 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             module_names: HashMap::new(),
+            module_classes: HashMap::new(),
             module_methods: HashMap::new(),
             property_methods: HashMap::new(),
             mixins: HashMap::new(),
@@ -141,10 +143,38 @@ impl SourceEvaluator {
                 } => {
                     self.stored_property(class, builtin, decorators, name, initializer.clone())?;
                 }
+                Statement::SharedBinding {
+                    mutable,
+                    name,
+                    value,
+                } => self.shared_binding(class, *mutable, name, value)?,
                 Statement::Method(method) => self.class_method(class, builtin, method)?,
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
+        Ok(())
+    }
+
+    fn shared_binding(
+        &mut self,
+        class: ClassId,
+        mutable: bool,
+        name: &str,
+        value: &Expression,
+    ) -> Result<(), EvaluationError> {
+        let selector = self.selector(name);
+        if self.class_var_owner_from(class, selector).is_ok() {
+            return Err(EvaluationError::Class(
+                iris_runtime::ClassError::DuplicateClassVariable {
+                    class,
+                    name: selector,
+                },
+            ));
+        }
+        let value = self.expression(value, &HashMap::new(), None)?;
+        self.runtime
+            .declare_class_var(class, selector, value, mutable)
+            .map_err(EvaluationError::Construction)?;
         Ok(())
     }
 
@@ -328,21 +358,34 @@ impl SourceEvaluator {
             .define_module(&[])
             .map_err(EvaluationError::Class)?;
         self.module_names.insert(declaration.name.clone(), module);
+        let module_class = self
+            .runtime
+            .registry_mut()
+            .define_class(StaticSpine::new(1), None)
+            .map_err(EvaluationError::Class)?;
+        self.module_classes.insert(module, module_class);
         for statement in &declaration.body {
-            let Statement::Method(method) = statement else {
-                return Err(EvaluationError::UnsupportedConstruct);
-            };
-            if method.kind != MethodKind::Module {
-                return Err(EvaluationError::UnsupportedConstruct);
+            match statement {
+                Statement::SharedBinding {
+                    mutable,
+                    name,
+                    value,
+                } => self.shared_binding(module_class, *mutable, name, value)?,
+                Statement::Method(method) => {
+                    if method.kind != MethodKind::Module {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    }
+                    let body = self.register_body(method.clone());
+                    let selector = self.selector(&method.selector);
+                    let defined = self
+                        .runtime
+                        .registry_mut()
+                        .define_module_method(module, selector, body, visibility(method))
+                        .map_err(EvaluationError::Class)?;
+                    self.module_methods.insert((module, selector), defined);
+                }
+                _ => return Err(EvaluationError::UnsupportedConstruct),
             }
-            let body = self.register_body(method.clone());
-            let selector = self.selector(&method.selector);
-            let defined = self
-                .runtime
-                .registry_mut()
-                .define_module_method(module, selector, body, visibility(method))
-                .map_err(EvaluationError::Class)?;
-            self.module_methods.insert((module, selector), defined);
         }
         Ok(())
     }
@@ -373,7 +416,8 @@ impl SourceEvaluator {
                     Ok(Value::Nil)
                 }
             }
-            Statement::StoredProperty { .. }
+            Statement::SharedBinding { .. }
+            | Statement::StoredProperty { .. }
             | Statement::Method(_)
             | Statement::Return(_)
             | Statement::Break { .. }
@@ -401,7 +445,8 @@ impl SourceEvaluator {
                 Statement::Expression(_) | Statement::If { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
-                Statement::StoredProperty { .. }
+                Statement::SharedBinding { .. }
+                | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::Return(_)
                 | Statement::Break { .. }
@@ -898,9 +943,17 @@ impl SourceEvaluator {
     }
 
     fn class_var_owner(&self, name: Selector) -> Result<ClassId, EvaluationError> {
-        let mut class = self
+        let class = self
             .lexical_class
             .ok_or(EvaluationError::UnsupportedConstruct)?;
+        self.class_var_owner_from(class, name)
+    }
+
+    fn class_var_owner_from(
+        &self,
+        mut class: ClassId,
+        name: Selector,
+    ) -> Result<ClassId, EvaluationError> {
         loop {
             if self
                 .runtime
@@ -932,7 +985,7 @@ impl SourceEvaluator {
         let previous_lexical_class = self.lexical_class;
         self.lexical_class = match method.owner() {
             MethodOwner::Class(class) => Some(class),
-            MethodOwner::Module(_) => None,
+            MethodOwner::Module(module) => self.module_classes.get(&module).copied(),
         };
         let result = self.invoke_method_with_context(method, receiver, arguments);
         self.lexical_class = previous_lexical_class;
@@ -1037,7 +1090,7 @@ mod tests {
         let selector = evaluator.selector("c");
         evaluator
             .runtime
-            .declare_class_var(class, selector, Value::Integer(1_u8.into()))
+            .declare_class_var(class, selector, Value::Integer(1_u8.into()), true)
             .map_err(crate::EvaluationError::Construction)?;
 
         // When
@@ -1045,6 +1098,134 @@ mod tests {
 
         // Then
         assert_eq!(result, Ok(Value::Integer(1_u8.into())));
+        Ok(())
+    }
+
+    #[test]
+    fn shared_mut_declaration_initializes_and_updates_its_cell()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { shared mut @@count: Integer = 0 public fun bump() -> Integer { @@count = 1 } public fun read() -> Integer { @@count } }; let a = A.new(); a.bump(); a.read()";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(1_u8.into()),
+                Value::Integer(1_u8.into()),
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shared_let_assignment_returns_a_typed_immutable_storage_error()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { shared let @@count: Integer = 0 public fun bump() -> Integer { @@count = 1 } }; A.new().bump()";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(crate::EvaluationError::Construction(
+                iris_runtime::ConstructionError::ImmutableClassVariable { .. }
+            ))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn shared_cell_is_read_through_the_declaring_and_subclass_static_lexical_contexts()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { shared mut @@count: Integer = 1 public fun read() -> Integer { @@count } }; class B extends A { public fun read_child() -> Integer { @@count } }; [A.new().read(), B.new().read_child()]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(1_u8.into()),
+                Value::Integer(1_u8.into()),
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn module_shared_declaration_publishes_a_module_anchored_cell()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "module M { shared let @@version: Integer = 1 module fun read() -> Integer { @@version } }; M.read()";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert_eq!(result, Ok(Value::Integer(1_u8.into())));
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_shared_declaration_on_static_ancestry_keeps_active_revision_unchanged()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { shared mut @@count: Integer = 1 }; class B extends A { shared mut @@count: Integer = 2 }";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        let [
+            iris_syntax::Declaration::Class(parent),
+            iris_syntax::Declaration::Class(child),
+        ] = program.declarations.as_slice()
+        else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        evaluator.class(parent)?;
+        let parent_id = evaluator.class_name("A")?;
+        let child_id = evaluator
+            .runtime
+            .registry_mut()
+            .define_class(iris_runtime::StaticSpine::new(1), parent_id)
+            .map_err(crate::EvaluationError::Class)?;
+        evaluator
+            .names
+            .insert(child.name.clone(), Value::Class(child_id));
+        evaluator.static_superclasses.insert(child_id, parent_id);
+        let before = evaluator
+            .runtime
+            .registry()
+            .active_revision(child_id)
+            .map_err(crate::EvaluationError::Class)?;
+
+        // When
+        let result = evaluator.class(child);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(crate::EvaluationError::Class(
+                iris_runtime::ClassError::DuplicateClassVariable { .. }
+            ))
+        ));
+        assert_eq!(
+            evaluator
+                .runtime
+                .registry()
+                .active_revision(child_id)
+                .map_err(crate::EvaluationError::Class)?,
+            before
+        );
         Ok(())
     }
 
@@ -1065,7 +1246,7 @@ mod tests {
         let selector = evaluator.selector("c");
         evaluator
             .runtime
-            .declare_class_var(class, selector, Value::Integer(1_u8.into()))
+            .declare_class_var(class, selector, Value::Integer(1_u8.into()), true)
             .map_err(crate::EvaluationError::Construction)?;
 
         // When
@@ -1119,24 +1300,11 @@ mod tests {
     fn class_object_raw_ivars_and_class_variables_use_distinct_storage()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class A { class fun set_raw() -> Integer { @x = 1 } class fun raw() -> Integer { @x } class fun shared() -> Integer { @@x } }; A.set_raw(); [A.raw(), A.shared()]";
+        let source = "class A { shared mut @@x: Integer = 2 class fun set_raw() -> Integer { @x = 1 } class fun raw() -> Integer { @x } class fun shared() -> Integer { @@x } }; let ignored = A.set_raw(); [A.raw(), A.shared()]";
         let (mut evaluator, program) = source_evaluator(source)?;
-        let Some(iris_syntax::Declaration::Class(class)) = program.declarations.first() else {
-            return Err(crate::EvaluationError::UnsupportedConstruct);
-        };
-        evaluator.class(class)?;
-        let class = evaluator
-            .class_name("A")?
-            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
-        let selector = evaluator.selector("x");
-        evaluator
-            .runtime
-            .declare_class_var(class, selector, Value::Integer(2_u8.into()))
-            .map_err(crate::EvaluationError::Construction)?;
 
         // When
-        evaluator.statement(&program.statements[0], &Default::default(), None)?;
-        let result = evaluator.statement(&program.statements[1], &Default::default(), None);
+        let result = evaluator.program(&program);
 
         // Then
         assert_eq!(

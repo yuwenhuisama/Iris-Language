@@ -53,7 +53,8 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
             .iter()
             .filter_map(|statement| match statement {
                 Statement::Expression(expression) => Some(source_shape(expression, 0)),
-                Statement::Binding { .. }
+                Statement::SharedBinding { .. }
+                | Statement::Binding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::If { .. }

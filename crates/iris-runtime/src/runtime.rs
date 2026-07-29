@@ -46,6 +46,7 @@ pub enum ConstructionError {
     Runtime(ExecutionError),
     EscapedObjectMissing,
     MissingDeclaredClassVariable { class: ClassId, name: Selector },
+    ImmutableClassVariable { class: ClassId, name: Selector },
 }
 
 impl fmt::Display for ConstructionError {
@@ -57,6 +58,9 @@ impl fmt::Display for ConstructionError {
             Self::EscapedObjectMissing => formatter.write_str("escaped object was not retained"),
             Self::MissingDeclaredClassVariable { .. } => {
                 formatter.write_str("declared Iris Class variable storage is missing")
+            }
+            Self::ImmutableClassVariable { .. } => {
+                formatter.write_str("declared Iris Class variable storage is immutable")
             }
         }
     }
@@ -236,8 +240,9 @@ impl Runtime {
         class: ClassId,
         name: Selector,
         value: Value,
+        mutable: bool,
     ) -> Result<Value, ConstructionError> {
-        self.registry.declare_class_var(class, name)?;
+        self.registry.declare_class_var(class, name, mutable)?;
         self.class_vars.insert((class, name), value.clone());
         Ok(value)
     }
@@ -282,6 +287,14 @@ impl Runtime {
         let declared = self.registry.active(class)?.class_vars().contains(&name);
         if !declared {
             return Err(ConstructionError::MissingDeclaredClassVariable { class, name });
+        }
+        if self
+            .registry
+            .active(class)?
+            .immutable_class_vars()
+            .contains(&name)
+        {
+            return Err(ConstructionError::ImmutableClassVariable { class, name });
         }
         self.class_vars.insert((class, name), value.clone());
         Ok(value)

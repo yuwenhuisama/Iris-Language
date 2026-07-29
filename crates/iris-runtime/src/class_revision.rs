@@ -105,6 +105,7 @@ pub struct ClassRevision {
     singleton_methods: BTreeMap<Selector, MethodId>,
     properties: Vec<StoredProperty>,
     class_vars: BTreeSet<Selector>,
+    immutable_class_vars: BTreeSet<Selector>,
     meta_capabilities: MetaCapabilities,
     decorators: Vec<AppliedDecorator>,
 }
@@ -129,6 +130,7 @@ impl ClassRevision {
             singleton_methods: candidate.singleton_methods,
             properties: candidate.properties,
             class_vars: candidate.class_vars,
+            immutable_class_vars: candidate.immutable_class_vars,
             meta_capabilities,
             decorators: candidate.decorators,
         }
@@ -194,6 +196,11 @@ impl ClassRevision {
         &self.class_vars
     }
 
+    /// Returns immutable hierarchy Class-variable cells.
+    pub const fn immutable_class_vars(&self) -> &BTreeSet<Selector> {
+        &self.immutable_class_vars
+    }
+
     /// Returns this revision's immutable effective meta-operation policy.
     pub const fn meta_capabilities(&self) -> MetaCapabilities {
         self.meta_capabilities
@@ -219,6 +226,7 @@ pub struct CandidateRevision {
     pub(crate) singleton_methods: BTreeMap<Selector, MethodId>,
     pub(crate) properties: Vec<StoredProperty>,
     pub(crate) class_vars: BTreeSet<Selector>,
+    pub(crate) immutable_class_vars: BTreeSet<Selector>,
     pub(crate) meta_capabilities: MetaCapabilities,
     pub(crate) decorators: Vec<AppliedDecorator>,
     pub(crate) pending_decorators: Vec<DecoratorTransform>,
@@ -244,6 +252,7 @@ impl CandidateRevision {
             singleton_methods: BTreeMap::new(),
             properties: Vec::new(),
             class_vars: BTreeSet::new(),
+            immutable_class_vars: BTreeSet::new(),
             meta_capabilities: MetaCapabilities::all(),
             decorators: Vec::new(),
             pending_decorators: Vec::new(),
@@ -263,6 +272,7 @@ impl CandidateRevision {
             singleton_methods: revision.singleton_methods.clone(),
             properties: revision.properties.clone(),
             class_vars: revision.class_vars.clone(),
+            immutable_class_vars: revision.immutable_class_vars.clone(),
             meta_capabilities: revision.meta_capabilities,
             decorators: Vec::new(),
             pending_decorators: revision
@@ -312,8 +322,13 @@ impl CandidateRevision {
         }
     }
 
-    pub(crate) fn add_class_var(&mut self, name: Selector) {
+    pub(crate) fn add_class_var(&mut self, name: Selector, mutable: bool) {
         self.class_vars.insert(name);
+        if mutable {
+            self.immutable_class_vars.remove(&name);
+        } else {
+            self.immutable_class_vars.insert(name);
+        }
     }
 
     pub(crate) fn restore(&mut self, artifact: &ClassRevision) {
@@ -323,6 +338,7 @@ impl CandidateRevision {
         self.singleton_methods = artifact.singleton_methods().clone();
         self.properties = artifact.properties().to_vec();
         self.class_vars = artifact.class_vars().clone();
+        self.immutable_class_vars = artifact.immutable_class_vars().clone();
     }
 
     /// Replaces the candidate runtime superclass before validation.

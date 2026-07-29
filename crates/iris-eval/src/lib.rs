@@ -99,9 +99,10 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
-            Statement::Binding { .. } | Statement::StoredProperty { .. } | Statement::Method(_) => {
-                Err(EvaluationError::UnsupportedConstruct)
-            }
+            Statement::SharedBinding { .. }
+            | Statement::Binding { .. }
+            | Statement::StoredProperty { .. }
+            | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
             Statement::Expression(expression) => self
                 .expression(expression)
                 .and_then(|value| self.value(value)),
@@ -351,7 +352,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
 
 fn source_runtime_statement(statement: &Statement) -> bool {
     match statement {
-        Statement::Binding { .. } | Statement::If { .. } => true,
+        Statement::SharedBinding { .. } | Statement::Binding { .. } | Statement::If { .. } => true,
         Statement::StoredProperty { .. }
         | Statement::Method(_)
         | Statement::Expression(_)

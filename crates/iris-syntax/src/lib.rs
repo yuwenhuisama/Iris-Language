@@ -79,6 +79,11 @@ pub enum TypeExpression {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
+    SharedBinding {
+        mutable: bool,
+        name: String,
+        value: Expression,
+    },
     Binding {
         name: String,
         value: Expression,

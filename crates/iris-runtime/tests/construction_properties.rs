@@ -262,7 +262,7 @@ fn declared_class_variable_assignment_returns_the_stored_value() -> Result<(), C
     let stored = Value::Integer(3_u8.into());
 
     // When
-    runtime.declare_class_var(class, CLASS_VAR, Value::Nil)?;
+    runtime.declare_class_var(class, CLASS_VAR, Value::Nil, true)?;
     let result = runtime.assign_class_var(class, CLASS_VAR, stored.clone())?;
 
     // Then

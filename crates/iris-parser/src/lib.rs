@@ -453,6 +453,31 @@ impl Parser {
 
     fn statement(&mut self) -> Option<Statement> {
         let decorators = self.decorators();
+        if self.consume("shared") {
+            if !decorators.is_empty() {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            }
+            let mutable = if self.consume("let") {
+                false
+            } else if self.consume("mut") {
+                true
+            } else {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            };
+            self.expect("@@")?;
+            let name = self.binding_name()?;
+            if self.consume(":") {
+                self.type_expression()?;
+            }
+            self.expect("=")?;
+            return self.expression(0).map(|value| Statement::SharedBinding {
+                mutable,
+                name,
+                value,
+            });
+        }
         if self.consume("let") || self.consume("mut") || self.consume("const") {
             if !decorators.is_empty() {
                 self.error("PARSE_UNEXPECTED_TOKEN");
@@ -1161,6 +1186,29 @@ mod tests {
 
         // Then
         assert!(result.program_accepted, "{result:#?}");
+    }
+
+    #[test]
+    fn parses_shared_class_and_module_declarations() {
+        // Given
+        let class = "class A { shared mut @@count: Integer = 0 }";
+        let module = "module M { shared let @@version: Integer = 1 }";
+
+        // When
+        let results = [parse(class), parse(module)];
+
+        // Then
+        assert!(results.iter().all(|result| result.program_accepted));
+        assert!(matches!(
+            results[0].program.declarations.as_slice(),
+            [Declaration::Class(class)]
+                if matches!(class.body.as_slice(), [Statement::SharedBinding { mutable: true, name, .. }] if name == "count")
+        ));
+        assert!(matches!(
+            results[1].program.declarations.as_slice(),
+            [Declaration::Module(module)]
+                if matches!(module.body.as_slice(), [Statement::SharedBinding { mutable: false, name, .. }] if name == "version")
+        ));
     }
     #[test]
     fn parses_stacked_decorators_without_reclassifying_raw_ivars() {

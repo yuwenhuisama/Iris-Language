@@ -42,6 +42,10 @@ pub enum ClassError {
         class: ClassId,
         violation: DecoratorViolation,
     },
+    DuplicateClassVariable {
+        class: ClassId,
+        name: crate::Selector,
+    },
 }
 
 impl fmt::Display for ClassError {
@@ -67,6 +71,7 @@ impl fmt::Display for ClassError {
             Self::DecoratorViolation { .. } => {
                 "Iris decorator changed forbidden declaration metadata"
             }
+            Self::DuplicateClassVariable { .. } => "Iris Class variable is already anchored",
         };
         formatter.write_str(message)
     }

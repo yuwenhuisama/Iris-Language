@@ -216,9 +216,17 @@ impl crate::ClassRegistry {
     }
 
     /// Declares a hierarchy Class-variable cell on a logical Class.
-    pub fn declare_class_var(&mut self, class: ClassId, name: Selector) -> Result<(), ClassError> {
+    pub fn declare_class_var(
+        &mut self,
+        class: ClassId,
+        name: Selector,
+        mutable: bool,
+    ) -> Result<(), ClassError> {
         let mut candidate = self.open(class)?;
-        candidate.add_class_var(name);
+        if candidate.class_vars.contains(&name) {
+            return Err(ClassError::DuplicateClassVariable { class, name });
+        }
+        candidate.add_class_var(name, mutable);
         self.publish(candidate)?;
         Ok(())
     }
