@@ -1,7 +1,7 @@
 use iris_runtime::{Kernel, Value, Visibility};
 use iris_syntax::MethodDeclaration;
 
-use crate::EvaluationError;
+use crate::{EvaluationError, Value as LiteralValue, evaluate_literals};
 
 pub(super) fn visibility(method: &MethodDeclaration) -> Visibility {
     match method.visibility {
@@ -18,10 +18,17 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
         "false" => return Ok(Value::Bool(false)),
         _ => {}
     }
-    source
-        .parse::<iris_runtime::IntegerValue>()
-        .map(Value::Integer)
-        .map_err(|_| EvaluationError::UnsupportedConstruct)
+    match evaluate_literals(source)? {
+        LiteralValue::Integer(value) => value
+            .parse()
+            .map(Value::Integer)
+            .map_err(|_| EvaluationError::UnsupportedConstruct),
+        LiteralValue::Float32Bits(bits) => Ok(Value::Float32(f32::from_bits(bits))),
+        LiteralValue::Float64Bits(bits) => Ok(Value::Float64(f64::from_bits(bits))),
+        LiteralValue::String(_) | LiteralValue::Array(_) => {
+            Err(EvaluationError::UnsupportedConstruct)
+        }
+    }
 }
 
 pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {

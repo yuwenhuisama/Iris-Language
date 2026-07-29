@@ -1017,6 +1017,79 @@ fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
 }
 
 #[test]
+fn builtin_class_property_getter_replacement_is_observed() {
+    // Given
+    let source = "open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } }; Float64.infinity";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Float64(2.0)));
+}
+
+#[test]
+fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
+    // Given
+    let source = "let mut log = []; open class Integer { public property fun px=(value: Integer) -> Integer { log.append(value); value } }; let n = 1; [n.px = 2, n, log]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(2_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Array(vec![RuntimeValue::Integer(2_u8.into())]),
+        ]))
+    );
+}
+
+#[test]
+fn class_property_setter_records_without_creating_an_implicit_backing_slot() {
+    // Given
+    let source = "let mut log = []; open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } public property fun infinity=(value: Float64) -> Float64 { log.append(value); value } }; let assigned = Float64.infinity = 3.0f64; [Float64.infinity, assigned, log]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Float64(2.0),
+            RuntimeValue::Float64(3.0),
+            RuntimeValue::Array(vec![RuntimeValue::Float64(3.0)]),
+        ]))
+    );
+}
+
+#[test]
+fn raw_ivar_forms_remain_parse_diagnostics() {
+    // Given
+    let sources = [
+        "let n = 1; n.@x = 2",
+        "class A { }; let obj = A.new(); obj.@x = 2",
+        "class A { }; A.@@x = 2",
+    ];
+
+    // When
+    let results = sources.map(evaluate);
+
+    // Then
+    assert_eq!(
+        results,
+        [
+            Err(EvaluationError::ParseDiagnostic),
+            Err(EvaluationError::ParseDiagnostic),
+            Err(EvaluationError::ParseDiagnostic),
+        ]
+    );
+}
+
+#[test]
 fn source_member_read_creates_a_fresh_bound_method_while_parenthesized_send_invokes() {
     // Given
     let member_read = "class A { public fun m() -> Integer { 1 } }; let a = A.new(); a.m";

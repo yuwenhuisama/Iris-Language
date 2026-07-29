@@ -328,7 +328,12 @@ impl SourceEvaluator {
             }
             MethodKind::Property => {
                 let method_visibility = visibility(method);
-                let defined = if builtin {
+                let defined = if builtin && self.builtin_class_property(&method.selector) {
+                    self.kernel
+                        .registry_mut()
+                        .publish_singleton_method(class, selector, body, method_visibility)
+                        .map_err(EvaluationError::Class)?
+                } else if builtin {
                     self.kernel
                         .registry_mut()
                         .publish_decorated_method(
@@ -1017,26 +1022,9 @@ impl SourceEvaluator {
                 else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
-                let Value::Object(object) = self.expression(target, locals, receiver.clone())?
-                else {
-                    return Err(EvaluationError::UnsupportedConstruct);
-                };
+                let target = self.expression(target, locals, receiver.clone())?;
                 let value = self.expression(right, locals, receiver)?;
-                let setter = self.selector(&format!("{selector}="));
-                let method = match self.runtime.dispatch_instance(object, setter) {
-                    Ok(method) => method,
-                    Err(iris_runtime::ConstructionError::Dispatch(
-                        iris_runtime::DispatchError::MissingMethod { .. },
-                    )) => {
-                        return Err(EvaluationError::Construction(
-                            iris_runtime::ConstructionError::Dispatch(
-                                iris_runtime::DispatchError::MissingMethod { selector: setter },
-                            ),
-                        ));
-                    }
-                    Err(error) => return Err(EvaluationError::Construction(error)),
-                };
-                self.invoke_method(method, Value::Object(object), &[value])
+                self.send(target, &format!("{selector}="), &[value])
             }
         }
     }
@@ -1541,6 +1529,17 @@ impl SourceEvaluator {
                 .class(kind)
                 .is_ok_and(|candidate| candidate == class)
         })
+    }
+
+    fn builtin_class_property(&self, selector: &str) -> bool {
+        iris_runtime::NativeSelector::from_source(selector.trim_end_matches('=')).is_some_and(
+            |selector| {
+                matches!(
+                    selector,
+                    iris_runtime::NativeSelector::Nan | iris_runtime::NativeSelector::Infinity
+                )
+            },
+        )
     }
 
     fn class_dispatch(
