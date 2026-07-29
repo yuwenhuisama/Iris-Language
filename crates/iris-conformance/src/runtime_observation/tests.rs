@@ -128,3 +128,51 @@ fn independent_source_mismatch_is_reported() {
     // Then
     assert!(result.is_err());
 }
+
+#[test]
+fn value_and_side_effects_are_accepted_when_both_match() {
+    // Given
+    let record = record(
+        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; let mut log = []; Probe.observe()",
+        vec![],
+        "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn side_effect_mismatch_is_reported_when_value_matches() {
+    // Given
+    let record = record(
+        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; let mut log = []; Probe.observe()",
+        vec![],
+        "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"missing\"}]}}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert!(result.is_err());
+}
+
+#[test]
+fn side_effects_without_value_are_accepted_from_a_single_item_observation() {
+    // Given
+    let record = record(
+        "class Probe { class fun observe() { log.append(:observed); [log] } }; let mut log = []; Probe.observe()",
+        vec![],
+        "{\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}

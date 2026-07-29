@@ -669,13 +669,8 @@ impl SourceEvaluator {
                     .class_name(name)
                     .ok()
                     .flatten()
-                    .and_then(|filter| {
-                        self.runtime
-                            .class_of(*object)
-                            .ok()
-                            .map(|class| (class, filter))
-                    })
-                    .is_some_and(|(mut class, filter)| {
+                    .zip(self.runtime.class_of(*object).ok())
+                    .is_some_and(|(filter, mut class)| {
                         loop {
                             if class == filter {
                                 break true;
