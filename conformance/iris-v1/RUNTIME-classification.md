@@ -80,7 +80,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V073` | `:593` | differential | differential | Explicitly requires exact public hashes to agree between interpreter and JIT. |
 | `IRIS-V1-RUNTIME-V074` | `:594` | negative | executable | Concrete unavailable-selector send asserts `MessageNotFoundError`. |
 | `IRIS-V1-RUNTIME-V075` | `:595` | positive | needs-subsystem | Fixture's asserted value is an Iris Array literal, requiring collections. |
-| `IRIS-V1-RUNTIME-V076` | `:596` | positive | needs-subsystem | Concrete source and asserted aggregate are Array literals, requiring collections. |
+| `IRIS-V1-RUNTIME-V076` | `:596` | positive | needs-subsystem | Concrete source and asserted aggregate. The earlier collections reason is stale: Array literals are implemented and the `C091`/`C092` singleton comparison protocols this row needs were implemented in milestone 2. It now needs only `Object` as an instantiable root Class for its final term `nil < Object.new()`. |
 | `IRIS-V1-RUNTIME-V077` | `:597` | positive | needs-subsystem | Requires the callable/Closure subsystem for `closure()` identity/equality. |
 | `IRIS-V1-RUNTIME-V078` | `:598` | positive | needs-subsystem | Requires Contract and Type objects from the excluded contracts/generics type system. |
 | `IRIS-V1-RUNTIME-V079` | `:599` | positive | needs-subsystem | Requires the excluded compacting-GC subsystem and its controlled compaction hook. |

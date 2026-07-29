@@ -215,11 +215,31 @@ impl Kernel {
         let mut kernel = Self { registry, classes };
         kernel.install(
             BuiltinClass::Nil,
-            &[NativeSelector::Hash, NativeSelector::ToBool],
+            &[
+                NativeSelector::Equal,
+                NativeSelector::NotEqual,
+                NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
+                NativeSelector::Compare,
+                NativeSelector::Hash,
+                NativeSelector::ToBool,
+            ],
         )?;
         kernel.install(
             BuiltinClass::Bool,
-            &[NativeSelector::Hash, NativeSelector::ToBool],
+            &[
+                NativeSelector::Equal,
+                NativeSelector::NotEqual,
+                NativeSelector::Less,
+                NativeSelector::LessEqual,
+                NativeSelector::Greater,
+                NativeSelector::GreaterEqual,
+                NativeSelector::Compare,
+                NativeSelector::Hash,
+                NativeSelector::ToBool,
+            ],
         )?;
         kernel.install(
             BuiltinClass::Integer,
@@ -445,38 +465,38 @@ impl Kernel {
             NativeSelector::BitwiseNot => {
                 Ok(Value::Integer(Numeric::integer_not(&numeric(&receiver)?)?))
             }
-            NativeSelector::Equal => Ok(Value::Bool(Numeric::equal(
-                &numeric(&receiver)?,
-                &numeric_arg(arguments)?,
-            ))),
-            NativeSelector::NotEqual => Ok(Value::Bool(Numeric::not_equal(
-                &numeric(&receiver)?,
-                &numeric_arg(arguments)?,
-            ))),
+            NativeSelector::Equal => {
+                Ok(Value::Bool(match singleton_equal(&receiver, arguments)? {
+                    Some(equal) => equal,
+                    None => Numeric::equal(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                }))
+            }
+            NativeSelector::NotEqual => {
+                Ok(Value::Bool(match singleton_equal(&receiver, arguments)? {
+                    Some(equal) => !equal,
+                    None => Numeric::not_equal(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                }))
+            }
             NativeSelector::Less => Ok(Value::Bool(
-                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?)
-                    == Some(Ordering::Less),
+                self.ordering(&receiver, arguments)? == Some(Ordering::Less),
             )),
             NativeSelector::LessEqual => Ok(Value::Bool(matches!(
-                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                self.ordering(&receiver, arguments)?,
                 Some(Ordering::Less | Ordering::Equal)
             ))),
             NativeSelector::Greater => Ok(Value::Bool(
-                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?)
-                    == Some(Ordering::Greater),
+                self.ordering(&receiver, arguments)? == Some(Ordering::Greater),
             )),
             NativeSelector::GreaterEqual => Ok(Value::Bool(matches!(
-                Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?),
+                self.ordering(&receiver, arguments)?,
                 Some(Ordering::Equal | Ordering::Greater)
             ))),
-            NativeSelector::Compare => Ok(
-                match Numeric::compare(&numeric(&receiver)?, &numeric_arg(arguments)?) {
-                    Some(Ordering::Less) => Value::Integer((-1_i8).into()),
-                    Some(Ordering::Equal) => Value::Integer(0_u8.into()),
-                    Some(Ordering::Greater) => Value::Integer(1_u8.into()),
-                    None => Value::Nil,
-                },
-            ),
+            NativeSelector::Compare => Ok(match self.ordering(&receiver, arguments)? {
+                Some(Ordering::Less) => Value::Integer((-1_i8).into()),
+                Some(Ordering::Equal) => Value::Integer(0_u8.into()),
+                Some(Ordering::Greater) => Value::Integer(1_u8.into()),
+                None => Value::Nil,
+            }),
             NativeSelector::Negate => Ok(value(Numeric::negate(&numeric(&receiver)?)?)),
             NativeSelector::FromBits => self.bits_from_integer(receiver, arguments),
             NativeSelector::Nan => self.special(receiver, arguments, true),
@@ -486,6 +506,29 @@ impl Kernel {
             NativeSelector::ToBool => self.to_bool(receiver, arguments),
         }
     }
+    /// Orders a receiver against its single argument.
+    ///
+    /// `IRIS-V1-RUNTIME-C091` gives Bool a total order that never ranks against a
+    /// numeric, and `IRIS-V1-RUNTIME-C092` makes `nil` order-equivalent only to
+    /// itself, so neither becomes a global minimum or maximum. Both answer `None`
+    /// for an operand outside their own category, which the ordered comparisons
+    /// render as `false` and `<=>` renders as `nil`.
+    fn ordering(
+        &self,
+        receiver: &Value,
+        arguments: &[Value],
+    ) -> Result<Option<Ordering>, KernelError> {
+        let [argument] = arguments else {
+            return Err(KernelError::Arity);
+        };
+        match (receiver, argument) {
+            (Value::Bool(left), Value::Bool(right)) => Ok(Some(left.cmp(right))),
+            (Value::Nil, Value::Nil) => Ok(Some(Ordering::Equal)),
+            (Value::Bool(_) | Value::Nil, _) | (_, Value::Bool(_) | Value::Nil) => Ok(None),
+            _ => Ok(Numeric::compare(&numeric(receiver)?, &numeric(argument)?)),
+        }
+    }
+
     fn binary(
         &self,
         receiver: Value,
@@ -599,6 +642,24 @@ impl Kernel {
         })
     }
 }
+/// Decides equality when either operand is a Bool or `nil`.
+///
+/// Returns `None` when both operands are numeric, leaving them to the exact
+/// numeric path. `IRIS-V1-RUNTIME-C091` keeps Bool distinct from `Integer(0)`
+/// and `Integer(1)`, so a Bool compared with a numeric is unequal rather than a
+/// type error.
+fn singleton_equal(receiver: &Value, arguments: &[Value]) -> Result<Option<bool>, KernelError> {
+    let [argument] = arguments else {
+        return Err(KernelError::Arity);
+    };
+    Ok(match (receiver, argument) {
+        (Value::Bool(left), Value::Bool(right)) => Some(left == right),
+        (Value::Nil, Value::Nil) => Some(true),
+        (Value::Bool(_) | Value::Nil, _) | (_, Value::Bool(_) | Value::Nil) => Some(false),
+        _ => None,
+    })
+}
+
 fn numeric(value: &Value) -> Result<NumericValue, KernelError> {
     match value {
         Value::Integer(value) => Ok(NumericValue::Integer(value.clone())),
