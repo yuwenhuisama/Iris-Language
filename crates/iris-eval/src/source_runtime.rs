@@ -76,13 +76,6 @@ fn construction_error(error: iris_runtime::ConstructionError) -> EvaluationError
     }
 }
 
-fn execution_error(error: EvaluationError) -> iris_runtime::ExecutionError {
-    match error {
-        EvaluationError::Raised(value) => iris_runtime::ExecutionError::Raised(value),
-        _ => iris_runtime::ExecutionError::Raised(Value::Nil),
-    }
-}
-
 impl SourceEvaluator {
     pub(super) fn new() -> Result<Self, EvaluationError> {
         Ok(Self {
@@ -1095,29 +1088,27 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
         let mut runtime = std::mem::take(&mut self.runtime);
-        let result =
-            runtime.construct(class, arguments, |_runtime, method, receiver, arguments| {
-                let declaration = self
-                    .bodies
-                    .get(&method.body().raw())
-                    .cloned()
-                    .ok_or(iris_runtime::ExecutionError::Raised(Value::Nil))?;
-                if let Some(Statement::Expression(Expression::Assignment { left, right, .. })) =
-                    declaration.body.last()
-                    && matches!(left.as_ref(), Expression::RawIvar(_))
-                    && let Expression::Literal(value) = right.as_ref()
-                {
-                    let value = literal(value)
-                        .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil))?;
-                    return _runtime
-                        .assign_raw_ivar(receiver, method.selector(), value)
-                        .map_err(|_| iris_runtime::ExecutionError::Raised(Value::Nil));
+        let mut invocation_error = None;
+        let result = runtime.construct(class, arguments, |runtime, method, receiver, arguments| {
+            let previous = std::mem::replace(&mut self.runtime, std::mem::take(runtime));
+            let result = match self.invoke_method(method, Value::Object(receiver), arguments) {
+                Ok(value) => Ok(value),
+                Err(EvaluationError::Raised(value)) => {
+                    Err(iris_runtime::ExecutionError::Raised(value))
                 }
-                self.invoke_method(method, Value::Object(receiver), arguments)
-                    .map_err(execution_error)
-            });
+                Err(error) => {
+                    invocation_error = Some(error);
+                    Err(iris_runtime::ExecutionError::Raised(Value::Nil))
+                }
+            };
+            *runtime = std::mem::replace(&mut self.runtime, previous);
+            result
+        });
         self.runtime = runtime;
-        result.map_err(construction_error)
+        match invocation_error {
+            Some(error) => Err(error),
+            None => result.map_err(construction_error),
+        }
     }
 
     fn send(

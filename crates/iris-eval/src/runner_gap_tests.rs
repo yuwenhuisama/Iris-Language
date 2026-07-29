@@ -86,6 +86,77 @@ fn default_method_missing_reports_message_not_found() {
 }
 
 #[test]
+fn initialize_unqualified_self_send_constructs_the_instance() {
+    // Given
+    let source = "class A { public fun initialize() { m() } public fun m() -> Symbol { :initialized } }; A.new()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(result, Ok(RuntimeValue::Object(_))));
+}
+
+#[test]
+fn initialize_explicit_self_send_constructs_the_instance() {
+    // Given
+    let source = "class A { public fun initialize() { self.m() } public fun m() -> Symbol { :initialized } }; A.new()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(result, Ok(RuntimeValue::Object(_))));
+}
+
+#[test]
+fn initialize_self_send_propagates_its_raised_value_without_an_instance() {
+    // Given
+    let source = "class A { public fun initialize() { fail() } public fun fail() { raise :sentinel } }; A.new()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol(
+            "sentinel".into()
+        )))
+    );
+}
+
+#[test]
+fn initialize_missing_self_send_uses_default_method_missing() {
+    // Given
+    let source = "class A { public fun initialize() { absent() } }; A.new()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Err(EvaluationError::MessageNotFound {
+            receiver_class: "A".into(),
+            selector: "absent".into(),
+        })
+    );
+}
+
+#[test]
+fn stored_property_initializer_can_send_an_instance_method() {
+    // Given
+    let source = "class A { property value: Symbol = initial_value() public fun initial_value() -> Symbol { :ready } }; A.new().value";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("ready".into())));
+}
+
+#[test]
 fn class_method_slot_operations_follow_d448_alias_remove_and_undef_rules() {
     // Given
     let source = "class Base { public fun f() -> Symbol { :base_f } public fun g() -> Symbol { :base_g } }; class A extends Base { public fun f() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:g, :f); let a = A.new(); let alias = a.g(); let ignored_remove = A.remove_method(:g); let removed = a.g(); let ignored_undef = A.undef_method(:f); [alias, removed, a.f()]";
