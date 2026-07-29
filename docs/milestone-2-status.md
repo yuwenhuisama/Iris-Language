@@ -79,15 +79,20 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-None is an implementation gap.
+Milestone 2 is closed as delivered at 57 of the 60 runnable RUNTIME vectors. None of the three
+remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
 | --- | --- |
-| `V103` | The expectation is prose the runner cannot compare. Its "no implicit backing storage" claim also lacks an observation path, since `list_ivars` does not accept a value receiver. |
-| `V013` | Needs a host that can pause an entered frame, commit, then resume. `01-language-identity.md` lists suspension inside a transaction as `PROHIBITED`, so this is conformance harness work, not a language feature. |
-| `V083` | Needs the same harness to interleave a commit with a construction. |
+| `V103` | Its "no implicit backing storage" claim has no observation path, and that is required rather than missing. `Float64` is identity-less under `RUNTIME-C004`, and `META-C112` requires raw ivar reflection to respect identity-less restrictions, so `list_ivars` MUST refuse a value receiver. Closing it needs an owner-approved re-authoring of the row, which was offered and declined, or a new specified way to observe value-receiver storage. |
+| `V013` | Needs a host that can pause an entered frame, commit, then resume. `01-language-identity.md` lists suspension inside a transaction as `PROHIBITED`, so this is conformance harness work, not a language feature, and no errata can reach it. |
+| `V083` | Needs the same harness to interleave a commit with an in-flight construction. |
 
-`docs/spec-defects-v1.md` holds 23 rows, 8 resolved, and records the blocker for every one.
+The revision-capture semantics `V013` and `V083` describe are implemented and exercised by
+neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
+Building it is milestone-3 sized infrastructure.
+
+`docs/spec-defects-v1.md` holds 25 rows, 8 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -104,3 +109,19 @@ None is an implementation gap.
 - `IRIS-V1-RUNTIME-C067` rejects `other.@x`, `obj.@@x` and `A.@@x`. The owner has reaffirmed that this form must never be valid syntax.
 - Built-in value classes may not have their runtime superclass changed, per `RUNTIME-C150`.
 - Record counts stay at 109 RUNTIME and 41 GRAMMAR, and the buckets must sum to the record count.
+
+## Milestone Status
+
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 57 across the
+milestone, and every vector that implementation can close is closed. The three failures listed
+above are each blocked on an owner decision or on conformance-host infrastructure, never on
+missing language behaviour, and each has its own row in `docs/spec-defects-v1.md` stating the
+blocker and what closing it would require.
+
+Deliberately deferred to a later milestone, unchanged from the milestone plan:
+
+- `ReflectionPolicy` permission enforcement
+- programmatic `Module` include and removal
+- `Contract` obligations
+- generic `Module` arguments
+- any scheduling surface, which is also what `V013` and `V083` wait on
