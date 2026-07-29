@@ -141,6 +141,7 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         | TokenKind::Semicolon
         | TokenKind::Dot
         | TokenKind::At => 1,
+        TokenKind::DoubleAt => 2,
     };
     start + width
 }

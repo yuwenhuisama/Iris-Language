@@ -312,6 +312,10 @@ impl CandidateRevision {
         }
     }
 
+    pub(crate) fn add_class_var(&mut self, name: Selector) {
+        self.class_vars.insert(name);
+    }
+
     pub(crate) fn restore(&mut self, artifact: &ClassRevision) {
         self.runtime_superclass = artifact.runtime_superclass();
         self.modules = artifact.modules().to_vec();

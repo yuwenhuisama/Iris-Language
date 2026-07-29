@@ -45,6 +45,7 @@ pub enum ConstructionError {
     Dispatch(DispatchError),
     Runtime(ExecutionError),
     EscapedObjectMissing,
+    MissingDeclaredClassVariable { class: ClassId, name: Selector },
 }
 
 impl fmt::Display for ConstructionError {
@@ -54,6 +55,9 @@ impl fmt::Display for ConstructionError {
             Self::Dispatch(error) => write!(formatter, "dispatch error: {error:?}"),
             Self::Runtime(error) => error.fmt(formatter),
             Self::EscapedObjectMissing => formatter.write_str("escaped object was not retained"),
+            Self::MissingDeclaredClassVariable { .. } => {
+                formatter.write_str("declared Iris Class variable storage is missing")
+            }
         }
     }
 }
@@ -84,6 +88,7 @@ pub struct Runtime {
     registry: ClassRegistry,
     heap: RuntimeHeap,
     raw_ivars: HashMap<ObjectId, HashMap<Selector, Value>>,
+    class_raw_ivars: HashMap<ClassId, HashMap<Selector, Value>>,
     class_vars: HashMap<(ClassId, Selector), Value>,
 }
 
@@ -226,13 +231,58 @@ impl Runtime {
     }
 
     /// Stores a Class variable cell and returns its stored value.
-    pub fn assign_class_var(
+    pub fn declare_class_var(
+        &mut self,
+        class: ClassId,
+        name: Selector,
+        value: Value,
+    ) -> Result<Value, ConstructionError> {
+        self.registry.declare_class_var(class, name)?;
+        self.class_vars.insert((class, name), value.clone());
+        Ok(value)
+    }
+
+    /// Reads an absent Class-object raw ivar as nil without materializing it.
+    pub fn class_raw_ivar(
+        &self,
+        class: ClassId,
+        name: Selector,
+    ) -> Result<Value, ConstructionError> {
+        self.registry.class(class)?;
+        Ok(self
+            .class_raw_ivars
+            .get(&class)
+            .and_then(|slots| slots.get(&name))
+            .cloned()
+            .unwrap_or(Value::Nil))
+    }
+
+    /// Stores a Class-object raw ivar and returns the stored value.
+    pub fn assign_class_raw_ivar(
         &mut self,
         class: ClassId,
         name: Selector,
         value: Value,
     ) -> Result<Value, ConstructionError> {
         self.registry.class(class)?;
+        self.class_raw_ivars
+            .entry(class)
+            .or_default()
+            .insert(name, value.clone());
+        Ok(value)
+    }
+
+    /// Stores an existing Class variable cell and returns its stored value.
+    pub fn assign_class_var(
+        &mut self,
+        class: ClassId,
+        name: Selector,
+        value: Value,
+    ) -> Result<Value, ConstructionError> {
+        let declared = self.registry.active(class)?.class_vars().contains(&name);
+        if !declared {
+            return Err(ConstructionError::MissingDeclaredClassVariable { class, name });
+        }
         self.class_vars.insert((class, name), value.clone());
         Ok(value)
     }
@@ -243,7 +293,10 @@ impl Runtime {
         class: ClassId,
         name: Selector,
     ) -> Result<Option<Value>, ConstructionError> {
-        self.registry.class(class)?;
+        let declared = self.registry.active(class)?.class_vars().contains(&name);
+        if !declared {
+            return Err(ConstructionError::MissingDeclaredClassVariable { class, name });
+        }
         Ok(self.class_vars.get(&(class, name)).cloned())
     }
 

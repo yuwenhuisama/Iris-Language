@@ -200,6 +200,7 @@ impl Evaluator {
             }
             Expression::Symbol(_)
             | Expression::RawIvar(_)
+            | Expression::ClassVar(_)
             | Expression::ContractView { .. }
             | Expression::Assignment { .. } => Err(EvaluationError::UnsupportedConstruct),
         }

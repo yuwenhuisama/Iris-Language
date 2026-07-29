@@ -186,6 +186,17 @@ fn parses_suffixed_named_infix_selectors() {
     }
 }
 
+#[test]
+fn rejects_dot_sigil_storage_accesses() {
+    // Given
+    let sources = ["obj.@@x", "A.@@x", "other.@x"];
+
+    // When / Then
+    for source in sources {
+        assert!(!parse(source).program_accepted, "{source}");
+    }
+}
+
 fn negate(value: &str) -> Expression {
     Expression::Unary {
         operator: UnaryOperator::Negate,

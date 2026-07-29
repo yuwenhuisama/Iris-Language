@@ -198,6 +198,7 @@ pub enum Expression {
     },
     Grouped(Box<Expression>),
     RawIvar(String),
+    ClassVar(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

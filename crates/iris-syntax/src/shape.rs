@@ -79,6 +79,7 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::Name(value) | Expression::Literal(value) | Expression::RawIvar(value) => {
             (value.clone(), 17)
         }
+        Expression::ClassVar(value) => (format!("@@{value}"), 17),
         Expression::Symbol(value) => (format!(":{value}"), 17),
         Expression::Array(values) => (
             format!(
@@ -157,6 +158,7 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::Name(value) | Expression::Literal(value) | Expression::RawIvar(value) => {
             primary_shape(value)
         }
+        Expression::ClassVar(value) => primary_shape(&format!("@@{value}")),
         Expression::Symbol(value) => format!("symbol({value})"),
         Expression::Array(values) => format!(
             "array({})",

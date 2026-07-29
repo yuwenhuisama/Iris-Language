@@ -52,6 +52,7 @@ pub enum TokenKind {
     Semicolon,
     Dot,
     At,
+    DoubleAt,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -325,6 +326,11 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 offset,
                 true,
             ),
+            b'@' if bytes.get(index + 1) == Some(&b'@') => {
+                push(&mut tokens, TokenKind::DoubleAt, offset);
+                advance(&mut index, 2, &mut position);
+                expression_start = true;
+            }
             b'@' => punct(
                 &mut tokens,
                 &mut index,

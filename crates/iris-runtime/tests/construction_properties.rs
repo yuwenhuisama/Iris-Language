@@ -255,17 +255,41 @@ fn properties_are_explicit_selector_dispatch_without_implicit_backing_storage()
 }
 
 #[test]
-fn class_variable_assignment_returns_the_stored_value() -> Result<(), ConstructionError> {
+fn declared_class_variable_assignment_returns_the_stored_value() -> Result<(), ConstructionError> {
     // Given
     let mut runtime = Runtime::new();
     let class = define_class(&mut runtime, None)?;
     let stored = Value::Integer(3_u8.into());
 
     // When
+    runtime.declare_class_var(class, CLASS_VAR, Value::Nil)?;
     let result = runtime.assign_class_var(class, CLASS_VAR, stored.clone())?;
 
     // Then
     assert_eq!(result, stored);
     assert_eq!(runtime.class_var(class, CLASS_VAR)?, Some(stored));
+    Ok(())
+}
+
+#[test]
+fn class_variable_assignment_to_absent_storage_fails_without_creating_a_cell()
+-> Result<(), ConstructionError> {
+    // Given
+    let mut runtime = Runtime::new();
+    let class = define_class(&mut runtime, None)?;
+    let stored = Value::Integer(3_u8.into());
+
+    // When
+    let result = runtime.assign_class_var(class, CLASS_VAR, stored);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(ConstructionError::MissingDeclaredClassVariable { .. })
+    ));
+    assert!(matches!(
+        runtime.class_var(class, CLASS_VAR),
+        Err(ConstructionError::MissingDeclaredClassVariable { .. })
+    ));
     Ok(())
 }

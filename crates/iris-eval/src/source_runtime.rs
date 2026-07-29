@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    ClassId, Kernel, Method, MethodBody, ModuleId, Runtime, Selector, StaticSpine, Truthiness,
-    TruthinessError, TruthinessMethod, Value,
+    ClassId, Kernel, Method, MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine,
+    Truthiness, TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -27,6 +27,8 @@ struct SourceEvaluator {
     module_methods: HashMap<(ModuleId, Selector), Method>,
     property_methods: HashMap<iris_runtime::MethodId, bool>,
     mixins: HashMap<ClassId, Vec<ClassId>>,
+    static_superclasses: HashMap<ClassId, Option<ClassId>>,
+    lexical_class: Option<ClassId>,
     next_selector: u64,
     next_body: u64,
 }
@@ -43,6 +45,8 @@ impl SourceEvaluator {
             module_methods: HashMap::new(),
             property_methods: HashMap::new(),
             mixins: HashMap::new(),
+            static_superclasses: HashMap::new(),
+            lexical_class: None,
             next_selector: 1_000,
             next_body: 1,
         })
@@ -104,6 +108,7 @@ impl SourceEvaluator {
             self.names
                 .insert(declaration.name.clone(), Value::Class(class));
             self.mixins.insert(class, mixins);
+            self.static_superclasses.insert(class, superclass);
             class
         };
         self.publish_decorators(class, &declaration.decorators)?;
@@ -389,16 +394,20 @@ impl SourceEvaluator {
                 .or_else(|| builtin(name, &self.kernel))
                 .ok_or(EvaluationError::UnsupportedConstruct),
             Expression::RawIvar(name) => {
-                let Value::Object(object) =
-                    receiver.ok_or(EvaluationError::UnsupportedConstruct)?
-                else {
-                    return Err(EvaluationError::UnsupportedConstruct);
-                };
                 let selector = self.selector(name);
-                self.runtime
-                    .raw_ivar(object, selector)
-                    .map_err(EvaluationError::Construction)
+                match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {
+                    Value::Object(object) => self
+                        .runtime
+                        .raw_ivar(object, selector)
+                        .map_err(EvaluationError::Construction),
+                    Value::Class(class) => self
+                        .runtime
+                        .class_raw_ivar(class, selector)
+                        .map_err(EvaluationError::Construction),
+                    _ => Err(EvaluationError::UnsupportedConstruct),
+                }
             }
+            Expression::ClassVar(name) => self.read_class_var(name),
             Expression::Literal(source) => literal(source),
             Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
             Expression::Grouped(expression) => self.expression(expression, locals, receiver),
@@ -483,17 +492,28 @@ impl SourceEvaluator {
             }
             Expression::Assignment { left, right, .. } => {
                 if let Expression::RawIvar(name) = left.as_ref() {
-                    let Value::Object(object) =
-                        receiver.ok_or(EvaluationError::UnsupportedConstruct)?
-                    else {
-                        return Err(EvaluationError::UnsupportedConstruct);
-                    };
-                    let value = self.expression(right, locals, Some(Value::Object(object)))?;
                     let selector = self.selector(name);
-                    return self
-                        .runtime
-                        .assign_raw_ivar(object, selector, value)
-                        .map_err(EvaluationError::Construction);
+                    return match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {
+                        Value::Object(object) => {
+                            let value =
+                                self.expression(right, locals, Some(Value::Object(object)))?;
+                            self.runtime
+                                .assign_raw_ivar(object, selector, value)
+                                .map_err(EvaluationError::Construction)
+                        }
+                        Value::Class(class) => {
+                            let value =
+                                self.expression(right, locals, Some(Value::Class(class)))?;
+                            self.runtime
+                                .assign_class_raw_ivar(class, selector, value)
+                                .map_err(EvaluationError::Construction)
+                        }
+                        _ => Err(EvaluationError::UnsupportedConstruct),
+                    };
+                }
+                if let Expression::ClassVar(name) = left.as_ref() {
+                    let value = self.expression(right, locals, receiver)?;
+                    return self.assign_class_var(name, value);
                 }
                 let Expression::Member {
                     receiver: target,
@@ -697,7 +717,71 @@ impl SourceEvaluator {
         }
     }
 
+    fn read_class_var(&mut self, name: &str) -> Result<Value, EvaluationError> {
+        let selector = self.selector(name);
+        let class = self.class_var_owner(selector)?;
+        self.runtime
+            .class_var(class, selector)
+            .map_err(EvaluationError::Construction)?
+            .ok_or(EvaluationError::Construction(
+                iris_runtime::ConstructionError::MissingDeclaredClassVariable {
+                    class,
+                    name: selector,
+                },
+            ))
+    }
+
+    fn assign_class_var(&mut self, name: &str, value: Value) -> Result<Value, EvaluationError> {
+        let selector = self.selector(name);
+        let class = self.class_var_owner(selector)?;
+        self.runtime
+            .assign_class_var(class, selector, value)
+            .map_err(EvaluationError::Construction)
+    }
+
+    fn class_var_owner(&self, name: Selector) -> Result<ClassId, EvaluationError> {
+        let mut class = self
+            .lexical_class
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        loop {
+            if self
+                .runtime
+                .registry()
+                .active(class)
+                .map_err(EvaluationError::Class)?
+                .class_vars()
+                .contains(&name)
+            {
+                return Ok(class);
+            }
+            class = self
+                .static_superclasses
+                .get(&class)
+                .copied()
+                .flatten()
+                .ok_or(EvaluationError::Construction(
+                    iris_runtime::ConstructionError::MissingDeclaredClassVariable { class, name },
+                ))?;
+        }
+    }
+
     fn invoke_method(
+        &mut self,
+        method: Method,
+        receiver: Value,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let previous_lexical_class = self.lexical_class;
+        self.lexical_class = match method.owner() {
+            MethodOwner::Class(class) => Some(class),
+            MethodOwner::Module(_) => None,
+        };
+        let result = self.invoke_method_with_context(method, receiver, arguments);
+        self.lexical_class = previous_lexical_class;
+        result
+    }
+
+    fn invoke_method_with_context(
         &mut self,
         method: Method,
         receiver: Value,
@@ -708,20 +792,6 @@ impl SourceEvaluator {
                 iris_runtime::ExecutionError::Raised(Value::Nil),
             ));
         };
-        let raw_ivar = match declaration.body.last() {
-            Some(Statement::Expression(Expression::RawIvar(name))) => Some(name.clone()),
-            _ => None,
-        };
-        if let Some(name) = raw_ivar {
-            let Value::Object(object) = receiver else {
-                return Err(EvaluationError::UnsupportedConstruct);
-            };
-            let selector = self.selector(&name);
-            return self
-                .runtime
-                .raw_ivar(object, selector)
-                .map_err(EvaluationError::Construction);
-        }
         if matches!(declaration.body.last(), Some(Statement::Expression(Expression::Name(name))) if name == "super")
         {
             return Err(EvaluationError::Runtime(
@@ -776,5 +846,147 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Class(_) => "Class",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iris_parser::parse;
+    use iris_runtime::Value;
+
+    use super::SourceEvaluator;
+
+    fn source_evaluator(
+        source: &str,
+    ) -> Result<(SourceEvaluator, iris_syntax::Program), crate::EvaluationError> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "{parsed:#?}");
+        Ok((SourceEvaluator::new()?, parsed.program))
+    }
+
+    #[test]
+    fn class_variable_read_uses_the_declaring_class_cell() -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { public fun read() -> Integer { @@c } }; A.new().read()";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        let Some(iris_syntax::Declaration::Class(class)) = program.declarations.first() else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        evaluator.class(class)?;
+        let class = evaluator
+            .class_name("A")?
+            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
+        let selector = evaluator.selector("c");
+        evaluator
+            .runtime
+            .declare_class_var(class, selector, Value::Integer(1_u8.into()))
+            .map_err(crate::EvaluationError::Construction)?;
+
+        // When
+        let result = evaluator.statement(&program.statements[0], &Default::default(), None);
+
+        // Then
+        assert_eq!(result, Ok(Value::Integer(1_u8.into())));
+        Ok(())
+    }
+
+    #[test]
+    fn subclass_method_reads_the_declaring_class_cell() -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { public fun read() -> Integer { @@c } }; class B extends A { public fun child_read() -> Integer { @@c } }; [A.new().read(), B.new().child_read()]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        for declaration in &program.declarations {
+            let iris_syntax::Declaration::Class(class) = declaration else {
+                return Err(crate::EvaluationError::UnsupportedConstruct);
+            };
+            evaluator.class(class)?;
+        }
+        let class = evaluator
+            .class_name("A")?
+            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
+        let selector = evaluator.selector("c");
+        evaluator
+            .runtime
+            .declare_class_var(class, selector, Value::Integer(1_u8.into()))
+            .map_err(crate::EvaluationError::Construction)?;
+
+        // When
+        let result = evaluator.statement(&program.statements[0], &Default::default(), None);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(1_u8.into()),
+                Value::Integer(1_u8.into()),
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn class_variable_assignment_to_absent_storage_fails_without_creating_a_cell()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { public fun write() -> Integer { @@c = 1 } }; A.new().write()";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        let Some(iris_syntax::Declaration::Class(class)) = program.declarations.first() else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        evaluator.class(class)?;
+        let class = evaluator
+            .class_name("A")?
+            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
+        let selector = evaluator.selector("c");
+
+        // When
+        let result = evaluator.statement(&program.statements[0], &Default::default(), None);
+
+        // Then
+        assert!(matches!(
+            result,
+            Err(crate::EvaluationError::Construction(
+                iris_runtime::ConstructionError::MissingDeclaredClassVariable { .. }
+            ))
+        ));
+        assert!(matches!(
+            evaluator.runtime.class_var(class, selector),
+            Err(iris_runtime::ConstructionError::MissingDeclaredClassVariable { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn class_object_raw_ivars_and_class_variables_use_distinct_storage()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class A { class fun set_raw() -> Integer { @x = 1 } class fun raw() -> Integer { @x } class fun shared() -> Integer { @@x } }; A.set_raw(); [A.raw(), A.shared()]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+        let Some(iris_syntax::Declaration::Class(class)) = program.declarations.first() else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        evaluator.class(class)?;
+        let class = evaluator
+            .class_name("A")?
+            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
+        let selector = evaluator.selector("x");
+        evaluator
+            .runtime
+            .declare_class_var(class, selector, Value::Integer(2_u8.into()))
+            .map_err(crate::EvaluationError::Construction)?;
+
+        // When
+        evaluator.statement(&program.statements[0], &Default::default(), None)?;
+        let result = evaluator.statement(&program.statements[1], &Default::default(), None);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(1_u8.into()),
+                Value::Integer(2_u8.into()),
+            ]))
+        );
+        Ok(())
     }
 }

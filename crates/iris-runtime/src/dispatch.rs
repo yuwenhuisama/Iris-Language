@@ -215,6 +215,14 @@ impl crate::ClassRegistry {
         Ok(())
     }
 
+    /// Declares a hierarchy Class-variable cell on a logical Class.
+    pub fn declare_class_var(&mut self, class: ClassId, name: Selector) -> Result<(), ClassError> {
+        let mut candidate = self.open(class)?;
+        candidate.add_class_var(name);
+        self.publish(candidate)?;
+        Ok(())
+    }
+
     pub(crate) fn method(&self, id: MethodId) -> Option<Method> {
         self.methods.get(&id).copied()
     }
