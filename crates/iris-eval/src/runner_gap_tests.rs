@@ -89,6 +89,89 @@ fn sends_not_equal_for_nan_and_ordinary_operands() {
 }
 
 #[test]
+fn array_append_mutates_an_unannotated_binding_in_order() {
+    // Given
+    let source =
+        "let mut log = []; let ignored_a = log.append(:a); let ignored_b = log.append(:b); log";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("a".into()),
+            RuntimeValue::Symbol("b".into()),
+        ]))
+    );
+}
+
+#[test]
+fn array_literal_append_grows_in_order_and_returns_nil() {
+    // Given
+    let source = "let mut values = [:a]; [values.append(:b), values]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Array(vec![
+                RuntimeValue::Symbol("a".into()),
+                RuntimeValue::Symbol("b".into()),
+            ]),
+        ]))
+    );
+}
+
+#[test]
+fn array_append_accumulates_through_try_catch_and_finally() {
+    // Given
+    let source = "let mut log = []; try { log.append(:try); raise :x } catch _ { log.append(:catch); :handled } finally { log.append(:finally) }; log";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("handled".into()),
+            RuntimeValue::Array(vec![
+                RuntimeValue::Symbol("try".into()),
+                RuntimeValue::Symbol("catch".into()),
+                RuntimeValue::Symbol("finally".into()),
+            ]),
+        ]))
+    );
+}
+
+#[test]
+fn array_append_does_not_add_array_add_or_size() {
+    // Given
+    let add = "[1] + [2]";
+    let size = "[1, 2, 3].size";
+
+    // When
+    let add_result = evaluate(add);
+    let size_result = evaluate(size);
+
+    // Then
+    assert_eq!(add_result, Err(EvaluationError::Runtime(KernelError::Type)));
+    assert_eq!(
+        size_result,
+        Err(EvaluationError::MessageNotFound {
+            receiver_class: "Array".into(),
+            selector: "size".into(),
+        })
+    );
+}
+
+#[test]
 fn identity_primitive_bypasses_replaced_equal_and_compare_slots()
 -> Result<(), iris_runtime::KernelError> {
     // Given

@@ -776,6 +776,12 @@ impl SourceEvaluator {
                     .map(|argument| self.expression(argument, locals, receiver.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 match callee.as_ref() {
+                    Expression::Member {
+                        receiver: target,
+                        selector,
+                    } if selector == "append" => {
+                        self.append_array_binding(target, &arguments, locals)
+                    }
                     Expression::Name(name) if name == "super" => {
                         self.super_send(receiver, &arguments, None)
                     }
@@ -1184,6 +1190,32 @@ impl SourceEvaluator {
                 })
             }
         }
+    }
+
+    fn append_array_binding(
+        &mut self,
+        target: &Expression,
+        arguments: &[Value],
+        locals: &HashMap<String, Value>,
+    ) -> Result<Value, EvaluationError> {
+        let [value] = arguments else {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+        };
+        let Expression::Name(name) = target else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        if locals.contains_key(name) {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
+        let binding = self
+            .names
+            .get_mut(name)
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let Value::Array(values) = &mut binding.value else {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        };
+        values.push(value.clone());
+        Ok(Value::Nil)
     }
 
     fn selector(&mut self, name: &str) -> Selector {
