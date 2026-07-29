@@ -1650,6 +1650,74 @@ mod tests {
     }
 
     #[test]
+    fn class_fun_and_instance_method_share_the_declaring_class_variable_cell()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let source = "class P { shared mut @@n: Integer = 0; public class fun bump() -> Integer { @@n = @@n + 1 } public fun read() -> Integer { @@n } }; [P.bump(), P.new().read(), P.bump()]";
+        let (mut evaluator, program) = source_evaluator(source)?;
+
+        // When
+        let result = evaluator.program(&program);
+
+        // Then
+        assert_eq!(
+            result,
+            Ok(Value::Array(vec![
+                Value::Integer(1_u8.into()),
+                Value::Integer(1_u8.into()),
+                Value::Integer(2_u8.into()),
+            ]))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn class_fun_rejects_immutable_and_absent_class_variable_assignment()
+    -> Result<(), crate::EvaluationError> {
+        // Given
+        let immutable = "class P { shared let @@n: Integer = 0; public class fun write() -> Integer { @@n = 1 } }; P.write()";
+        let absent = "class P { public class fun write() -> Integer { @@n = 1 } }; P.write()";
+        let (mut immutable_evaluator, immutable_program) = source_evaluator(immutable)?;
+        let (mut absent_evaluator, absent_program) = source_evaluator(absent)?;
+        let Some(iris_syntax::Declaration::Class(absent_declaration)) =
+            absent_program.declarations.first()
+        else {
+            return Err(crate::EvaluationError::UnsupportedConstruct);
+        };
+        absent_evaluator.class(absent_declaration)?;
+        let absent_class = absent_evaluator
+            .class_name("P")?
+            .ok_or(crate::EvaluationError::UnsupportedConstruct)?;
+        let absent_selector = absent_evaluator.selector("n");
+
+        // When
+        let immutable_result = immutable_evaluator.program(&immutable_program);
+        let absent_result =
+            absent_evaluator.statement(&absent_program.statements[0], &Default::default(), None);
+
+        // Then
+        assert!(matches!(
+            immutable_result,
+            Err(crate::EvaluationError::Construction(
+                iris_runtime::ConstructionError::ImmutableClassVariable { .. }
+            ))
+        ));
+        assert!(matches!(
+            absent_result,
+            Err(crate::EvaluationError::Construction(
+                iris_runtime::ConstructionError::MissingDeclaredClassVariable { .. }
+            ))
+        ));
+        assert!(matches!(
+            absent_evaluator
+                .runtime
+                .class_var(absent_class, absent_selector),
+            Err(iris_runtime::ConstructionError::MissingDeclaredClassVariable { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn open_builtin_integer_adds_a_source_method_without_replacing_native_hash()
     -> Result<(), crate::EvaluationError> {
         // Given
