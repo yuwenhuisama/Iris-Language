@@ -1,6 +1,6 @@
 use crate::{
-    BoundMethod, BoundReceiver, ClassError, ClassId, DecoratorTransform, Method, MethodBody,
-    MethodId, MethodOwner, ModuleId, MroEntry, Selector, Visibility,
+    BoundMethod, BoundReceiver, ClassError, ClassId, CompositionEdge, DecoratorTransform, Method,
+    MethodBody, MethodId, MethodOwner, ModuleId, MroEntry, Selector, Visibility,
 };
 
 /// Result of resolving an ordinary send before evaluator invocation.
@@ -37,6 +37,7 @@ pub enum DispatchError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DispatchContext {
     lexical_class: Option<ClassId>,
+    lexical_module: Option<ModuleId>,
     receiver_is_self: bool,
 }
 
@@ -45,6 +46,7 @@ impl DispatchContext {
     pub const fn external() -> Self {
         Self {
             lexical_class: None,
+            lexical_module: None,
             receiver_is_self: false,
         }
     }
@@ -53,6 +55,15 @@ impl DispatchContext {
     pub const fn implementation(lexical_class: ClassId, receiver_is_self: bool) -> Self {
         Self {
             lexical_class: Some(lexical_class),
+            lexical_module: None,
+            receiver_is_self,
+        }
+    }
+
+    pub const fn module_implementation(lexical_module: ModuleId, receiver_is_self: bool) -> Self {
+        Self {
+            lexical_class: None,
+            lexical_module: Some(lexical_module),
             receiver_is_self,
         }
     }
@@ -83,13 +94,32 @@ impl crate::ClassRegistry {
 
     /// Defines a closed Module with its ordered composition edges.
     pub fn define_module(&mut self, components: &[ModuleId]) -> Result<ModuleId, ClassError> {
-        self.define_module_with_capabilities(components, crate::MetaCapabilities::all())
+        let edges = components
+            .iter()
+            .copied()
+            .map(|module| CompositionEdge::new(module, false))
+            .collect::<Vec<_>>();
+        self.define_module_with_composition_edges(&edges, crate::MetaCapabilities::all())
     }
 
     /// Defines a closed Module with its immutable source-level meta policy.
     pub fn define_module_with_capabilities(
         &mut self,
         components: &[ModuleId],
+        capabilities: crate::MetaCapabilities,
+    ) -> Result<ModuleId, ClassError> {
+        let edges = components
+            .iter()
+            .copied()
+            .map(|module| CompositionEdge::new(module, false))
+            .collect::<Vec<_>>();
+        self.define_module_with_composition_edges(&edges, capabilities)
+    }
+
+    /// Defines a closed Module with immutable composition-edge authority metadata.
+    pub fn define_module_with_composition_edges(
+        &mut self,
+        components: &[CompositionEdge],
         capabilities: crate::MetaCapabilities,
     ) -> Result<ModuleId, ClassError> {
         self.modules
@@ -399,6 +429,9 @@ impl crate::ClassRegistry {
             Visibility::Private => Ok(matches!(
                 (method.owner(), context.lexical_class),
                 (MethodOwner::Class(owner), Some(caller)) if owner == caller
+            ) || matches!(
+                context.lexical_module,
+                Some(module) if self.module_has_private_access(receiver, module)
             )),
             Visibility::Protected => match (method.owner(), context.lexical_class) {
                 (MethodOwner::Class(owner), Some(caller)) => Ok(context.receiver_is_self
@@ -415,6 +448,15 @@ impl crate::ClassRegistry {
                 (MethodOwner::Module(_), _) | (MethodOwner::Class(_), None) => Ok(false),
             },
         }
+    }
+
+    fn module_has_private_access(&self, class: ClassId, module: ModuleId) -> bool {
+        self.active(class).is_ok_and(|revision| {
+            revision
+                .composition_edges()
+                .iter()
+                .any(|edge| edge.module() == module && edge.private_access())
+        })
     }
     /// Binds the exact Method identity selected at binding time.
     pub fn bind(

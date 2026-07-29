@@ -1,6 +1,6 @@
 use iris_runtime::{
-    ClassError, ClassRegistry, DispatchError, DispatchOutcome, MethodBody, ModuleId, Selector,
-    StaticSpine, Visibility,
+    ClassError, ClassRegistry, DispatchContext, DispatchError, DispatchOutcome, MethodBody,
+    ModuleId, Selector, StaticSpine, Visibility,
 };
 
 fn define_class(
@@ -172,6 +172,55 @@ fn missing_selector_routes_to_method_missing_but_visibility_denial_is_an_error()
     assert!(
         matches!(denied, Err(DispatchError::VisibilityDenied { selector }) if selector == private)
     );
+    Ok(())
+}
+
+#[test]
+fn authorized_module_edge_can_send_host_private_selector() -> Result<(), DispatchError> {
+    // Given
+    let mut registry = ClassRegistry::new();
+    let module = registry.define_module(&[]).map_err(DispatchError::Class)?;
+    let class = define_class(&mut registry, None).map_err(DispatchError::Class)?;
+    let private = Selector::new(17);
+    let method = registry
+        .publish_method(class, private, MethodBody::new(170), Visibility::Private)
+        .map_err(DispatchError::Class)?;
+    let mut candidate = registry.open(class).map_err(DispatchError::Class)?;
+    candidate.add_composition_edge(iris_runtime::CompositionEdge::new(module, true));
+    registry.publish(candidate).map_err(DispatchError::Class)?;
+    let denied_class = define_class(&mut registry, None).map_err(DispatchError::Class)?;
+    registry
+        .publish_method(
+            denied_class,
+            private,
+            MethodBody::new(171),
+            Visibility::Private,
+        )
+        .map_err(DispatchError::Class)?;
+    let mut denied_candidate = registry.open(denied_class).map_err(DispatchError::Class)?;
+    denied_candidate.add_module(module);
+    registry
+        .publish(denied_candidate)
+        .map_err(DispatchError::Class)?;
+
+    // When
+    let authorized = registry.dispatch_with_context(
+        class,
+        private,
+        DispatchContext::module_implementation(module, true),
+    );
+    let denied = registry.dispatch_with_context(
+        denied_class,
+        private,
+        DispatchContext::module_implementation(module, false),
+    );
+
+    // Then
+    assert_eq!(authorized, Ok(DispatchOutcome::Invoke(method)));
+    assert!(matches!(
+        denied,
+        Err(DispatchError::VisibilityDenied { selector }) if selector == private
+    ));
     Ok(())
 }
 

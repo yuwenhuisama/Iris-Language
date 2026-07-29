@@ -8,8 +8,9 @@ mod expression_tests;
 use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
     CatchBinding, CatchClause, ClassDeclaration, Constraint, ContractDeclaration, Declaration,
-    Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, ModuleDeclaration,
-    Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression, Visibility,
+    Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, MixinEntry,
+    ModuleDeclaration, Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression,
+    Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -314,7 +315,7 @@ impl Parser {
                 }
                 3 => {
                     self.advance();
-                    mixins = self.type_list();
+                    mixins = self.mixin_entries();
                 }
                 4 => {
                     self.advance();
@@ -368,7 +369,7 @@ impl Parser {
             match clause {
                 1 => {
                     self.advance();
-                    mixins = self.type_list();
+                    mixins = self.mixin_entries();
                 }
                 2 => {
                     self.advance();
@@ -876,6 +877,19 @@ impl Parser {
         }
         Some(values)
     }
+    fn mixin_entries(&mut self) -> Vec<MixinEntry> {
+        let mut entries = Vec::new();
+        while let Some(target) = self.type_expression() {
+            entries.push(MixinEntry {
+                target,
+                private_access: self.consume("private"),
+            });
+            if !self.consume(",") {
+                break;
+            }
+        }
+        entries
+    }
     fn selector(&mut self) -> Option<String> {
         if let Some(operator) = self.operator_selector() {
             return Some(operator.into());
@@ -1170,7 +1184,9 @@ fn is_reserved_keyword(value: &str) -> bool {
 #[allow(clippy::panic)]
 mod tests {
     use crate::parse;
-    use iris_syntax::{BinaryOperator, Declaration, Expression, Statement, TypeExpression};
+    use iris_syntax::{
+        BinaryOperator, Declaration, Expression, MixinEntry, Statement, TypeExpression,
+    };
 
     #[test]
     fn powers_are_right_associative_and_bind_tighter_than_negation() {
@@ -1382,6 +1398,32 @@ mod tests {
             results[1].program.declarations.as_slice(),
             [Declaration::Module(module)]
                 if matches!(module.body.as_slice(), [Statement::SharedBinding { mutable: false, name, .. }] if name == "version")
+        ));
+    }
+
+    #[test]
+    fn parses_private_authorization_on_each_class_and_module_mixin_edge() {
+        // Given
+        let source = "class A mixin M private, N { }; module B mixin M private, N { }";
+
+        // When
+        let result = parse(source);
+
+        // Then
+        assert!(result.program_accepted, "{result:#?}");
+        assert!(matches!(
+            result.program.declarations.as_slice(),
+            [Declaration::Class(class), Declaration::Module(module)]
+                if class.mixins == [
+                    MixinEntry {
+                        target: TypeExpression::Name("M".into()),
+                        private_access: true,
+                    },
+                    MixinEntry {
+                        target: TypeExpression::Name("N".into()),
+                        private_access: false,
+                    },
+                ] && module.mixins == class.mixins
         ));
     }
     #[test]

@@ -197,6 +197,18 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::NoSuperMethod { .. },
         )) => "NoSuperMethodError".into(),
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::VisibilityDenied { .. },
+        )) => "MethodVisibilityError".into(),
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::ContractDispatch { .. },
+        )) => "ContractDispatchError".into(),
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::MethodBinding { .. },
+        )) => "MethodBindingError".into(),
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::InvalidSuper { .. },
+        )) => "InvalidSuperError".into(),
         EvaluationError::Construction(_)
         | EvaluationError::Execution(_)
         | EvaluationError::Symbol(_) => "RuntimeError".into(),
@@ -217,6 +229,18 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::MessageNotFound { .. } => "MessageNotFoundError",
         KernelError::Dispatch(iris_runtime::DispatchError::NoSuperMethod { .. }) => {
             "NoSuperMethodError"
+        }
+        KernelError::Dispatch(iris_runtime::DispatchError::VisibilityDenied { .. }) => {
+            "MethodVisibilityError"
+        }
+        KernelError::Dispatch(iris_runtime::DispatchError::ContractDispatch { .. }) => {
+            "ContractDispatchError"
+        }
+        KernelError::Dispatch(iris_runtime::DispatchError::MethodBinding { .. }) => {
+            "MethodBindingError"
+        }
+        KernelError::Dispatch(iris_runtime::DispatchError::InvalidSuper { .. }) => {
+            "InvalidSuperError"
         }
         KernelError::Class(_)
         | KernelError::Dispatch(_)

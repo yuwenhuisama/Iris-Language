@@ -59,6 +59,30 @@ pub struct StaticSpine {
     meta_capabilities: MetaCapabilities,
 }
 
+/// Immutable authorization metadata for one composition edge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompositionEdge {
+    module: ModuleId,
+    private_access: bool,
+}
+
+impl CompositionEdge {
+    pub const fn new(module: ModuleId, private_access: bool) -> Self {
+        Self {
+            module,
+            private_access,
+        }
+    }
+
+    pub const fn module(self) -> ModuleId {
+        self.module
+    }
+
+    pub const fn private_access(self) -> bool {
+        self.private_access
+    }
+}
+
 impl StaticSpine {
     /// Creates a runtime-owned static-spine identity.
     pub const fn new(raw: u64) -> Self {
@@ -120,6 +144,7 @@ pub struct ClassRevision {
     runtime_superclass: Option<ClassId>,
     mro: Vec<MroEntry>,
     modules: Vec<ModuleId>,
+    composition_edges: Vec<CompositionEdge>,
     methods: BTreeMap<Selector, MethodId>,
     tombstones: BTreeSet<Selector>,
     singleton_methods: BTreeMap<Selector, MethodId>,
@@ -146,6 +171,7 @@ impl ClassRevision {
             runtime_superclass: candidate.runtime_superclass,
             mro: candidate.mro,
             modules: candidate.modules,
+            composition_edges: candidate.composition_edges,
             methods: candidate.methods,
             tombstones: candidate.tombstones,
             singleton_methods: candidate.singleton_methods,
@@ -195,6 +221,10 @@ impl ClassRevision {
     /// Returns composed modules in this immutable revision.
     pub fn modules(&self) -> &[ModuleId] {
         &self.modules
+    }
+
+    pub fn composition_edges(&self) -> &[CompositionEdge] {
+        &self.composition_edges
     }
 
     /// Returns the inert method-table metadata slot.
@@ -248,6 +278,7 @@ pub struct CandidateRevision {
     pub(crate) runtime_superclass: Option<ClassId>,
     pub(crate) mro: Vec<MroEntry>,
     pub(crate) modules: Vec<ModuleId>,
+    pub(crate) composition_edges: Vec<CompositionEdge>,
     pub(crate) methods: BTreeMap<Selector, MethodId>,
     pub(crate) tombstones: BTreeSet<Selector>,
     pub(crate) singleton_methods: BTreeMap<Selector, MethodId>,
@@ -276,6 +307,7 @@ impl CandidateRevision {
             runtime_superclass,
             mro,
             modules: Vec::new(),
+            composition_edges: Vec::new(),
             methods: BTreeMap::new(),
             tombstones: BTreeSet::new(),
             singleton_methods: BTreeMap::new(),
@@ -297,6 +329,7 @@ impl CandidateRevision {
             runtime_superclass: revision.runtime_superclass,
             mro: revision.mro.clone(),
             modules: revision.modules.clone(),
+            composition_edges: revision.composition_edges.clone(),
             methods: revision.methods.clone(),
             tombstones: revision.tombstones.clone(),
             singleton_methods: revision.singleton_methods.clone(),
@@ -319,12 +352,19 @@ impl CandidateRevision {
 
     /// Adds one Module edge to the candidate metadata.
     pub fn add_module(&mut self, module: ModuleId) {
-        self.modules.push(module);
+        self.add_composition_edge(CompositionEdge::new(module, false));
+    }
+
+    pub fn add_composition_edge(&mut self, edge: CompositionEdge) {
+        self.modules.push(edge.module());
+        self.composition_edges.push(edge);
     }
 
     /// Removes a Module edge from this candidate before publication.
     pub fn remove_module(&mut self, module: ModuleId) {
         self.modules.retain(|candidate| *candidate != module);
+        self.composition_edges
+            .retain(|candidate| candidate.module() != module);
     }
 
     /// Sets an MRO value that publication recomputes before storing.
@@ -375,6 +415,7 @@ impl CandidateRevision {
     pub(crate) fn restore(&mut self, artifact: &ClassRevision) {
         self.runtime_superclass = artifact.runtime_superclass();
         self.modules = artifact.modules().to_vec();
+        self.composition_edges = artifact.composition_edges().to_vec();
         self.methods = artifact.methods().clone();
         self.tombstones = artifact.tombstones().clone();
         self.singleton_methods = artifact.singleton_methods().clone();

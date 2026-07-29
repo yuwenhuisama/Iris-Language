@@ -20,7 +20,8 @@ mod value;
 
 pub use class_registry::{ClassError, ClassRegistry, PolicyOrigin};
 pub use class_revision::{
-    CandidateRevision, ClassRevision, LogicalClass, MroEntry, StaticSpine, StoredProperty,
+    CandidateRevision, ClassRevision, CompositionEdge, LogicalClass, MroEntry, StaticSpine,
+    StoredProperty,
 };
 pub use decorator::{AppliedDecorator, DecoratorTransform, DecoratorViolation};
 pub use dispatch::{DispatchContext, DispatchError, DispatchOutcome};

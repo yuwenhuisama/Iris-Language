@@ -178,6 +178,22 @@ fn side_effects_without_value_are_accepted_from_a_single_item_observation() {
 }
 
 #[test]
+fn visibility_denial_is_reported_as_method_visibility_error() {
+    // Given
+    let record = record(
+        "class A { private fun secret() -> Integer { 1 } }; let a = A.new(); a.secret()",
+        vec![],
+        "{\"error\":{\"code\":\"MethodVisibilityError\"}}",
+    );
+
+    // When
+    let result = compare_runtime(&record);
+
+    // Then
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
 fn error_and_side_effects_assert_a_failed_declaration_is_not_published() {
     // Given
     let record = record(

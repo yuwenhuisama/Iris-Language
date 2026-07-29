@@ -2,7 +2,8 @@ use core::fmt;
 use std::{collections::HashMap, error::Error};
 
 use crate::{
-    MetaCapabilities, Method, MethodBody, MethodId, MethodOwner, ModuleId, Selector, Visibility,
+    CompositionEdge, MetaCapabilities, Method, MethodBody, MethodId, MethodOwner, ModuleId,
+    Selector, Visibility,
 };
 
 /// Recoverable failure from Module registration.
@@ -36,7 +37,7 @@ pub(crate) struct ModuleRegistry {
 
 #[derive(Debug)]
 struct Module {
-    components: Vec<ModuleId>,
+    components: Vec<CompositionEdge>,
     methods: HashMap<Selector, Method>,
     meta_capabilities: MetaCapabilities,
 }
@@ -44,7 +45,7 @@ struct Module {
 impl ModuleRegistry {
     pub(crate) fn define(
         &mut self,
-        components: &[ModuleId],
+        components: &[CompositionEdge],
         meta_capabilities: MetaCapabilities,
     ) -> Result<ModuleId, ModuleError> {
         let id = ModuleId::new(self.next_module_id);
@@ -64,7 +65,7 @@ impl ModuleRegistry {
         Ok(id)
     }
 
-    pub(crate) fn components(&self, module: ModuleId) -> Result<&[ModuleId], ModuleError> {
+    pub(crate) fn components(&self, module: ModuleId) -> Result<&[CompositionEdge], ModuleError> {
         Ok(&self
             .modules
             .get(&module)

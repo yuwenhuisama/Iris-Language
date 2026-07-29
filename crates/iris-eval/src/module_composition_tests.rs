@@ -34,6 +34,28 @@ fn module_instance_method_reads_and_writes_the_receiver_raw_ivar() {
 }
 
 #[test]
+fn private_mixin_authorization_changes_private_selector_access_but_not_raw_ivar_access() {
+    // Given
+    let authorized = "module M { public fun bump() -> Integer { @x = 1; secret() } }; class A mixin M private { private fun secret() -> Integer { @x } }; A.new().bump()";
+    let unauthorized = "module M { public fun bump() -> Integer { @x = 1; secret() } public fun read() -> Integer { @x } }; class A mixin M { private fun secret() -> Integer { @x } }; let a = A.new(); [a.bump(), a.read()]";
+
+    // When
+    let authorized_result = evaluate(authorized);
+    let unauthorized_result = evaluate(unauthorized);
+
+    // Then
+    assert_eq!(authorized_result, Ok(RuntimeValue::Integer(1_u8.into())));
+    assert!(matches!(
+        unauthorized_result,
+        Err(EvaluationError::Construction(
+            iris_runtime::ConstructionError::Dispatch(
+                iris_runtime::DispatchError::VisibilityDenied { .. }
+            )
+        ))
+    ));
+}
+
+#[test]
 fn class_method_precedes_a_module_method_in_c053_mro_order() {
     // Given: RUNTIME-C053 requires `C, B, A, S...` for `mixin A, B`.
     let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { public fun m() -> Symbol { :class } }; A.new().m()";

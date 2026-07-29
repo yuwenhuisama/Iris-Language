@@ -342,9 +342,11 @@ shared_decl        ::= "shared" ("let" | "mut") shared_name type_annotation? "="
 class_decl         ::= "open"? "class" type_name generic_params? class_extends? class_for? class_mixin? where_clause? meta_clause? declaration_body
 class_extends      ::= "extends" type_expr
 class_for          ::= "for" type_expr_list
-class_mixin        ::= "mixin" type_expr_list
+class_mixin        ::= "mixin" mixin_entry_list
 module_decl        ::= "open"? "module" type_name generic_params? module_mixin? where_clause? meta_clause? declaration_body
-module_mixin       ::= "mixin" type_expr_list
+module_mixin       ::= "mixin" mixin_entry_list
+mixin_entry_list   ::= mixin_entry ("," mixin_entry)* ","?
+mixin_entry        ::= type_expr "private"?
 contract_decl      ::= "contract" type_name generic_params? contract_extends? where_clause? meta_clause? declaration_body
 contract_extends   ::= "extends" type_expr_list
 meta_clause        ::= "meta" "deny" meta_capability_list
@@ -561,6 +563,8 @@ IRIS-V1-GRAMMAR-C058：v1.1 勘误语法允许 `@decorator(arguments)` 位于 Cl
 IRIS-V1-GRAMMAR-C059：v1.2 勘误语法添加 `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` 并将其纳入 `declaration`。这提供了 IRIS-V1-CONTROL-C009 和 IRIS-V1-RUNTIME-C073 已预设的类变量声明形式，并且它镜像 `global_decl`，使两个存储族共享一种形状。自 v1.0 起由 IRIS-V1-GRAMMAR-C013 保留但没有产生式的 `shared` 关键字现在恰好在此使用。`shared_decl` MUST 出现在 Class 或 Module 声明体中；`let` 声明不可变单元，`mut` 声明可赋值单元。已声明单元的语义、层次结构锚定和查找规则仍由 IRIS-V1-RUNTIME-C073 至 IRIS-V1-RUNTIME-C075 拥有。
 
 IRIS-V1-GRAMMAR-C060：v1.3 勘误允许 `if_expression` 出现在表达式位置，并依照该产生式定义 `if_statement`。其值、分支作用域、缺少 `else` 时的结果和可达分支结果类型仍完全由 IRIS-V1-CONTROL-C041 规定。在 `match_arm` 中，`match_guard` 在解析 guard `expression` 之前消耗其开头的 `if`；因此 `if_expression` 只在需要主表达式的位置开始。`if_expression` 后的 `block_body` 以 `{` 开始，而 Hash 字面量使用 IRIS-V1-GRAMMAR-C021 要求的不同 `%{` 开场。
+
+IRIS-V1-GRAMMAR-C061：v1.4 勘误将 `class_mixin` 和 `module_mixin` 替换为 `mixin_entry_list`；每个 `mixin_entry` MAY 携带 `private`，以在该静态组合边缘记录 private authorization。该授权、其作用域和撤销仍完全由 IRIS-V1-RUNTIME-C050、IRIS-V1-META-C056 和 IRIS-V1-META-C060 拥有。原始 current-receiver `@x` 访问独立于该选项，仍完全由 IRIS-V1-RUNTIME-C051 和 IRIS-V1-META-C058 拥有。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

@@ -56,7 +56,7 @@ impl crate::ClassRegistry {
             .components(module)
             .map_err(Self::module_error)?;
         for component in components.iter().rev() {
-            self.append_module(*component, mro, seen, visiting)?;
+            self.append_module(component.module(), mro, seen, visiting)?;
         }
         visiting.remove(&module);
         Ok(())

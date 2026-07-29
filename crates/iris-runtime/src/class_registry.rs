@@ -162,6 +162,27 @@ impl ClassRegistry {
         capabilities: MetaCapabilities,
         modules: &[crate::ModuleId],
     ) -> Result<ClassId, ClassError> {
+        let edges = modules
+            .iter()
+            .copied()
+            .map(|module| crate::CompositionEdge::new(module, false))
+            .collect::<Vec<_>>();
+        self.define_class_with_capabilities_and_composition_edges(
+            static_spine,
+            runtime_superclass,
+            capabilities,
+            &edges,
+        )
+    }
+
+    /// Defines a Class whose origin revision includes declarative Module edges and authority.
+    pub fn define_class_with_capabilities_and_composition_edges(
+        &mut self,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+        capabilities: MetaCapabilities,
+        modules: &[crate::CompositionEdge],
+    ) -> Result<ClassId, ClassError> {
         let static_spine = static_spine.with_meta_capabilities(capabilities);
         if let Some(superclass) = runtime_superclass {
             self.require_meta_capability(superclass, Capability::Subclass)?;
@@ -198,10 +219,10 @@ impl ClassRegistry {
             effective_capabilities,
         );
         for module in modules {
-            if !self.modules.contains(*module) {
-                return Err(ClassError::UnknownModuleId(*module));
+            if !self.modules.contains(module.module()) {
+                return Err(ClassError::UnknownModuleId(module.module()));
             }
-            candidate.add_module(*module);
+            candidate.add_composition_edge(*module);
         }
         candidate.mro = self.compute_mro(&candidate)?;
         candidate.meta_capabilities = self

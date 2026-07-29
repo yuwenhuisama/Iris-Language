@@ -342,9 +342,11 @@ shared_decl        ::= "shared" ("let" | "mut") shared_name type_annotation? "="
 class_decl         ::= "open"? "class" type_name generic_params? class_extends? class_for? class_mixin? where_clause? meta_clause? declaration_body
 class_extends      ::= "extends" type_expr
 class_for          ::= "for" type_expr_list
-class_mixin        ::= "mixin" type_expr_list
+class_mixin        ::= "mixin" mixin_entry_list
 module_decl        ::= "open"? "module" type_name generic_params? module_mixin? where_clause? meta_clause? declaration_body
-module_mixin       ::= "mixin" type_expr_list
+module_mixin       ::= "mixin" mixin_entry_list
+mixin_entry_list   ::= mixin_entry ("," mixin_entry)* ","?
+mixin_entry        ::= type_expr "private"?
 contract_decl      ::= "contract" type_name generic_params? contract_extends? where_clause? meta_clause? declaration_body
 contract_extends   ::= "extends" type_expr_list
 meta_clause        ::= "meta" "deny" meta_capability_list
@@ -561,6 +563,8 @@ IRIS-V1-GRAMMAR-C058: The v1.1 errata grammar permits `@decorator(arguments)` be
 IRIS-V1-GRAMMAR-C059: The v1.2 errata grammar adds `shared_decl ::= "shared" ("let" | "mut") shared_name type_annotation? "=" expression` and admits it in `declaration`. This supplies the class-variable declaration form that IRIS-V1-CONTROL-C009 and IRIS-V1-RUNTIME-C073 already presuppose, and it mirrors `global_decl` so the two storage families share one shape. The `shared` keyword, reserved by IRIS-V1-GRAMMAR-C013 since v1.0 without a production, is now used exactly here. A `shared_decl` MUST appear in a Class or Module declaration body; `let` declares an immutable cell and `mut` declares an assignable one. The declared cell semantics, hierarchy anchoring, and lookup rules remain owned by IRIS-V1-RUNTIME-C073 through IRIS-V1-RUNTIME-C075.
 
 IRIS-V1-GRAMMAR-C060: The v1.3 errata admits `if_expression` in expression position and defines `if_statement` in terms of that production. Its value, branch scope, missing-`else` result, and reachable-branch result type remain exclusively as specified by IRIS-V1-CONTROL-C041. In a `match_arm`, `match_guard` consumes its leading `if` before its guard `expression` is parsed; `if_expression` therefore begins only where a primary expression is required. The `block_body` following an `if_expression` starts with `{`, while Hash literals start with the distinct `%{` opener required by IRIS-V1-GRAMMAR-C021.
+
+IRIS-V1-GRAMMAR-C061: The v1.4 errata replaces `class_mixin` and `module_mixin` with `mixin_entry_list`; each `mixin_entry` MAY carry `private` to record private authorization at that static composition edge. The authorization, its scope, and its revocation remain exclusively owned by IRIS-V1-RUNTIME-C050, IRIS-V1-META-C056, and IRIS-V1-META-C060. Raw current-receiver `@x` access is independent of this option and remains exclusively owned by IRIS-V1-RUNTIME-C051 and IRIS-V1-META-C058.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

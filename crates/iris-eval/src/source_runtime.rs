@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    Capability, ClassError, ClassId, DispatchError, DispatchOutcome, Kernel, MetaCapabilities,
-    Method, MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness,
-    TruthinessError, TruthinessMethod, Value,
+    Capability, ClassError, ClassId, CompositionEdge, DispatchContext, DispatchError,
+    DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody, MethodOwner, ModuleId, Runtime,
+    Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -143,10 +143,10 @@ impl SourceEvaluator {
         let mut mixins = Vec::new();
         let mut class_mixins = Vec::new();
         for mixin in &declaration.mixins {
-            match mixin {
+            match &mixin.target {
                 iris_syntax::TypeExpression::Name(name) => {
                     if let Some(module) = self.module_names.get(name) {
-                        mixins.push(*module);
+                        mixins.push(CompositionEdge::new(*module, mixin.private_access));
                     } else if let Some(class) = self.class_name(name)? {
                         class_mixins.push(class);
                     }
@@ -193,7 +193,7 @@ impl SourceEvaluator {
             let class = self
                 .runtime
                 .registry_mut()
-                .define_class_with_capabilities_and_modules(
+                .define_class_with_capabilities_and_composition_edges(
                     StaticSpine::new(1),
                     superclass,
                     capabilities,
@@ -497,13 +497,14 @@ impl SourceEvaluator {
     fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
         let mut components = Vec::new();
         for mixin in &declaration.mixins {
-            match mixin {
-                iris_syntax::TypeExpression::Name(name) => components.push(
+            match &mixin.target {
+                iris_syntax::TypeExpression::Name(name) => components.push(CompositionEdge::new(
                     *self
                         .module_names
                         .get(name)
                         .ok_or(EvaluationError::UnsupportedConstruct)?,
-                ),
+                    mixin.private_access,
+                )),
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
@@ -511,7 +512,7 @@ impl SourceEvaluator {
         let module = self
             .runtime
             .registry_mut()
-            .define_module_with_capabilities(&components, capabilities)
+            .define_module_with_composition_edges(&components, capabilities)
             .map_err(EvaluationError::Class)?;
         self.module_names.insert(declaration.name.clone(), module);
         let module_class = self
@@ -866,9 +867,12 @@ impl SourceEvaluator {
                         let target = self.expression(target, locals, receiver)?;
                         self.send(target, selector, &arguments)
                     }
-                    Expression::Name(_) => self
-                        .expression(callee, locals, receiver)
-                        .and_then(|value| self.call(value, &arguments)),
+                    Expression::Name(selector) => match receiver {
+                        Some(receiver) => self.send(receiver, selector, &arguments),
+                        None => self
+                            .expression(callee, locals, None)
+                            .and_then(|value| self.call(value, &arguments)),
+                    },
                     _ => Err(EvaluationError::UnsupportedConstruct),
                 }
             }
@@ -1380,18 +1384,45 @@ impl SourceEvaluator {
         object: iris_runtime::ObjectId,
         selector: Selector,
     ) -> Result<Method, EvaluationError> {
-        match self.runtime.dispatch_instance(object, selector) {
-            Ok(method) => Ok(method),
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        let context = match self.current_method.map(|method| method.owner()) {
+            Some(MethodOwner::Module(module)) => {
+                DispatchContext::module_implementation(module, true)
+            }
+            Some(MethodOwner::Class(owner)) => DispatchContext::implementation(owner, true),
+            None => DispatchContext::external(),
+        };
+        match self
+            .runtime
+            .registry()
+            .dispatch_with_context(class, selector, context)
+            .map_err(iris_runtime::ConstructionError::from)
+        {
+            Ok(DispatchOutcome::Invoke(method)) => Ok(method),
+            Ok(DispatchOutcome::WouldInvokeMethodMissing { .. }) => self
+                .class_mixins
+                .get(&class)
+                .into_iter()
+                .flatten()
+                .rev()
+                .find_map(|class| self.runtime.registry().dispatch(*class, selector).ok())
+                .and_then(|outcome| match outcome {
+                    iris_runtime::DispatchOutcome::Invoke(method) => Some(method),
+                    iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { .. } => None,
+                })
+                .ok_or(EvaluationError::Construction(
+                    iris_runtime::ConstructionError::Dispatch(
+                        iris_runtime::DispatchError::MissingMethod { selector },
+                    ),
+                )),
             Err(iris_runtime::ConstructionError::Dispatch(
                 iris_runtime::DispatchError::MissingMethod { .. },
             )) => self
                 .class_mixins
-                .get(
-                    &self
-                        .runtime
-                        .class_of(object)
-                        .map_err(EvaluationError::Construction)?,
-                )
+                .get(&class)
                 .into_iter()
                 .flatten()
                 .rev()
@@ -1470,14 +1501,15 @@ impl SourceEvaluator {
     fn validate_module_overrides(
         &self,
         superclass: Option<ClassId>,
-        mixins: &[ModuleId],
+        mixins: &[CompositionEdge],
     ) -> Result<(), EvaluationError> {
         let Some(superclass) = superclass else {
             return Ok(());
         };
-        for module in mixins {
+        for edge in mixins {
+            let module = edge.module();
             for ((owner, selector), method) in &self.module_methods {
-                if owner != module {
+                if *owner != module {
                     continue;
                 }
                 let replaces = matches!(

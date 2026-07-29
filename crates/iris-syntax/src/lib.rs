@@ -38,7 +38,7 @@ pub struct ClassDeclaration {
     pub parameters: Vec<String>,
     pub extends: Option<TypeExpression>,
     pub implements: Vec<TypeExpression>,
-    pub mixins: Vec<TypeExpression>,
+    pub mixins: Vec<MixinEntry>,
     pub constraints: Vec<Constraint>,
     pub meta_deny: Vec<String>,
     pub body: Vec<Statement>,
@@ -49,7 +49,7 @@ pub struct ModuleDeclaration {
     pub decorators: Vec<Decorator>,
     pub name: String,
     pub parameters: Vec<String>,
-    pub mixins: Vec<TypeExpression>,
+    pub mixins: Vec<MixinEntry>,
     pub constraints: Vec<Constraint>,
     pub meta_deny: Vec<String>,
     pub body: Vec<Statement>,
@@ -70,6 +70,12 @@ pub struct ContractDeclaration {
 pub struct Constraint {
     pub parameter: String,
     pub bound: TypeExpression,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MixinEntry {
+    pub target: TypeExpression,
+    pub private_access: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
