@@ -20,7 +20,8 @@ impl ClassRegistry {
                         candidate.static_spine,
                         candidate.runtime_superclass,
                     )?
-                    .narrowed_by(candidate.meta_capabilities);
+                    .narrowed_by(candidate.meta_capabilities)
+                    .narrowed_by(self.mro_meta_capabilities(&candidate.mro)?);
                 Ok(candidate)
             })
             .collect::<Result<Vec<_>, ClassError>>()?;

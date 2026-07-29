@@ -832,6 +832,9 @@ mod runner_gap_tests;
 #[cfg(test)]
 mod operator_super_tests;
 
+#[cfg(test)]
+mod module_composition_tests;
+
 impl From<Literal> for Value {
     fn from(literal: Literal) -> Self {
         match literal {

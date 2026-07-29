@@ -81,7 +81,18 @@ impl crate::ClassRegistry {
 
     /// Defines a closed Module with its ordered composition edges.
     pub fn define_module(&mut self, components: &[ModuleId]) -> Result<ModuleId, ClassError> {
-        self.modules.define(components).map_err(Self::module_error)
+        self.define_module_with_capabilities(components, crate::MetaCapabilities::all())
+    }
+
+    /// Defines a closed Module with its immutable source-level meta policy.
+    pub fn define_module_with_capabilities(
+        &mut self,
+        components: &[ModuleId],
+        capabilities: crate::MetaCapabilities,
+    ) -> Result<ModuleId, ClassError> {
+        self.modules
+            .define(components, capabilities)
+            .map_err(Self::module_error)
     }
     /// Defines or replaces a Module Method slot with a new Method identity.
     pub fn define_module_method(

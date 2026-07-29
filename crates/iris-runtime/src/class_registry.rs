@@ -7,6 +7,15 @@ use crate::{
     DecoratorViolation, LogicalClass, MetaCapabilities, Method, MethodId, RevisionId, StaticSpine,
 };
 
+/// The declaration identity that narrowed a Class meta-operation policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolicyOrigin {
+    /// A Class origin declaration supplied the denial.
+    Class(ClassId),
+    /// A composed Module supplied the denial.
+    Module(crate::ModuleId),
+}
+
 /// A recoverable failure from Class revision management.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClassError {
@@ -37,7 +46,7 @@ pub enum ClassError {
     MetaCapabilityDenied {
         target: ClassId,
         operation: Capability,
-        policy_origin: ClassId,
+        policy_origin: PolicyOrigin,
         reason: &'static str,
     },
     DecoratorViolation {
@@ -132,12 +141,35 @@ impl ClassRegistry {
         runtime_superclass: Option<ClassId>,
         capabilities: MetaCapabilities,
     ) -> Result<ClassId, ClassError> {
+        self.define_class_with_capabilities_and_modules(
+            static_spine,
+            runtime_superclass,
+            capabilities,
+            &[],
+        )
+    }
+
+    /// Defines a Class whose origin revision includes declarative Module edges.
+    pub fn define_class_with_capabilities_and_modules(
+        &mut self,
+        static_spine: StaticSpine,
+        runtime_superclass: Option<ClassId>,
+        capabilities: MetaCapabilities,
+        modules: &[crate::ModuleId],
+    ) -> Result<ClassId, ClassError> {
         let static_spine = static_spine.with_meta_capabilities(capabilities);
         if let Some(superclass) = runtime_superclass {
             self.require_meta_capability(superclass, Capability::Subclass)?;
         }
         let effective_capabilities =
             self.effective_meta_capabilities(static_spine, runtime_superclass)?;
+        if !modules.is_empty() && !effective_capabilities.allows(Capability::Modules) {
+            return Err(self.meta_capability_denied(
+                runtime_superclass,
+                Capability::Modules,
+                PolicyOrigin::Class(ClassId::new(self.next_class_id)),
+            ));
+        }
         let class = ClassId::new(self.next_class_id);
         let revision = RevisionId::new(self.next_revision_id);
         let next_class_id = self
@@ -152,7 +184,7 @@ impl ClassRegistry {
             .next_commit_id
             .checked_add(1)
             .ok_or(ClassError::CommitIdentityExhausted)?;
-        let candidate = CandidateRevision::origin(
+        let mut candidate = CandidateRevision::origin(
             class,
             revision,
             static_spine,
@@ -160,6 +192,16 @@ impl ClassRegistry {
             self.origin_mro(class, runtime_superclass)?,
             effective_capabilities,
         );
+        for module in modules {
+            if !self.modules.contains(*module) {
+                return Err(ClassError::UnknownModuleId(*module));
+            }
+            candidate.add_module(*module);
+        }
+        candidate.mro = self.compute_mro(&candidate)?;
+        candidate.meta_capabilities = self
+            .effective_meta_capabilities(static_spine, runtime_superclass)?
+            .narrowed_by(self.mro_meta_capabilities(&candidate.mro)?);
         self.revisions.insert(
             revision,
             ClassRevision::from_candidate(
@@ -242,10 +284,14 @@ impl ClassRegistry {
                             .meta_capabilities()
                             .allows(operation)
                     })
-                    .map(|_| *class),
-                crate::MroEntry::Module(_) => None,
+                    .map(|_| PolicyOrigin::Class(*class)),
+                crate::MroEntry::Module(module) => self
+                    .modules
+                    .meta_capabilities(*module)
+                    .filter(|policy| !policy.allows(operation))
+                    .map(|_| PolicyOrigin::Module(*module)),
             })
-            .unwrap_or(target);
+            .unwrap_or(PolicyOrigin::Class(target));
         Err(ClassError::MetaCapabilityDenied {
             target,
             operation,
@@ -264,6 +310,44 @@ impl ClassRegistry {
                 .meta_capabilities()
                 .narrowed_by(self.active_meta_capabilities(superclass)?)),
             None => Ok(static_spine.meta_capabilities()),
+        }
+    }
+
+    pub(crate) fn mro_meta_capabilities(
+        &self,
+        mro: &[crate::MroEntry],
+    ) -> Result<MetaCapabilities, ClassError> {
+        mro.iter()
+            .try_fold(MetaCapabilities::all(), |policy, entry| match entry {
+                crate::MroEntry::Class(_) => Ok(policy),
+                crate::MroEntry::Module(module) => Ok(self
+                    .modules
+                    .meta_capabilities(*module)
+                    .map_or(policy, |module_policy| policy.narrowed_by(module_policy))),
+            })
+    }
+
+    fn meta_capability_denied(
+        &self,
+        superclass: Option<ClassId>,
+        operation: Capability,
+        fallback: PolicyOrigin,
+    ) -> ClassError {
+        let policy_origin = superclass
+            .and_then(|class| self.require_meta_capability(class, operation).err())
+            .and_then(|error| match error {
+                ClassError::MetaCapabilityDenied { policy_origin, .. } => Some(policy_origin),
+                _ => None,
+            })
+            .unwrap_or(fallback);
+        ClassError::MetaCapabilityDenied {
+            target: superclass.unwrap_or_else(|| match fallback {
+                PolicyOrigin::Class(class) => class,
+                PolicyOrigin::Module(_) => ClassId::new(self.next_class_id),
+            }),
+            operation,
+            policy_origin,
+            reason: "the active effective policy denies this meta operation",
         }
     }
 

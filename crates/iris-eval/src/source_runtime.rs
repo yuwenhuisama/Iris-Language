@@ -27,8 +27,9 @@ pub(super) struct SourceEvaluator {
     module_names: HashMap<String, ModuleId>,
     module_classes: HashMap<ModuleId, ClassId>,
     module_methods: HashMap<(ModuleId, Selector), Method>,
+    module_method_overrides: HashMap<iris_runtime::MethodId, bool>,
     property_methods: HashMap<iris_runtime::MethodId, bool>,
-    mixins: HashMap<ClassId, Vec<ClassId>>,
+    class_mixins: HashMap<ClassId, Vec<ClassId>>,
     static_superclasses: HashMap<ClassId, Option<ClassId>>,
     lexical_class: Option<ClassId>,
     current_method: Option<Method>,
@@ -93,8 +94,9 @@ impl SourceEvaluator {
             module_names: HashMap::new(),
             module_classes: HashMap::new(),
             module_methods: HashMap::new(),
+            module_method_overrides: HashMap::new(),
             property_methods: HashMap::new(),
-            mixins: HashMap::new(),
+            class_mixins: HashMap::new(),
             static_superclasses: HashMap::new(),
             lexical_class: None,
             current_method: None,
@@ -139,11 +141,14 @@ impl SourceEvaluator {
             None => None,
         };
         let mut mixins = Vec::new();
+        let mut class_mixins = Vec::new();
         for mixin in &declaration.mixins {
             match mixin {
                 iris_syntax::TypeExpression::Name(name) => {
-                    if let Some(class) = self.class_name(name)? {
-                        mixins.push(class);
+                    if let Some(module) = self.module_names.get(name) {
+                        mixins.push(*module);
+                    } else if let Some(class) = self.class_name(name)? {
+                        class_mixins.push(class);
                     }
                 }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
@@ -177,17 +182,23 @@ impl SourceEvaluator {
                 return Err(EvaluationError::Class(ClassError::MetaCapabilityDenied {
                     target: class,
                     operation: Capability::MethodSet,
-                    policy_origin: class,
+                    policy_origin: iris_runtime::PolicyOrigin::Class(class),
                     reason: "open declarations cannot change MetaCapabilities policy",
                 }));
             }
             class
         } else {
             let capabilities = meta_capabilities(&declaration.meta_deny)?;
+            self.validate_module_overrides(superclass, &mixins)?;
             let class = self
                 .runtime
                 .registry_mut()
-                .define_class_with_capabilities(StaticSpine::new(1), superclass, capabilities)
+                .define_class_with_capabilities_and_modules(
+                    StaticSpine::new(1),
+                    superclass,
+                    capabilities,
+                    &mixins,
+                )
                 .map_err(EvaluationError::Class)?;
             let body = self.register_body(MethodDeclaration {
                 decorators: Vec::new(),
@@ -207,8 +218,8 @@ impl SourceEvaluator {
                 declaration.name.clone(),
                 Binding::immutable(Value::Class(class)),
             );
-            self.mixins.insert(class, mixins);
             self.static_superclasses.insert(class, superclass);
+            self.class_mixins.insert(class, class_mixins);
             class
         };
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
@@ -484,10 +495,23 @@ impl SourceEvaluator {
     }
 
     fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
+        let mut components = Vec::new();
+        for mixin in &declaration.mixins {
+            match mixin {
+                iris_syntax::TypeExpression::Name(name) => components.push(
+                    *self
+                        .module_names
+                        .get(name)
+                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                ),
+                _ => return Err(EvaluationError::UnsupportedConstruct),
+            }
+        }
+        let capabilities = meta_capabilities(&declaration.meta_deny)?;
         let module = self
             .runtime
             .registry_mut()
-            .define_module(&[])
+            .define_module_with_capabilities(&components, capabilities)
             .map_err(EvaluationError::Class)?;
         self.module_names.insert(declaration.name.clone(), module);
         let module_class = self
@@ -504,7 +528,7 @@ impl SourceEvaluator {
                     value,
                 } => self.shared_binding(module_class, *mutable, name, value)?,
                 Statement::Method(method) => {
-                    if method.kind != MethodKind::Module {
+                    if method.kind == MethodKind::Class || method.kind == MethodKind::Property {
                         return Err(EvaluationError::UnsupportedConstruct);
                     }
                     let body = self.register_body(method.clone());
@@ -515,6 +539,8 @@ impl SourceEvaluator {
                         .define_module_method(module, selector, body, visibility(method))
                         .map_err(EvaluationError::Class)?;
                     self.module_methods.insert((module, selector), defined);
+                    self.module_method_overrides
+                        .insert(defined.id(), method.is_override);
                 }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
@@ -1301,7 +1327,7 @@ impl SourceEvaluator {
             Err(iris_runtime::ConstructionError::Dispatch(
                 iris_runtime::DispatchError::MissingMethod { .. },
             )) => self
-                .mixins
+                .class_mixins
                 .get(
                     &self
                         .runtime
@@ -1323,6 +1349,45 @@ impl SourceEvaluator {
                 )),
             Err(error) => Err(EvaluationError::Construction(error)),
         }
+    }
+
+    fn validate_module_overrides(
+        &self,
+        superclass: Option<ClassId>,
+        mixins: &[ModuleId],
+    ) -> Result<(), EvaluationError> {
+        let Some(superclass) = superclass else {
+            return Ok(());
+        };
+        for module in mixins {
+            for ((owner, selector), method) in &self.module_methods {
+                if owner != module {
+                    continue;
+                }
+                let replaces = matches!(
+                    self.runtime.registry().dispatch(superclass, *selector),
+                    Ok(iris_runtime::DispatchOutcome::Invoke(_))
+                );
+                let is_override = self
+                    .module_method_overrides
+                    .get(&method.id())
+                    .copied()
+                    .unwrap_or(false);
+                if replaces && !is_override {
+                    return Err(EvaluationError::Class(ClassError::OverrideRequired {
+                        class: superclass,
+                        selector: *selector,
+                    }));
+                }
+                if !replaces && is_override {
+                    return Err(EvaluationError::Class(ClassError::OverrideWithoutTarget {
+                        class: superclass,
+                        selector: *selector,
+                    }));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn read_class_var(&mut self, name: &str) -> Result<Value, EvaluationError> {

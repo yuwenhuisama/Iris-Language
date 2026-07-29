@@ -18,7 +18,7 @@ mod runtime;
 mod stable_hash;
 mod value;
 
-pub use class_registry::{ClassError, ClassRegistry};
+pub use class_registry::{ClassError, ClassRegistry, PolicyOrigin};
 pub use class_revision::{
     CandidateRevision, ClassRevision, LogicalClass, MroEntry, StaticSpine, StoredProperty,
 };

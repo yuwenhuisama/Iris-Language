@@ -1,7 +1,9 @@
 use core::fmt;
 use std::{collections::HashMap, error::Error};
 
-use crate::{Method, MethodBody, MethodId, MethodOwner, ModuleId, Selector, Visibility};
+use crate::{
+    MetaCapabilities, Method, MethodBody, MethodId, MethodOwner, ModuleId, Selector, Visibility,
+};
 
 /// Recoverable failure from Module registration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,10 +38,15 @@ pub(crate) struct ModuleRegistry {
 struct Module {
     components: Vec<ModuleId>,
     methods: HashMap<Selector, Method>,
+    meta_capabilities: MetaCapabilities,
 }
 
 impl ModuleRegistry {
-    pub(crate) fn define(&mut self, components: &[ModuleId]) -> Result<ModuleId, ModuleError> {
+    pub(crate) fn define(
+        &mut self,
+        components: &[ModuleId],
+        meta_capabilities: MetaCapabilities,
+    ) -> Result<ModuleId, ModuleError> {
         let id = ModuleId::new(self.next_module_id);
         let next_module_id = self
             .next_module_id
@@ -50,6 +57,7 @@ impl ModuleRegistry {
             Module {
                 components: components.to_vec(),
                 methods: HashMap::new(),
+                meta_capabilities,
             },
         );
         self.next_module_id = next_module_id;
@@ -66,6 +74,12 @@ impl ModuleRegistry {
 
     pub(crate) fn contains(&self, module: ModuleId) -> bool {
         self.modules.contains_key(&module)
+    }
+
+    pub(crate) fn meta_capabilities(&self, module: ModuleId) -> Option<MetaCapabilities> {
+        self.modules
+            .get(&module)
+            .map(|definition| definition.meta_capabilities)
     }
 
     pub(crate) fn define_method(

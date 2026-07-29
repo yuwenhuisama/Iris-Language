@@ -223,7 +223,7 @@ fn meta_deny_only_narrows_and_method_capabilities_are_independent() -> Result<()
         Err(ClassError::MetaCapabilityDenied {
             target: class,
             operation: Capability::MethodSet,
-            policy_origin: class,
+            policy_origin: iris_runtime::PolicyOrigin::Class(class),
             reason: "the active effective policy denies this meta operation",
         })
     );
@@ -258,7 +258,7 @@ fn property_set_and_property_body_are_independently_deniable() -> Result<(), Cla
         Err(ClassError::MetaCapabilityDenied {
             target: class,
             operation: Capability::PropertySet,
-            policy_origin: class,
+            policy_origin: iris_runtime::PolicyOrigin::Class(class),
             reason: "the active effective policy denies this meta operation",
         })
     );
@@ -293,7 +293,7 @@ fn decorated_method_publication_respects_method_set_capability() -> Result<(), C
         Err(ClassError::MetaCapabilityDenied {
             target: class,
             operation: Capability::MethodSet,
-            policy_origin: class,
+            policy_origin: iris_runtime::PolicyOrigin::Class(class),
             reason: "the active effective policy denies this meta operation",
         })
     );
@@ -322,7 +322,7 @@ fn meta_capability_error_reports_target_operation_origin_and_reason() -> Result<
         Err(ClassError::MetaCapabilityDenied {
             target: child,
             operation: Capability::MethodSet,
-            policy_origin: base,
+            policy_origin: iris_runtime::PolicyOrigin::Class(base),
             reason: "the active effective policy denies this meta operation",
         })
     );
