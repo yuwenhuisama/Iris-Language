@@ -416,7 +416,7 @@ IRIS-V1-TYPES-C085: `Dynamic<T>` 从不擦除边界检查。进入 Dynamic bound
 
 IRIS-V1-TYPES-C086: 本章中的 Contract 术语是独占且规范的。此概念的历史或非规范名称 MUST NOT 出现在规范性 Iris v1 type、reflection、migration、native、library 或 conformance artifacts 中，除非作为本章外清楚标记的历史或 migration replacement text。
 
-IRIS-V1-TYPES-C087: Foundation conflict report：`Document/Iris Revival Design Review.md:831` through `:837` 中的历史 design review 示例使用 `Array[Integer]`，而冻结 grammar 和 generic decisions 要求 `Array<Integer>`。同一 review section 使用了 Contract 的旧 protocol 词。本章遵循批准草案和当前 foundations：angle-bracket generics 和规范 Contract terminology。
+IRIS-V1-TYPES-C087: Foundation conflict report：`legacy/Document/Iris Revival Design Review.md:831` through `:837` 中的历史 design review 示例使用 `Array[Integer]`，而冻结 grammar 和 generic decisions 要求 `Array<Integer>`。同一 review section 使用了 Contract 的旧 protocol 词。本章遵循批准草案和当前 foundations：angle-bracket generics 和规范 Contract terminology。
 
 IRIS-V1-TYPES-C088: 本章整合 D-172 through D-220、D-233 through D-241，以及 D-452 through D-458。批准草案中的后续修订措辞优先于更早历史 review phrasing。
 

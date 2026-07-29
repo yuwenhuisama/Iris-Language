@@ -1,10 +1,10 @@
 # Iris v1 规范索引
 
-状态：Iris v1.8，冻结语义并附所有者批准的勘误。
+状态：Iris v1.9，冻结语义并附所有者批准的勘误。
 
 翻译说明：本文是 `../README.md` 的忠实简体中文翻译。代码、标识符、稳定 ID、D-ID、字面量和规范性术语保留原文形式或在中文译词后保留英文令牌，以便核对。
 
-IRIS-V1-TRACE-C013: 本目录是正式 Iris v1 规范产物的唯一所在地。已批准的语义来源是 `spec/drafts/iris-language-specification.md`。`Document/` 下的历史文件、遗留脚本、旧的生成解析器输出和现有实现代码只作为证据。除非某个冻结决策明确采纳某项行为，否则它们不是规范性依据。
+IRIS-V1-TRACE-C013: 本目录是正式 Iris v1 规范产物的唯一所在地。已批准的语义来源是 `spec/drafts/iris-language-specification.md`。`legacy/Document/` 下的历史文件、遗留脚本、旧的生成解析器输出和现有实现代码只作为证据。除非某个冻结决策明确采纳某项行为，否则它们不是规范性依据。
 
 IRIS-V1-TRACE-C001: v1 的语言语义已经关闭。作者必须 (MUST) 保留冻结决策，包括取代早期措辞的后续修订。明显空缺必须 (MUST) 记录为 `DEFERRED V1` 或在写作前上报。作者不得 (MUST NOT) 添加、移除、重新解释或静默补全语言特性。
 
@@ -130,14 +130,14 @@ IRIS-V1-TRACE-C010: D-509 关闭 v1 保留关键字清单。D-510 固定所列�
 
 ## 实现和非目标
 
-IRIS-V1-TRACE-C011: 本规范集不实现 Iris。本目录中的工作不得 (MUST NOT) 修改编译器、解析器、运行时、VM、GC、JIT、CLI、扩展 SDK、FFI 绑定、测试、生成的解析器源码、`Document/` 或遗留脚本语料。
+IRIS-V1-TRACE-C011: 本规范集不实现 Iris。本目录中的工作不得 (MUST NOT) 修改编译器、解析器、运行时、VM、GC、JIT、CLI、扩展 SDK、FFI 绑定、测试、生成的解析器源码、`legacy/Document/` 或遗留脚本语料。
 
 IRIS-V1-TRACE-C018: 以下是本文档波次的明确非目标：
 
 | 非目标 | 状态 |
 | --- | --- |
 | Rust runtime、parser、VM、GC、JIT、extension SDK 或 workspace crates | `DEFERRED V1 implementation` |
-| 移动、重写或重新标记 `Document/` 下的考古资料 | `OUT OF SCOPE` |
+| 移动、重写或重新标记 `legacy/Document/` 下的考古资料 | `OUT OF SCOPE` |
 | 默认将旧 PDF、生成的解析器文件或遗留实现视为规范性依据 | `OUT OF SCOPE` |
 | 在解释器和 JIT 之间改变语义的后端特定行为 | `PROHIBITED` |
 | 新语言特性或对冻结决策的重新解释 | `PROHIBITED` |

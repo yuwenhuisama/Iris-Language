@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.8 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.9 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -55,6 +55,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.6 | `META-C120` | `set_superclass` and `ancestors` |
 | v1.7 | — | Amended two vector rows whose frozen text was unsatisfiable |
 | v1.8 | — | Moved the approved semantic source into `spec/drafts/` and repointed its references |
+| v1.9 | — | Moved `Document/` under `legacy/` and repointed its 151 references |
 
 ### Permanence exceptions
 
@@ -64,6 +65,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 2. `V100` — `reflection.ancestors` respelled as `Reflection::Class.ancestors` (v1.6)
 3. `V067` — the "differs" assertion corrected (v1.7)
 4. `V015` — the expected error corrected (v1.7)
+5. `MIGRATION-C003` — the archived-document path repointed after the move (v1.9)
 
 Each changed only a spelling or an unsatisfiable assertion, never a name, argument, value or decision. Ledger rows 21 and 23 record the first two and note that two uses make this a precedent rather than a one-off: weigh any further use against `TRACE-C007` itself, not against these rows.
 

@@ -18,7 +18,7 @@ The `legacy/` tree is archived, frozen, and not guaranteed to build. Iris v1 imp
 ├── legacy/Iris Library Test/        # console runner and .ir behavior corpus
 ├── legacy/Iris Pointer Extension/   # complete native extension example
 ├── legacy/Iris File Extension/      # incomplete extension stub; no plugin exports
-├── Document/                 # language PDF and Notepad++ highlighting XML
+├── legacy/Document/                 # language PDF and Notepad++ highlighting XML
 └── legacy/Iris Programming Language.sln
 ```
 

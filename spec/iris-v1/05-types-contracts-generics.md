@@ -416,7 +416,7 @@ IRIS-V1-TYPES-C085: `Dynamic<T>` never erases boundary checks. Values entering a
 
 IRIS-V1-TYPES-C086: Contract terminology in this chapter is exclusive and canonical. Historical or non-canonical names for this concept MUST NOT appear in normative Iris v1 type, reflection, migration, native, library, or conformance artifacts except as clearly labeled history or migration replacement text outside this chapter.
 
-IRIS-V1-TYPES-C087: Foundation conflict report: the historical design review examples at `Document/Iris Revival Design Review.md:831` through `:837` use `Array[Integer]`, while the frozen grammar and generic decisions require `Array<Integer>`. The same review section uses an older protocol word for Contract. This chapter follows the approved draft and current foundations: angle-bracket generics and canonical Contract terminology.
+IRIS-V1-TYPES-C087: Foundation conflict report: the historical design review examples at `legacy/Document/Iris Revival Design Review.md:831` through `:837` use `Array[Integer]`, while the frozen grammar and generic decisions require `Array<Integer>`. The same review section uses an older protocol word for Contract. This chapter follows the approved draft and current foundations: angle-bracket generics and canonical Contract terminology.
 
 IRIS-V1-TYPES-C088: This chapter consolidates D-172 through D-220, D-233 through D-241, and D-452 through D-458. Later revised wording in the approved draft wins over older historical review phrasing.
 

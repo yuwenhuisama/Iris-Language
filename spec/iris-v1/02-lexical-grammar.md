@@ -4,7 +4,7 @@ Status: Iris v1.2, frozen semantics with owner-approved errata.
 
 IRIS-V1-GRAMMAR-C001: This chapter defines the normative source encoding, lexical token set, literals, reserved keywords, contextual token rules, precedence, associativity, declaration headers, calls, blocks, and EBNF grammar for Iris v1. Later semantic chapters MUST use the syntax anchors and token names in this chapter.
 
-IRIS-V1-GRAMMAR-C002: Historical files, including `Document/IrisLangHighLight(for NP++).xml` and legacy `.ir` scripts, are evidence only. They MUST NOT add reserved words, operators, literal forms, or parse rules beyond the frozen decisions in the approved draft.
+IRIS-V1-GRAMMAR-C002: Historical files, including `legacy/Document/IrisLangHighLight(for NP++).xml` and legacy `.ir` scripts, are evidence only. They MUST NOT add reserved words, operators, literal forms, or parse rules beyond the frozen decisions in the approved draft.
 
 ## Source Text
 

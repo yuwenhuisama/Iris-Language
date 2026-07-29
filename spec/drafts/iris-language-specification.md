@@ -12,12 +12,12 @@ approach: Freeze the language in dependency order through owner-decision intervi
 ## Components (topology ledger)
 <!-- Lock the SHAPE before depth. One row per top-level component that can succeed or fail independently. -->
 <!-- id | outcome (one line) | status: active|deferred | evidence path -->
-1 | Language identity and compatibility policy | active | `Document/Iris Revival Design Review.md:224`
-2 | Lexical, syntactic, and expression specification | active | `Document/IrisLangHighLight(for NP++).xml`; `Iris Library Test/test script/expression/`
-3 | Runtime semantics and object model | active | `Document/Iris Revival Design Review.md:234`; `Iris Library Test/test script/statement/`
-4 | Gradual type and contract semantics | active | `Document/Iris Revival Design Review.md:692`
-5 | Reflection, metaprogramming, resources, and native boundaries | active | `Document/Iris Revival Design Review.md:371`; `Document/Iris Revival Design Review.md:920`
-6 | Conformance corpus and specification freeze criteria | active | `Iris Library Test/test script/`; `Document/Iris Revival Design Review.md:1028`
+1 | Language identity and compatibility policy | active | `legacy/Document/Iris Revival Design Review.md:224`
+2 | Lexical, syntactic, and expression specification | active | `legacy/Document/IrisLangHighLight(for NP++).xml`; `Iris Library Test/test script/expression/`
+3 | Runtime semantics and object model | active | `legacy/Document/Iris Revival Design Review.md:234`; `Iris Library Test/test script/statement/`
+4 | Gradual type and contract semantics | active | `legacy/Document/Iris Revival Design Review.md:692`
+5 | Reflection, metaprogramming, resources, and native boundaries | active | `legacy/Document/Iris Revival Design Review.md:371`; `legacy/Document/Iris Revival Design Review.md:920`
+6 | Conformance corpus and specification freeze criteria | active | `Iris Library Test/test script/`; `legacy/Document/Iris Revival Design Review.md:1028`
 
 ## Open assumptions (announced defaults)
 <!-- Record any default you adopt instead of asking, so the user can veto it at the gate. -->
@@ -25,15 +25,15 @@ approach: Freeze the language in dependency order through owner-decision intervi
 
 ## Findings (cited - path:lines)
 
-- The review is explicitly a discussion baseline rather than a specification and separates facts, recommendations, and unresolved decisions (`Document/Iris Revival Design Review.md:9`).
-- The intended identity is a fully object-oriented dynamic message language, not a Rust/Kotlin/TypeScript surface imitation (`Document/Iris Revival Design Review.md:224`).
+- The review is explicitly a discussion baseline rather than a specification and separates facts, recommendations, and unresolved decisions (`legacy/Document/Iris Revival Design Review.md:9`).
+- The intended identity is a fully object-oriented dynamic message language, not a Rust/Kotlin/TypeScript surface imitation (`legacy/Document/Iris Revival Design Review.md:224`).
 - The current unresolved list is incomplete: repository examples additionally expose literal forms, identifier sigils, operator precedence, qualified-name resolution, destructuring, collection iteration, and call/block interaction (`Iris Library Test/test script/expression/`; `Iris Library Test/test script/statement/`).
-- The syntax highlighter contains legacy keywords not established by the review or behavior corpus, including `alias`, `retry`, `redo`, `goto`, `const`, `global`, and `static` (`Document/IrisLangHighLight(for NP++).xml`).
-- Missing grammar sources mean historical generated parser code cannot safely serve as the normative grammar (`Document/Iris Revival Design Review.md:208`).
+- The syntax highlighter contains legacy keywords not established by the review or behavior corpus, including `alias`, `retry`, `redo`, `goto`, `const`, `global`, and `static` (`legacy/Document/IrisLangHighLight(for NP++).xml`).
+- Missing grammar sources mean historical generated parser code cannot safely serve as the normative grammar (`legacy/Document/Iris Revival Design Review.md:208`).
 
 ## Decisions (with rationale)
 
-- **D-000 — Specification output directory: frozen.** All formal Iris v1 specification, grammar, core-library/ABI boundary, migration, and conformance documents will live under `spec/iris-v1/`. Existing historical artifacts in `Document/` remain archaeology inputs and are not moved or rewritten. Owner decision: 2026-07-24.
+- **D-000 — Specification output directory: frozen.** All formal Iris v1 specification, grammar, core-library/ABI boundary, migration, and conformance documents will live under `spec/iris-v1/`. Existing historical artifacts in `legacy/Document/` remain archaeology inputs and are not moved or rewritten. Owner decision: 2026-07-24.
 - **D-001 — Compatibility identity: frozen.** Revived Iris is a modern successor to legacy Iris, not a source-compatible restoration and not an unrelated new language. Preserve its defining language identity while allowing syntax and problematic semantics to be redesigned. Every intentional incompatibility must be documented in a migration/divergence ledger. Owner decision: 2026-07-24.
 - **D-002 — Core language identity: frozen.** The revived language must preserve all of these constraints: every value is an object; operators are dynamically dispatched messages/methods; method dispatch remains runtime-dynamic; composition uses single inheritance plus modules and explicit interfaces/protocols; lexical closures and trailing blocks remain core; classes and methods have runtime identity and support constrained dynamic mutation; any object may be raised as an exception; and the language remains designed for host embedding and native extensions. Exact syntax and mutation/ABI boundaries remain separate decisions. Owner decision: 2026-07-24.
 - **D-003 — Integer model: frozen.** `Integer` is semantically arbitrary precision. Implementations may represent common values as immediate/fixed-width SmallInt and promote losslessly to BigInt, but this representation split is not observable as different Iris types or dispatch behavior. Integer arithmetic therefore has no fixed-width overflow or wrapping semantics; resource exhaustion is a separate runtime failure. Native boundaries must perform explicit checked conversions when targeting fixed-width host integers. Owner decision: 2026-07-24.

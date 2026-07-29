@@ -4,7 +4,7 @@
 
 IRIS-V1-GRAMMAR-C001：本章定义了 Iris v1 的规范源编码、词法标记集、字面量、保留关键字、上下文标记规则、优先级、结合性、声明头部、调用、块和 EBNF 语法。后面的语义章节 MUST 使用本章中的语法锚点和标记名称。
 
-IRIS-V1-GRAMMAR-C002：历史文件（包括 `Document/IrisLangHighLight(for NP++).xml` 和旧版 `.ir` 脚本）仅作为证据。它们 MUST NOT 添加保留字、运算符、字面量形式或解析规则，超出批准草案中冻结的决定。
+IRIS-V1-GRAMMAR-C002：历史文件（包括 `legacy/Document/IrisLangHighLight(for NP++).xml` 和旧版 `.ir` 脚本）仅作为证据。它们 MUST NOT 添加保留字、运算符、字面量形式或解析规则，超出批准草案中冻结的决定。
 
 ## 源文本
 

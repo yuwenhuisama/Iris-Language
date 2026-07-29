@@ -1,8 +1,8 @@
 # Iris v1 Specification Index
 
-Status: Iris v1.8, frozen semantics with owner-approved errata.
+Status: Iris v1.9, frozen semantics with owner-approved errata.
 
-IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `spec/drafts/iris-language-specification.md`. Historical files under `Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
+IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `spec/drafts/iris-language-specification.md`. Historical files under `legacy/Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
 
 IRIS-V1-TRACE-C001: The language semantics are closed for v1. Writers MUST preserve the frozen decisions, including later revisions that supersede earlier wording. Apparent gaps MUST be recorded as `DEFERRED V1` or escalated before writing. Writers MUST NOT add, remove, reinterpret, or silently complete a language feature. This clause is qualified by the revision procedure in IRIS-V1-TRACE-C019 through IRIS-V1-TRACE-C022: a gap closed through that procedure is not a silent completion.
 
@@ -138,14 +138,14 @@ IRIS-V1-TRACE-C010: D-509 closes the v1 reserved keyword inventory. The v1.1 err
 
 ## Implementation And Non-Goals
 
-IRIS-V1-TRACE-C011: This specification set does not implement Iris. Work in this directory MUST NOT modify compiler, parser, runtime, VM, GC, JIT, CLI, extension SDK, FFI bindings, tests, generated parser sources, `Document/`, or legacy script corpora.
+IRIS-V1-TRACE-C011: This specification set does not implement Iris. Work in this directory MUST NOT modify compiler, parser, runtime, VM, GC, JIT, CLI, extension SDK, FFI bindings, tests, generated parser sources, `legacy/Document/`, or legacy script corpora.
 
 IRIS-V1-TRACE-C018: The following are explicit non-goals for this documentation wave:
 
 | Non-goal | Status |
 | --- | --- |
 | Rust runtime, parser, VM, GC, JIT, extension SDK, or workspace crates | `DEFERRED V1 implementation` |
-| Moving, rewriting, or relabeling archaeology under `Document/` | `OUT OF SCOPE` |
+| Moving, rewriting, or relabeling archaeology under `legacy/Document/` | `OUT OF SCOPE` |
 | Treating the old PDF, generated parser files, or legacy implementation as normative by default | `OUT OF SCOPE` |
 | Backend-specific behavior that changes semantics between interpreter and JIT | `PROHIBITED` |
 | New language features or reinterpretation of frozen decisions | `PROHIBITED except through the IRIS-V1-TRACE-C019 errata procedure` |
