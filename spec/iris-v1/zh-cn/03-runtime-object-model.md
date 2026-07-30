@@ -569,6 +569,8 @@ IRIS-V1-RUNTIME-C161：名为 `name` 的存储属性在其修订级类型化实�
 
 IRIS-V1-RUNTIME-C162：按 IRIS-V1-GRAMMAR-C059 编写的 `shared_decl` 创建 IRIS-V1-RUNTIME-C073 所描述的已声明层次结构绑定单元，并将其锚定到外围逻辑 Class 或 Module。`shared let` 创建不可变单元，任何后续赋值 MUST 失败；`shared mut` 创建可赋值单元。由于 IRIS-V1-RUNTIME-C075 禁止子类隐藏或重新声明锚定单元，其名称已在声明 Class 的静态词法 Class 祖先层次结构中任何位置锚定的 `shared_decl` MUST 被拒绝为重复声明，并且事务 MUST 不发布候选修订。对从未由任何 `shared_decl` 声明的名称赋值，仍会按 IRIS-V1-CONTROL-C009 作为缺少已声明存储而失败。
 
+IRIS-V1-RUNTIME-C163：v1.12 勘误将 `Kernel` 定义为组合进 `Object` 的语言核心 Module。它承载必须在各处无需导入即可见的语言核心 Type 别名与声明，并且是 IRIS-V1-RUNTIME-C046 至 IRIS-V1-RUNTIME-C048 下的普通 Module，因此其组合、查找顺序与去重遵循与其他任何 Module 相同的规则。`Kernel` MUST NOT 提供、替换或遮蔽 IRIS-V1-RUNTIME-C005 赋予 `Object` 的任何默认行为，即默认比较、真值、缺失消息与零参 `initialize`。由于 IRIS-V1-RUNTIME-C046 先于运行时超类搜索已组合的 Module，`Kernel` 中与这四者冲突的成员将优先命中并架空 `C005`；此类声明 MUST 被拒绝。`Kernel` 不是第二个根 Class，不影响 `C005` 的单根要求。
+
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-RUNTIME-V052` | 差异 | 需要解释器；需要 JIT；原生不适用 | `((2 ** 200) + 1) - (2 ** 200)` | `Integer(1)` 与 Type `Integer`；解释器和JIT同意；没有表示 Type 分裂。 | `D-003` |

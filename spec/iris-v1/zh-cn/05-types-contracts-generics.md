@@ -434,7 +434,7 @@ IRIS-V1-TYPES-C093：在 Type-expression 位置，`typeof(expression)` 表示 `e
 
 IRIS-V1-TYPES-C094：v1.11 勘误在类型系统中具体化可调用种类。`Closure<S>` 是 Closure 值的 Type，`BoundMethod<S>` 是 BoundMethod 值的 Type，其中 `S` 是 IRIS-V1-TYPES-C008 定义的可调用签名 `(P1, P2, ...) -> R`。签名本身不再是 Type：每个可调用注解 MUST 指明其种类。本条取代 IRIS-V1-TYPES-C036 与 IRIS-V1-CONTROL-C018 中令 BoundMethod 与 Closure 共用同一个无限定可调用 Type 的规定，并取代 `D-425` 的对应部分。IRIS-V1-CONTROL-C021 已将三种可调用种类定为规范性内容，`D-425` 也已为未绑定 Method 指定独立的具体化 Type，因此本修订是把该处理统一到全部三种种类，而非引入新概念。
 
-IRIS-V1-TYPES-C095：`Block<S>` 是语言核心的 Type 别名，声明为 `type Block<S> = BoundMethod<S> | Closure<S>`。它是 IRIS-V1-GRAMMAR-C050 尾随块通道的 Type，因此 `block_parameter` 可接受任一已绑定的可调用种类，同时其注解仍指明所接受的种类。作为 IRIS-V1-TYPES-C015 下的 Type 别名，它是透明的且不产生名义运行时包装，并按 IRIS-V1-TYPES-C018 作为普通联合类型规范化。`Block` 与 `Object`、`Never`、`NonNil` 一样由语言核心拥有，而非标准库。
+IRIS-V1-TYPES-C095：`Block<S>` 是语言核心的 Type 别名，声明为 `type Block<S> = BoundMethod<S> | Closure<S>`。它是 IRIS-V1-GRAMMAR-C050 尾随块通道的 Type，因此 `block_parameter` 可接受任一已绑定的可调用种类，同时其注解仍指明所接受的种类。作为 IRIS-V1-TYPES-C015 下的 Type 别名，它是透明的且不产生名义运行时包装，并按 IRIS-V1-TYPES-C018 作为普通联合类型规范化。`Block` 声明在 IRIS-V1-RUNTIME-C163 的 `Kernel` Module 中，该 Module 组合进 `Object`，因此无需导入即在各处可见。它由语言核心拥有，而非标准库。
 
 IRIS-V1-TYPES-C096：可调用 Type 参数与其他所有泛型参数一样是不变的，依据 IRIS-V1-TYPES-C028 与 IRIS-V1-TYPES-C031。因此 `Closure<(Integer) -> Object>` 不可赋值给 `Closure<(Integer) -> Symbol>`，反向亦不成立。本条取代 IRIS-V1-TYPES-C036 与 IRIS-V1-CONTROL-C018 先前规定的参数逆变、返回协变可赋值性规则。签名兼容性在调用处依据被调用可调用体的已声明签名检查，遵循 IRIS-V1-TYPES-C007 的普通实参与返回边界规则，而非通过可调用 Type 之间的变型。
 
