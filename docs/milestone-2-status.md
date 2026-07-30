@@ -8,7 +8,7 @@
 
 ```
 RUNTIME  passed: 94, failed: 3, needs_subsystem: 7, no_fixture: 2, differential: 3   (109 records, buckets sum 109)
-CONTROL  passed: 96, failed: 0, needs_subsystem: 5                                  (41 records, buckets sum 41)
+CONTROL  passed: 97, failed: 0, needs_subsystem: 5                                  (41 records, buckets sum 41)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 

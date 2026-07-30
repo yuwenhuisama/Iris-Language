@@ -373,6 +373,12 @@ impl Analyzer {
                     self.scoped_body(body, control);
                 }
             }
+            // IRIS-V1-CONTROL-C006 makes `_` a discard binding that creates no
+            // readable binding, so READING it as an expression is a
+            // compile-time error. `IRIS-V1-CONTROL-V301` names the code.
+            Expression::Name(name) if name == "_" => {
+                self.report("DISCARD_BINDING_READ");
+            }
             Expression::Name(_)
             | Expression::Literal(_)
             | Expression::Symbol(_)
@@ -494,5 +500,34 @@ mod reserved_form_tests {
             )
             .is_empty()
         );
+    }
+}
+
+#[cfg(test)]
+mod discard_binding_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c006_rejects_reading_a_discard_binding_but_allows_binding_to_it() {
+        // C006 makes `_` accept a value WITHOUT creating a readable binding, so
+        // reading it as an expression is a compile-time error.
+        assert_eq!(
+            codes("try { raise :x } catch _, context { _ }"),
+            ["DISCARD_BINDING_READ"]
+        );
+
+        // Binding to `_` remains legal wherever binding patterns allow it, and
+        // a sibling binding in the same clause is still readable.
+        assert!(codes("try { raise :x } catch _, context { context.value }").is_empty());
+        assert!(codes("let mut n = 0; for _ in [1, 2] { n = n + 1 }; n").is_empty());
     }
 }
