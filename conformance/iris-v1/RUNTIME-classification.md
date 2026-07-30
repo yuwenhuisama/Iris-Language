@@ -58,7 +58,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V048` | `:561`, `:639` | positive | executable | Concrete infinity `mul_add` source returns quiet `Float64` NaN without exception. |
 | `IRIS-V1-RUNTIME-V052` | `:570` | differential | differential | Requires interpreter and JIT agreement on arbitrary-precision integer representation. |
 | `IRIS-V1-RUNTIME-V053` | `:571` | positive | needs-subsystem | Re-probed in milestone 2. The reflection reason is stale: `Reflection::*` exists. `type_of` is vector observation NOTATION rather than a selector, and asserting a runtime Type needs the Type objects the type system will supply. |
-| `IRIS-V1-RUNTIME-V054` | `:572` | negative | needs-subsystem | Re-probed in milestone 2. `LEX_BAD_FLOAT_SUFFIX` IS emitted by the lexer; the blocker is that the RUNTIME runner has no `diagnostics` observation channel, which only the GRAMMAR runner provides. |
+| `IRIS-V1-RUNTIME-V054` | `:572` | negative | executable | Concrete malformed-float source. Reclassified in milestone 2 after the RUNTIME runner gained a `diagnostics` expectation branch reusing the GRAMMAR collector; `LEX_BAD_FLOAT_SUFFIX` was already emitted and merely unobservable from this chapter. |
 | `IRIS-V1-RUNTIME-V055` | `:573` | positive | executable | Controlled dispatch/replacement fixture asserts values and exact evaluation log. |
 | `IRIS-V1-RUNTIME-V056` | `:574` | positive | executable | Concrete mixed-width arithmetic source asserts rounded values and result widths. |
 | `IRIS-V1-RUNTIME-V057` | `:575` | positive | executable | Concrete float division source asserts signed infinities and NaN without Iris error. |
@@ -114,7 +114,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V107` | `:627` | negative | needs-subsystem | Confirmed in milestone 2. Needs Dynamic return-Contract enforcement from the type system. |
 | `IRIS-V1-RUNTIME-V108` | `:628` | negative | executable | Controlled MetaCapabilities validation asserts no Child publication after denied subclass creation. |
 | `IRIS-V1-RUNTIME-V109` | `:629` | positive | executable | Controlled side-effect fixture asserts `same?` is true without calling replaceable comparison Methods. |
-| `IRIS-V1-RUNTIME-V110` | `:630` | negative | needs-subsystem | Re-probed in milestone 2. Each reserved-selector declaration is rejected as a parse diagnostic, but the row requires a declaration-validation rejection observable per source, which the RUNTIME runner cannot express without a diagnostics channel. |
+| `IRIS-V1-RUNTIME-V110` | `:630` | negative | needs-subsystem | Re-probed in milestone 2. All five reserved-selector declarations ARE rejected and the runner now observes diagnostics, but `IRIS-V1-GRAMMAR-C054` names no stable category for this case, so the emitted `PARSE_UNEXPECTED_TOKEN` would be an authored code. Marking it `status:authored-expect` was tried and reverted because the runner reports such a row without comparing anything, which would assert nothing while looking verified. |
 | `IRIS-V1-RUNTIME-V111` | `:631` | negative | needs-subsystem | Confirmed in milestone 2. Static rebinding of a Class, Module, Contract or const is not expressible, and the row needs a per-source rejection observation. |
 | `IRIS-V1-RUNTIME-V112` | `:636` | positive | executable | Concrete `0 ** -1` source asserts positive `Float64` infinity without error. |
 

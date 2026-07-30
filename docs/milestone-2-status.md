@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 66, failed: 3, needs_subsystem: 19, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 67, failed: 3, needs_subsystem: 18, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 66.
+Milestone 2 opened at RUNTIME 41 and closed at 67.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 66 of the 69 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 67 of the 70 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 32 rows, 15 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 33 rows, 16 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 66 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 67 across the
 milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
 conformance-host infrastructure, never on missing language behaviour, and each has its own row
 in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
@@ -134,9 +134,10 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
    and `V078` needs only Contract and Type objects since Method alias identity already holds.
 2. **Closure literals** do not parse at all, which alone blocks `V077`, `V087` and `V099`. For
    `V099` that is the only remaining term.
-3. **A `diagnostics` observation channel on the RUNTIME runner** for `V054` and `V110`. Neither
-   needs implementation work: `LEX_BAD_FLOAT_SUFFIX` is already emitted and reserved-selector
-   declarations are already rejected. Only the GRAMMAR runner can observe a diagnostic today.
+3. **`V110` needs a stable diagnostic category**, not implementation. Its five reserved-selector
+   declarations are all rejected and the RUNTIME runner now observes diagnostics, but `C054`
+   names no category for this case, so the emitted `PARSE_UNEXPECTED_TOKEN` is authored rather
+   than specified. Closing it needs an owner ruling or an errata assigning the category.
 4. **Hash literals**, the last term of `V072`.
 5. **`migrate_revision` and revision reactivation** for `V085`, and static rebinding rejection
    for `V111`.

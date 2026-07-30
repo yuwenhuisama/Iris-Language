@@ -2,7 +2,7 @@ use iris_runtime::Value as RuntimeValue;
 
 use crate::{
     json::Value,
-    model::{Record, array, object, parse_expect},
+    model::{Record, array, object, parse_expect, string},
 };
 
 mod values;
@@ -44,6 +44,9 @@ fn compare_runtime_source(
     expected: &std::collections::BTreeMap<String, Value>,
     source: &str,
 ) -> Result<(), String> {
+    if let Some(expected) = expected.get("diagnostics") {
+        return compare_diagnostics(expected, source);
+    }
     match expected.get("error") {
         Some(error) => match expected.get("side_effects") {
             Some(side_effects) => {
@@ -60,6 +63,34 @@ fn compare_runtime_source(
             )
         }
         None => values::compare_observation(expected, source),
+    }
+}
+
+/// Compares a RUNTIME record's expected diagnostic codes against the source.
+///
+/// A malformed source never reaches evaluation, so a row asserting a lexical or
+/// declaration-validation rejection has no runtime value or error to observe.
+/// This reuses the same `diagnostics` collector the GRAMMAR runner uses, so both
+/// chapters classify a given source identically as `IRIS-V1-GRAMMAR-C054`
+/// requires of a conforming diagnostic system.
+fn compare_diagnostics(expected: &Value, source: &str) -> Result<(), String> {
+    let Value::Array(entries) = expected else {
+        return Err("diagnostics expectation must be an array".into());
+    };
+    let expected = entries
+        .iter()
+        .map(|entry| string(object(entry)?, "code").map(str::to_owned))
+        .collect::<Result<Vec<_>, String>>()?;
+    let actual = crate::runner::diagnostics(source)
+        .into_iter()
+        .map(|value| value.code)
+        .collect::<Vec<_>>();
+    if expected.iter().all(|code| actual.contains(code)) {
+        Ok(())
+    } else {
+        Err(format!(
+            "diagnostics expected {expected:?}, actual {actual:?}"
+        ))
     }
 }
 
