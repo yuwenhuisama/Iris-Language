@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    Capability, ClassError, ClassId, CompositionEdge, DispatchContext, DispatchError,
-    DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody, MethodOwner, ModuleId, Runtime,
-    Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
+    Capability, ClassError, ClassId, ComparisonSlot, CompositionEdge, DispatchContext,
+    DispatchError, DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody, MethodOwner,
+    ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -1221,6 +1221,23 @@ impl SourceEvaluator {
                         iris_runtime::ConstructionError::Dispatch(
                             iris_runtime::DispatchError::MissingMethod { .. },
                         ),
+                    )) if self.comparison_slot(selector).is_some() => {
+                        let slot = self
+                            .comparison_slot(selector)
+                            .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        self.default_comparison(object, slot, arguments)
+                    }
+                    Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::MissingMethod { .. },
+                        ),
+                    )) if selector == self.selector("<=>") && arguments.len() == 1 => {
+                        Ok(Value::Nil)
+                    }
+                    Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::MissingMethod { .. },
+                        ),
                     )) => self.invoke_method_missing(object, selector, arguments),
                     Err(error) => Err(error),
                 }
@@ -1692,6 +1709,60 @@ impl SourceEvaluator {
         self.next_body += 1;
         self.bodies.insert(body.raw(), method);
         body
+    }
+
+    fn comparison_slot(&mut self, selector: Selector) -> Option<ComparisonSlot> {
+        [
+            ("==", ComparisonSlot::Equal),
+            ("!=", ComparisonSlot::NotEqual),
+            ("<", ComparisonSlot::Less),
+            ("<=", ComparisonSlot::LessEqual),
+            (">", ComparisonSlot::Greater),
+            (">=", ComparisonSlot::GreaterEqual),
+        ]
+        .into_iter()
+        .find_map(|(name, slot)| (self.selector(name) == selector).then_some(slot))
+    }
+
+    /// Derives a comparison result for a receiver whose slot is still the default.
+    ///
+    /// `IRIS-V1-RUNTIME-C086` requires equality to test reference identity FIRST
+    /// and return `true` without consulting `<=>`, which is why an object whose
+    /// `<=>` always answers `nil` still equals itself. Otherwise the current
+    /// visible `<=>` is sent, exactly once, and `IRIS-V1-RUNTIME-C084` maps its
+    /// response, with `nil` meaning unordered. `IRIS-V1-RUNTIME-C085` rejects any
+    /// response outside `Integer(-1)`, `Integer(0)`, `Integer(1)` and `nil`.
+    fn default_comparison(
+        &mut self,
+        object: iris_runtime::ObjectId,
+        slot: ComparisonSlot,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let [other] = arguments else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        if matches!(slot, ComparisonSlot::Equal | ComparisonSlot::NotEqual)
+            && *other == Value::Object(object)
+        {
+            return Ok(Value::Bool(matches!(slot, ComparisonSlot::Equal)));
+        }
+        let ordering = match self.send(Value::Object(object), "<=>", std::slice::from_ref(other))? {
+            Value::Nil => None,
+            Value::Integer(value) if value == (-1_i8).into() => Some(-1_i8),
+            Value::Integer(value) if value == 0_u8.into() => Some(0_i8),
+            Value::Integer(value) if value == 1_u8.into() => Some(1_i8),
+            _ => return Err(EvaluationError::ComparisonContractError),
+        };
+        Ok(Value::Bool(match (slot, ordering) {
+            (ComparisonSlot::Equal, Some(0))
+            | (ComparisonSlot::Less, Some(-1))
+            | (ComparisonSlot::LessEqual, Some(-1 | 0))
+            | (ComparisonSlot::Greater, Some(1))
+            | (ComparisonSlot::GreaterEqual, Some(0 | 1))
+            | (ComparisonSlot::NotEqual, None) => true,
+            (ComparisonSlot::NotEqual, Some(order)) => order != 0,
+            _ => false,
+        }))
     }
 
     fn resolve_instance_method(

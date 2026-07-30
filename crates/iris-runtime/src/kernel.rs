@@ -252,20 +252,14 @@ impl Kernel {
             classes[index] = (kind, registry.define_builtin_class(kind, spine, None)?);
         }
         let kernel = Self { classes };
+        // Object gets no native comparison selectors. IRIS-V1-RUNTIME-C083 makes
+        // its `<=>` answer nil for every operand, and C084/C086 derive the six
+        // comparison Methods from that response, so the native numeric bodies
+        // installed on the value Classes would be wrong here.
         kernel.install(
             registry,
             BuiltinClass::Object,
-            &[
-                NativeSelector::Equal,
-                NativeSelector::NotEqual,
-                NativeSelector::Less,
-                NativeSelector::LessEqual,
-                NativeSelector::Greater,
-                NativeSelector::GreaterEqual,
-                NativeSelector::Compare,
-                NativeSelector::Hash,
-                NativeSelector::ToBool,
-            ],
+            &[NativeSelector::Hash, NativeSelector::ToBool],
         )?;
         kernel.install(
             registry,

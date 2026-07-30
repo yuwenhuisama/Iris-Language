@@ -79,7 +79,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V072` | `:592` | negative | needs-subsystem | The required `%{ Float64.nan: 1 }` assertion needs the excluded Hash collections library. |
 | `IRIS-V1-RUNTIME-V073` | `:593` | differential | differential | Explicitly requires exact public hashes to agree between interpreter and JIT. |
 | `IRIS-V1-RUNTIME-V074` | `:594` | negative | executable | Concrete unavailable-selector send asserts `MessageNotFoundError`. |
-| `IRIS-V1-RUNTIME-V075` | `:595` | positive | needs-subsystem | Re-probed in milestone 2. The root Class now exists, so what remains is the `C085`/`D-090` default derived comparison: a `Probe` whose `<=>` returns `nil` must derive `==` and the ordered relations from it rather than raise. |
+| `IRIS-V1-RUNTIME-V075` | `:595` | positive | executable | Concrete comparison source with a concrete asserted aggregate and call log. Reclassified in milestone 2 once the `C083` root `<=>`, the `C084` derivation and the `C086` identity fast path were implemented. |
 | `IRIS-V1-RUNTIME-V076` | `:596` | positive | executable | Concrete singleton comparison source with a concrete asserted aggregate. Reclassified in milestone 2 after the `C091`/`C092` protocols and the `C005` root Class both landed. |
 | `IRIS-V1-RUNTIME-V077` | `:597` | positive | needs-subsystem | Requires the callable/Closure subsystem for `closure()` identity/equality. |
 | `IRIS-V1-RUNTIME-V078` | `:598` | positive | needs-subsystem | Requires Contract and Type objects from the excluded contracts/generics type system. |

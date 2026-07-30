@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 60, failed: 3, needs_subsystem: 25, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 61, failed: 3, needs_subsystem: 24, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 60.
+Milestone 2 opened at RUNTIME 41 and closed at 61.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 60 of the 63 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 61 of the 64 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 29 rows, 12 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 30 rows, 13 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 60 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 61 across the
 milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
 conformance-host infrastructure, never on missing language behaviour, and each has its own row
 in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
@@ -126,17 +126,16 @@ invisible for a milestone because a bucketed vector is never executed.
 
 ### Next work, in order of value
 
-1. **Default derived comparison on `Object`.** `C085` and `D-090` define what `==`, `!=` and the
-   ordered relations do when a user `<=>` returns `nil`. A `Probe` whose `<=>` returns `nil`
-   currently raises instead of deriving, which is the last thing `V075` waits on.
-2. **`@@x` hierarchy binding cells** shared across a subclass, with redeclaration rejected, for
+1. **`@@x` hierarchy binding cells** shared across a subclass, with redeclaration rejected, for
    `V091`.
-3. **Ordered stored-property initialization** across the MRO during construction, for `V092`.
-4. **Built-in Class openness**: Module composition into `Nil` and Method addition to `Bool` and
+2. **Ordered stored-property initialization** across the MRO during construction, for `V092`.
+3. **Built-in Class openness**: Module composition into `Nil` and Method addition to `Bool` and
    `Integer`, for `V101`.
-5. **Hash literals**, for `V072`.
-6. **`V100`** needs a runtime-superclass change fixture plus `type_of` subtype observation; the
-   ancestry half it asserts, `[A, NewBase, Object]`, is now produced correctly.
+4. **Hash literals**, for `V072`.
+5. **`V100`** needs the `is` operator and `type_of`/`subtype?` type introspection; the ancestry
+   half it asserts, `[A, NewBase, Object]`, is now produced correctly.
+6. **Type system and Contracts** is the largest remaining block at eight vectors, `V053`, `V078`,
+   `V080`, `V081`, `V082`, `V086`, `V100` and `V107`.
 
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 

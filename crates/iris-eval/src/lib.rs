@@ -48,6 +48,8 @@ pub enum EvaluationError {
     Symbol(String),
     /// A truthiness `to_bool` Method returned a value other than Bool.
     TypeContractError,
+    /// A `<=>` Method returned a value outside `Integer(-1|0|1)` and `nil`.
+    ComparisonContractError,
     /// An ordinary selector was absent and the default `method_missing` applied.
     MessageNotFound {
         receiver_class: String,

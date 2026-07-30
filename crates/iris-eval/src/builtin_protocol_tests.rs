@@ -160,3 +160,87 @@ fn c114_float32_bit_classification_round_trips_through_to_bits() {
         "Array([Bool(true), Bool(true), Bool(false), Integer(IntegerValue(2139095041))])"
     );
 }
+
+#[test]
+fn c086_equality_tests_identity_before_consulting_spaceship() {
+    // Given
+    let source = "let mut calls = []; class P { public fun <=>(o) { calls.append(:c); nil } }; \
+                  let a = P.new(); let same = a; let b = P.new(); \
+                  let r = [a == same, a <=> b, a == b, a != b, a < b]; [r, calls]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Array([Bool(true), Nil, Bool(false), Bool(true), Bool(false)]), \
+         Array([Symbol(\"c\"), Symbol(\"c\"), Symbol(\"c\"), Symbol(\"c\")])])"
+    );
+}
+
+#[test]
+fn c083_root_spaceship_answers_nil_for_every_operand() {
+    // Given
+    let source = "class Q { }; let a = Q.new(); let b = Q.new(); [a <=> b, a <=> 1, a <=> nil]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Array([Nil, Nil, Nil])");
+}
+
+#[test]
+fn c084_derives_all_six_relations_from_the_visible_spaceship() {
+    // Given
+    let zero = "class D { public fun <=>(o) { 0 } }; let x = D.new(); let y = D.new(); \
+                [x == y, x < y, x <= y, x > y, x >= y, x != y]";
+    let less = "class E { public fun <=>(o) { 0 - 1 } }; let x = E.new(); let y = E.new(); \
+                [x == y, x < y, x <= y, x > y, x >= y, x != y]";
+
+    // When
+    let zero = rendered(zero);
+    let less = rendered(less);
+
+    // Then
+    assert_eq!(
+        zero,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(false), Bool(true), Bool(false)])"
+    );
+    assert_eq!(
+        less,
+        "Array([Bool(false), Bool(true), Bool(true), Bool(false), Bool(false), Bool(true)])"
+    );
+}
+
+#[test]
+fn c084_nil_spaceship_makes_every_ordered_relation_false() {
+    // Given
+    let source = "class P { public fun <=>(o) { nil } }; let x = P.new(); let y = P.new(); \
+                  [x == y, x != y, x < y, x <= y, x > y, x >= y]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(false), Bool(true), Bool(false), Bool(false), Bool(false), Bool(false)])"
+    );
+}
+
+#[test]
+fn c085_rejects_a_spaceship_result_outside_the_contract() {
+    // Given
+    let integer = "class B { public fun <=>(o) { 7 } }; let x = B.new(); let y = B.new(); x < y";
+    let symbol = "class C { public fun <=>(o) { :sym } }; let x = C.new(); let y = C.new(); x == y";
+
+    // When
+    let integer = rendered(integer);
+    let symbol = rendered(symbol);
+
+    // Then
+    assert_eq!(integer, "ComparisonContractError");
+    assert_eq!(symbol, "ComparisonContractError");
+}
