@@ -1382,3 +1382,30 @@ fn c035_yields_the_setter_result_for_a_property_write() {
         "Array([Symbol(\"inner\"), Array([Symbol(\"set\"), Symbol(\"set\")])])"
     );
 }
+
+#[test]
+fn c011_does_not_invoke_a_bare_callable_value() {
+    // Given a bare `c.f` bound to a name. A call COUNTER is required here:
+    // comparing two results cannot distinguish "the bare name was not invoked"
+    // from "it was invoked and happened to return the same value".
+    let counted = "let mut calls = 0; class C { public fun f() { calls = calls + 1; 1 } } \
+                   let c = C.new(); let bare = c.f; let after_bind = calls; \
+                   let invoked = bare.call(); [after_bind, invoked, calls]";
+    // A compound index assignment evaluates receiver, index and RHS exactly
+    // once each, in that order.
+    let ordered = "let mut events = []; let mut store = [1, 2]; \
+                   class P { public fun factory() { events.append(:factory); store } \
+                   public fun idx() { events.append(:index); 0 } \
+                   public fun rhs() { events.append(:rhs); 5 } } \
+                   let p = P.new(); p.factory()[p.idx()] += p.rhs(); events";
+
+    // When / Then binding the callable performs no call.
+    assert_eq!(
+        rendered(counted),
+        "Array([Integer(IntegerValue(0)), Integer(IntegerValue(1)), Integer(IntegerValue(1))])"
+    );
+    assert!(
+        rendered(ordered)
+            .ends_with("Array([Symbol(\"factory\"), Symbol(\"index\"), Symbol(\"rhs\")])])")
+    );
+}
