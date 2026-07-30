@@ -1476,6 +1476,20 @@ impl SourceEvaluator {
                     )) if selector == self.selector("to_bool") && arguments.is_empty() => {
                         Ok(Value::Bool(true))
                     }
+                    // IRIS-V1-RUNTIME-C088: an ordinary object answers `hash`
+                    // with a runtime-stable identity hash assigned at allocation,
+                    // which survives GC movement and exposes no address.
+                    Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::MissingMethod { .. },
+                        ),
+                    )) if selector == self.selector("hash") && arguments.is_empty() => {
+                        let hash = self
+                            .runtime
+                            .identity_hash(object)
+                            .map_err(|_| EvaluationError::UnsupportedConstruct)?;
+                        Ok(Value::Integer(hash.into()))
+                    }
                     Err(EvaluationError::Construction(
                         iris_runtime::ConstructionError::Dispatch(
                             iris_runtime::DispatchError::MissingMethod { .. },

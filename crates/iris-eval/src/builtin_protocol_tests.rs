@@ -724,3 +724,23 @@ fn c014_dynamic_entry_yields_the_value_without_widening_visibility() {
     assert_eq!(public_send, "Symbol(\"m\")");
     assert!(private_send.contains("VisibilityDenied"));
 }
+
+#[test]
+fn c088_an_ordinary_object_has_a_stable_identity_hash() {
+    // Given
+    let stable = "class A { } let a = A.new(); let before = a.hash(); \
+                  let others = [A.new(), A.new(), A.new()]; let after = a.hash(); before == after";
+    let distinct = "class A { } let a = A.new(); let b = A.new(); a.hash() == b.hash()";
+    // C088 must not disturb the specification-stable numeric hash.
+    let numeric = "Integer(1).hash()";
+
+    // When
+    let stable = rendered(stable);
+    let distinct = rendered(distinct);
+    let numeric = rendered(numeric);
+
+    // Then
+    assert_eq!(stable, "Bool(true)");
+    assert_eq!(distinct, "Bool(false)");
+    assert_eq!(numeric, "Integer(IntegerValue(17824117788395916856))");
+}

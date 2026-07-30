@@ -256,11 +256,10 @@ impl Kernel {
         // its `<=>` answer nil for every operand, and C084/C086 derive the six
         // comparison Methods from that response, so the native numeric bodies
         // installed on the value Classes would be wrong here.
-        kernel.install(
-            registry,
-            BuiltinClass::Object,
-            &[NativeSelector::Hash, NativeSelector::ToBool],
-        )?;
+        // Hash is NOT installed here either. IRIS-V1-RUNTIME-C088 gives an
+        // ordinary object a runtime-stable IDENTITY hash, which the evaluator
+        // supplies from the heap; the native numeric body would be wrong.
+        kernel.install(registry, BuiltinClass::Object, &[NativeSelector::ToBool])?;
         kernel.install(
             registry,
             BuiltinClass::Nil,

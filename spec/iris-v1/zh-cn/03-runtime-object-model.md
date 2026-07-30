@@ -193,7 +193,7 @@ IRIS-V1-RUNTIME-C058：如果 `initialize` 或存储的属性初始值设定项�
 
 IRIS-V1-RUNTIME-C059：Iris v1 不提供自动构建和修订协调。它 MUST NOT 提供 `new_current`、`new_checked`、构造函数重试、修订锁定、自动构造后重新初始化、自动实例状态迁移或隐藏构造函数副作用补偿。
 
-IRIS-V1-RUNTIME-C060：传统的 `migrate_revision(from: ClassRevision, to: ClassRevision) -> Nil` Method MAY 由应用程序在其跟踪的对象上实现和显式调用。运行时打开或提交 MUST NOT 枚举实时实例，自动调用此 Method，或提供 Class 范围的实时实例枚举。
+IRIS-V1-RUNTIME-C060：传统的 `migrate_revision(source: ClassRevision, target: ClassRevision) -> Nil` Method MAY 由应用程序在其跟踪的对象上实现和显式调用。运行时打开或提交 MUST NOT 枚举实时实例，自动调用此 Method，或提供 Class 范围的实时实例枚举。
 
 ## 属性、原始 ivar 与类变量
 
@@ -570,6 +570,8 @@ IRIS-V1-RUNTIME-C161：名为 `name` 的存储属性在其修订级类型化实�
 IRIS-V1-RUNTIME-C162：按 IRIS-V1-GRAMMAR-C059 编写的 `shared_decl` 创建 IRIS-V1-RUNTIME-C073 所描述的已声明层次结构绑定单元，并将其锚定到外围逻辑 Class 或 Module。`shared let` 创建不可变单元，任何后续赋值 MUST 失败；`shared mut` 创建可赋值单元。由于 IRIS-V1-RUNTIME-C075 禁止子类隐藏或重新声明锚定单元，其名称已在声明 Class 的静态词法 Class 祖先层次结构中任何位置锚定的 `shared_decl` MUST 被拒绝为重复声明，并且事务 MUST 不发布候选修订。对从未由任何 `shared_decl` 声明的名称赋值，仍会按 IRIS-V1-CONTROL-C009 作为缺少已声明存储而失败。
 
 IRIS-V1-RUNTIME-C163：v1.12 勘误将 `Kernel` 定义为组合进 `Object` 的语言核心 Module。它承载必须在各处无需导入即可见的语言核心 Type 别名与声明，并且是 IRIS-V1-RUNTIME-C046 至 IRIS-V1-RUNTIME-C048 下的普通 Module，因此其组合、查找顺序与去重遵循与其他任何 Module 相同的规则。`Kernel` MUST NOT 提供、替换或遮蔽 IRIS-V1-RUNTIME-C005 赋予 `Object` 的任何默认行为，即默认比较、真值、缺失消息与零参 `initialize`。由于 IRIS-V1-RUNTIME-C046 先于运行时超类搜索已组合的 Module，`Kernel` 中与这四者冲突的成员将优先命中并架空 `C005`；此类声明 MUST 被拒绝。`Kernel` 不是第二个根 Class，不影响 `C005` 的单根要求。
+
+IRIS-V1-RUNTIME-C164：v1.13 勘误将常规迁移签名改写为 `migrate_revision(source: ClassRevision, target: ClassRevision) -> Nil`。此前的拼写将第一个参数命名为 `from`，而 IRIS-V1-GRAMMAR-C013 将其保留为 `import_decl` 与 `raise_cause` 的关键字，因此 `D-266` 所述签名在 Iris 源码中根本无法书写。仅两个参数名称改变：选择子、参数 Type、返回 Type，以及 `D-264`、`D-265` 与 `D-266` 拥有的每一项语义均保持不变，包括该 Method 是运行时从不自动调用的普通可替换 Method。本条取代 IRIS-V1-RUNTIME-C060 与 `D-266` 中的参数名称。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

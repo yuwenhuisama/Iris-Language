@@ -245,6 +245,15 @@ impl Runtime {
         Ok(self.raw_ivars.get(&instance).map_or(0, HashMap::len))
     }
 
+    /// Returns the runtime-stable identity hash of an ordinary object.
+    ///
+    /// `IRIS-V1-RUNTIME-C088` requires the same object to retain this value for
+    /// its whole lifetime and ACROSS GC movement, so it is assigned at
+    /// allocation and never derived from a memory address.
+    pub fn identity_hash(&self, instance: ObjectId) -> Result<u64, crate::heap::RuntimeError> {
+        Ok(self.heap.lookup(instance)?.identity_hash())
+    }
+
     /// Returns the materialized raw ivar names for a receiver.
     pub fn raw_ivar_names(&self, instance: ObjectId) -> Result<Vec<Selector>, ConstructionError> {
         self.class_of(instance)?;
