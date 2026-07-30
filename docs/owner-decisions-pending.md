@@ -19,15 +19,19 @@ Resolved entries are struck from this file and recorded in
 
 _No open questions at the time of writing._
 
-The registry unification recorded here was ruled on by the owner, who chose to
-merge. It is implemented and its outcome is in `docs/spec-defects-v1.md`.
+Three questions were raised during autonomous work and all three were ruled on
+rather than left pending:
 
-_No open questions at the time of writing._
+- **Registry unification.** The owner chose to merge, which made `Object` the
+  implicit root and closed `V075`, `V076` and `V100`.
+- **Callable kind in the Type system.** The owner's `Block<S>` union answered the
+  objection that a bare `Closure<T>` could not accept a BoundMethod. Published as
+  the v1.11 errata, so `Closure<S>` and `BoundMethod<S>` now reify the kind while
+  the block channel still accepts either.
+- **`D-266` naming a reserved keyword.** Resolved by the v1.13 errata under
+  option A: `IRIS-V1-RUNTIME-C164` restates the signature as
+  `migrate_revision(source, target)`, changing only the two parameter names
+  rather than widening the grammar to admit reserved words in parameter
+  position.
 
-Two questions were resolved rather than left pending. The callable-kind question
-was answered by the owner's `Block<S>` union and published as the v1.11 errata,
-so `Closure<S>` and `BoundMethod<S>` now reify the kind while the block channel
-still accepts either. The `D-266` reserved-keyword conflict was resolved by the
-v1.13 errata under option A: `IRIS-V1-RUNTIME-C164` restates the signature as
-`migrate_revision(source, target)`, changing only the two parameter names.
-Both outcomes are recorded in `docs/spec-defects-v1.md`.
+Each outcome is recorded in `docs/spec-defects-v1.md`.
