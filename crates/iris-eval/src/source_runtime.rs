@@ -1914,7 +1914,12 @@ impl SourceEvaluator {
             Value::Integer(value) if value == (-1_i8).into() => Some(-1_i8),
             Value::Integer(value) if value == 0_u8.into() => Some(0_i8),
             Value::Integer(value) if value == 1_u8.into() => Some(1_i8),
-            _ => return Err(EvaluationError::ComparisonContractError),
+            // D-094 separates two failures. Another Integer satisfies the broad
+            // `Integer?` return type but violates the protocol, so it is a
+            // ComparisonContractError. A non-Integer, non-nil result violates the
+            // return type contract itself and is a TypeError.
+            Value::Integer(_) => return Err(EvaluationError::ComparisonContractError),
+            _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
         };
         Ok(Value::Bool(match (slot, ordering) {
             (ComparisonSlot::Equal, Some(0))

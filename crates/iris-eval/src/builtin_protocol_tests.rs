@@ -231,18 +231,22 @@ fn c084_nil_spaceship_makes_every_ordered_relation_false() {
 }
 
 #[test]
-fn c085_rejects_a_spaceship_result_outside_the_contract() {
+fn d093_and_d094_separate_a_protocol_violation_from_a_return_type_violation() {
     // Given
     let integer = "class B { public fun <=>(o) { 7 } }; let x = B.new(); let y = B.new(); x < y";
     let symbol = "class C { public fun <=>(o) { :sym } }; let x = C.new(); let y = C.new(); x == y";
+    let boolean =
+        "class D { public fun <=>(o) { true } }; let x = D.new(); let y = D.new(); x == y";
 
     // When
     let integer = rendered(integer);
     let symbol = rendered(symbol);
+    let boolean = rendered(boolean);
 
     // Then
     assert_eq!(integer, "ComparisonContractError");
-    assert_eq!(symbol, "ComparisonContractError");
+    assert!(symbol.contains("Type"));
+    assert!(boolean.contains("Type"));
 }
 
 #[test]
