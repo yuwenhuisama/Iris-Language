@@ -268,6 +268,15 @@ fn type_expression_shape(value: &TypeExpression) -> String {
             .map(type_expression_shape)
             .collect::<Vec<_>>()
             .join(" | "),
+        TypeExpression::Function { parameters, result } => format!(
+            "({}) -> {}",
+            parameters
+                .iter()
+                .map(type_expression_shape)
+                .collect::<Vec<_>>()
+                .join(", "),
+            type_expression_shape(result)
+        ),
         TypeExpression::Generic { name, arguments } => format!(
             "{}<{}>",
             name,

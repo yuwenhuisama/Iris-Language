@@ -602,3 +602,32 @@ fn c076_call_is_the_sole_invocation_spelling() {
     assert_eq!(block, "Symbol(\"blk\")");
     assert_eq!(direct, "UnsupportedConstruct");
 }
+
+#[test]
+fn c023_block_parameter_carries_a_function_type_annotation() {
+    // Given
+    let annotated = "class A { public fun m(&b: (Integer) -> Symbol) { b.call(1) } } \
+                     let o = A.new(); o.m({ |x| :got })";
+    let unannotated = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :v })";
+
+    // When
+    let annotated = rendered(annotated);
+    let unannotated = rendered(unannotated);
+
+    // Then
+    assert_eq!(annotated, "Symbol(\"got\")");
+    assert_eq!(unannotated, "Symbol(\"v\")");
+}
+
+#[test]
+fn c025_an_omitted_optional_block_binds_nil() {
+    // Given
+    let source = "class A { public fun m(&b: (Integer) -> Symbol = nil) { b } } \
+                  let o = A.new(); o.m()";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Nil");
+}

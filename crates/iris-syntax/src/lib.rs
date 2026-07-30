@@ -88,6 +88,14 @@ pub enum TypeExpression {
         name: String,
         arguments: Vec<TypeExpression>,
     },
+    /// `function_type ::= "(" type_expr_list? ")" "->" type_expr`.
+    ///
+    /// This is the callable Type that `IRIS-V1-CONTROL-C018` writes as
+    /// `(P1, P2, ...) -> R` and that `block_parameter` requires.
+    Function {
+        parameters: Vec<TypeExpression>,
+        result: Box<TypeExpression>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

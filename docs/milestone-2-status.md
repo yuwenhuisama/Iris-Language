@@ -99,7 +99,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 39 rows, 22 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 40 rows, 23 resolved, and records the blocker for every one.
 
 ## Working Agreements
 

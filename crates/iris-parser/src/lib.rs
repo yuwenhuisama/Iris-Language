@@ -914,6 +914,27 @@ impl Parser {
         values
     }
     fn type_expression(&mut self) -> Option<TypeExpression> {
+        // `function_type ::= "(" type_expr_list? ")" "->" type_expr` is the
+        // callable Type `block_parameter` requires, so a leading `(` starts a
+        // function Type rather than a nominal name.
+        if self.check("(") {
+            self.expect("(")?;
+            let mut parameters = Vec::new();
+            while !self.check(")") && !self.at_end() {
+                parameters.push(self.type_expression()?);
+                if !self.consume(",") {
+                    break;
+                }
+            }
+            self.expect(")")?;
+            self.expect("-")?;
+            self.expect(">")?;
+            let result = self.type_expression()?;
+            return Some(TypeExpression::Function {
+                parameters,
+                result: Box::new(result),
+            });
+        }
         let first = if self.consume("typeof") {
             self.expect("(")?;
             let expression = self.expression(0)?;

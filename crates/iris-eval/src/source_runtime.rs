@@ -841,6 +841,7 @@ impl SourceEvaluator {
                 _ => false,
             },
             iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Function { .. }
             | iris_syntax::TypeExpression::Intersection(_)
             | iris_syntax::TypeExpression::Union(_)
             | iris_syntax::TypeExpression::Generic { .. } => false,
@@ -2450,8 +2451,12 @@ impl SourceEvaluator {
         let parameters = declaration.parameters.clone();
         let body = declaration.body.clone();
         let mut locals = HashMap::new();
-        for (parameter, argument) in parameters.iter().zip(arguments) {
-            locals.insert(parameter.clone(), argument.clone());
+        for (index, parameter) in parameters.iter().enumerate() {
+            // IRIS-V1-CONTROL-C025: an omitted optional block binds `nil`, so a
+            // declared parameter with no matching argument must still be bound.
+            // Zipping alone would leave it absent and unresolvable in the body.
+            let argument = arguments.get(index).cloned().unwrap_or(Value::Nil);
+            locals.insert(parameter.clone(), argument);
         }
         self.block(&body, &locals, Some(receiver))
     }
