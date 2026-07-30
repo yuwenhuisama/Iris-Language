@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 100 are
-committed here; the remaining 34 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 102 are
+committed here; the remaining 32 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -131,3 +131,5 @@ existing channel.
 | `V362` | positive | needs-subsystem | `method_missing` IS reached for an unknown selector, but the truthiness path never consults it: with `to_bool` absent, `if` falls back to DEFAULT truthiness instead of dispatching the missing message. Probing this row produced a false positive, since the expected `:then` arrives either way; a call counter shows `method_missing` runs zero times. |
 | `V349` | positive | executable | Transcribed after probing; instance and Class Methods read the declaring lexical Class cell. |
 | `V348` | negative | needs-subsystem | The redeclaration IS rejected, but the runner renders every `ClassError` as a generic `RuntimeError`, so the expectation could not distinguish a class-variable redeclaration from any other Class failure. |
+| `V315` | diagnostic | executable | Transcribed after probing; catch-binding immutability and logical-assignment short-circuit verified against the frozen row. |
+| `V325` | positive | executable | Transcribed after probing; catch-binding immutability and logical-assignment short-circuit verified against the frozen row. |

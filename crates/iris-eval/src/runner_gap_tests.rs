@@ -524,8 +524,16 @@ fn array_append_does_not_add_array_add_or_size() {
     let add_result = evaluate(add);
     let size_result = evaluate(size);
 
-    // Then
-    assert_eq!(add_result, Err(EvaluationError::Runtime(KernelError::Type)));
+    // Then `+` is genuinely NOT FOUND on an Array rather than a type mismatch:
+    // IRIS-V1-RUNTIME-C005 makes a value with no dedicated builtin Class an
+    // ordinary `Object`, so the send resolves a receiver and then reports the
+    // missing selector, matching the `size` case below.
+    assert!(matches!(
+        add_result,
+        Err(EvaluationError::Runtime(
+            KernelError::MessageNotFound { .. }
+        ))
+    ));
     assert_eq!(
         size_result,
         Err(EvaluationError::MessageNotFound {

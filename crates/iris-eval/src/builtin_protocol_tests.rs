@@ -1455,3 +1455,28 @@ fn c042_calls_to_bool_once_per_tested_operand_and_short_circuits() {
         "Array([Bool(false), Symbol(\"yes\"), Integer(IntegerValue(3)), Integer(IntegerValue(0))])"
     );
 }
+
+#[test]
+fn c094_makes_every_value_answer_to_bool_through_root_object() {
+    // Given values with no dedicated builtin Class. C005 makes `Object` the
+    // single root and C094 gives it a `to_bool` returning `true`, so these are
+    // ordinary Objects rather than values without a Class. Resolving them to an
+    // error made `if :sym`, `if [1]` and `if %{}` fail outright.
+    let symbol = "if :sym { :yes } else { :no }";
+    let array = "if [1] { :yes } else { :no }";
+    let hash = "if %{} { :yes } else { :no }";
+    // Only `Nil` is false and `Bool` returns itself.
+    let nil = "if nil { :yes } else { :no }";
+    let falsehood = "if false { :yes } else { :no }";
+    // Logical assignment reads the target through the same protocol, so a
+    // truthy target must SHORT-CIRCUIT rather than fail.
+    let short_circuit = "let mut x = :kept; x ||= :other; x";
+
+    // When / Then
+    assert_eq!(rendered(symbol), "Symbol(\"yes\")");
+    assert_eq!(rendered(array), "Symbol(\"yes\")");
+    assert_eq!(rendered(hash), "Symbol(\"yes\")");
+    assert_eq!(rendered(nil), "Symbol(\"no\")");
+    assert_eq!(rendered(falsehood), "Symbol(\"no\")");
+    assert!(rendered(short_circuit).ends_with("Symbol(\"kept\")])"));
+}

@@ -510,6 +510,10 @@ impl Kernel {
             Value::Float32(_) => self.class(BuiltinClass::Float32),
             Value::Float64(_) => self.class(BuiltinClass::Float64),
             Value::Class(class) => Ok(*class),
+            // IRIS-V1-RUNTIME-C005 makes `Object` the single root, and C094
+            // gives it a `to_bool` returning `true`. A value with no dedicated
+            // builtin Class is therefore an ordinary `Object` rather than an
+            // error: rejecting these made `if :sym` and `if [1]` fail outright.
             Value::Array(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -524,7 +528,7 @@ impl Kernel {
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
-            | Value::Method(_) => Err(KernelError::Type),
+            | Value::Method(_) => self.class(BuiltinClass::Object),
         }
     }
     fn invoke(
@@ -737,11 +741,14 @@ impl Kernel {
         if !arguments.is_empty() {
             return Err(KernelError::Arity);
         }
+        // IRIS-V1-RUNTIME-C094: root `Object` provides `to_bool` returning
+        // `true`, so EVERY value answers it. Only `Nil` is false and `Bool`
+        // returns itself; rejecting the rest made `if :sym`, `if [1]` and
+        // `x ||= v` on a truthy target fail with a type error.
         Ok(match receiver {
             Value::Nil => Value::Bool(false),
             Value::Bool(value) => Value::Bool(value),
-            Value::Integer(_) | Value::Float32(_) | Value::Float64(_) => Value::Bool(true),
-            _ => return Err(KernelError::Type),
+            _ => Value::Bool(true),
         })
     }
 }
