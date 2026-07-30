@@ -400,6 +400,8 @@ impl Evaluator {
             | RuntimeValue::Type(_)
             | RuntimeValue::Contract(_)
             | RuntimeValue::Closure(_)
+            | RuntimeValue::IterationYield(_)
+            | RuntimeValue::IterationDone
             | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
             | RuntimeValue::BoundMethod(_)
@@ -433,6 +435,8 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
+        RuntimeValue::IterationYield(_) => "Iteration",
+        RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
@@ -448,12 +452,11 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         // A loop needs the source runtime: the literal evaluator has no heap and
         // no statement sequencing. Its BODY is checked too, since a `break`
         // there is what carries the loop result.
-        Statement::While { .. } | Statement::Break { .. } => true,
+        Statement::While { .. } | Statement::For { .. } | Statement::Break { .. } => true,
         Statement::StoredProperty { .. }
         | Statement::Method(_)
         | Statement::Return(_)
         | Statement::Continue(_)
-        | Statement::For { .. }
         | Statement::Match { .. } => false,
         Statement::Raise(_) | Statement::Try { .. } => true,
     }
@@ -473,7 +476,22 @@ fn constructs_root_object(callee: &Expression) -> bool {
     )
 }
 
+/// Reports whether an expression names the `Iteration` results of C013.
+///
+/// They are value constructors rather than Class sends, and the literal
+/// evaluator cannot build them, so they route to the source runtime.
+fn builds_iteration(expression: &Expression) -> bool {
+    matches!(
+        expression,
+        Expression::Member { receiver, .. }
+            if matches!(receiver.as_ref(), Expression::Name(name) if name == "Iteration")
+    )
+}
+
 fn source_runtime_expression(expression: &Expression) -> bool {
+    if builds_iteration(expression) {
+        return true;
+    }
     match expression {
         // A Closure needs the heap the literal evaluator does not have.
         Expression::Closure { .. } | Expression::Hash(_) | Expression::If { .. } => true,
@@ -485,7 +503,8 @@ fn source_runtime_expression(expression: &Expression) -> bool {
             operand: receiver, ..
         } => source_runtime_expression(receiver),
         Expression::Call { callee, arguments } => {
-            constructs_root_object(callee)
+            builds_iteration(callee)
+                || constructs_root_object(callee)
                 || source_runtime_expression(callee)
                 || arguments.iter().any(source_runtime_expression)
         }

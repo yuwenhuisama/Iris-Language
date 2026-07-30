@@ -30,7 +30,11 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V016` | positive | executable | `if` without `else` yields `nil`. |
 | `V017` | positive | executable | `while` natural completion yields `nil`, per `IRIS-V1-CONTROL-C043`. |
 | `V018` | positive | executable | `break 7` carries the loop result. |
-| `V019`-`V023` | mixed | needs-subsystem | Require loop control-target validation, the Iterator protocol, destructuring, or loop labels. |
+| `V019` | negative | needs-subsystem | Requires loop control-target validation. |
+| `V020` | positive | executable | `for` runs the body for a yielded `nil` and closes the Iterator on exit, per `C044` and `C046`. |
+| `V021` | negative | needs-subsystem | Requires destructuring patterns. |
+| `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
+| `V023` | positive | needs-subsystem | Requires loop labels. |
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V025` | positive | needs-subsystem | Requires match expressions. |
 | `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |

@@ -515,6 +515,8 @@ impl Kernel {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::IterationYield(_)
+            | Value::IterationDone
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)

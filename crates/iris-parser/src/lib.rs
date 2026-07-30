@@ -768,10 +768,27 @@ impl Parser {
             return None;
         }
         if self.consume("while") {
-            let condition = self.expression(0)?;
+            let outer = std::mem::replace(&mut self.no_trailing_block, true);
+            let condition = self.expression(0);
+            self.no_trailing_block = outer;
             return Some(Statement::While {
                 label: None,
-                condition,
+                condition: condition?,
+                body: self.body()?,
+            });
+        }
+        // `for_statement ::= loop_label? "for" binding_pattern "in" expression
+        // block_body`, so the unlabelled form is a statement in its own right.
+        if self.consume("for") {
+            let binding = self.name()?;
+            self.expect("in")?;
+            let outer = std::mem::replace(&mut self.no_trailing_block, true);
+            let iterable = self.expression(0);
+            self.no_trailing_block = outer;
+            return Some(Statement::For {
+                label: None,
+                binding,
+                iterable: iterable?,
                 body: self.body()?,
             });
         }

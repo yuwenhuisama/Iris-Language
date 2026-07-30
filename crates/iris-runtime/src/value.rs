@@ -144,6 +144,14 @@ pub enum Value {
     /// stay mutually distinct, so a Contract carries its own identity rather
     /// than reusing `ClassId` or `ModuleId`.
     Contract(ContractId),
+    /// An `Iteration.yield(value)` result carrying one yielded value.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C013` makes it an immutable identity-less value that
+    /// MAY carry any Iris value including `nil`, which is why a yielded `nil`
+    /// must stay distinguishable from exhaustion.
+    IterationYield(Box<Value>),
+    /// The unique `Iteration.done` singleton.
+    IterationDone,
     /// An identity-bearing Closure object.
     ///
     /// `IRIS-V1-RUNTIME-C042` requires each evaluation of a Closure expression to

@@ -725,13 +725,76 @@ impl SourceEvaluator {
                 condition,
                 body,
             } => self.while_statement(label.as_deref(), condition, body, locals, receiver),
+            Statement::For {
+                label,
+                binding,
+                iterable,
+                body,
+            } => self.for_statement(label.as_deref(), binding, iterable, body, locals, receiver),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_)
             | Statement::Return(_)
             | Statement::Continue(_)
-            | Statement::For { .. }
             | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    /// Runs `for pattern in iterable { body }` per `IRIS-V1-CONTROL-C044`.
+    ///
+    /// The iterable is evaluated ONCE, `next()` is called repeatedly, and the
+    /// loop exits normally on `Iteration.done`. Each yielded value binds in a
+    /// FRESH per-iteration scope, which is what lets a Closure created in the
+    /// body capture that iteration's value rather than a shared cell.
+    /// `IRIS-V1-CONTROL-C046` requires the Iterator to close on every exit path,
+    /// so `close` is sent on natural exhaustion, on `break`, and on an error.
+    fn for_statement(
+        &mut self,
+        label: Option<&str>,
+        binding: &str,
+        iterable: &Expression,
+        body: &[Statement],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let source = self.expression(iterable, locals, receiver.clone())?;
+        let iterator = self.send(source, "iterator", &[])?;
+        let outcome =
+            self.for_iterations(label, binding, &iterator, body, locals, receiver.clone());
+        let closed = self.send(iterator, "close", &[]);
+        match outcome {
+            Ok(value) => closed.map(|_| value),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn for_iterations(
+        &mut self,
+        label: Option<&str>,
+        binding: &str,
+        iterator: &Value,
+        body: &[Statement],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        loop {
+            let step = self.send(iterator.clone(), "next", &[])?;
+            let value = match step {
+                Value::IterationDone => return Ok(Value::Nil),
+                Value::IterationYield(value) => *value,
+                _ => return Err(EvaluationError::UnsupportedConstruct),
+            };
+            let mut iteration = locals.clone();
+            iteration.insert(binding.to_owned(), value);
+            match self.block(body, &iteration, receiver.clone()) {
+                Ok(_) => {}
+                Err(EvaluationError::LoopBreak(target, value))
+                    if target.is_none() || target.as_deref() == label =>
+                {
+                    return Ok(value);
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -790,7 +853,7 @@ impl SourceEvaluator {
                 Statement::Break { .. } => {
                     return self.statement(statement, &locals, receiver.clone());
                 }
-                Statement::While { .. } => {
+                Statement::While { .. } | Statement::For { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
                 Statement::SharedBinding { .. }
@@ -798,7 +861,6 @@ impl SourceEvaluator {
                 | Statement::Method(_)
                 | Statement::Return(_)
                 | Statement::Continue(_)
-                | Statement::For { .. }
                 | Statement::Match { .. } => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
@@ -1015,6 +1077,14 @@ impl SourceEvaluator {
             Expression::Member {
                 receiver: target,
                 selector,
+            } if matches!(target.as_ref(), Expression::Name(name) if name == "Iteration")
+                && selector == "done" =>
+            {
+                Ok(Value::IterationDone)
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
             } => {
                 let target = self.expression(target, locals, receiver)?;
                 self.member_read(target, selector)
@@ -1031,6 +1101,20 @@ impl SourceEvaluator {
                     } => {
                         let view = self.expression(target, locals, receiver.clone())?;
                         self.qualified_send(view, selector, &arguments)
+                    }
+                    // `Iteration.yield(value)` and `Iteration.done` are the
+                    // IRIS-V1-COLLECTIONS-C013 iteration results, not Class
+                    // sends, so they are built here rather than dispatched.
+                    Expression::Member {
+                        receiver: target,
+                        selector,
+                    } if matches!(target.as_ref(), Expression::Name(name) if name == "Iteration")
+                        && selector == "yield" =>
+                    {
+                        let [value] = arguments.as_slice() else {
+                            return Err(EvaluationError::ArgumentError);
+                        };
+                        Ok(Value::IterationYield(Box::new(value.clone())))
                     }
                     Expression::Member {
                         receiver: target,
@@ -1974,6 +2058,8 @@ impl SourceEvaluator {
                         | Value::Type(_)
                         | Value::Contract(_)
                         | Value::Closure(_)
+                        | Value::IterationYield(_)
+                        | Value::IterationDone
                         | Value::ContractView(_, _)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
@@ -2007,6 +2093,8 @@ impl SourceEvaluator {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::IterationYield(_)
+            | Value::IterationDone
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
@@ -2179,6 +2267,8 @@ impl SourceEvaluator {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::IterationYield(_)
+            | Value::IterationDone
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
@@ -2660,6 +2750,8 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Type(_) => "Type",
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
+        Value::IterationYield(_) => "Iteration",
+        Value::IterationDone => "Iteration",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",

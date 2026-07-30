@@ -767,3 +767,39 @@ fn c043_while_tests_before_each_iteration_and_break_carries_the_loop_result() {
     assert_eq!(broke, "Integer(IntegerValue(7))");
     assert_eq!(bare, "Nil");
 }
+
+#[test]
+fn c044_for_iterates_until_done_and_c046_closes_the_iterator() {
+    // Given
+    let source = "let mut log = []; let mut n = 0; \
+                  class It { public fun next() { n = n + 1; \
+                  if n == 1 { Iteration.yield(nil) } else { Iteration.done } } \
+                  public fun close() { log.append(:closed); nil } } \
+                  class Src { public fun iterator() { It.new() } } \
+                  for x in Src.new() { log.append(:body) }; log";
+
+    // When
+    let result = rendered(source);
+
+    // Then a yielded nil still runs the body once, and close fires on exit.
+    assert!(result.ends_with("Array([Symbol(\"body\"), Symbol(\"closed\")])])"));
+}
+
+#[test]
+fn c044_each_iteration_binds_in_a_fresh_scope() {
+    // Given
+    let source = "let mut n = 0; \
+                  class It { public fun next() { n = n + 1; \
+                  if n < 3 { Iteration.yield(n) } else { Iteration.done } } \
+                  public fun close() { nil } } \
+                  class Src { public fun iterator() { It.new() } } \
+                  let mut first = nil; let mut second = nil; \
+                  for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; \
+                  [first.call(), second.call()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then escaped Closures return distinct per-iteration values, not a shared cell.
+    assert!(result.ends_with("Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])])"));
+}
