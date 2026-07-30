@@ -370,7 +370,7 @@ rest_positional    ::= "*" ordinary_name ":" type_expr ","?
 required_keyword   ::= "key" ordinary_name ":" type_expr ","?
 optional_keyword   ::= "key" ordinary_name ":" type_expr "=" expression ","?
 rest_keyword       ::= "**" ordinary_name ":" type_expr ","?
-block_parameter    ::= "&" ordinary_name ":" function_type ("=" "nil")? ","?
+block_parameter    ::= "&" ordinary_name ":" callable_type ("=" "nil")? ","?
 return_type        ::= "->" type_expr
 block_body         ::= "{" terminator* statement_list? "}"
 
@@ -445,11 +445,12 @@ type_expr          ::= type_union
 type_union         ::= type_intersection ("|" type_intersection)*
 type_intersection  ::= type_postfix ("&" type_postfix)*
 type_postfix       ::= type_primary "?"?
-type_primary       ::= typeof_type | qualified_type_name generic_args? | function_type | "(" type_expr ")"
+type_primary       ::= typeof_type | qualified_type_name generic_args? | callable_type | "(" type_expr ")"
 typeof_type        ::= "typeof" "(" expression ")"
 qualified_type_name ::= type_name ("::" type_name)*
 generic_args       ::= "<" type_expr ("," type_expr)* ">"
 function_type      ::= "(" type_expr_list? ")" "->" type_expr
+callable_type      ::= ("Closure" | "BoundMethod" | "Block") "<" function_type ">"
 binding_pattern    ::= ordinary_name | "_" | "(" binding_pattern ("," binding_pattern)* ","? ")" | "[" binding_pattern ("," binding_pattern)* rest_binding_pattern? ","? "]"
 rest_binding_pattern ::= "," "*" binding_pattern
 catch_binding      ::= ordinary_name | "_"
@@ -523,7 +524,7 @@ IRIS-V1-GRAMMAR-EX002：信息示例、声明和调用：
 class Box<T> extends Object for Printable mixin Trace where T: Object {
   property fun ready?() -> Bool { true }
   property fun value!=(next: T) -> Nil { @value = next }
-  fun map<U>(value: T, key label: Symbol, &block: (T) -> U) -> U where U: Object {
+  fun map<U>(value: T, key label: Symbol, &block: Block<(T) -> U>) -> U where U: Object {
     block.call(value)
   }
 }

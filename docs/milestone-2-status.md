@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.10 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.11 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -99,7 +99,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 40 rows, 23 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 41 rows, 24 resolved, and records the blocker for every one.
 
 ## Working Agreements
 

@@ -913,28 +913,40 @@ impl Parser {
         }
         values
     }
-    fn type_expression(&mut self) -> Option<TypeExpression> {
-        // `function_type ::= "(" type_expr_list? ")" "->" type_expr` is the
-        // callable Type `block_parameter` requires, so a leading `(` starts a
-        // function Type rather than a nominal name.
-        if self.check("(") {
-            self.expect("(")?;
-            let mut parameters = Vec::new();
-            while !self.check(")") && !self.at_end() {
-                parameters.push(self.type_expression()?);
-                if !self.consume(",") {
-                    break;
-                }
+    fn function_type(&mut self) -> Option<TypeExpression> {
+        self.expect("(")?;
+        let mut parameters = Vec::new();
+        while !self.check(")") && !self.at_end() {
+            parameters.push(self.type_expression()?);
+            if !self.consume(",") {
+                break;
             }
-            self.expect(")")?;
-            self.expect("-")?;
+        }
+        self.expect(")")?;
+        self.expect("-")?;
+        self.expect(">")?;
+        let result = self.type_expression()?;
+        Some(TypeExpression::Function {
+            parameters,
+            result: Box::new(result),
+        })
+    }
+
+    fn type_expression(&mut self) -> Option<TypeExpression> {
+        // IRIS-V1-TYPES-C094 makes the bare signature NOT a Type on its own:
+        // `callable_type ::= ("Closure"|"BoundMethod"|"Block") "<" function_type ">"`.
+        // The inner `(` form is parsed only as that generic argument.
+        if matches!(self.peek(), Some("Closure" | "BoundMethod" | "Block")) {
+            let kind = self.name()?;
+            self.expect("<")?;
+            let signature = self.function_type()?;
             self.expect(">")?;
-            let result = self.type_expression()?;
-            return Some(TypeExpression::Function {
-                parameters,
-                result: Box::new(result),
+            return Some(TypeExpression::Generic {
+                name: kind,
+                arguments: vec![signature],
             });
         }
+
         let first = if self.consume("typeof") {
             self.expect("(")?;
             let expression = self.expression(0)?;

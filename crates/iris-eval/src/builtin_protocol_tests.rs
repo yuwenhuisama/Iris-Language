@@ -606,7 +606,7 @@ fn c076_call_is_the_sole_invocation_spelling() {
 #[test]
 fn c023_block_parameter_carries_a_function_type_annotation() {
     // Given
-    let annotated = "class A { public fun m(&b: (Integer) -> Symbol) { b.call(1) } } \
+    let annotated = "class A { public fun m(&b: Block<(Integer) -> Symbol>) { b.call(1) } } \
                      let o = A.new(); o.m({ |x| :got })";
     let unannotated = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :v })";
 
@@ -622,7 +622,7 @@ fn c023_block_parameter_carries_a_function_type_annotation() {
 #[test]
 fn c025_an_omitted_optional_block_binds_nil() {
     // Given
-    let source = "class A { public fun m(&b: (Integer) -> Symbol = nil) { b } } \
+    let source = "class A { public fun m(&b: Block<(Integer) -> Symbol> = nil) { b } } \
                   let o = A.new(); o.m()";
 
     // When
@@ -630,4 +630,26 @@ fn c025_an_omitted_optional_block_binds_nil() {
 
     // Then
     assert_eq!(result, "Nil");
+}
+
+#[test]
+fn c094_and_c095_require_a_callable_annotation_to_name_its_kind() {
+    // Given
+    let block = "class A { public fun m(&b: Block<(Integer) -> Symbol>) { b.call(1) } } \
+                 let o = A.new(); o.m({ |x| :got })";
+    let closure = "class A { public fun m(&b: Closure<(Integer) -> Symbol>) { b.call(1) } } \
+                   let o = A.new(); o.m({ |x| :c })";
+    // C094 makes the bare signature not a Type on its own.
+    let bare = "class A { public fun m(&b: (Integer) -> Symbol) { b.call(1) } } \
+                let o = A.new(); o.m({ |x| :x })";
+
+    // When
+    let block = rendered(block);
+    let closure = rendered(closure);
+    let bare = rendered(bare);
+
+    // Then
+    assert_eq!(block, "Symbol(\"got\")");
+    assert_eq!(closure, "Symbol(\"c\")");
+    assert_eq!(bare, "ParseDiagnostic");
 }

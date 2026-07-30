@@ -89,7 +89,7 @@ IRIS-V1-CONTROL-C016: Closure syntax is `{ |parameters| -> ReturnType body }`. F
 
 IRIS-V1-CONTROL-C017: Method return annotation omission defaults under the global type-default rule and MUST be treated as `Dynamic<Object>` where no explicit annotation exists. Closure return annotation omission MUST NOT default the Closure's public type when no unique expected callable type exists; it MUST be diagnosed as `CALLABLE_MISSING_CLOSURE_RETURN_TYPE`.
 
-IRIS-V1-CONTROL-C018: BoundMethod and Closure values share ordinary callable function types after binding, written `(P1, P2, ...) -> R`. Assignability MUST use function compatibility: parameter positions are contravariant, return positions are covariant, and arity, parameter category, keyword names, block channel, and runtime Contracts MUST be compatible. Unbound Method values remain reflective Method objects and require explicit binding or receiver invocation.
+IRIS-V1-CONTROL-C018: Superseded by IRIS-V1-TYPES-C094 and IRIS-V1-TYPES-C096 in the v1.11 errata; the callable Type now names its kind as `Closure<S>` or `BoundMethod<S>`, and signature compatibility is checked at the call site rather than by variance. The superseded text read: BoundMethod and Closure values share ordinary callable function types after binding, written `(P1, P2, ...) -> R`. Assignability MUST use function compatibility: parameter positions are contravariant, return positions are covariant, and arity, parameter category, keyword names, block channel, and runtime Contracts MUST be compatible. Unbound Method values remain reflective Method objects and require explicit binding or receiver invocation.
 
 IRIS-V1-CONTROL-C019: Normal Method and Closure fallthrough returns the final expression value. A body with no value-producing statement returns `nil`. `return expr` exits the current Method or current Closure invocation with `expr`; bare `return` exits it with `nil`. Every normal return path MUST satisfy the callable's explicit return Contract, and a callable declared `-> Never` MUST NOT complete normally.
 
@@ -117,15 +117,15 @@ class Counter {
 }
 
 let counter = Counter.new()
-let bound: (Integer) -> Integer = counter.add
-let closure: (Integer) -> Integer = { |delta: Integer| -> Integer; counter.add(delta) }
+let bound: BoundMethod<(Integer) -> Integer> = counter.add
+let closure: Closure<(Integer) -> Integer> = { |delta: Integer| -> Integer; counter.add(delta) }
 ```
 
 ## Parameters, Defaults, And Key Arguments
 
 IRIS-V1-CONTROL-C022: Parameter declaration order MUST be required positional, optional positional, at most one positional rest, required keyword-only, optional keyword-only, at most one keyword rest, then one trailing-block binding. A declaration that places a later category before an earlier category, repeats a rest category, or declares more than one block binding MUST be diagnosed as `PARSE_BAD_PARAMETER_ORDER` or a stricter callable diagnostic.
 
-IRIS-V1-CONTROL-C023: Required positional parameters use `name: T`. Optional positional parameters use `name: T = default`. Positional rest uses `*args: T` and binds a fresh `Array<T>` containing extra positional arguments. Required keyword-only parameters use `key name: T`. Optional keyword-only parameters use `key name: T = default`. Keyword rest uses `**kwargs: V` and binds a fresh `Hash<Symbol,V>` containing unmatched keyword arguments. The trailing-block binding uses `&block: (P...) -> R` and MAY use `= nil` to mark omission as accepted.
+IRIS-V1-CONTROL-C023: Required positional parameters use `name: T`. Optional positional parameters use `name: T = default`. Positional rest uses `*args: T` and binds a fresh `Array<T>` containing extra positional arguments. Required keyword-only parameters use `key name: T`. Optional keyword-only parameters use `key name: T = default`. Keyword rest uses `**kwargs: V` and binds a fresh `Hash<Symbol,V>` containing unmatched keyword arguments. The trailing-block binding uses `&block: Block<(P...) -> R>` and MAY use `= nil` to mark omission as accepted.
 
 IRIS-V1-CONTROL-C024: Parameter default expressions evaluate on each invocation, left-to-right, after earlier parameters have been bound and before later parameters exist. Defaults MAY reference current receiver, Module scope, globals, and earlier parameter bindings. Defaults MUST NOT reference later parameters. A default that raises aborts the call before body entry and propagates the exception.
 
@@ -156,7 +156,7 @@ fun render(
   key path: String,
   key mode: Symbol = :read,
   **options: Object,
-  &block: (String) -> Nil = nil
+  &block: Block<(String) -> Nil> = nil
 ) -> Nil {
   if block != nil { block.call(title) }
 }

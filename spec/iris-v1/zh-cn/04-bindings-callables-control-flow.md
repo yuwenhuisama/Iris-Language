@@ -89,7 +89,7 @@ IRIS-V1-CONTROL-C016: Closure 语法是 `{ |parameters| -> ReturnType body }`。
 
 IRIS-V1-CONTROL-C017: Method 省略返回注解按全局类型默认规则处理，在没有显式注解时 MUST 视为 `Dynamic<Object>`。Closure 省略返回注解在没有唯一预期可调用类型时 MUST NOT 默认其公共类型；它 MUST 被诊断为 `CALLABLE_MISSING_CLOSURE_RETURN_TYPE`。
 
-IRIS-V1-CONTROL-C018: BoundMethod 和 Closure 值在绑定后共享普通可调用函数类型，写作 `(P1, P2, ...) -> R`。可赋值性 MUST 使用函数兼容性：参数位置逆变，返回位置协变，并且元数、参数类别、关键字名称、块通道和运行时 Contracts MUST 兼容。未绑定 Method 值仍是反射性 Method 对象，需要显式绑定或接收者调用。
+IRIS-V1-CONTROL-C018: 已被 v1.11 勘误中的 IRIS-V1-TYPES-C094 与 IRIS-V1-TYPES-C096 取代；可调用 Type 现在须指明其种类，写作 `Closure<S>` 或 `BoundMethod<S>`，且签名兼容性在调用处检查而非通过变型。被取代的原文为：BoundMethod 和 Closure 值在绑定后共享普通可调用函数类型，写作 `(P1, P2, ...) -> R`。可赋值性 MUST 使用函数兼容性：参数位置逆变，返回位置协变，并且元数、参数类别、关键字名称、块通道和运行时 Contracts MUST 兼容。未绑定 Method 值仍是反射性 Method 对象，需要显式绑定或接收者调用。
 
 IRIS-V1-CONTROL-C019: 正常 Method 和 Closure 穿透返回最终表达式值。没有产出值语句的主体返回 `nil`。`return expr` 以 `expr` 退出当前 Method 或当前 Closure 调用；裸 `return` 以 `nil` 退出。每条正常返回路径 MUST 满足可调用体的显式返回 Contract，并且声明为 `-> Never` 的可调用体 MUST NOT 正常完成。
 
@@ -117,8 +117,8 @@ class Counter {
 }
 
 let counter = Counter.new()
-let bound: (Integer) -> Integer = counter.add
-let closure: (Integer) -> Integer = { |delta: Integer| -> Integer; counter.add(delta) }
+let bound: BoundMethod<(Integer) -> Integer> = counter.add
+let closure: Closure<(Integer) -> Integer> = { |delta: Integer| -> Integer; counter.add(delta) }
 ```
 
 ## 参数、默认值与关键参数
@@ -156,7 +156,7 @@ fun render(
   key path: String,
   key mode: Symbol = :read,
   **options: Object,
-  &block: (String) -> Nil = nil
+  &block: Block<(String) -> Nil> = nil
 ) -> Nil {
   if block != nil { block.call(title) }
 }

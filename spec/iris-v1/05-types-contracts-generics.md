@@ -46,7 +46,7 @@ let loose = dynamic_add("a", 3)
 
 ## Type Expression Constructors
 
-IRIS-V1-TYPES-C008: The parser-visible type expression constructors used by this chapter are nominal Type names, closed generic applications `G<T, U>`, callable Types `(P1, P2, ...) -> R`, unions `A | B`, intersections `A & B`, nilability suffix `T?`, `Dynamic<T>`, `Dynamic`, `NonNil`, `Never`, `Nil`, `Object`, parenthesized Type expressions, and transparent Type aliases. `&` binds tighter than `|` inside Type expressions. Parentheses MUST be used for any intended different grouping.
+IRIS-V1-TYPES-C008: The parser-visible type expression constructors used by this chapter are nominal Type names, closed generic applications `G<T, U>`, callable Types `Closure<(P1, P2, ...) -> R>`, `BoundMethod<...>`, and `Block<...>` per IRIS-V1-TYPES-C094, unions `A | B`, intersections `A & B`, nilability suffix `T?`, `Dynamic<T>`, `Dynamic`, `NonNil`, `Never`, `Nil`, `Object`, parenthesized Type expressions, and transparent Type aliases. `&` binds tighter than `|` inside Type expressions. Parentheses MUST be used for any intended different grouping.
 
 IRIS-V1-TYPES-C009: `Object` is the top Type. Every Iris value, including `nil`, singleton values, identity-bearing values, identity-less values, Class objects, Module objects, Contract objects, Type objects, Methods, BoundMethods, Closures, and future core values, is a subtype of `Object` unless a later chapter explicitly marks a value category outside ordinary Iris values.
 
@@ -188,7 +188,7 @@ printable..print()
 
 ## Callable Types And Method Contract Compatibility
 
-IRIS-V1-TYPES-C036: BoundMethod and Closure values share ordinary callable Types written `(P1, P2, ...) -> R`. The full callable Type includes arity, parameter category, keyword names, rest and keyword-rest channels, optional block channel, parameter Types, return Type, and required runtime Contracts.
+IRIS-V1-TYPES-C036: Superseded by IRIS-V1-TYPES-C094 and IRIS-V1-TYPES-C096 in the v1.11 errata, which reify callable kind as `Closure<S>` and `BoundMethod<S>` and make callable Type arguments invariant. The superseded text read: BoundMethod and Closure values share ordinary callable Types written `(P1, P2, ...) -> R`. The full callable Type includes arity, parameter category, keyword names, rest and keyword-rest channels, optional block channel, parameter Types, return Type, and required runtime Contracts.
 
 IRIS-V1-TYPES-C037: Callable assignability uses standard function subtyping. An implementation or source callable is assignable to a promised callable Type only when it accepts every call shape the promise permits and returns values assignable to the promised return Type. Parameter positions are contravariant, return positions are covariant, and callable Types inside parameter or return positions apply the same rule recursively.
 
@@ -431,6 +431,12 @@ IRIS-V1-TYPES-C091: The conformance chapter MUST include positive, failure, diag
 IRIS-V1-TYPES-C092: The following vectors are normative traceability vectors with concrete type-checking inputs and expected observations.
 
 IRIS-V1-TYPES-C093: In a Type-expression position, `typeof(expression)` denotes the normalized static Type of `expression`; its operand is type-checked but not evaluated. It therefore copies the Type available at that program point, including applicable flow narrowing, rather than inspecting a runtime value or invoking a Method. If that static Type is not known, including when it comes from an omitted Method return annotation, `typeof(expression)` is `Dynamic<Object>`. This construct creates no overload dispatch and MUST NOT cause static Type, generic arguments, expected result, declaration order, or body facts to select a different ordinary Method, consistent with IRIS-V1-IDENTITY-C010 and IRIS-V1-TYPES-C003.
+
+IRIS-V1-TYPES-C094: The v1.11 errata reifies callable kind in the Type system. `Closure<S>` is the Type of a Closure value and `BoundMethod<S>` is the Type of a BoundMethod value, where `S` is the callable signature `(P1, P2, ...) -> R` defined by IRIS-V1-TYPES-C008. The signature is no longer a Type by itself: every callable annotation MUST name its kind. This supersedes IRIS-V1-TYPES-C036 and IRIS-V1-CONTROL-C018, which made BoundMethod and Closure share one unqualified callable Type, and supersedes the corresponding part of `D-425`. `IRIS-V1-CONTROL-C021` already makes the three callable kinds normative, and `D-425` already assigned unbound Methods a distinct reified Type, so this revision makes that treatment uniform across all three kinds rather than introducing a new concept.
+
+IRIS-V1-TYPES-C095: `Block<S>` is a language-core Type alias declared as `type Block<S> = BoundMethod<S> | Closure<S>`. It is the Type of the trailing-block channel of IRIS-V1-GRAMMAR-C050, so a `block_parameter` accepts either bound callable kind while its annotation still names the kinds it admits. As a Type alias under IRIS-V1-TYPES-C015 it is transparent and creates no nominal runtime wrapper, and it normalizes as an ordinary union under IRIS-V1-TYPES-C018. `Block` is owned by the language core alongside `Object`, `Never`, and `NonNil`, not by the standard library.
+
+IRIS-V1-TYPES-C096: Callable Type arguments are INVARIANT like every other generic argument under IRIS-V1-TYPES-C028 and IRIS-V1-TYPES-C031. `Closure<(Integer) -> Object>` is therefore not assignable to `Closure<(Integer) -> Symbol>` and the reverse does not hold either. This supersedes the parameter-contravariance and return-covariance assignability rule previously stated by IRIS-V1-TYPES-C036 and IRIS-V1-CONTROL-C018. Signature compatibility is checked AT THE CALL SITE against the invoked callable's declared signature, under the ordinary argument and return boundary rules of IRIS-V1-TYPES-C007, rather than through variance between callable Types.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
