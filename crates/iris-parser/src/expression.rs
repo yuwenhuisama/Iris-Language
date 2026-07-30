@@ -200,13 +200,35 @@ impl Parser {
         self.delimited_expressions(")")
     }
 
+    /// Parses one argument, which `IRIS-V1-CONTROL-C023` allows to be keyword.
+    ///
+    /// `name:` is distinguished from a Symbol literal by position: a Symbol
+    /// writes the colon BEFORE the name, so an identifier followed by a colon
+    /// is unambiguously a keyword argument.
+    fn argument(&mut self) -> Option<Expression> {
+        if let Some(name) = self.peek_keyword_argument_name() {
+            self.advance();
+            self.advance();
+            let value = self.expression(0)?;
+            return Some(Expression::KeywordArgument {
+                name,
+                value: Box::new(value),
+            });
+        }
+        self.expression(0)
+    }
+
     fn delimited_expressions(&mut self, closer: &str) -> Option<Vec<Expression>> {
         let mut values = Vec::new();
         if self.consume(closer) {
             return Some(values);
         }
         loop {
-            values.push(self.expression(0)?);
+            values.push(if closer == ")" {
+                self.argument()?
+            } else {
+                self.expression(0)?
+            });
             if self.consume(closer) {
                 return Some(values);
             }

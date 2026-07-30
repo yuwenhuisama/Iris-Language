@@ -19,11 +19,11 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V005` | negative | needs-subsystem | Requires static unresolved-binding detection. |
 | `V006` | positive | executable | Closure captures a mutable binding by reference, per `IRIS-V1-CONTROL-C028`. |
 | `V007` | diagnostic | needs-subsystem | Same diagnostic channel. |
-| `V008` | positive | needs-subsystem | Requires optional, rest, keyword and keyword-rest parameter categories. |
-| `V009` | negative | needs-subsystem | Requires keyword arguments. |
+| `V008` | positive | needs-subsystem | Optional, rest and keyword parameters now bind, but `**kwargs` binds a `Hash<Symbol,V>` and Hash is not yet a representable runtime Value. |
+| `V009` | negative | executable | A duplicate keyword argument raises `ArgumentError`, per `D-357`. |
 | `V010` | negative | executable | Arity mismatch raises `ArgumentError` per `IRIS-V1-CONTROL-C025`. |
 | `V011` | positive | executable | Property setter marker propagation. |
-| `V012` | positive | needs-subsystem | Requires index assignment targets. |
+| `V012` | positive | needs-subsystem | Requires index assignment targets, which are still `UnsupportedConstruct`. |
 | `V013` | positive | executable | `&&=` skips the right side on the no-write path, per `IRIS-V1-CONTROL-C037`. |
 | `V014` | positive | executable | `||=` writes on the falsy path. |
 | `V015` | negative | executable | A non-Bool `to_bool` raises `TypeContractError`. |

@@ -166,7 +166,7 @@ impl Runtime {
                 }
             }
         }
-        match self.dispatch_snapshot(&snapshot, &revisions, Selector::new(1))? {
+        match self.dispatch_snapshot(&snapshot, &revisions, Selector::INITIALIZE)? {
             DispatchOutcome::Invoke(method) => {
                 invoke(self, method, instance, arguments)?;
             }

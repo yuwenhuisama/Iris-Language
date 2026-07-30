@@ -162,6 +162,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::Type(_)
         | RuntimeValue::Contract(_)
         | RuntimeValue::Closure(_)
+        | RuntimeValue::KeywordArgument(_, _)
         | RuntimeValue::IterationYield(_)
         | RuntimeValue::IterationDone
         | RuntimeValue::ExceptionContext(..)
@@ -185,7 +186,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
-        RuntimeValue::IterationYield(_) => "Iteration",
+        RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",

@@ -3,7 +3,7 @@ use iris_runtime::{
     StaticSpine, Value, Visibility,
 };
 
-const INITIALIZE: Selector = Selector::new(1);
+const INITIALIZE: Selector = Selector::INITIALIZE;
 const LATER_SEND: Selector = Selector::new(2);
 const PROPERTY: Selector = Selector::new(3);
 const PROPERTY_SETTER: Selector = Selector::new(4);

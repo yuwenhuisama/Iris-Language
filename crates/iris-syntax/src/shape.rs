@@ -88,6 +88,9 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             (format!("{{|{}| ...}}", parameters.join(", ")), 17)
         }
         Expression::Symbol(value) => (format!(":{value}"), 17),
+        Expression::KeywordArgument { name, value } => {
+            (format!("{name}: {}", source_shape(value, 0)), 17)
+        }
         Expression::Array(values) => (
             format!(
                 "[{}]",
@@ -170,6 +173,9 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::Closure { parameters, .. } => format!("closure({})", parameters.join(", ")),
         Expression::Hash(entries) => format!("hash({})", entries.len()),
         Expression::Symbol(value) => format!("symbol({value})"),
+        Expression::KeywordArgument { name, value } => {
+            format!("keyword({name}, {})", structural_shape(value))
+        }
         Expression::Array(values) => format!(
             "array({})",
             values

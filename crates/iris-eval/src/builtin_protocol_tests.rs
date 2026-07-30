@@ -920,3 +920,44 @@ fn c064_and_c047_chain_a_finally_raise_and_append_a_cleanup_failure() {
     assert_eq!(suppressed, "Symbol(\"primary\")");
     assert_eq!(cycle, "ExceptionChainError");
 }
+
+#[test]
+fn c023_binds_each_declared_parameter_category_by_its_own_rule() {
+    // Given
+    let default_applies = "class A { public fun m(a, b = 2) { b } } A.new().m(1)";
+    let default_overridden = "class A { public fun m(a, b = 2) { b } } A.new().m(1, 9)";
+    let rest_collects = "class A { public fun m(a, *r) { r } } A.new().m(1, 2, 3)";
+    let rest_may_be_empty = "class A { public fun m(a, *r) { r } } A.new().m(1)";
+    // A keyword parameter binds by NAME, so a positional argument must not fill
+    // it and a duplicate is an ArgumentError under D-357.
+    let keyword_binds_by_name = "class A { public fun m(key n) { n } } A.new().m(n: 5)";
+    let keyword_not_positional = "class A { public fun m(key n) { n } } A.new().m(5)";
+    let duplicate_keyword = "class A { public fun m(key n) { n } } A.new().m(n: 1, n: 2)";
+    let required_missing = "class A { public fun m(a) { a } } A.new().m()";
+
+    // When / Then
+    assert_eq!(rendered(default_applies), "Integer(IntegerValue(2))");
+    assert_eq!(rendered(default_overridden), "Integer(IntegerValue(9))");
+    assert_eq!(
+        rendered(rest_collects),
+        "Array([Integer(IntegerValue(2)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(rendered(rest_may_be_empty), "Array([])");
+    assert_eq!(rendered(keyword_binds_by_name), "Integer(IntegerValue(5))");
+    assert_eq!(rendered(keyword_not_positional), "ArgumentError");
+    assert_eq!(rendered(duplicate_keyword), "ArgumentError");
+    assert_eq!(rendered(required_missing), "ArgumentError");
+}
+
+#[test]
+fn initialize_does_not_collide_with_the_add_native_selector() {
+    // Given a Class declaring `+`, whose NativeSelector id was also the id
+    // construction dispatches for `initialize`. The collision made `V.new()`
+    // invoke `+` with no arguments.
+    let construct = "class V { public fun +(o) { 1 } } V.new()";
+    let operator = "class V { public fun +(o) -> Symbol { :plus } } V.new() + V.new()";
+
+    // When / Then
+    assert_eq!(rendered(construct), "Object(ObjectId(0))");
+    assert_eq!(rendered(operator), "Symbol(\"plus\")");
+}

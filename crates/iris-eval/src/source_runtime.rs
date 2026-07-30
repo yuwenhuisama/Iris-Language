@@ -508,7 +508,11 @@ impl SourceEvaluator {
             impl_contract: None,
             kind: MethodKind::Property,
             selector: format!("{name}="),
-            parameters: vec!["value".into()],
+            parameters: vec![iris_syntax::Parameter {
+                name: "value".into(),
+                category: iris_syntax::ParameterCategory::Positional,
+                default: None,
+            }],
             visibility: iris_syntax::Visibility::Public,
             body: vec![Statement::Expression(Expression::Assignment {
                 left: Box::new(Expression::RawIvar(format!("@{name}"))),
@@ -1200,6 +1204,13 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match expression {
+            // IRIS-V1-CONTROL-C026 evaluates a keyword argument in place with
+            // the positionals, so the value is produced here and the name is
+            // carried to the binding step.
+            Expression::KeywordArgument { name, value } => {
+                let value = self.expression(value, locals, receiver)?;
+                Ok(Value::KeywordArgument(name.clone(), Box::new(value)))
+            }
             Expression::Hash(entries) => {
                 // IRIS-V1-RUNTIME-C134: Hash CONSTRUCTION with a NaN key of
                 // either width must raise InvalidKeyError, so every key is
@@ -2283,6 +2294,7 @@ impl SourceEvaluator {
                         | Value::Type(_)
                         | Value::Contract(_)
                         | Value::Closure(_)
+                        | Value::KeywordArgument(_, _)
                         | Value::IterationYield(_)
                         | Value::IterationDone
                         | Value::ExceptionContext(..)
@@ -2319,6 +2331,7 @@ impl SourceEvaluator {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -2363,7 +2376,7 @@ impl SourceEvaluator {
 
     fn selector(&mut self, name: &str) -> Selector {
         if name == "initialize" {
-            return Selector::new(1);
+            return Selector::INITIALIZE;
         }
         if let Some(selector) = self.selectors.get(name) {
             return *selector;
@@ -2494,6 +2507,7 @@ impl SourceEvaluator {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -2877,6 +2891,84 @@ impl SourceEvaluator {
         result
     }
 
+    /// Binds arguments to the parameter categories `IRIS-V1-CONTROL-C023` gives.
+    ///
+    /// Positionals fill in order, `*rest` takes the remaining positionals as a
+    /// fresh Array, keyword parameters bind by NAME rather than position, and
+    /// `**kwargs` collects unmatched keywords. An unfilled parameter takes its
+    /// default, and `IRIS-V1-CONTROL-C025` raises ArgumentError when a required
+    /// one is left unbound or a supplied argument matches nothing.
+    fn bind_parameters(
+        &mut self,
+        parameters: &[iris_syntax::Parameter],
+        arguments: &[Value],
+    ) -> Result<HashMap<String, Value>, EvaluationError> {
+        use iris_syntax::ParameterCategory;
+        let mut positional = Vec::new();
+        let mut keyword: Vec<(String, Value)> = Vec::new();
+        for argument in arguments {
+            match argument {
+                Value::KeywordArgument(name, value) => {
+                    // IRIS-V1-CONTROL-D-357 makes a duplicate keyword an
+                    // ArgumentError rather than a silent last-one-wins.
+                    if keyword.iter().any(|(seen, _)| seen == name) {
+                        return Err(EvaluationError::ArgumentError);
+                    }
+                    keyword.push((name.clone(), value.as_ref().clone()));
+                }
+                value => positional.push(value.clone()),
+            }
+        }
+        let mut locals = HashMap::new();
+        let mut next = 0usize;
+        for parameter in parameters {
+            let name = parameter.name.clone();
+            let bound = match parameter.category {
+                ParameterCategory::Positional => {
+                    let value = positional.get(next).cloned();
+                    next += usize::from(value.is_some());
+                    value
+                }
+                ParameterCategory::Rest => {
+                    let rest = positional.split_off(next.min(positional.len()));
+                    Some(Value::Array(rest))
+                }
+                ParameterCategory::Keyword => keyword
+                    .iter()
+                    .position(|(seen, _)| *seen == name)
+                    .map(|index| keyword.remove(index).1),
+                // `**kwargs` binds a `Hash<Symbol,V>`, and Hash is not yet a
+                // representable runtime Value, so the category is parsed and
+                // rejected rather than bound to a stand-in of the wrong type.
+                ParameterCategory::KeywordRest => {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                // C025 binds an omitted optional block to `nil`, so the block
+                // channel is never a missing-argument error.
+                ParameterCategory::Block => {
+                    Some(positional.get(next).cloned().unwrap_or(Value::Nil))
+                }
+            };
+            if parameter.category == ParameterCategory::Block {
+                next += usize::from(next < positional.len());
+            }
+            let value = match bound {
+                Some(value) => value,
+                None => match &parameter.default {
+                    Some(default) => self.expression(default, &locals, None)?,
+                    None => return Err(EvaluationError::ArgumentError),
+                },
+            };
+            locals.insert(name, value);
+        }
+        // A leftover argument in either channel matches no parameter, which
+        // C025 makes an arity error rather than a silent discard.
+        if next < positional.len() || !keyword.is_empty() {
+            return Err(EvaluationError::ArgumentError);
+        }
+        Ok(locals)
+    }
+
     fn invoke_method_with_context(
         &mut self,
         method: Method,
@@ -2890,20 +2982,7 @@ impl SourceEvaluator {
         };
         let parameters = declaration.parameters.clone();
         let body = declaration.body.clone();
-        // IRIS-V1-CONTROL-C025 requires an arity mismatch to raise ArgumentError.
-        // A trailing block parameter is exempt because C025 also binds an omitted
-        // optional block to `nil`, so supplying one fewer argument is legal there.
-        if arguments.len() > parameters.len() {
-            return Err(EvaluationError::ArgumentError);
-        }
-        let mut locals = HashMap::new();
-        for (index, parameter) in parameters.iter().enumerate() {
-            // An omitted optional block binds `nil` under the same clause, so a
-            // declared parameter with no matching argument must still be bound.
-            // Zipping alone would leave it absent and unresolvable in the body.
-            let argument = arguments.get(index).cloned().unwrap_or(Value::Nil);
-            locals.insert(parameter.clone(), argument);
-        }
+        let locals = self.bind_parameters(&parameters, arguments)?;
         self.block(&body, &locals, Some(receiver))
     }
 
@@ -2978,7 +3057,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Type(_) => "Type",
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
-        Value::IterationYield(_) => "Iteration",
+        Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
         Value::IterationDone => "Iteration",
         Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",

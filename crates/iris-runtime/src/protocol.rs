@@ -89,6 +89,7 @@ impl ComparisonProtocol {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -157,6 +158,7 @@ impl Truthiness {
                 | Value::Type(_)
                 | Value::Contract(_)
                 | Value::Closure(_)
+                | Value::KeywordArgument(_, _)
                 | Value::IterationYield(_)
                 | Value::IterationDone
                 | Value::ExceptionContext(..)
@@ -180,6 +182,7 @@ impl Truthiness {
             | Value::Type(_)
             | Value::Contract(_)
             | Value::Closure(_)
+            | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)

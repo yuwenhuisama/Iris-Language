@@ -187,9 +187,30 @@ pub struct MethodDeclaration {
     pub impl_contract: Option<Option<String>>,
     pub kind: MethodKind,
     pub selector: String,
-    pub parameters: Vec<String>,
+    pub parameters: Vec<Parameter>,
     pub visibility: Visibility,
     pub body: Vec<Statement>,
+}
+
+/// One declared parameter with the category `IRIS-V1-CONTROL-C023` gives it.
+///
+/// The category decides how an argument binds, so it is kept rather than
+/// flattened to a name: a rest parameter collects an Array, a keyword binds by
+/// name, and an optional one falls back to its default expression.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Parameter {
+    pub name: String,
+    pub category: ParameterCategory,
+    pub default: Option<Expression>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParameterCategory {
+    Positional,
+    Rest,
+    Keyword,
+    KeywordRest,
+    Block,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -260,6 +281,16 @@ pub enum Expression {
     Call {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
+    },
+    /// `name: value` in an argument list, the keyword channel of
+    /// `IRIS-V1-CONTROL-C023`.
+    ///
+    /// A keyword argument is an argument rather than a separate list, so it
+    /// stays in `arguments` and keeps the left-to-right evaluation order
+    /// `IRIS-V1-CONTROL-C026` requires across both channels.
+    KeywordArgument {
+        name: String,
+        value: Box<Expression>,
     },
     Unary {
         operator: UnaryOperator,

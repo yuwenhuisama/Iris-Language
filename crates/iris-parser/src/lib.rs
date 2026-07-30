@@ -9,8 +9,8 @@ use iris_lexer::{TokenKind, lex};
 use iris_syntax::{
     CatchBinding, CatchClause, ClassDeclaration, Constraint, ContractDeclaration, Declaration,
     Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, MixinEntry,
-    ModuleDeclaration, Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression,
-    Visibility,
+    ModuleDeclaration, Parameter, ParameterCategory, Pattern, Program, ProgramEntry, Raise,
+    Statement, TypeExpression, Visibility,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -603,18 +603,7 @@ impl Parser {
             self.expect("(")?;
             let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
-                // `block_parameter ::= "&" ordinary_name ...` is the dedicated
-                // block channel of IRIS-V1-GRAMMAR-C050. It binds by DECLARATION
-                // rather than by guessing which trailing argument is a Closure.
-                self.consume("&");
-                let parameter = self.binding_name()?;
-                parameters.push(parameter);
-                if self.consume(":") {
-                    self.type_expression()?;
-                }
-                if self.consume("=") {
-                    self.expression(0)?;
-                }
+                parameters.push(self.parameter()?);
                 if !self.consume(",") {
                     break;
                 }
@@ -892,6 +881,40 @@ impl Parser {
         } else {
             Some(Pattern::Alternatives(values))
         }
+    }
+
+    /// Parses one parameter with the category `IRIS-V1-CONTROL-C023` assigns.
+    ///
+    /// `*args` is positional rest, `**kwargs` is keyword rest, `key name` is
+    /// keyword-only, and `&block` is the dedicated block channel of
+    /// `IRIS-V1-GRAMMAR-C050`, which binds by DECLARATION rather than by
+    /// guessing which trailing argument is a Closure.
+    fn parameter(&mut self) -> Option<Parameter> {
+        let category = if self.consume("**") {
+            ParameterCategory::KeywordRest
+        } else if self.consume("*") {
+            ParameterCategory::Rest
+        } else if self.consume("&") {
+            ParameterCategory::Block
+        } else if self.consume("key") {
+            ParameterCategory::Keyword
+        } else {
+            ParameterCategory::Positional
+        };
+        let name = self.binding_name()?;
+        if self.consume(":") {
+            self.type_expression()?;
+        }
+        let default = if self.consume("=") {
+            self.expression(0)
+        } else {
+            None
+        };
+        Some(Parameter {
+            name,
+            category,
+            default,
+        })
     }
 
     /// Parses `binding_pattern`, the destructuring subset `for` accepts.
@@ -1271,6 +1294,25 @@ impl Parser {
         self.tokens
             .get(self.cursor)
             .map(|token| token.text.as_str())
+    }
+    /// Returns the name when the cursor sits on a `name:` keyword argument.
+    ///
+    /// The name must be an ordinary identifier and the colon must be the very
+    /// next token, so `a ? b : c` and a `:sym` Symbol literal are both left
+    /// alone.
+    fn peek_keyword_argument_name(&self) -> Option<String> {
+        let name = self.peek()?;
+        if self.peek_next() != Some(":") || is_reserved_keyword(name) {
+            return None;
+        }
+        if !name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        {
+            return None;
+        }
+        Some(name.to_owned())
     }
     fn peek_next(&self) -> Option<&str> {
         self.tokens

@@ -152,6 +152,13 @@ pub enum Value {
     IterationYield(Box<Value>),
     /// The unique `Iteration.done` singleton.
     IterationDone,
+    /// One evaluated `name: value` argument in flight to a call.
+    ///
+    /// `IRIS-V1-CONTROL-C026` fixes evaluation order across the positional and
+    /// keyword channels, so a keyword argument is evaluated in place alongside
+    /// the positionals and carries its name to the binding step rather than
+    /// being split into a separate pre-evaluated list.
+    KeywordArgument(String, Box<Value>),
     /// An identity-bearing `ExceptionContext` for one propagation event.
     ///
     /// `IRIS-V1-CONTROL-C056` gives every `raise` a fresh runtime-owned context

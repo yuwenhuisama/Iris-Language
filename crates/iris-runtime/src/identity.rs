@@ -25,3 +25,12 @@ define_id!(MethodId);
 define_id!(ModuleId);
 define_id!(ContractId);
 define_id!(Selector);
+
+impl Selector {
+    /// The reserved selector for `initialize`, dispatched by construction.
+    ///
+    /// It sits ABOVE every `NativeSelector` id because those start at 1, and a
+    /// shared id would make declaring `+` register a method that construction
+    /// then invokes with no arguments.
+    pub const INITIALIZE: Self = Self::new(900);
+}

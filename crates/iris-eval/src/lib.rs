@@ -165,6 +165,9 @@ impl Evaluator {
 
     fn expression(&mut self, expression: &Expression) -> Result<Evaluated, EvaluationError> {
         match expression {
+            // A keyword argument is meaningless outside a call the literal
+            // evaluator cannot make, so it is routed rather than evaluated.
+            Expression::KeywordArgument { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Name(name) => self.name(name),
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
             Expression::Array(expressions) => expressions
@@ -411,6 +414,7 @@ impl Evaluator {
             | RuntimeValue::Type(_)
             | RuntimeValue::Contract(_)
             | RuntimeValue::Closure(_)
+            | RuntimeValue::KeywordArgument(_, _)
             | RuntimeValue::IterationYield(_)
             | RuntimeValue::IterationDone
             | RuntimeValue::ExceptionContext(..)
@@ -447,7 +451,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
-        RuntimeValue::IterationYield(_) => "Iteration",
+        RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
@@ -507,7 +511,11 @@ fn source_runtime_expression(expression: &Expression) -> bool {
     }
     match expression {
         // A Closure needs the heap the literal evaluator does not have.
-        Expression::Closure { .. } | Expression::Hash(_) | Expression::If { .. } => true,
+        // A keyword argument binds by name, which only the source runtime does.
+        Expression::Closure { .. }
+        | Expression::Hash(_)
+        | Expression::If { .. }
+        | Expression::KeywordArgument { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }
