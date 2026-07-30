@@ -603,10 +603,17 @@ impl Parser {
             self.expect("(")?;
             let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
+                // `block_parameter ::= "&" ordinary_name ...` is the dedicated
+                // block channel of IRIS-V1-GRAMMAR-C050. It binds by DECLARATION
+                // rather than by guessing which trailing argument is a Closure.
+                self.consume("&");
                 let parameter = self.binding_name()?;
                 parameters.push(parameter);
                 if self.consume(":") {
                     self.type_expression()?;
+                }
+                if self.consume("=") {
+                    self.expression(0)?;
                 }
                 if !self.consume(",") {
                     break;

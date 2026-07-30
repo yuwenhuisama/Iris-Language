@@ -158,7 +158,7 @@ fun render(
   **options: Object,
   &block: (String) -> Nil = nil
 ) -> Nil {
-  if block != nil { block(title) }
+  if block != nil { block.call(title) }
 }
 
 render("report", "a", "b", path: "out.txt", verbose: true) { |line: String| -> Nil; print(line) }
@@ -440,6 +440,8 @@ IRIS-V1-CONTROL-C073: The following vectors are normative traceability vectors w
 IRIS-V1-CONTROL-C074: Within a Module declaration, `module fun` installs a Method on that Module object itself. An unmodified `fun` in that declaration remains a Module instance Method supplied to a host when the Module is composed; it is distinct from a top-level executable Module-body `fun`, which installs on that Module's `main` receiver under IRIS-V1-CONTROL-C012. The `module` modifier is mutually exclusive with `class`; this parallels `class fun` installation on the Class object and its singleton lookup surface in IRIS-V1-RUNTIME-C043 and IRIS-V1-RUNTIME-C044.
 
 IRIS-V1-CONTROL-C075: When a named Method omits `-> ReturnType`, its declared static and runtime return Contract is `Dynamic<Object>`, regardless of any inferred final-expression or explicit-return body facts. Implementations MAY use those body facts locally for diagnostics or optimization, but MUST NOT publish them as Method signature metadata, use them to select a different Method or overload, or infer a narrower return Contract. If the final expression's static Type is not known, it is `Dynamic<Object>` for body analysis and the Method's declared return Contract remains `Dynamic<Object>`.
+
+IRIS-V1-CONTROL-C076: The v1.10 errata makes `call` the sole invocation spelling for the ordinary callable kinds of IRIS-V1-CONTROL-C021. `closure.call(args...)`, `bound.call(args...)`, and `block.call(args...)` invoke a Closure or BoundMethod, and a callable value MUST NOT be invoked by applying an argument list directly to it. This revision supersedes the direct-application spelling that IRIS-V1-MIG-004 previously named as the replacement for legacy `cast.call(...)`, and supersedes that part of `D-454` which removed `call` as an invocation surface. `call` is an ordinary selector on the callable, so a Closure and a BoundMethod remain identity-bearing callable objects under IRIS-V1-RUNTIME-C042 and IRIS-V1-RUNTIME-C040, receive their arguments under the parameter rules of IRIS-V1-CONTROL-C022 through IRIS-V1-CONTROL-C026, and answer `call` through ordinary dispatch. A trailing Closure still binds through the dedicated `&block` channel of IRIS-V1-GRAMMAR-C050, and an omitted optional block still binds `nil` under IRIS-V1-CONTROL-C025, so `block != nil` remains the presence test before `block.call(...)`.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

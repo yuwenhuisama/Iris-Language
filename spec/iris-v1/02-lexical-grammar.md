@@ -524,7 +524,7 @@ class Box<T> extends Object for Printable mixin Trace where T: Object {
   property fun ready?() -> Bool { true }
   property fun value!=(next: T) -> Nil { @value = next }
   fun map<U>(value: T, key label: Symbol, &block: (T) -> U) -> U where U: Object {
-    block(value)
+    block.call(value)
   }
 }
 ```

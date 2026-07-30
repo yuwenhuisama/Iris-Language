@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.9 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.10 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -59,6 +59,12 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 
 ### Permanence exceptions
 
+The v1.10 errata is the SIXTH exception and the first to reverse a DECIDED SEMANTIC rather
+than a spelling: `IRIS-V1-CONTROL-C076` makes `.call` the sole invocation form and removes the
+direct-application spelling that `IRIS-V1-MIG-004` had named as the replacement for legacy
+`cast.call(...)`. Weigh any further use against `IRIS-V1-TRACE-C021` itself, which forbids
+reinterpreting a decided semantic, rather than against this precedent.
+
 `IRIS-V1-TRACE-C007` makes published content permanent. Four bounded exceptions were authorized:
 
 1. `META-C100` — the four raw-ivar paths moved under `Reflection::Object` (v1.5)
@@ -93,7 +99,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 38 rows, 21 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 39 rows, 22 resolved, and records the blocker for every one.
 
 ## Working Agreements
 

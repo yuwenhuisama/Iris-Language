@@ -513,7 +513,7 @@ fn c048_a_qualified_impl_is_unreachable_through_ordinary_dispatch() {
 #[test]
 fn c042_each_closure_evaluation_creates_a_distinct_identity() {
     // Given
-    let source = "let mk = { { :v } }; let a = mk(); let b = mk(); \
+    let source = "let mk = { { :v } }; let a = mk.call(); let b = mk.call(); \
                   [a same? a, a same? b, a == a, a == b]";
 
     // When
@@ -532,7 +532,7 @@ fn c072_an_escaped_closure_keeps_writing_its_captured_receiver() {
     let source = "class A { public property fun x() { @x } \
                   public property fun x=(v) { @x = v } \
                   public fun mk() { { @x = 5 } } } \
-                  let a = A.new(); let escaped = a.mk(); let ran = escaped(); a.x";
+                  let a = A.new(); let escaped = a.mk(); let ran = escaped.call(); a.x";
 
     // When
     let result = rendered(source);
@@ -544,7 +544,7 @@ fn c072_an_escaped_closure_keeps_writing_its_captured_receiver() {
 #[test]
 fn c099_passes_a_trailing_block_as_the_separate_block_parameter() {
     // Given
-    let with_block = "class A { public fun method_missing(s, a, b) { [s, a, b()] } } \
+    let with_block = "class A { public fun method_missing(s, a, b) { [s, a, b.call()] } } \
                       let o = A.new(); o.missing(1) { :block }";
     let without = "class A { public fun method_missing(s, a, b) { [s, a] } } \
                    let o = A.new(); o.missing(1)";
@@ -567,9 +567,9 @@ fn c099_passes_a_trailing_block_as_the_separate_block_parameter() {
 #[test]
 fn a_local_callable_shadows_a_self_send_without_recursing() {
     // Given
-    let called = "class A { public fun m(b) { b() } } let o = A.new(); o.m({ :v })";
+    let called = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :v })";
     // A nil block must fail cleanly rather than recurse through method_missing.
-    let nil_block = "class A { public fun method_missing(s, a, b) { b() } } \
+    let nil_block = "class A { public fun method_missing(s, a, b) { b.call() } } \
                      let o = A.new(); o.missing(1)";
 
     // When
@@ -578,5 +578,27 @@ fn a_local_callable_shadows_a_self_send_without_recursing() {
 
     // Then
     assert_eq!(called, "Symbol(\"v\")");
-    assert_eq!(nil_block, "UnsupportedConstruct");
+    // C025 binds an omitted block to nil, and nil answers no `call` selector.
+    assert!(nil_block.contains("MessageNotFound"));
+}
+
+#[test]
+fn c076_call_is_the_sole_invocation_spelling() {
+    // Given
+    let closure = "let c = { :v }; c.call()";
+    let bound = "class A { public fun m() { :x } } let o = A.new(); o.m.call()";
+    let block = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :blk })";
+    let direct = "let c = { :v }; c()";
+
+    // When
+    let closure = rendered(closure);
+    let bound = rendered(bound);
+    let block = rendered(block);
+    let direct = rendered(direct);
+
+    // Then
+    assert_eq!(closure, "Symbol(\"v\")");
+    assert_eq!(bound, "Symbol(\"x\")");
+    assert_eq!(block, "Symbol(\"blk\")");
+    assert_eq!(direct, "UnsupportedConstruct");
 }

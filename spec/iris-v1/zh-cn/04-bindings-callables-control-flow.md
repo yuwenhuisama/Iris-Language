@@ -158,7 +158,7 @@ fun render(
   **options: Object,
   &block: (String) -> Nil = nil
 ) -> Nil {
-  if block != nil { block(title) }
+  if block != nil { block.call(title) }
 }
 
 render("report", "a", "b", path: "out.txt", verbose: true) { |line: String| -> Nil; print(line) }

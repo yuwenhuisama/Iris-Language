@@ -1202,7 +1202,10 @@ impl SourceEvaluator {
 
     fn call(&mut self, value: Value, arguments: &[Value]) -> Result<Value, EvaluationError> {
         match value {
-            Value::Closure(object) => self.invoke_closure(object, arguments),
+            // IRIS-V1-CONTROL-C076 forbids invoking a callable by applying an
+            // argument list to it, so direct application of a Closure is not a
+            // call at all. Only the `call` selector reaches invoke_closure.
+            Value::Closure(_) => Err(EvaluationError::UnsupportedConstruct),
             Value::Class(class) => match self.kernel.construct(class, arguments) {
                 Ok(value) => Ok(value),
                 Err(iris_runtime::KernelError::Type) => {
@@ -1790,6 +1793,25 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // IRIS-V1-CONTROL-C076 makes `call` the sole invocation spelling for the
+        // ordinary callable kinds, so a callable answers it as an ordinary
+        // selector rather than being applied directly to an argument list.
+        if selector == "call" {
+            match receiver {
+                Value::Closure(object) => return self.invoke_closure(object, arguments),
+                Value::BoundMethod(bound) => {
+                    return self.invoke_method(
+                        self.validate_bound_method(bound)?,
+                        match bound.receiver() {
+                            iris_runtime::BoundReceiver::Class(class) => Value::Class(class),
+                            iris_runtime::BoundReceiver::Object(object) => Value::Object(object),
+                        },
+                        arguments,
+                    );
+                }
+                _ => {}
+            }
+        }
         // IRIS-V1-RUNTIME-C042 makes Closure default equality identity-only and
         // forbids structural comparison, and IRIS-V1-RUNTIME-C040 gives each
         // BoundMethod read a distinct identity. Neither has a built-in Class to
