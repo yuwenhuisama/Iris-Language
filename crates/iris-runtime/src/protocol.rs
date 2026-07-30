@@ -91,7 +91,7 @@ impl ComparisonProtocol {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
-            | Value::ExceptionContext(_, _)
+            | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
@@ -159,7 +159,7 @@ impl Truthiness {
                 | Value::Closure(_)
                 | Value::IterationYield(_)
                 | Value::IterationDone
-                | Value::ExceptionContext(_, _)
+                | Value::ExceptionContext(..)
                 | Value::ContractView(_, _)
                 | Value::Object(_)
                 | Value::BoundMethod(_)
@@ -182,7 +182,7 @@ impl Truthiness {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
-            | Value::ExceptionContext(_, _)
+            | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)

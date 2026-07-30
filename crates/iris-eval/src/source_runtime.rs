@@ -720,7 +720,16 @@ impl SourceEvaluator {
                     Some(cause) => {
                         let cause = self.expression(cause, locals, receiver)?;
                         match cause {
-                            Value::Nil | Value::ExceptionContext(_, _) => cause,
+                            Value::Nil => cause,
+                            Value::ExceptionContext(..) => {
+                                // D-161: cause edges may not form a cycle. The
+                                // check runs BEFORE linkage, so a rejected
+                                // attempt leaves the existing graph unchanged.
+                                if Self::context_reaches(&cause, &value) {
+                                    return Err(EvaluationError::ExceptionChainError);
+                                }
+                                cause
+                            }
                             _ => {
                                 return Err(EvaluationError::Runtime(
                                     iris_runtime::KernelError::Type,
@@ -733,6 +742,7 @@ impl SourceEvaluator {
                 self.active_context = Some(Value::ExceptionContext(
                     Box::new(value.clone()),
                     Box::new(cause),
+                    Vec::new(),
                 ));
                 Err(EvaluationError::Raised(value))
             }
@@ -890,9 +900,28 @@ impl SourceEvaluator {
         let outcome =
             self.for_iterations(label, binding, &iterator, body, locals, receiver.clone());
         let closed = self.send(iterator, "close", &[]);
-        match outcome {
-            Ok(value) => closed.map(|_| value),
-            Err(error) => Err(error),
+        match (outcome, closed) {
+            (Ok(value), Ok(_)) => Ok(value),
+            (Ok(_), Err(error)) => Err(error),
+            // IRIS-V1-CONTROL-C047: when `close` fails during cleanup while a
+            // primary context exists, the close failure is APPENDED to that
+            // context's suppressed list in occurrence order rather than
+            // replacing the primary propagation.
+            (Err(primary), Err(EvaluationError::Raised(cleanup))) => {
+                if let Some(Value::ExceptionContext(value, cause, suppressed)) =
+                    self.active_context.take()
+                {
+                    let mut suppressed = suppressed;
+                    suppressed.push(Value::ExceptionContext(
+                        Box::new(cleanup),
+                        Box::new(Value::Nil),
+                        Vec::new(),
+                    ));
+                    self.active_context = Some(Value::ExceptionContext(value, cause, suppressed));
+                }
+                Err(primary)
+            }
+            (Err(primary), _) => Err(primary),
         }
     }
 
@@ -1026,12 +1055,46 @@ impl SourceEvaluator {
                 Ok(_) | Err(_) => None,
             };
             let previous = self.active_exception.clone();
+            let pending_context = pending
+                .is_some()
+                .then(|| self.active_context.clone())
+                .flatten();
             self.active_exception = pending;
             let final_result = self.block(finally, locals, receiver);
             self.active_exception = previous;
+            if let Err(EvaluationError::Raised(raised)) = &final_result {
+                // IRIS-V1-CONTROL-C064: a `finally` that raises while a context
+                // is pending becomes PRIMARY, and the pending context becomes
+                // its cause. Without this the new context would simply overwrite
+                // the old one and the chain would be lost.
+                if let Some(cause) = pending_context {
+                    self.active_context = Some(Value::ExceptionContext(
+                        Box::new(raised.clone()),
+                        Box::new(cause),
+                        Vec::new(),
+                    ));
+                }
+            }
             final_result?;
         }
         result
+    }
+
+    /// Reports whether a context chain already reaches a raised value.
+    ///
+    /// `D-161` performs an identity-based cycle check across cause edges, so a
+    /// context whose chain already carries this value cannot become its cause.
+    fn context_reaches(context: &Value, value: &Value) -> bool {
+        let mut current = context;
+        loop {
+            let Value::ExceptionContext(carried, cause, _) = current else {
+                return false;
+            };
+            if **carried == *value {
+                return true;
+            }
+            current = cause;
+        }
     }
 
     fn catch_exception(
@@ -1058,7 +1121,11 @@ impl SourceEvaluator {
             // an unchained one carries a nil cause per C057.
             if let Some(context) = &catch.context {
                 let context_value = self.active_context.clone().unwrap_or_else(|| {
-                    Value::ExceptionContext(Box::new(value.clone()), Box::new(Value::Nil))
+                    Value::ExceptionContext(
+                        Box::new(value.clone()),
+                        Box::new(Value::Nil),
+                        Vec::new(),
+                    )
                 });
                 catch_locals.insert(context.clone(), context_value);
             }
@@ -2146,10 +2213,11 @@ impl SourceEvaluator {
         // The chapter 04 exception example reads `context.value`, and
         // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
         // the context rather than dispatched sends.
-        if let Value::ExceptionContext(value, cause) = &receiver {
+        if let Value::ExceptionContext(value, cause, suppressed) = &receiver {
             match selector {
                 "value" => return Ok((**value).clone()),
                 "cause" => return Ok((**cause).clone()),
+                "suppressed" => return Ok(Value::Array(suppressed.clone())),
                 _ => {}
             }
         }
@@ -2217,7 +2285,7 @@ impl SourceEvaluator {
                         | Value::Closure(_)
                         | Value::IterationYield(_)
                         | Value::IterationDone
-                        | Value::ExceptionContext(_, _)
+                        | Value::ExceptionContext(..)
                         | Value::ContractView(_, _)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
@@ -2253,7 +2321,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
-            | Value::ExceptionContext(_, _)
+            | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
@@ -2428,7 +2496,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
-            | Value::ExceptionContext(_, _)
+            | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
@@ -2912,7 +2980,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Closure(_) => "Closure",
         Value::IterationYield(_) => "Iteration",
         Value::IterationDone => "Iteration",
-        Value::ExceptionContext(_, _) => "ExceptionContext",
+        Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",

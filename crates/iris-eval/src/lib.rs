@@ -56,6 +56,8 @@ pub enum EvaluationError {
     PatternMatchError,
     /// A bare `raise` occurred outside any catch dynamic extent.
     NoActiveExceptionError,
+    /// A cause or suppressed edge would have formed a cycle.
+    ExceptionChainError,
     /// A `continue` is unwinding to start the next iteration of its target loop.
     ///
     /// `IRIS-V1-CONTROL-C043` gives `continue` NO value, so unlike `LoopBreak`
@@ -411,7 +413,7 @@ impl Evaluator {
             | RuntimeValue::Closure(_)
             | RuntimeValue::IterationYield(_)
             | RuntimeValue::IterationDone
-            | RuntimeValue::ExceptionContext(_, _)
+            | RuntimeValue::ExceptionContext(..)
             | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
             | RuntimeValue::BoundMethod(_)
@@ -447,7 +449,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::IterationDone => "Iteration",
-        RuntimeValue::ExceptionContext(_, _) => "ExceptionContext",
+        RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",

@@ -164,7 +164,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::Closure(_)
         | RuntimeValue::IterationYield(_)
         | RuntimeValue::IterationDone
-        | RuntimeValue::ExceptionContext(_, _)
+        | RuntimeValue::ExceptionContext(..)
         | RuntimeValue::ContractView(_, _)
         | RuntimeValue::Object(_)
         | RuntimeValue::BoundMethod(_)
@@ -187,7 +187,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::IterationDone => "Iteration",
-        RuntimeValue::ExceptionContext(_, _) => "ExceptionContext",
+        RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
@@ -209,6 +209,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ArgumentError => "ArgumentError".into(),
         EvaluationError::PatternMatchError => "PatternMatchError".into(),
         EvaluationError::NoActiveExceptionError => "NoActiveExceptionError".into(),
+        EvaluationError::ExceptionChainError => "ExceptionChainError".into(),
         EvaluationError::LoopBreak(..) | EvaluationError::LoopContinue(_) => {
             "ControlTargetError".into()
         }

@@ -894,3 +894,29 @@ fn c056_and_c057_give_each_raise_a_context_with_an_optional_cause() {
     assert!(bad_cause.contains("Type"));
     assert_eq!(no_active, "NoActiveExceptionError");
 }
+
+#[test]
+fn c064_and_c047_chain_a_finally_raise_and_append_a_cleanup_failure() {
+    // Given
+    let chained = "try { try { raise :old } finally { raise :new } } \
+                   catch e: Symbol, c { e }";
+    let suppressed = "let mut n = 0; \
+                      class It { public fun next() { n = n + 1; \
+                      if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+                      public fun close() { raise :cleanup } } \
+                      class Src { public fun iterator() { It.new() } } \
+                      try { for x in Src.new() { raise :primary } } catch e: Symbol, c { e }";
+    // D-161: a cause edge may not close a cycle.
+    let cycle = "try { raise :x } catch e: Symbol, c { raise :x from c }";
+
+    // When
+    let chained = rendered(chained);
+    let suppressed = rendered(suppressed);
+    let cycle = rendered(cycle);
+
+    // Then the finally raise is primary, and a cleanup failure does not displace
+    // the primary propagation.
+    assert_eq!(chained, "Symbol(\"new\")");
+    assert_eq!(suppressed, "Symbol(\"primary\")");
+    assert_eq!(cycle, "ExceptionChainError");
+}

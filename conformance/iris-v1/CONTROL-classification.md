@@ -45,7 +45,10 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V031` | negative | executable | A bare `raise` outside a catch extent raises `NoActiveExceptionError`. |
 | `V032` | positive | executable | Normal catch completion. |
 | `V033` | positive | executable | A `finally` value is discarded and the provisional result is preserved. |
-| `V034`-`V037` | mixed | needs-subsystem | Require exception chaining, suppressed-exception recording, cycle detection, or cleanup traversal. |
+| `V034` | positive | executable | A `finally` raise becomes primary and the pending context becomes its cause, per `IRIS-V1-CONTROL-C064`. |
+| `V035` | positive | executable | A cleanup failure is appended to the primary context's `suppressed`, per `IRIS-V1-CONTROL-C047`. |
+| `V036` | negative | executable | A cause cycle raises `ExceptionChainError` and leaves the graph unchanged, per `D-161`. |
+| `V037` | positive | needs-subsystem | Requires `return` with cleanup traversal. |
 | `V038` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V039` | positive | executable | Mutable binding assignment. |
 | `V040`-`V041` | diagnostic | needs-subsystem | Same diagnostic channel. |
