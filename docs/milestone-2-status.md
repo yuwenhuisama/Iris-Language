@@ -135,7 +135,7 @@ invisible for a milestone because a bucketed vector is never executed.
 All 21 bucket reasons were re-probed and rewritten, so what follows is measured rather than
 inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 
-1. **The remaining 10 bucketed rows have no single dominant blocker.** Closures landed and closed
+1. **The remaining 9 bucketed rows have no single dominant blocker.** Closures landed and closed
    `V077` and `V099`. What is left is spread thin: `V064` needs a resource-limit harness, `V072`
    a Hash literal, `V079` a compacting GC, `V085` `migrate_revision`, `V110` a stable diagnostic
    category, and `V111` static rebinding rejection.
