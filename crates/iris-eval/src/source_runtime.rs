@@ -815,6 +815,20 @@ impl SourceEvaluator {
                     self.expression(&Expression::Literal(literal.clone()), &HashMap::new(), None)?;
                 Ok(expected == *value)
             }
+            iris_syntax::Pattern::Array(elements) => {
+                let Value::Array(values) = value else {
+                    return Ok(false);
+                };
+                if values.len() != elements.len() {
+                    return Ok(false);
+                }
+                for (element, value) in elements.iter().zip(values) {
+                    if !self.pattern_matches(element, value, bound)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
             iris_syntax::Pattern::Alternatives(alternatives) => {
                 for alternative in alternatives {
                     if self.pattern_matches(alternative, value, bound)? {
@@ -837,7 +851,7 @@ impl SourceEvaluator {
     fn for_statement(
         &mut self,
         label: Option<&str>,
-        binding: &str,
+        binding: &iris_syntax::Pattern,
         iterable: &Expression,
         body: &[Statement],
         locals: &HashMap<String, Value>,
@@ -857,7 +871,7 @@ impl SourceEvaluator {
     fn for_iterations(
         &mut self,
         label: Option<&str>,
-        binding: &str,
+        binding: &iris_syntax::Pattern,
         iterator: &Value,
         body: &[Statement],
         locals: &HashMap<String, Value>,
@@ -871,7 +885,12 @@ impl SourceEvaluator {
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             };
             let mut iteration = locals.clone();
-            iteration.insert(binding.to_owned(), value);
+            // IRIS-V1-CONTROL-C045: a destructuring mismatch raises
+            // PatternMatchError. The caller closes the Iterator before this
+            // propagates, which is what C045 requires of every exit path.
+            if !self.pattern_matches(binding, &value, &mut iteration)? {
+                return Err(EvaluationError::PatternMatchError);
+            }
             match self.block(body, &iteration, receiver.clone()) {
                 Ok(_) => {}
                 Err(EvaluationError::LoopBreak(target, value))

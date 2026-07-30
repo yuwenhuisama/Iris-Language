@@ -846,3 +846,28 @@ fn c050_match_tests_arms_in_source_order_with_no_fallthrough() {
     assert_eq!(fallback, "Symbol(\"other\")");
     assert_eq!(binding, "Integer(IntegerValue(5))");
 }
+
+#[test]
+fn c045_for_destructuring_binds_or_raises_pattern_match_error() {
+    // Given
+    let matched = "let mut n = 0; \
+                   class It { public fun next() { n = n + 1; \
+                   if n < 2 { Iteration.yield([1, 2]) } else { Iteration.done } } \
+                   public fun close() { nil } } \
+                   class Src { public fun iterator() { It.new() } } \
+                   let mut got = nil; for [a, b] in Src.new() { got = a }; got";
+    let mismatched = "let mut n = 0; \
+                      class It { public fun next() { n = n + 1; \
+                      if n < 2 { Iteration.yield([1, 2, 3]) } else { Iteration.done } } \
+                      public fun close() { nil } } \
+                      class Src { public fun iterator() { It.new() } } \
+                      for [a, b] in Src.new() { a }";
+
+    // When
+    let matched = rendered(matched);
+    let mismatched = rendered(mismatched);
+
+    // Then
+    assert!(matched.ends_with("Integer(IntegerValue(1))])"));
+    assert_eq!(mismatched, "PatternMatchError");
+}

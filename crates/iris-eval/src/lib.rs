@@ -52,6 +52,8 @@ pub enum EvaluationError {
     ComparisonContractError,
     /// A send supplied the wrong number of arguments for the selected Method.
     ArgumentError,
+    /// A binding-only destructuring context did not match its value.
+    PatternMatchError,
     /// A `continue` is unwinding to start the next iteration of its target loop.
     ///
     /// `IRIS-V1-CONTROL-C043` gives `continue` NO value, so unlike `LoopBreak`

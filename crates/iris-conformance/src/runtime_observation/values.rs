@@ -205,6 +205,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::TypeContractError => "TypeContractError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
+        EvaluationError::PatternMatchError => "PatternMatchError".into(),
         EvaluationError::LoopBreak(..) | EvaluationError::LoopContinue(_) => {
             "ControlTargetError".into()
         }

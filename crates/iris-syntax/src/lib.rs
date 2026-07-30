@@ -135,7 +135,9 @@ pub enum Statement {
     },
     For {
         label: Option<String>,
-        binding: String,
+        /// `IRIS-V1-CONTROL-C045` lets `for` destructure, so this is a pattern
+        /// rather than a plain name.
+        binding: Pattern,
         iterable: Expression,
         body: Vec<Statement>,
     },
@@ -223,6 +225,8 @@ pub enum Pattern {
     Name(String),
     Alternatives(Vec<Pattern>),
     Literal(String),
+    /// `[a, b]` array destructuring from the C051 pattern vocabulary.
+    Array(Vec<Pattern>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

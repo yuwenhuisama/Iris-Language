@@ -754,7 +754,7 @@ impl Parser {
                 });
             }
             if self.consume("for") {
-                let binding = self.name()?;
+                let binding = self.binding_pattern()?;
                 self.expect("in")?;
                 let iterable = self.expression(0)?;
                 return Some(Statement::For {
@@ -780,7 +780,7 @@ impl Parser {
         // `for_statement ::= loop_label? "for" binding_pattern "in" expression
         // block_body`, so the unlabelled form is a statement in its own right.
         if self.consume("for") {
-            let binding = self.name()?;
+            let binding = self.binding_pattern()?;
             self.expect("in")?;
             let outer = std::mem::replace(&mut self.no_trailing_block, true);
             let iterable = self.expression(0);
@@ -892,6 +892,26 @@ impl Parser {
         } else {
             Some(Pattern::Alternatives(values))
         }
+    }
+
+    /// Parses `binding_pattern`, the destructuring subset `for` accepts.
+    ///
+    /// The grammar admits a name, `_`, and bracketed forms. Only the name and
+    /// array forms are built here, because a Tuple value does not exist yet and
+    /// inventing one would fabricate semantics chapter 06 owns.
+    fn binding_pattern(&mut self) -> Option<Pattern> {
+        if self.consume("[") {
+            let mut elements = Vec::new();
+            while !self.check("]") && !self.at_end() {
+                elements.push(self.binding_pattern()?);
+                if !self.consume(",") {
+                    break;
+                }
+            }
+            self.expect("]")?;
+            return Some(Pattern::Array(elements));
+        }
+        self.name().map(Pattern::Name)
     }
 
     /// Parses one `match_pattern_alternative` from the C051 vocabulary.

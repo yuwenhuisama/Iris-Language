@@ -32,7 +32,7 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V018` | positive | executable | `break 7` carries the loop result. |
 | `V019` | negative | needs-subsystem | Requires loop control-target validation. |
 | `V020` | positive | executable | `for` runs the body for a yielded `nil` and closes the Iterator on exit, per `C044` and `C046`. |
-| `V021` | negative | needs-subsystem | Requires destructuring patterns. |
+| `V021` | negative | executable | A `for` destructuring mismatch raises `PatternMatchError`, per `IRIS-V1-CONTROL-C045`. |
 | `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
 | `V023` | positive | executable | A labelled `break` reaches the named outer loop while a bare one targets the nearest, per `IRIS-V1-CONTROL-C048`. |
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
