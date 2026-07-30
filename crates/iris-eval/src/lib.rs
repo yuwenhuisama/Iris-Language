@@ -329,7 +329,10 @@ impl Evaluator {
             _ if name.chars().next().is_some_and(char::is_uppercase) => {
                 return Ok(Evaluated::UnresolvedClass(name.into()));
             }
-            _ => return Err(EvaluationError::UnsupportedConstruct),
+            // IRIS-V1-CONTROL-C011 makes a non-call unresolved bare name a
+            // `NameError`, and this evaluator has no bindings at all, so any
+            // lowercase name reaching here is unresolved.
+            _ => return Err(EvaluationError::NameError),
         };
         Ok(Evaluated::Value(value))
     }
@@ -901,11 +904,12 @@ mod evaluator_bridge_tests {
         // When
         let results = names.map(evaluate);
 
-        // Then
+        // Then `IRIS-V1-RUNTIME-V065` calls these ABSENT names, and
+        // `IRIS-V1-CONTROL-C011` makes an unresolved bare name a `NameError`.
         assert!(
             results
                 .into_iter()
-                .all(|result| matches!(result, Err(super::EvaluationError::UnsupportedConstruct)))
+                .all(|result| matches!(result, Err(super::EvaluationError::NameError)))
         );
     }
 

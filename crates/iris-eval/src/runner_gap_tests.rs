@@ -734,10 +734,9 @@ fn source_if_uses_truthiness_and_keeps_branches_scoped() {
             RuntimeValue::Integer(0_u8.into()),
         ]))
     );
-    assert_eq!(
-        scoped_binding_result,
-        Err(EvaluationError::UnsupportedConstruct)
-    );
+    // IRIS-V1-CONTROL-C011 makes an unresolved bare name a `NameError`, which
+    // is what reading a branch-local binding from outside its branch produces.
+    assert_eq!(scoped_binding_result, Err(EvaluationError::NameError));
 }
 
 #[test]

@@ -1378,7 +1378,10 @@ impl SourceEvaluator {
                         .contains_key(name)
                         .then(|| Value::Symbol(name.clone()))
                 })
-                .ok_or(EvaluationError::UnsupportedConstruct),
+                // IRIS-V1-CONTROL-C011: a non-call unresolved bare name raises
+                // `NameError`. It MUST NOT read a property, Method, global, or
+                // runtime-added member instead.
+                .ok_or(EvaluationError::NameError),
             Expression::RawIvar(name) => {
                 let selector = self.selector(name);
                 match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {

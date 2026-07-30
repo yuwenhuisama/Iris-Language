@@ -1254,7 +1254,8 @@ fn a_block_local_mut_binding_is_assignable_and_does_not_escape() {
     // When / Then
     assert_eq!(rendered(assigned), "Integer(IntegerValue(1))");
     assert_eq!(rendered(counted), "Integer(IntegerValue(3))");
-    assert_eq!(rendered(escaped), "UnsupportedConstruct");
+    // C011 makes an unresolved bare name a NameError.
+    assert_eq!(rendered(escaped), "NameError");
 }
 
 #[test]
@@ -1321,4 +1322,37 @@ fn c043_gives_a_loop_a_value_in_expression_position() {
     assert_eq!(rendered(broken), "Integer(IntegerValue(7))");
     assert_eq!(rendered(bare_break), "Nil");
     assert!(rendered(as_statement).ends_with("Integer(IntegerValue(3))])"));
+}
+
+#[test]
+fn c011_raises_name_error_for_an_unresolved_bare_name() {
+    // Given a branch-local binding read from outside its branch. C011 requires
+    // NameError and forbids falling back to a property, Method, or global.
+    let escaped_branch = "let r = if true { let inside = 1; inside }; inside";
+    let never_declared = "undefined_name";
+    // A resolvable name is unaffected.
+    let resolved = "let a = 1; a";
+
+    // When / Then
+    assert_eq!(rendered(escaped_branch), "NameError");
+    assert_eq!(rendered(never_declared), "NameError");
+    assert_eq!(rendered(resolved), "Integer(IntegerValue(1))");
+}
+
+#[test]
+fn a_rejected_operator_does_not_degrade_into_a_bare_name() {
+    // Given `%`, which IRIS-V1-RUNTIME-V102 requires the GRAMMAR to reject.
+    // Any leftover token used to become a Name, so `5 % 2` parsed as three
+    // separate statements and the rejection never happened; the row passed
+    // only because the stray name failed later for an unrelated reason.
+    let rejected = "let n = 5; n % 2";
+    // The named-infix spelling is the supported one and must still work.
+    let named_infix = "let n = 5; [n.mod(2), n mod 2]";
+
+    // When / Then
+    assert_eq!(rendered(rejected), "ParseDiagnostic");
+    assert_eq!(
+        rendered(named_infix),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))])"
+    );
 }

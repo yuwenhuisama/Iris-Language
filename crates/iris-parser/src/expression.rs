@@ -191,11 +191,22 @@ impl Parser {
             self.error("PARSE_UNEXPECTED_TOKEN");
             return None;
         };
-        Some(if self.is_literal(&value) {
-            Expression::Literal(value)
-        } else {
-            Expression::Name(value)
-        })
+        if self.is_literal(&value) {
+            return Some(Expression::Literal(value));
+        }
+        // Only an ordinary identifier may become a Name here. Accepting any
+        // leftover token silently turned a rejected operator into a bare name,
+        // so `5 % 2` parsed as three statements instead of being rejected by
+        // the grammar as `IRIS-V1-RUNTIME-V102` requires.
+        if value
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
+        {
+            return Some(Expression::Name(value));
+        }
+        self.error("PARSE_UNEXPECTED_TOKEN");
+        None
     }
 
     pub(super) fn if_expression(&mut self) -> Option<Expression> {
