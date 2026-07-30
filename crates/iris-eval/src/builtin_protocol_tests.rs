@@ -1409,3 +1409,29 @@ fn c011_does_not_invoke_a_bare_callable_value() {
             .ends_with("Array([Symbol(\"factory\"), Symbol(\"index\"), Symbol(\"rhs\")])])")
     );
 }
+
+#[test]
+fn c047_distinguishes_a_cleanup_failure_with_and_without_a_pending_exception() {
+    // Given a `close` that raises while nothing is pending. With no primary to
+    // attach to, the cleanup failure IS the primary and its suppressed list is
+    // empty, which is the opposite arrangement from the body-failure case.
+    let cleanup_only = "let mut n = 0; \
+                        class It { public fun next() { n = n + 1; \
+                        if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+                        public fun close() { raise :close } } \
+                        class Src { public fun iterator() { It.new() } } \
+                        try { for x in Src.new() { nil } } catch _, c { [c.value, c.suppressed] }";
+    // A `break` still runs cleanup exactly once on its way out.
+    let break_closes = "let mut log = []; \
+                        class It { public fun next() { Iteration.yield(1) } \
+                        public fun close() { log.append(:close) } } \
+                        class Src { public fun iterator() { It.new() } } \
+                        for x in Src.new() { break }; log";
+
+    // When / Then
+    assert_eq!(
+        rendered(cleanup_only),
+        "Array([Symbol(\"close\"), Array([])])"
+    );
+    assert!(rendered(break_closes).ends_with("Array([Symbol(\"close\")])])"));
+}
