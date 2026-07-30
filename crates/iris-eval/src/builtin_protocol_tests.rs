@@ -1435,3 +1435,23 @@ fn c047_distinguishes_a_cleanup_failure_with_and_without_a_pending_exception() {
     );
     assert!(rendered(break_closes).ends_with("Array([Symbol(\"close\")])])"));
 }
+
+#[test]
+fn c042_calls_to_bool_once_per_tested_operand_and_short_circuits() {
+    // Given one probe counting `to_bool` across negation, conjunction and
+    // disjunction. The disjunction's right side ASSIGNS, so a
+    // non-short-circuiting implementation is visible as a changed counter
+    // rather than only as a different result.
+    let counted = "let mut calls = 0; let mut rhs_ran = 0; \
+                   class P { public fun to_bool() { calls = calls + 1; true } } \
+                   let negated = !P.new(); \
+                   let conjoined = P.new() && :yes; \
+                   let disjoined = P.new() || (rhs_ran = 1); \
+                   [negated, conjoined, calls, rhs_ran]";
+
+    // When / Then three operands are tested, and the right side never runs.
+    assert_eq!(
+        rendered(counted),
+        "Array([Bool(false), Symbol(\"yes\"), Integer(IntegerValue(3)), Integer(IntegerValue(0))])"
+    );
+}
