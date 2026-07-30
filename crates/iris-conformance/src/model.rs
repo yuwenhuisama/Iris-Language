@@ -21,6 +21,7 @@ pub struct Record {
 pub enum Chapter {
     Grammar,
     Runtime,
+    Control,
 }
 
 impl Chapter {
@@ -28,6 +29,7 @@ impl Chapter {
         match self {
             Self::Grammar => "GRAMMAR",
             Self::Runtime => "RUNTIME",
+            Self::Control => "CONTROL",
         }
     }
 }

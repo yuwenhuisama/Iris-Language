@@ -8,6 +8,7 @@
 
 ```
 RUNTIME  passed: 94, failed: 3, needs_subsystem: 7, no_fixture: 2, differential: 3   (109 records, buckets sum 109)
+CONTROL  passed: 11, failed: 0, needs_subsystem: 30                                  (41 records, buckets sum 41)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
@@ -16,6 +17,7 @@ Milestone 2 opened at RUNTIME 41 and closed at 94.
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
 cargo run -p iris-conformance -- --chapter GRAMMAR
+cargo run -p iris-conformance -- --chapter CONTROL
 ```
 
 ## Quality Gates
@@ -116,7 +118,7 @@ Building it is milestone-3 sized infrastructure.
 - `Integer(1).hash` is `17824117788395916856`; the singleton hash is `11850167709044604115`.
 - `IRIS-V1-RUNTIME-C067` rejects `other.@x`, `obj.@@x` and `A.@@x`. The owner has reaffirmed that this form must never be valid syntax.
 - Built-in value classes may not have their runtime superclass changed, per `RUNTIME-C150`.
-- Record counts stay at 109 RUNTIME and 41 GRAMMAR, and the buckets must sum to the record count.
+- Record counts stay at 109 RUNTIME, 41 GRAMMAR and 41 CONTROL, and the buckets must sum to the record count.
 
 ## Milestone Status
 
