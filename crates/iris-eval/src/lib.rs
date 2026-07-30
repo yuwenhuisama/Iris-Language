@@ -52,6 +52,11 @@ pub enum EvaluationError {
     ComparisonContractError,
     /// A send supplied the wrong number of arguments for the selected Method.
     ArgumentError,
+    /// A `continue` is unwinding to start the next iteration of its target loop.
+    ///
+    /// `IRIS-V1-CONTROL-C043` gives `continue` NO value, so unlike `LoopBreak`
+    /// it carries only the target label.
+    LoopContinue(Option<String>),
     /// A `break` is unwinding to its target loop, carrying the loop result.
     ///
     /// `IRIS-V1-CONTROL-C043` makes `break expr` exit the target loop with
@@ -452,11 +457,13 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         // A loop needs the source runtime: the literal evaluator has no heap and
         // no statement sequencing. Its BODY is checked too, since a `break`
         // there is what carries the loop result.
-        Statement::While { .. } | Statement::For { .. } | Statement::Break { .. } => true,
+        Statement::While { .. }
+        | Statement::For { .. }
+        | Statement::Break { .. }
+        | Statement::Continue(_) => true,
         Statement::StoredProperty { .. }
         | Statement::Method(_)
         | Statement::Return(_)
-        | Statement::Continue(_)
         | Statement::Match { .. } => false,
         Statement::Raise(_) | Statement::Try { .. } => true,
     }

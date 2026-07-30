@@ -731,11 +731,11 @@ impl SourceEvaluator {
                 iterable,
                 body,
             } => self.for_statement(label.as_deref(), binding, iterable, body, locals, receiver),
+            Statement::Continue(label) => Err(EvaluationError::LoopContinue(label.clone())),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_)
             | Statement::Return(_)
-            | Statement::Continue(_)
             | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
     }
@@ -793,6 +793,8 @@ impl SourceEvaluator {
                 {
                     return Ok(value);
                 }
+                Err(EvaluationError::LoopContinue(target))
+                    if target.is_none() || target.as_deref() == label => {}
                 Err(error) => return Err(error),
             }
         }
@@ -825,6 +827,8 @@ impl SourceEvaluator {
                 {
                     return Ok(value);
                 }
+                Err(EvaluationError::LoopContinue(target))
+                    if target.is_none() || target.as_deref() == label => {}
                 Err(error) => return Err(error),
             }
         }
@@ -850,7 +854,7 @@ impl SourceEvaluator {
                 Statement::Raise(_) => return self.statement(statement, &locals, receiver.clone()),
                 // A `break` leaves the block immediately, carrying its loop
                 // result outward as the control signal the target loop consumes.
-                Statement::Break { .. } => {
+                Statement::Break { .. } | Statement::Continue(_) => {
                     return self.statement(statement, &locals, receiver.clone());
                 }
                 Statement::While { .. } | Statement::For { .. } => {
@@ -860,7 +864,6 @@ impl SourceEvaluator {
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::Return(_)
-                | Statement::Continue(_)
                 | Statement::Match { .. } => return Err(EvaluationError::UnsupportedConstruct),
             }
         }

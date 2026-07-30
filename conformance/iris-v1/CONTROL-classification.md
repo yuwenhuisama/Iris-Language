@@ -34,7 +34,7 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V020` | positive | executable | `for` runs the body for a yielded `nil` and closes the Iterator on exit, per `C044` and `C046`. |
 | `V021` | negative | needs-subsystem | Requires destructuring patterns. |
 | `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
-| `V023` | positive | needs-subsystem | Requires loop labels. |
+| `V023` | positive | executable | A labelled `break` reaches the named outer loop while a bare one targets the nearest, per `IRIS-V1-CONTROL-C048`. |
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V025` | positive | needs-subsystem | Requires match expressions. |
 | `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |

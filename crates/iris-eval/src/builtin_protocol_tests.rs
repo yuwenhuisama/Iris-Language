@@ -803,3 +803,24 @@ fn c044_each_iteration_binds_in_a_fresh_scope() {
     // Then escaped Closures return distinct per-iteration values, not a shared cell.
     assert!(result.ends_with("Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])])"));
 }
+
+#[test]
+fn c048_labels_target_the_named_loop_and_bare_control_targets_the_nearest() {
+    // Given
+    let labelled = "outer: while true { while true { break outer: 7 } }";
+    let nearest = "let mut n = 0; outer: while n < 2 { n = n + 1; while true { break } }; n";
+    let skipped = "let mut n = 0; let mut log = []; \
+                   while n < 3 { n = n + 1; continue; log.append(:unreachable) }; log";
+
+    // When
+    let labelled = rendered(labelled);
+    let nearest = rendered(nearest);
+    let skipped = rendered(skipped);
+
+    // Then
+    assert_eq!(labelled, "Integer(IntegerValue(7))");
+    // A bare break leaves only the inner loop, so the outer one still completes.
+    assert!(nearest.ends_with("Integer(IntegerValue(2))])"));
+    // continue starts the next iteration, so the rest of the body never runs.
+    assert!(skipped.ends_with("Array([])])"));
+}
