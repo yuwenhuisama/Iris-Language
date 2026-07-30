@@ -747,7 +747,9 @@ impl SourceEvaluator {
                     }
                     None => Value::Nil,
                 };
+                let identity = self.next_context_identity();
                 self.active_context = Some(Value::ExceptionContext(
+                    identity,
                     Box::new(value.clone()),
                     Box::new(cause),
                     Vec::new(),
@@ -907,6 +909,14 @@ impl SourceEvaluator {
         let iterator = self.send(source, "iterator", &[])?;
         let outcome =
             self.for_iterations(label, binding, &iterator, body, locals, receiver.clone());
+        // The primary context must be captured BEFORE cleanup runs. A `close`
+        // that raises installs its own context, which would otherwise overwrite
+        // the primary one and leave the caught value and its bound context
+        // disagreeing about which exception is propagating.
+        let primary_context = outcome
+            .is_err()
+            .then(|| self.active_context.take())
+            .flatten();
         let closed = self.send(iterator, "close", &[]);
         match (outcome, closed) {
             (Ok(value), Ok(_)) => Ok(value),
@@ -916,20 +926,30 @@ impl SourceEvaluator {
             // context's suppressed list in occurrence order rather than
             // replacing the primary propagation.
             (Err(primary), Err(EvaluationError::Raised(cleanup))) => {
-                if let Some(Value::ExceptionContext(value, cause, suppressed)) =
-                    self.active_context.take()
+                if let Some(Value::ExceptionContext(identity, value, cause, suppressed)) =
+                    primary_context
                 {
+                    let cleanup_identity = self.next_context_identity();
                     let mut suppressed = suppressed;
                     suppressed.push(Value::ExceptionContext(
+                        cleanup_identity,
                         Box::new(cleanup),
                         Box::new(Value::Nil),
                         Vec::new(),
                     ));
-                    self.active_context = Some(Value::ExceptionContext(value, cause, suppressed));
+                    self.active_context =
+                        Some(Value::ExceptionContext(identity, value, cause, suppressed));
                 }
                 Err(primary)
             }
-            (Err(primary), _) => Err(primary),
+            (Err(primary), _) => {
+                // Cleanup succeeded or failed without a context of its own, so
+                // the primary context is restored unchanged.
+                if let Some(context) = primary_context {
+                    self.active_context = Some(context);
+                }
+                Err(primary)
+            }
         }
     }
 
@@ -1077,7 +1097,9 @@ impl SourceEvaluator {
                 // its cause. Without this the new context would simply overwrite
                 // the old one and the chain would be lost.
                 if let Some(cause) = pending_context {
+                    let identity = self.next_context_identity();
                     self.active_context = Some(Value::ExceptionContext(
+                        identity,
                         Box::new(raised.clone()),
                         Box::new(cause),
                         Vec::new(),
@@ -1096,7 +1118,7 @@ impl SourceEvaluator {
     fn context_reaches(context: &Value, value: &Value) -> bool {
         let mut current = context;
         loop {
-            let Value::ExceptionContext(carried, cause, _) = current else {
+            let Value::ExceptionContext(_, carried, cause, _) = current else {
                 return false;
             };
             if **carried == *value {
@@ -1129,13 +1151,15 @@ impl SourceEvaluator {
             // raised object. C056 gives every propagation a fresh context, and
             // an unchained one carries a nil cause per C057.
             if let Some(context) = &catch.context {
-                let context_value = self.active_context.clone().unwrap_or_else(|| {
-                    Value::ExceptionContext(
+                let context_value = match self.active_context.clone() {
+                    Some(context) => context,
+                    None => Value::ExceptionContext(
+                        self.next_context_identity(),
                         Box::new(value.clone()),
                         Box::new(Value::Nil),
                         Vec::new(),
-                    )
-                });
+                    ),
+                };
                 catch_locals.insert(context.clone(), context_value);
             }
             let previous = self.active_exception.replace(value.clone());
@@ -2373,7 +2397,7 @@ impl SourceEvaluator {
         // The chapter 04 exception example reads `context.value`, and
         // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
         // the context rather than dispatched sends.
-        if let Value::ExceptionContext(value, cause, suppressed) = &receiver {
+        if let Value::ExceptionContext(_, value, cause, suppressed) = &receiver {
             match selector {
                 "value" => return Ok((**value).clone()),
                 "cause" => return Ok((**cause).clone()),
@@ -2523,6 +2547,16 @@ impl SourceEvaluator {
         };
         values.push(value.clone());
         Ok(Value::Nil)
+    }
+
+    /// Allocates a fresh identity for one propagation event.
+    ///
+    /// `IRIS-V1-CONTROL-C056` makes every `raise` a DISTINCT event, so this
+    /// never reuses an identity even when the raised value is the same.
+    fn next_context_identity(&mut self) -> iris_runtime::ObjectId {
+        let identity = iris_runtime::ObjectId::new(self.next_closure);
+        self.next_closure += 1;
+        identity
     }
 
     fn selector(&mut self, name: &str) -> Selector {

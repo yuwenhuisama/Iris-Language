@@ -173,7 +173,12 @@ pub enum Value {
     /// `IRIS-V1-CONTROL-C056` gives every `raise` a fresh runtime-owned context
     /// carrying the raised value, and `IRIS-V1-CONTROL-C057` lets `raise value
     /// from cause` chain an explicit one, where `nil` suppresses chaining.
-    ExceptionContext(Box<Value>, Box<Value>, Vec<Value>),
+    ///
+    /// The leading `ObjectId` is that identity. `C056` makes each propagation
+    /// event DISTINCT, so re-raising the same value must produce a context that
+    /// `same?` separates from the one being handled; comparing the payload
+    /// structurally would wrongly make those two equal.
+    ExceptionContext(ObjectId, Box<Value>, Box<Value>, Vec<Value>),
     /// An identity-bearing Closure object.
     ///
     /// `IRIS-V1-RUNTIME-C042` requires each evaluation of a Closure expression to

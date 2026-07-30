@@ -1058,3 +1058,67 @@ fn c036_index_assignment_evaluates_receiver_index_and_rhs_exactly_once() {
     );
     assert_eq!(rendered(absent), "Array([Nil, Nil])");
 }
+
+#[test]
+fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
+    // Given a body failure and a cleanup failure. The earlier C047 test read
+    // only the caught VALUE, which cannot tell the two apart: a `close` that
+    // raises installs its own context, and reading the value alone would still
+    // report `:body` while the bound context reported `:close`.
+    let source = "let mut n = 0; \
+                  class It { public fun next() { n = n + 1; \
+                  if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+                  public fun close() { raise :close } } \
+                  class Src { public fun iterator() { It.new() } } \
+                  try { for x in Src.new() { raise :body } } \
+                  catch e, c { [e, c.value, c.suppressed] }";
+    // A cleanup that SUCCEEDS must leave the primary context untouched.
+    let clean = "let mut n = 0; \
+                 class It { public fun next() { n = n + 1; \
+                 if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+                 public fun close() { nil } } \
+                 class Src { public fun iterator() { It.new() } } \
+                 try { for x in Src.new() { raise :body } } catch e, c { [e, c.value] }";
+
+    // When / Then the caught value and its bound context AGREE on the primary,
+    // and the cleanup failure appears only in `suppressed`.
+    // The identity is elided here: C056 makes it distinct per event, so
+    // asserting a specific ObjectId would pin an allocation order the clause
+    // does not promise.
+    let payload = rendered(source);
+    assert!(
+        payload.starts_with("Array([Symbol(\"body\"), Symbol(\"body\"), Array([ExceptionContext("),
+        "unexpected payload: {payload}"
+    );
+    assert!(
+        payload.ends_with("Symbol(\"close\"), Nil, [])])])"),
+        "unexpected payload: {payload}"
+    );
+    assert_eq!(
+        rendered(clean),
+        "Array([Symbol(\"body\"), Symbol(\"body\")])"
+    );
+}
+
+#[test]
+fn c056_gives_every_propagation_event_a_distinct_identity() {
+    // Given a re-raise of the CAUGHT value. The payload is identical, so a
+    // structurally compared context would wrongly report the same event.
+    let reraised = "try { raise :same } catch value, first { \
+                    try { raise value } catch _, second { \
+                    [second same? first, second.value same? first.value] } }";
+    // A context is still `same?` itself, so the identity is stable rather than
+    // merely always-unequal.
+    let reflexive = "try { raise :x } catch _, c { c same? c }";
+    // An explicit cause links to the captured context without becoming it.
+    let chained = "try { try { raise :first } catch _, f { raise :second from f } } \
+                   catch _, s { [s.value, s.cause.value, s.cause same? s] }";
+
+    // When / Then
+    assert_eq!(rendered(reraised), "Array([Bool(false), Bool(true)])");
+    assert_eq!(rendered(reflexive), "Bool(true)");
+    assert_eq!(
+        rendered(chained),
+        "Array([Symbol(\"second\"), Symbol(\"first\"), Bool(false)])"
+    );
+}
