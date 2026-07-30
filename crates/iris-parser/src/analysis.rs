@@ -279,7 +279,18 @@ impl Analyzer {
                 }
             }
             Statement::Method(declaration) => {
-                self.scoped_body(&declaration.body, Control::callable());
+                // IRIS-V1-CONTROL-C006 makes parameter bindings IMMUTABLE
+                // unless their own declaration uses `mut`. Declaring them keeps
+                // a write to one reported as an immutable-binding error rather
+                // than as an unresolved target.
+                self.scopes.push(Vec::new());
+                for parameter in &declaration.parameters {
+                    self.declare(&parameter.name, false);
+                }
+                for statement in &declaration.body {
+                    self.statement(statement, Control::callable());
+                }
+                self.scopes.pop();
             }
             Statement::StoredProperty { initializer, .. } => {
                 self.expression(initializer, control);
@@ -529,5 +540,43 @@ mod discard_binding_tests {
         // a sibling binding in the same clause is still readable.
         assert!(codes("try { raise :x } catch _, context { context.value }").is_empty());
         assert!(codes("let mut n = 0; for _ in [1, 2] { n = n + 1 }; n").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod immutable_binding_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c006_makes_parameter_catch_and_iteration_bindings_immutable() {
+        // C006 makes all three immutable unless their own declaration uses
+        // `mut`. A parameter write previously reported an UNRESOLVED target,
+        // because parameters were never declared in the analysis scope, so the
+        // diagnostic named the wrong defect.
+        assert_eq!(
+            codes("class C { public fun m(p) { p = 9 } }"),
+            ["BINDING_ASSIGN_TO_IMMUTABLE"]
+        );
+        assert_eq!(
+            codes("let error = :outer; try { raise :x } catch error: Symbol, c { error = :other }"),
+            ["BINDING_ASSIGN_TO_IMMUTABLE"]
+        );
+        assert_eq!(
+            codes("for x in [1, 2] { x = 9 }"),
+            ["BINDING_ASSIGN_TO_IMMUTABLE"]
+        );
+
+        // Reading any of them stays legal.
+        assert!(codes("class C { public fun m(p) { p } }").is_empty());
+        assert!(codes("try { raise :x } catch error: Symbol, c { error }").is_empty());
     }
 }
