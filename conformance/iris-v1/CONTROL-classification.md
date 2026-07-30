@@ -139,3 +139,22 @@ existing channel.
 | `V305` | positive | executable | Transcribed after probing; two contexts from separate raises are distinct Hash keys. |
 | `V294` | diagnostic | executable | Transcribed after probing; a write to a catch binding reports the spec-named immutable-binding code. |
 | `V284` | positive | executable | Transcribed after probing; nested cleanup failures suppress in occurrence order with the body failure primary. |
+
+## Remaining rows and their blockers
+
+Every row below was PROBED against the implementation rather than assumed
+blocked. Grouped by the capability each one actually waits on.
+
+| Blocker | Rows | What the probe showed |
+| --- | --- | --- |
+| Static Type reflection | `V302`, `V330`, `V331`, `V332`, `V345` | The rows assert static Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, or a fixed inferred local Type. `.type` reports a missing message and no local Type inference exists. |
+| Top-level `fun` and Module declarations | `V333`, `V334`, `V335`, `V335A`, `V352` | A top-level `fun` is `UnsupportedConstruct`, and the rows additionally need Module bodies with private-member dispatch. |
+| Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
+| No stable diagnostic code in the frozen text | `V288A`, `V289A`, `V355B`, `V357A` | Each asserts a legacy form is "rejected during parsing" without naming a code. `switch`/`when` are deliberately IDENTIFIERS under `IRIS-V1-GRAMMAR-V010`, so they parse as ordinary names. Transcribing these against invented codes would test the implementation against itself. |
+| Diagnostic exists but is not distinguishable | `V348`, `V358` | `V348`'s redeclaration IS rejected, but the runner renders every `ClassError` as a generic `RuntimeError`. `V358` produces no diagnostic for a repeated `const`. |
+| Missing-storage diagnostics | `V347A` | The local-binding fixture is diagnosed, but `$missing = 1` is a parse error rather than a missing-storage diagnostic and `@@missing = 1` produces none, so two of three fixtures cannot be asserted. |
+| `ExceptionContext` reflection surface | `V298`, `V300` | `re_raise_sites` and `class_name` both report a missing message. |
+| Collection surface | `V285` | Needs `append`, `delete` and `length` on the suppressed `ReadonlyArray`; `length` reports a missing message. |
+| Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
+| Parameter default diagnostics | `V337A` | Asserts static diagnostics for assigning a parameter and for a default referencing a later parameter; only the first is reported today. |
+| No-parentheses call forms | `V342A` | `f 1` and `obj.m 1` are rejected, which is the row's expectation, but it names no code. |
