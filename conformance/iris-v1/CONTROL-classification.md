@@ -128,3 +128,4 @@ existing channel.
 | `V290` | positive | executable | Transcribed after probing; subclass catch matching and six-category parameter binding verified against the frozen row. |
 | `V336` | positive | executable | Transcribed after probing; subclass catch matching and six-category parameter binding verified against the frozen row. |
 | `V347` | positive | executable | Transcribed after probing; raw current-receiver ivar creation verified against the frozen row. |
+| `V362` | positive | needs-subsystem | `method_missing` IS reached for an unknown selector, but the truthiness path never consults it: with `to_bool` absent, `if` falls back to DEFAULT truthiness instead of dispatching the missing message. Probing this row produced a false positive, since the expected `:then` arrives either way; a call counter shows `method_missing` runs zero times. |
