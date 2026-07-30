@@ -1356,3 +1356,29 @@ fn a_rejected_operator_does_not_degrade_into_a_bare_name() {
         "Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))])"
     );
 }
+
+#[test]
+fn c035_yields_the_setter_result_for_a_property_write() {
+    // Given a property write and a binding write. C035 makes them yield
+    // DIFFERENT things: a binding yields the stored value, a property yields
+    // whatever its setter Method returned.
+    let both_writes = "class Box { public property fun name=(value) -> Symbol { :written } } \
+                       let mut local = 0; let local_result = (local = 1); \
+                       let property_result = (Box.new().name = 2); [local_result, property_result]";
+    // Assignment is right-associative, so the inner setter runs first and the
+    // outer setter receives its RESULT rather than the original operand.
+    let nested = "let mut log = []; \
+                  class Box { public property fun name=(value) -> Symbol { log.append(:set); value } } \
+                  let outer = Box.new(); let inner = Box.new(); \
+                  let r = (outer.name = (inner.name = :inner)); [r, log]";
+
+    // When / Then
+    assert_eq!(
+        rendered(both_writes),
+        "Array([Integer(IntegerValue(1)), Symbol(\"written\")])"
+    );
+    assert_eq!(
+        rendered(nested),
+        "Array([Symbol(\"inner\"), Array([Symbol(\"set\"), Symbol(\"set\")])])"
+    );
+}
