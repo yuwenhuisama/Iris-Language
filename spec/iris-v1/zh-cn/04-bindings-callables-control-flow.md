@@ -125,7 +125,7 @@ let closure: Closure<(Integer) -> Integer> = { |delta: Integer| -> Integer; coun
 
 IRIS-V1-CONTROL-C022: 参数声明顺序 MUST 是必需位置参数、可选位置参数、至多一个位置 rest、必需 keyword-only、可选 keyword-only、至多一个 keyword rest，然后一个尾随块绑定。把较晚类别放在较早类别之前、重复 rest 类别，或声明多于一个块绑定的声明，MUST 被诊断为 `PARSE_BAD_PARAMETER_ORDER` 或更严格的可调用诊断。
 
-IRIS-V1-CONTROL-C023: 必需位置参数使用 `name: T`。可选位置参数使用 `name: T = default`。位置 rest 使用 `*args: T`，并绑定一个新的 `Array<T>`，其中含有额外位置实参。必需 keyword-only 参数使用 `key name: T`。可选 keyword-only 参数使用 `key name: T = default`。Keyword rest 使用 `**kwargs: V`，并绑定一个新的 `Hash<Symbol,V>`，其中含有未匹配的关键字实参。尾随块绑定使用 `&block: (P...) -> R`，并且 MAY 使用 `= nil` 将省略标记为可接受。
+IRIS-V1-CONTROL-C023: 必需位置参数使用 `name: T`。可选位置参数使用 `name: T = default`。位置 rest 使用 `*args: T`，并绑定一个新的 `Array<T>`，其中含有额外位置实参。必需 keyword-only 参数使用 `key name: T`。可选 keyword-only 参数使用 `key name: T = default`。Keyword rest 使用 `**kwargs: V`，并绑定一个新的 `Hash<Symbol,V>`，其中含有未匹配的关键字实参。尾随块绑定使用 `&block: Block<(P...) -> R>`，并且 MAY 使用 `= nil` 将省略标记为可接受。
 
 IRIS-V1-CONTROL-C024: 参数默认表达式在每次调用时从左到右求值，在更早参数已绑定之后，在更晚参数存在之前。默认值 MAY 引用当前接收者、Module 作用域、全局和更早的参数绑定。默认值 MUST NOT 引用更晚参数。引发异常的默认值会在进入主体之前中止调用并传播异常。
 
@@ -143,8 +143,8 @@ IRIS-V1-CONTROL-C027: 下列参数表是规范性的：
 | Required keyword | `key path: String` | `open(path: "a.ir")` | 不可变`path` | 缺少`path:`引发 `ArgumentError` |
 | Optional keyword | `key mode: Symbol = :read` | `open(path: "a", mode: :write)` | 不可变`mode` | 重复`mode:`引发 `ArgumentError` |
 | Keyword rest | `**options: Object` | `build(debug: true)` | 新`Hash<Symbol,Object>` | 非键展开失败引发`TypeError` |
-| Block binding | `&block: (String) -> Nil` | `each() { block body }` | 可调用块值 | 意外块引发`ArgumentError` |
-| Optional block binding | `&block: (String) -> Nil = nil` | `each()` | 省略时为`nil` | 非可调用块值引发`TypeError` |
+| Block binding | `&block: Block<(String) -> Nil>` | `each() { block body }` | 可调用块值 | 意外块引发`ArgumentError` |
+| Optional block binding | `&block: Block<(String) -> Nil> = nil` | `each()` | 省略时为`nil` | 非可调用块值引发`TypeError` |
 
 IRIS-V1-CONTROL-EX004: Informative example，所有参数类别：
 
@@ -178,7 +178,7 @@ IRIS-V1-CONTROL-EX005: Informative example，按引用捕获和本地 Closure �
 
 ```iris
 mut total: Integer = 0
-let add: (Integer) -> Integer = { |value: Integer| -> Integer
+let add: Closure<(Integer) -> Integer> = { |value: Integer| -> Integer
   total += value
   return total
 }
@@ -517,7 +517,7 @@ IRIS-V1-CONTROL-N003: Informative note：Hash rehash、Hash 遍历、构造生�
 | `IRIS-V1-CONTROL-V334` | negative | 需要 interpreter；需要 JIT；native 不适用 | Module`M` 定义顶层 `fun hidden() -> Integer { 1 }` 并在内部调用 `hidden()`；导入者调用 `M.hidden()`。 | 内部调用返回`1`；导入者收到私有成员派发失败。 | `D-416` |
 | `IRIS-V1-CONTROL-V335` | positive | 需要 interpreter；需要 JIT；native 不适用 | 声明并调用一个规范一实参 Method 和一个规范带注解一实参 Closure。 | 结果是`[1, 2]`；两种声明形式都执行。 | `D-417` |
 | `IRIS-V1-CONTROL-V335A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立畸形 fixtures 省略 Method 参数闭合和 Closure 头部分隔符。 | 每个 fixture 都在解析期间被拒绝且不发布 callable。 | `D-417` |
-| `IRIS-V1-CONTROL-V336` | positive | 需要 interpreter；需要 JIT；native 不适用 | `fun f(required: Integer, optional: Integer = 2, *rest: Integer, key named: Integer, **options: Object, &block: () -> Nil = nil) -> Integer { required }; f(1, 3, 4, named: 5)` | `Integer(1)`；参数类别按声明顺序绑定。 | `D-418` |
+| `IRIS-V1-CONTROL-V336` | positive | 需要 interpreter；需要 JIT；native 不适用 | `fun f(required: Integer, optional: Integer = 2, *rest: Integer, key named: Integer, **options: Object, &block: Block<() -> Nil> = nil) -> Integer { required }; f(1, 3, 4, named: 5)` | `Integer(1)`；参数类别按声明顺序绑定。 | `D-418` |
 | `IRIS-V1-CONTROL-V337` | positive | 需要 interpreter；需要 JIT；native 不适用 | 调用`pair(a: Integer, b: Integer = a + 1)` 为 `pair(2)` 和 `pair(4)`。 | 结果是`[[2, 3], [4, 5]]`；默认值每次调用在更早参数绑定后求值。 | `D-419` |
 | `IRIS-V1-CONTROL-V337A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立 fixtures 对参数`b` 赋值，并定义默认值 `a = later`，位于 `later` 之前。 | 不可变参数和后续参数引用静态诊断在调用前发生。 | `D-419` |
 | `IRIS-V1-CONTROL-V338` | positive | 需要 interpreter；需要 JIT；native 不适用 | Closure 两次递增并读取外层可变整数。 | `[2, 5]`；Closure 捕获共享可变绑定单元。 | `D-420` |
