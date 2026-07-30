@@ -17,6 +17,9 @@ use iris_syntax::{
     Statement, TypeExpression, Visibility,
 };
 
+/// The three clauses of a `try`, shared by its statement and expression forms.
+type TryParts = (Vec<Statement>, Vec<CatchClause>, Option<Vec<Statement>>);
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
     pub code: &'static str,
@@ -463,6 +466,26 @@ impl Parser {
     /// The optional header is `"|" closure_parameters? "|"`, so a leading `|`
     /// after `{` distinguishes a parameterised Closure from a bare one. The body
     /// reuses the ordinary statement list, which is what `closure_body` names.
+    /// Parses the shared shape of a `try`, used in statement and expression
+    /// position alike so the two can never diverge.
+    pub(crate) fn try_parts(&mut self) -> Option<TryParts> {
+        let body = self.body()?;
+        let mut catches = Vec::new();
+        while self.consume("catch") {
+            catches.push(self.catch_clause()?);
+        }
+        let finally = if self.consume("finally") {
+            Some(self.body()?)
+        } else {
+            None
+        };
+        if catches.is_empty() && finally.is_none() {
+            self.error("PARSE_TRY_REQUIRES_HANDLER");
+            return None;
+        }
+        Some((body, catches, finally))
+    }
+
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
         self.expect("{")?;
         let mut parameters = Vec::new();
@@ -722,20 +745,7 @@ impl Parser {
             return Some(Statement::Raise(Some(Raise { value, cause })));
         }
         if self.consume("try") {
-            let body = self.body()?;
-            let mut catches = Vec::new();
-            while self.consume("catch") {
-                catches.push(self.catch_clause()?);
-            }
-            let finally = if self.consume("finally") {
-                Some(self.body()?)
-            } else {
-                None
-            };
-            if catches.is_empty() && finally.is_none() {
-                self.error("PARSE_TRY_REQUIRES_HANDLER");
-                return None;
-            }
+            let (body, catches, finally) = self.try_parts()?;
             return Some(Statement::Try {
                 body,
                 catches,

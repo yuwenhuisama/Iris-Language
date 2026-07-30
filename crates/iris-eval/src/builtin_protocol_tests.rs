@@ -1256,3 +1256,32 @@ fn a_block_local_mut_binding_is_assignable_and_does_not_escape() {
     assert_eq!(rendered(counted), "Integer(IntegerValue(3))");
     assert_eq!(rendered(escaped), "UnsupportedConstruct");
 }
+
+#[test]
+fn a_try_in_expression_position_yields_the_clause_that_supplied_the_result() {
+    // Given `try` read as a value. It was statement-only, so none of these
+    // parsed at all.
+    let body_supplies = "let result = try { :try_value } finally { :finally_value }; result";
+    let catch_supplies = "let result = try { raise :x } catch _: Symbol { :caught }; result";
+    // A normally completing `finally` must NOT replace the provisional value.
+    let finally_does_not_replace = "let a = try { 1 } finally { 2 }; let b = try { raise :x } catch _ { 3 } finally { 4 }; \
+         [a, b]";
+    // Clause order is observable, and the handler result is the value.
+    let ordered = "let mut log = []; \
+                   let r = try { log.append(:try); raise :x } \
+                   catch _ { log.append(:catch); :handled } \
+                   finally { log.append(:finally) }; [log, r]";
+
+    // When / Then
+    assert_eq!(rendered(body_supplies), "Symbol(\"try_value\")");
+    assert_eq!(rendered(catch_supplies), "Symbol(\"caught\")");
+    assert_eq!(
+        rendered(finally_does_not_replace),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(
+        rendered(ordered),
+        "Array([Array([Symbol(\"try\"), Symbol(\"catch\"), Symbol(\"finally\")]), \
+         Symbol(\"handled\")])"
+    );
+}

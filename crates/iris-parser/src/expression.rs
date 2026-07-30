@@ -166,6 +166,14 @@ impl Parser {
         if self.consume("if") {
             return self.if_expression();
         }
+        if self.consume("try") {
+            let (body, catches, finally) = self.try_parts()?;
+            return Some(Expression::Try {
+                body,
+                catches,
+                finally,
+            });
+        }
         if self.is_name() {
             return self.qualified_name().map(Expression::Name);
         }

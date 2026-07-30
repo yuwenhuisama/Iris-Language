@@ -1407,6 +1407,14 @@ impl SourceEvaluator {
                 .map(|value| self.expression(value, locals, receiver.clone()))
                 .collect::<Result<Vec<_>, _>>()
                 .map(Value::Array),
+            // A `try` in expression position runs the same evaluator the
+            // statement form uses, so the two can never disagree on ordering,
+            // handler selection, or which clause supplies the result.
+            Expression::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_statement(body, catches, finally, locals, receiver),
             Expression::If {
                 condition,
                 then_body,

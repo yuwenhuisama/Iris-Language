@@ -329,6 +329,15 @@ pub enum Expression {
         then_body: Vec<Statement>,
         else_body: Option<Vec<Statement>>,
     },
+    /// `try { ... } catch ... finally { ... }` in expression position.
+    ///
+    /// `IRIS-V1-CONTROL-V311` through `V313` read the result of a `try`, so it
+    /// is value-producing like `if` rather than a statement-only form.
+    Try {
+        body: Vec<Statement>,
+        catches: Vec<CatchClause>,
+        finally: Option<Vec<Statement>>,
+    },
     Grouped(Box<Expression>),
     RawIvar(String),
     ClassVar(String),

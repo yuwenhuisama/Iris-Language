@@ -354,6 +354,19 @@ impl Analyzer {
                     self.scoped_body(body, control);
                 }
             }
+            Expression::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                self.scoped_body(body, control);
+                for catch in catches {
+                    self.scoped_body(&catch.body, control);
+                }
+                if let Some(body) = finally {
+                    self.scoped_body(body, control);
+                }
+            }
             Expression::Name(_)
             | Expression::Literal(_)
             | Expression::Symbol(_)
