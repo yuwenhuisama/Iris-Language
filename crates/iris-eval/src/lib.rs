@@ -193,7 +193,8 @@ impl Evaluator {
             // evaluator cannot make, so it is routed rather than evaluated.
             Expression::KeywordArgument { .. }
             | Expression::Index { .. }
-            | Expression::Try { .. } => Err(EvaluationError::UnsupportedConstruct),
+            | Expression::Try { .. }
+            | Expression::While { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Name(name) => self.name(name),
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
             Expression::Array(expressions) => expressions
@@ -548,7 +549,8 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::If { .. }
         | Expression::KeywordArgument { .. }
         | Expression::Index { .. }
-        | Expression::Try { .. } => true,
+        | Expression::Try { .. }
+        | Expression::While { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }

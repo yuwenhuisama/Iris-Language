@@ -1415,6 +1415,14 @@ impl SourceEvaluator {
                 catches,
                 finally,
             } => self.try_statement(body, catches, finally, locals, receiver),
+            // A loop in expression position runs the same evaluator the
+            // statement form uses, so C043's loop value cannot diverge between
+            // the two spellings.
+            Expression::While {
+                label,
+                condition,
+                body,
+            } => self.while_statement(label.as_deref(), condition, body, locals, receiver),
             Expression::If {
                 condition,
                 then_body,

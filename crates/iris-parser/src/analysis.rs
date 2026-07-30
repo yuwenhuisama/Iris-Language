@@ -354,6 +354,12 @@ impl Analyzer {
                     self.scoped_body(body, control);
                 }
             }
+            Expression::While {
+                condition, body, ..
+            } => {
+                self.expression(condition, control);
+                self.scoped_body(body, control.entering_loop());
+            }
             Expression::Try {
                 body,
                 catches,

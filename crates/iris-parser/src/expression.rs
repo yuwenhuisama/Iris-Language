@@ -166,6 +166,16 @@ impl Parser {
         if self.consume("if") {
             return self.if_expression();
         }
+        if self.consume("while") {
+            let outer = std::mem::replace(&mut self.no_trailing_block, true);
+            let condition = self.expression(0);
+            self.no_trailing_block = outer;
+            return Some(Expression::While {
+                label: None,
+                condition: Box::new(condition?),
+                body: self.body()?,
+            });
+        }
         if self.consume("try") {
             let (body, catches, finally) = self.try_parts()?;
             return Some(Expression::Try {

@@ -329,6 +329,16 @@ pub enum Expression {
         then_body: Vec<Statement>,
         else_body: Option<Vec<Statement>>,
     },
+    /// `while condition { body }` in expression position.
+    ///
+    /// `IRIS-V1-CONTROL-C043` gives a loop a VALUE: natural completion yields
+    /// `nil` and `break expr` yields `expr`, so `IRIS-V1-CONTROL-V355` can read
+    /// the result of a loop.
+    While {
+        label: Option<String>,
+        condition: Box<Expression>,
+        body: Vec<Statement>,
+    },
     /// `try { ... } catch ... finally { ... }` in expression position.
     ///
     /// `IRIS-V1-CONTROL-V311` through `V313` read the result of a `try`, so it

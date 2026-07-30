@@ -1305,3 +1305,20 @@ fn d159_makes_the_exception_context_payload_read_only() {
         "Array([Symbol(\"x\"), Bool(true)])"
     );
 }
+
+#[test]
+fn c043_gives_a_loop_a_value_in_expression_position() {
+    // Given a loop read as a value. C043 yields `nil` on natural completion,
+    // including zero iterations, and the `break` operand otherwise.
+    let natural = "let a = while false { 1 }; a";
+    let broken = "let b = while true { break 7 }; b";
+    let bare_break = "let b = while true { break }; b";
+    // The statement spelling must keep working, since both run one evaluator.
+    let as_statement = "let mut i = 0; while i < 3 { i = i + 1 }; i";
+
+    // When / Then
+    assert_eq!(rendered(natural), "Nil");
+    assert_eq!(rendered(broken), "Integer(IntegerValue(7))");
+    assert_eq!(rendered(bare_break), "Nil");
+    assert!(rendered(as_statement).ends_with("Integer(IntegerValue(3))])"));
+}
