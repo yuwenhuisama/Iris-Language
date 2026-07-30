@@ -102,10 +102,12 @@ fn equal_numbers_and_signed_zeroes_share_public_hashes() -> Result<(), iris_runt
 fn kernel_exposes_only_the_public_hash_through_ordinary_dispatch()
 -> Result<(), iris_runtime::KernelError> {
     // Given
-    let kernel = iris_runtime::Kernel::new()?;
+    let mut registry = iris_runtime::ClassRegistry::new();
+    let kernel = iris_runtime::Kernel::new(&mut registry)?;
 
     // When
     let hash = kernel.send(
+        &registry,
         Value::Float64(-0.0),
         iris_runtime::NativeSelector::Hash,
         &[],

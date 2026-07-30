@@ -78,9 +78,11 @@ fn construction_error(error: iris_runtime::ConstructionError) -> EvaluationError
 
 impl SourceEvaluator {
     pub(super) fn new() -> Result<Self, EvaluationError> {
+        let mut runtime = Runtime::new();
+        let kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
         Ok(Self {
-            runtime: Runtime::new(),
-            kernel: Kernel::new().map_err(EvaluationError::Runtime)?,
+            runtime,
+            kernel,
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
@@ -131,7 +133,10 @@ impl SourceEvaluator {
         let superclass = match &declaration.extends {
             Some(iris_syntax::TypeExpression::Name(name)) => self.class_name(name)?,
             Some(_) => return Err(EvaluationError::UnsupportedConstruct),
-            None => None,
+            // A reopen keeps the superclass its origin declaration established;
+            // only an origin declaration defaults to the C005 root.
+            None if declaration.reopen => None,
+            None => self.class_name("Object")?,
         };
         let mut mixins = Vec::new();
         let mut class_mixins = Vec::new();
@@ -157,12 +162,12 @@ impl SourceEvaluator {
                     .class(iris_runtime::BuiltinClass::Nil)
                     .map_err(EvaluationError::Runtime)?;
                 let mut candidate = self
-                    .kernel
+                    .runtime
                     .registry_mut()
                     .open(class)
                     .map_err(EvaluationError::Class)?;
                 candidate.replace_runtime_superclass(Some(replacement));
-                self.kernel
+                self.runtime
                     .registry_mut()
                     .publish(candidate)
                     .map_err(EvaluationError::Class)?;
@@ -288,61 +293,25 @@ impl SourceEvaluator {
         let decorators = self.decorator_transforms(&method.decorators);
         match method.kind {
             MethodKind::Instance => {
-                let defined = if builtin {
-                    self.kernel
-                        .registry_mut()
-                        .publish_decorated_method(
-                            class,
-                            selector,
-                            body,
-                            visibility(method),
-                            decorators,
-                        )
-                        .map_err(EvaluationError::Class)?
-                } else {
-                    self.runtime
-                        .registry_mut()
-                        .publish_decorated_method(
-                            class,
-                            selector,
-                            body,
-                            visibility(method),
-                            decorators,
-                        )
-                        .map_err(EvaluationError::Class)?
-                };
+                let defined = self
+                    .runtime
+                    .registry_mut()
+                    .publish_decorated_method(class, selector, body, visibility(method), decorators)
+                    .map_err(EvaluationError::Class)?;
                 self.property_methods.insert(defined.id(), false);
             }
             MethodKind::Class => {
-                if builtin {
-                    self.kernel
-                        .registry_mut()
-                        .publish_singleton_method(class, selector, body, visibility(method))
-                        .map_err(EvaluationError::Class)?;
-                } else {
-                    self.runtime
-                        .registry_mut()
-                        .publish_singleton_method(class, selector, body, visibility(method))
-                        .map_err(EvaluationError::Class)?;
-                }
+                self.runtime
+                    .registry_mut()
+                    .publish_singleton_method(class, selector, body, visibility(method))
+                    .map_err(EvaluationError::Class)?;
             }
             MethodKind::Property => {
                 let method_visibility = visibility(method);
                 let defined = if builtin && self.builtin_class_property(&method.selector) {
-                    self.kernel
+                    self.runtime
                         .registry_mut()
                         .publish_singleton_method(class, selector, body, method_visibility)
-                        .map_err(EvaluationError::Class)?
-                } else if builtin {
-                    self.kernel
-                        .registry_mut()
-                        .publish_decorated_method(
-                            class,
-                            selector,
-                            body,
-                            method_visibility,
-                            decorators,
-                        )
                         .map_err(EvaluationError::Class)?
                 } else {
                     self.runtime
@@ -372,7 +341,7 @@ impl SourceEvaluator {
     ) -> Result<bool, EvaluationError> {
         let result = match (builtin, kind) {
             (true, MethodKind::Class) => self
-                .kernel
+                .runtime
                 .registry_mut()
                 .dispatch_class_object(class, selector),
             (false, MethodKind::Class) => self
@@ -380,7 +349,7 @@ impl SourceEvaluator {
                 .registry()
                 .dispatch_class_object(class, selector),
             (true, MethodKind::Instance | MethodKind::Property) => {
-                self.kernel.registry_mut().dispatch(class, selector)
+                self.runtime.registry_mut().dispatch(class, selector)
             }
             (false, MethodKind::Instance | MethodKind::Property) => {
                 self.runtime.registry().dispatch(class, selector)
@@ -1194,7 +1163,7 @@ impl SourceEvaluator {
                 if self.is_builtin_class(class) {
                     match self
                         .kernel
-                        .dispatch_class_object(class, selector_id)
+                        .dispatch_class_object(self.runtime.registry(), class, selector_id)
                         .map_err(EvaluationError::Runtime)?
                     {
                         iris_runtime::DispatchOutcome::Invoke(method) => {
@@ -1206,7 +1175,12 @@ impl SourceEvaluator {
                             {
                                 return self
                                     .kernel
-                                    .send(Value::Class(class), native, arguments)
+                                    .send(
+                                        self.runtime.registry(),
+                                        Value::Class(class),
+                                        native,
+                                        arguments,
+                                    )
                                     .map_err(EvaluationError::Runtime);
                             }
                         }
@@ -1522,10 +1496,16 @@ impl SourceEvaluator {
         }
     }
 
+    /// Reports whether a Class is one of the five protected built-in value Classes.
+    ///
+    /// This must NOT test whether the Class is absent from the runtime registry.
+    /// Built-in and declared Classes now share one registry so that `Object` can
+    /// appear in an ordinary MRO, which makes every built-in `active` and would
+    /// make such a test answer false for all of them. `Object` is deliberately
+    /// excluded: `IRIS-V1-RUNTIME-C150` protects exactly the five value Classes,
+    /// and `IRIS-V1-RUNTIME-C005` makes `Object` the ordinary-object root, so it
+    /// constructs and dispatches like a declared Class.
     fn is_builtin_class(&self, class: ClassId) -> bool {
-        if self.runtime.registry().active(class).is_ok() {
-            return false;
-        }
         [
             iris_runtime::BuiltinClass::Nil,
             iris_runtime::BuiltinClass::Bool,
@@ -1560,7 +1540,7 @@ impl SourceEvaluator {
         if self.is_builtin_class(class) {
             return self
                 .kernel
-                .dispatch_class_object(class, selector)
+                .dispatch_class_object(self.runtime.registry(), class, selector)
                 .map_err(EvaluationError::Runtime);
         }
         self.runtime
@@ -1595,7 +1575,7 @@ impl SourceEvaluator {
             .map_or_else(|| self.selector(selector), iris_runtime::NativeSelector::id);
         match self
             .kernel
-            .dispatch_value(&receiver, selector_id)
+            .dispatch_value(self.runtime.registry(), &receiver, selector_id)
             .map_err(EvaluationError::Runtime)?
         {
             iris_runtime::DispatchOutcome::Invoke(method) => {
@@ -1656,7 +1636,7 @@ impl SourceEvaluator {
         }
         .map_err(EvaluationError::Runtime)?;
         self.kernel
-            .require_meta_capability(class, Capability::InstanceState)
+            .require_meta_capability(self.runtime.registry(), class, Capability::InstanceState)
             .map_err(|_| iris_runtime::ConstructionError::InstanceState { class })
             .map_err(EvaluationError::Construction)
             .map(|()| receiver)
@@ -2403,7 +2383,7 @@ mod tests {
             .class(iris_runtime::BuiltinClass::Integer)
             .map_err(crate::EvaluationError::Runtime)?;
         let before = evaluator
-            .kernel
+            .runtime
             .registry_mut()
             .active_revision(integer)
             .map_err(crate::EvaluationError::Class)?;
@@ -2420,7 +2400,7 @@ mod tests {
         );
         assert_eq!(
             evaluator
-                .kernel
+                .runtime
                 .registry_mut()
                 .active_revision(integer)
                 .map_err(crate::EvaluationError::Class)?,
@@ -2484,6 +2464,7 @@ mod tests {
         ));
         assert!(matches!(
             evaluator.kernel.send(
+                evaluator.runtime.registry(),
                 Value::Class(
                     evaluator
                         .kernel

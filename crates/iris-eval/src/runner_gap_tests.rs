@@ -250,12 +250,14 @@ fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
         Ok(RuntimeValue::Array(vec![
             RuntimeValue::Nil,
             RuntimeValue::Array(vec![
-                RuntimeValue::Class(ClassId::new(1)),
-                RuntimeValue::Class(ClassId::new(2))
+                RuntimeValue::Class(ClassId::new(7)),
+                RuntimeValue::Class(ClassId::new(8)),
+                RuntimeValue::Class(ClassId::new(0))
             ]),
             RuntimeValue::Nil,
             RuntimeValue::Array(vec![
-                RuntimeValue::Class(ClassId::new(1)),
+                RuntimeValue::Class(ClassId::new(7)),
+                RuntimeValue::Class(ClassId::new(6)),
                 RuntimeValue::Class(ClassId::new(0))
             ]),
         ]))
@@ -537,15 +539,16 @@ fn array_append_does_not_add_array_add_or_size() {
 fn identity_primitive_bypasses_replaced_equal_and_compare_slots()
 -> Result<(), iris_runtime::KernelError> {
     // Given
-    let mut kernel = Kernel::new()?;
+    let mut registry = iris_runtime::ClassRegistry::new();
+    let kernel = Kernel::new(&mut registry)?;
     let bool_class = kernel.class(BuiltinClass::Bool)?;
-    kernel.registry_mut().publish_method(
+    registry.publish_method(
         bool_class,
         NativeSelector::Equal.id(),
         MethodBody::new(1),
         Visibility::Public,
     )?;
-    kernel.registry_mut().publish_method(
+    registry.publish_method(
         bool_class,
         NativeSelector::Compare.id(),
         MethodBody::new(1),

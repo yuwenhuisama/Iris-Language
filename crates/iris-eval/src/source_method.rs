@@ -36,6 +36,10 @@ pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {
         "nil" => Some(Value::Nil),
         "true" => Some(Value::Bool(true)),
         "false" => Some(Value::Bool(false)),
+        "Object" => kernel
+            .class(iris_runtime::BuiltinClass::Object)
+            .ok()
+            .map(Value::Class),
         "Integer" => kernel
             .class(iris_runtime::BuiltinClass::Integer)
             .ok()

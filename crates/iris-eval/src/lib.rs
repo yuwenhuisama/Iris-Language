@@ -70,9 +70,9 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     {
         return source_runtime::evaluate(&parsed.program);
     }
-    let mut evaluator = Evaluator {
-        kernel: Kernel::new().map_err(EvaluationError::Runtime)?,
-    };
+    let mut registry = iris_runtime::ClassRegistry::new();
+    let kernel = Kernel::new(&mut registry).map_err(EvaluationError::Runtime)?;
+    let mut evaluator = Evaluator { kernel, registry };
     let values = parsed
         .program
         .statements
@@ -106,6 +106,7 @@ pub fn evaluate_with_class_publication(
 
 struct Evaluator {
     kernel: Kernel,
+    registry: iris_runtime::ClassRegistry,
 }
 
 enum Evaluated {
@@ -208,7 +209,7 @@ impl Evaluator {
                     }
                 };
                 self.kernel
-                    .send(operand, selector, &[])
+                    .send(&self.registry, operand, selector, &[])
                     .map(Evaluated::Value)
                     .map_err(EvaluationError::Runtime)
             }
@@ -334,7 +335,7 @@ impl Evaluator {
             }
         })?;
         self.kernel
-            .send(receiver, selector, arguments)
+            .send(&self.registry, receiver, selector, arguments)
             .map(Evaluated::Value)
             .map_err(EvaluationError::Runtime)
     }
@@ -365,7 +366,7 @@ impl Evaluator {
             _ => return Err(EvaluationError::UnsupportedConstruct),
         };
         self.kernel
-            .send(left, selector, &[right])
+            .send(&self.registry, left, selector, &[right])
             .map(Evaluated::Value)
             .map_err(EvaluationError::Runtime)
     }
@@ -373,7 +374,7 @@ impl Evaluator {
     fn truthy(&self, value: RuntimeValue) -> Result<bool, EvaluationError> {
         match self
             .kernel
-            .send(value, NativeSelector::ToBool, &[])
+            .send(&self.registry, value, NativeSelector::ToBool, &[])
             .map_err(EvaluationError::Runtime)?
         {
             RuntimeValue::Bool(value) => Ok(value),
@@ -436,6 +437,20 @@ fn source_runtime_statement(statement: &Statement) -> bool {
     }
 }
 
+/// Reports whether a callee is `Object.new`, which allocates an ordinary instance.
+///
+/// The literal evaluator has no heap, so construction of the
+/// `IRIS-V1-RUNTIME-C005` root Class must route to the source runtime even when
+/// the program is a single expression and would otherwise stay on the literal path.
+fn constructs_root_object(callee: &Expression) -> bool {
+    matches!(
+        callee,
+        Expression::Member { receiver, selector }
+            if selector == "new"
+                && matches!(receiver.as_ref(), Expression::Name(name) if name == "Object")
+    )
+}
+
 fn source_runtime_expression(expression: &Expression) -> bool {
     match expression {
         Expression::If { .. } => true,
@@ -447,7 +462,9 @@ fn source_runtime_expression(expression: &Expression) -> bool {
             operand: receiver, ..
         } => source_runtime_expression(receiver),
         Expression::Call { callee, arguments } => {
-            source_runtime_expression(callee) || arguments.iter().any(source_runtime_expression)
+            constructs_root_object(callee)
+                || source_runtime_expression(callee)
+                || arguments.iter().any(source_runtime_expression)
         }
         Expression::Binary { left, right, .. } | Expression::Assignment { left, right, .. } => {
             source_runtime_expression(left) || source_runtime_expression(right)
@@ -641,9 +658,10 @@ mod evaluator_bridge_tests {
     fn identity_primitive_bypasses_replaced_comparison_slots()
     -> Result<(), iris_runtime::KernelError> {
         // Given
-        let mut kernel = iris_runtime::Kernel::new()?;
+        let mut registry = iris_runtime::ClassRegistry::new();
+        let kernel = iris_runtime::Kernel::new(&mut registry)?;
         let bool_class = kernel.class(iris_runtime::BuiltinClass::Bool)?;
-        kernel.registry_mut().publish_method(
+        registry.publish_method(
             bool_class,
             NativeSelector::Equal.id(),
             MethodBody::new(1),

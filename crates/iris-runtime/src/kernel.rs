@@ -219,13 +219,18 @@ impl From<StableHashError> for KernelError {
 /// Built-in logical Classes with native method bodies selected by ordinary dispatch.
 #[derive(Debug)]
 pub struct Kernel {
-    registry: ClassRegistry,
     classes: [(BuiltinClass, ClassId); 6],
 }
 
 impl Kernel {
-    pub fn new() -> Result<Self, KernelError> {
-        let mut registry = ClassRegistry::new();
+    /// Defines the built-in Classes inside the supplied registry.
+    ///
+    /// The registry is borrowed rather than owned so that built-in and declared
+    /// Classes share ONE `ClassId` space. Two registries would each allocate ids
+    /// from zero, making the same id denote different Classes and leaving
+    /// `IRIS-V1-RUNTIME-C005` unsatisfiable, since `Object` could never appear in
+    /// a declared Class's MRO.
+    pub fn new(registry: &mut ClassRegistry) -> Result<Self, KernelError> {
         let mut classes = [(BuiltinClass::Object, ClassId::new(0)); 6];
         for (index, kind) in [
             BuiltinClass::Object,
@@ -246,8 +251,9 @@ impl Kernel {
             };
             classes[index] = (kind, registry.define_builtin_class(kind, spine, None)?);
         }
-        let mut kernel = Self { registry, classes };
+        let kernel = Self { classes };
         kernel.install(
+            registry,
             BuiltinClass::Object,
             &[
                 NativeSelector::Equal,
@@ -262,6 +268,7 @@ impl Kernel {
             ],
         )?;
         kernel.install(
+            registry,
             BuiltinClass::Nil,
             &[
                 NativeSelector::Equal,
@@ -276,6 +283,7 @@ impl Kernel {
             ],
         )?;
         kernel.install(
+            registry,
             BuiltinClass::Bool,
             &[
                 NativeSelector::Equal,
@@ -290,6 +298,7 @@ impl Kernel {
             ],
         )?;
         kernel.install(
+            registry,
             BuiltinClass::Integer,
             &[
                 NativeSelector::Add,
@@ -316,6 +325,7 @@ impl Kernel {
             ],
         )?;
         kernel.install(
+            registry,
             BuiltinClass::Float32,
             &[
                 NativeSelector::Add,
@@ -349,6 +359,7 @@ impl Kernel {
             ],
         )?;
         kernel.install(
+            registry,
             BuiltinClass::Float64,
             &[
                 NativeSelector::Add,
@@ -390,25 +401,23 @@ impl Kernel {
             .ok_or(KernelError::Type)
     }
 
-    pub fn registry_mut(&mut self) -> &mut ClassRegistry {
-        &mut self.registry
-    }
-
     /// Enforces an operation against a built-in Class's active effective policy.
     pub fn require_meta_capability(
         &self,
+        registry: &ClassRegistry,
         class: ClassId,
         operation: Capability,
     ) -> Result<(), ClassError> {
-        self.registry.require_meta_capability(class, operation)
+        registry.require_meta_capability(class, operation)
     }
     /// Resolves an ordinary selector for a built-in value through its active Class revision.
     pub fn dispatch_value(
         &self,
+        registry: &ClassRegistry,
         receiver: &Value,
         selector: Selector,
     ) -> Result<DispatchOutcome, KernelError> {
-        self.registry
+        registry
             .dispatch(self.class_of(receiver)?, selector)
             .map_err(KernelError::from)
     }
@@ -416,10 +425,11 @@ impl Kernel {
     /// Resolves a selector sent to a built-in Class object through its active revision.
     pub fn dispatch_class_object(
         &self,
+        registry: &ClassRegistry,
         class: ClassId,
         selector: Selector,
     ) -> Result<DispatchOutcome, KernelError> {
-        self.registry
+        registry
             .dispatch_class_object(class, selector)
             .map_err(KernelError::from)
     }
@@ -441,12 +451,13 @@ impl Kernel {
     }
     pub fn send(
         &self,
+        registry: &ClassRegistry,
         receiver: Value,
         selector: NativeSelector,
         arguments: &[Value],
     ) -> Result<Value, KernelError> {
         let class = self.class_of(&receiver)?;
-        match self.registry.dispatch(class, selector.id())? {
+        match registry.dispatch(class, selector.id())? {
             DispatchOutcome::Invoke(method) => self.invoke_selected(method, receiver, arguments),
             DispatchOutcome::WouldInvokeMethodMissing { selector } => {
                 Err(KernelError::MessageNotFound {
@@ -482,13 +493,14 @@ impl Kernel {
         }
     }
     fn install(
-        &mut self,
+        &self,
+        registry: &mut ClassRegistry,
         kind: BuiltinClass,
         selectors: &[NativeSelector],
     ) -> Result<(), KernelError> {
         let class = self.class(kind)?;
         for selector in selectors {
-            self.registry.publish_method(
+            registry.publish_method(
                 class,
                 selector.id(),
                 MethodBody::new(selector.raw()),
