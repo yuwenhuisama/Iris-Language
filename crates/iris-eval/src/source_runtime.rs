@@ -53,6 +53,7 @@ pub(super) struct SourceEvaluator {
     lexical_class: Option<ClassId>,
     current_method: Option<Method>,
     active_exception: Option<Value>,
+    active_context: Option<Value>,
     next_selector: u64,
     next_body: u64,
 }
@@ -122,6 +123,7 @@ impl SourceEvaluator {
             lexical_class: None,
             current_method: None,
             active_exception: None,
+            active_context: None,
             next_selector: 1_000,
             next_body: 10_000,
         })
@@ -700,12 +702,38 @@ impl SourceEvaluator {
             }
             Statement::Raise(raise) => {
                 let value = match raise {
-                    Some(raise) => self.expression(&raise.value, locals, receiver)?,
-                    None => self
-                        .active_exception
-                        .clone()
-                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                    Some(raise) => self.expression(&raise.value, locals, receiver.clone())?,
+                    None => {
+                        // IRIS-V1-CONTROL-C058: a bare `raise` continues the
+                        // CURRENT propagation, so it keeps the active context
+                        // rather than creating a fresh one. Outside a catch
+                        // extent there is nothing to continue.
+                        return Err(self.active_exception.clone().map_or(
+                            EvaluationError::NoActiveExceptionError,
+                            EvaluationError::Raised,
+                        ));
+                    }
                 };
+                // IRIS-V1-CONTROL-C057: an explicit cause MUST be an
+                // ExceptionContext, and `from nil` suppresses chaining.
+                let cause = match raise.as_ref().and_then(|raise| raise.cause.as_ref()) {
+                    Some(cause) => {
+                        let cause = self.expression(cause, locals, receiver)?;
+                        match cause {
+                            Value::Nil | Value::ExceptionContext(_, _) => cause,
+                            _ => {
+                                return Err(EvaluationError::Runtime(
+                                    iris_runtime::KernelError::Type,
+                                ));
+                            }
+                        }
+                    }
+                    None => Value::Nil,
+                };
+                self.active_context = Some(Value::ExceptionContext(
+                    Box::new(value.clone()),
+                    Box::new(cause),
+                ));
                 Err(EvaluationError::Raised(value))
             }
             Statement::Try {
@@ -1024,6 +1052,15 @@ impl SourceEvaluator {
             let mut catch_locals = locals.clone();
             if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
                 catch_locals.insert(name.clone(), value.clone());
+            }
+            // IRIS-V1-CONTROL-C060 binds the ExceptionContext alongside the
+            // raised object. C056 gives every propagation a fresh context, and
+            // an unchained one carries a nil cause per C057.
+            if let Some(context) = &catch.context {
+                let context_value = self.active_context.clone().unwrap_or_else(|| {
+                    Value::ExceptionContext(Box::new(value.clone()), Box::new(Value::Nil))
+                });
+                catch_locals.insert(context.clone(), context_value);
             }
             let previous = self.active_exception.replace(value.clone());
             let result = self.block(&catch.body, &catch_locals, receiver);
@@ -2106,6 +2143,16 @@ impl SourceEvaluator {
         // IRIS-V1-CONTROL-C076 makes `call` the sole invocation spelling for the
         // ordinary callable kinds, so a callable answers it as an ordinary
         // selector rather than being applied directly to an argument list.
+        // The chapter 04 exception example reads `context.value`, and
+        // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
+        // the context rather than dispatched sends.
+        if let Value::ExceptionContext(value, cause) = &receiver {
+            match selector {
+                "value" => return Ok((**value).clone()),
+                "cause" => return Ok((**cause).clone()),
+                _ => {}
+            }
+        }
         if selector == "call" {
             match receiver {
                 Value::Closure(object) => return self.invoke_closure(object, arguments),
@@ -2170,6 +2217,7 @@ impl SourceEvaluator {
                         | Value::Closure(_)
                         | Value::IterationYield(_)
                         | Value::IterationDone
+                        | Value::ExceptionContext(_, _)
                         | Value::ContractView(_, _)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
@@ -2205,6 +2253,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
+            | Value::ExceptionContext(_, _)
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
@@ -2379,6 +2428,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::IterationYield(_)
             | Value::IterationDone
+            | Value::ExceptionContext(_, _)
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
@@ -2862,6 +2912,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Closure(_) => "Closure",
         Value::IterationYield(_) => "Iteration",
         Value::IterationDone => "Iteration",
+        Value::ExceptionContext(_, _) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",

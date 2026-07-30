@@ -38,7 +38,11 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V025` | positive | executable | `match` tests arms in source order with no fallthrough, per `IRIS-V1-CONTROL-C050`. |
 | `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |
-| `V027`-`V031` | mixed | needs-subsystem | Require `ExceptionContext` objects, cause chaining, or catch dynamic-extent tracking. |
+| `V027` | positive | executable | A catch binds the `ExceptionContext` and `context.value` is the raised object. |
+| `V028` | positive | executable | `raise value from nil` suppresses chaining, so the cause is `nil`. |
+| `V029` | negative | executable | A non-`ExceptionContext` cause is a `TypeError`, per `IRIS-V1-CONTROL-C057`. |
+| `V030` | positive | needs-subsystem | Requires re-raise site recording on the continued context. |
+| `V031` | negative | executable | A bare `raise` outside a catch extent raises `NoActiveExceptionError`. |
 | `V032` | positive | executable | Normal catch completion. |
 | `V033` | positive | executable | A `finally` value is discarded and the provisional result is preserved. |
 | `V034`-`V037` | mixed | needs-subsystem | Require exception chaining, suppressed-exception recording, cycle detection, or cleanup traversal. |

@@ -871,3 +871,26 @@ fn c045_for_destructuring_binds_or_raises_pattern_match_error() {
     assert!(matched.ends_with("Integer(IntegerValue(1))])"));
     assert_eq!(mismatched, "PatternMatchError");
 }
+
+#[test]
+fn c056_and_c057_give_each_raise_a_context_with_an_optional_cause() {
+    // Given
+    let value = "try { raise :x } catch e: Symbol, c { c.value }";
+    let unchained = "try { raise :x from nil } catch e: Symbol, c { c.cause }";
+    let bad_cause = "try { raise :x from :plain } catch e: Symbol, c { c }";
+    // C058: a bare raise continues the current propagation, and outside a catch
+    // extent there is nothing to continue.
+    let no_active = "raise";
+
+    // When
+    let value = rendered(value);
+    let unchained = rendered(unchained);
+    let bad_cause = rendered(bad_cause);
+    let no_active = rendered(no_active);
+
+    // Then
+    assert_eq!(value, "Symbol(\"x\")");
+    assert_eq!(unchained, "Nil");
+    assert!(bad_cause.contains("Type"));
+    assert_eq!(no_active, "NoActiveExceptionError");
+}
