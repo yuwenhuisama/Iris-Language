@@ -167,7 +167,9 @@ impl Evaluator {
         match expression {
             // A keyword argument is meaningless outside a call the literal
             // evaluator cannot make, so it is routed rather than evaluated.
-            Expression::KeywordArgument { .. } => Err(EvaluationError::UnsupportedConstruct),
+            Expression::KeywordArgument { .. } | Expression::Index { .. } => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             Expression::Name(name) => self.name(name),
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
             Expression::Array(expressions) => expressions
@@ -517,7 +519,8 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         Expression::Closure { .. }
         | Expression::Hash(_)
         | Expression::If { .. }
-        | Expression::KeywordArgument { .. } => true,
+        | Expression::KeywordArgument { .. }
+        | Expression::Index { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }

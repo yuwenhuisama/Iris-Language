@@ -91,6 +91,10 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::KeywordArgument { name, value } => {
             (format!("{name}: {}", source_shape(value, 0)), 17)
         }
+        Expression::Index { receiver, index } => (
+            format!("{}[{}]", source_shape(receiver, 17), source_shape(index, 0)),
+            17,
+        ),
         Expression::Array(values) => (
             format!(
                 "[{}]",
@@ -176,6 +180,11 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::KeywordArgument { name, value } => {
             format!("keyword({name}, {})", structural_shape(value))
         }
+        Expression::Index { receiver, index } => format!(
+            "index({}, {})",
+            structural_shape(receiver),
+            structural_shape(index)
+        ),
         Expression::Array(values) => format!(
             "array({})",
             values

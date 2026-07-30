@@ -282,6 +282,14 @@ pub enum Expression {
         callee: Box<Expression>,
         arguments: Vec<Expression>,
     },
+    /// `receiver[index]`, the index read of `IRIS-V1-COLLECTIONS-C051`.
+    ///
+    /// It is a postfix part rather than an Array literal in argument position,
+    /// so `a[0]` is one expression instead of the two statements `a` and `[0]`.
+    Index {
+        receiver: Box<Expression>,
+        index: Box<Expression>,
+    },
     /// `name: value` in an argument list, the keyword channel of
     /// `IRIS-V1-CONTROL-C023`.
     ///

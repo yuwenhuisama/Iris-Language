@@ -999,3 +999,62 @@ fn c023_keyword_rest_collects_the_unmatched_keywords_into_a_hash() {
     );
     assert_eq!(rendered(none_left_over), "Hash([])");
 }
+
+#[test]
+fn c036_compound_assignment_applies_its_operator_to_the_read_value() {
+    // Given each supported symbolic compound assignment. D-348 stresses that
+    // none is an independent selector, so each must send its ORDINARY operator
+    // to the value read from the target.
+    let add = "let mut a = 1; a += 2; a";
+    let subtract = "let mut a = 8; a -= 3; a";
+    let multiply = "let mut a = 10; a *= 3; a";
+    let shift = "let mut a = 1; a <<= 4; a";
+
+    // When / Then the result is the operation applied to the old value, not the
+    // right-hand side written over the top of it.
+    assert_eq!(
+        rendered(add),
+        "Array([Integer(IntegerValue(3)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(
+        rendered(subtract),
+        "Array([Integer(IntegerValue(5)), Integer(IntegerValue(5))])"
+    );
+    assert_eq!(
+        rendered(multiply),
+        "Array([Integer(IntegerValue(30)), Integer(IntegerValue(30))])"
+    );
+    assert_eq!(
+        rendered(shift),
+        "Array([Integer(IntegerValue(16)), Integer(IntegerValue(16))])"
+    );
+}
+
+#[test]
+fn c036_index_assignment_evaluates_receiver_index_and_rhs_exactly_once() {
+    // Given a side-effectful index and right-hand side, each counting its own
+    // evaluations. D-347 requires exactly one evaluation of each.
+    let counted = "let mut index_calls = 0; let mut rhs_calls = 0; let mut a = [1, 2]; \
+                   class C { public fun index() { index_calls = index_calls + 1; 0 } \
+                   public fun rhs() { rhs_calls = rhs_calls + 1; 5 } } \
+                   let c = C.new(); a[c.index()] += c.rhs(); [a[0], index_calls, rhs_calls]";
+    // A missing Hash key and an out-of-range Array index read `nil` rather than
+    // raising, and a written value must survive into the next read.
+    let array_round_trip = "let mut a = [1, 2]; a[0] = 9; a[0]";
+    let hash_round_trip = "let mut h = %{ 1: 2 }; h[7] = 3; h[7]";
+    let absent = "let h = %{ 1: 2 }; [h[9], [1, 2][9]]";
+
+    // When / Then
+    assert!(rendered(counted).ends_with(
+        "Array([Integer(IntegerValue(6)), Integer(IntegerValue(1)), Integer(IntegerValue(1))])])"
+    ));
+    assert_eq!(
+        rendered(array_round_trip),
+        "Array([Integer(IntegerValue(9)), Integer(IntegerValue(9))])"
+    );
+    assert_eq!(
+        rendered(hash_round_trip),
+        "Array([Integer(IntegerValue(3)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(rendered(absent), "Array([Nil, Nil])");
+}

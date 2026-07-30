@@ -89,6 +89,17 @@ impl Parser {
                     receiver: Box::new(expression),
                     selector: self.selector()?,
                 };
+            } else if self.check("[") && !self.newline_before_cursor() {
+                // A `[` on the SAME logical line is an index, while one that
+                // starts a line is an Array literal statement. Without this the
+                // postfix form would swallow a following literal.
+                self.advance();
+                let index = self.expression(0)?;
+                self.expect("]")?;
+                expression = Expression::Index {
+                    receiver: Box::new(expression),
+                    index: Box::new(index),
+                };
             } else if self.consume("(") {
                 let mut arguments = self.arguments()?;
                 // `trailing_block ::= closure_literal` is a postfix part, so a

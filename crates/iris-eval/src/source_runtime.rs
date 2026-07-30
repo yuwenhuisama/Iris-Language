@@ -1211,6 +1211,16 @@ impl SourceEvaluator {
                 let value = self.expression(value, locals, receiver)?;
                 Ok(Value::KeywordArgument(name.clone(), Box::new(value)))
             }
+            // IRIS-V1-COLLECTIONS-C051 reads through the `[]` selector, so an
+            // index is an ordinary send and a user Class may define it.
+            Expression::Index {
+                receiver: target,
+                index,
+            } => {
+                let target = self.expression(target, locals, receiver.clone())?;
+                let index = self.expression(index, locals, receiver)?;
+                self.index_read(target, index)
+            }
             Expression::Hash(entries) => {
                 // IRIS-V1-RUNTIME-C134: Hash CONSTRUCTION with a NaN key of
                 // either width must raise InvalidKeyError, so every key is
@@ -1568,6 +1578,19 @@ impl SourceEvaluator {
                             .map_err(|()| EvaluationError::ImmutableBinding);
                     }
                     let value = self.expression(right, locals, receiver)?;
+                    let value = match compound_selector(operator) {
+                        // IRIS-V1-CONTROL-C036 reads the target ONCE and sends
+                        // the ordinary operator to the read value.
+                        Some(selector) => {
+                            let current = self
+                                .names
+                                .get(name)
+                                .map(Binding::value)
+                                .ok_or(EvaluationError::ImmutableBinding)?;
+                            self.send(current, selector, &[value])?
+                        }
+                        None => value,
+                    };
                     let binding = self
                         .names
                         .get_mut(name)
@@ -1605,6 +1628,41 @@ impl SourceEvaluator {
                     let value = self.expression(right, locals, receiver)?;
                     return self.assign_class_var(name, value);
                 }
+                // IRIS-V1-CONTROL-C036 and D-347 require the receiver, the
+                // index, and the RHS to be evaluated EXACTLY ONCE. Each is
+                // therefore evaluated a single time here and the resulting
+                // values are reused for both the read and the write, so a
+                // side-effectful receiver or index runs once.
+                if let Expression::Index {
+                    receiver: target,
+                    index,
+                } = left.as_ref()
+                {
+                    let container = self.expression(target, locals, receiver.clone())?;
+                    let index = self.expression(index, locals, receiver.clone())?;
+                    let value = self.expression(right, locals, receiver)?;
+                    let value = match compound_selector(operator) {
+                        Some(operator) => {
+                            let current = self.index_read(container.clone(), index.clone())?;
+                            self.send(current, operator, &[value])?
+                        }
+                        None => value,
+                    };
+                    let updated = self.index_write(container, index, value.clone())?;
+                    // The built-in containers are value-typed here rather than
+                    // heap cells, so a container reached through a NAME must be
+                    // stored back or the write would be lost on the next read.
+                    if let Expression::Name(name) = target.as_ref()
+                        && !locals.contains_key(name)
+                        && matches!(updated, Value::Array(_) | Value::Hash(_))
+                        && let Some(binding) = self.names.get_mut(name)
+                    {
+                        binding
+                            .assign(updated)
+                            .map_err(|()| EvaluationError::ImmutableBinding)?;
+                    }
+                    return Ok(value);
+                }
                 let Expression::Member {
                     receiver: target,
                     selector,
@@ -1612,10 +1670,83 @@ impl SourceEvaluator {
                 else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                // C036 evaluates the target location ONCE, so the receiver is
+                // evaluated a single time and reused for both the read and the
+                // write rather than being re-evaluated per side.
                 let target = self.expression(target, locals, receiver.clone())?;
                 let value = self.expression(right, locals, receiver)?;
+                let value = match compound_selector(operator) {
+                    Some(operator) => {
+                        let current = self.send(target.clone(), selector, &[])?;
+                        self.send(current, operator, &[value])?
+                    }
+                    None => value,
+                };
                 self.send(target, &format!("{selector}="), &[value])
             }
+        }
+    }
+
+    /// Reads `receiver[index]` for the built-in containers.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C138` makes a missing Hash key return `nil` rather
+    /// than raise, and an out-of-range Array index behaves the same way, so
+    /// neither is an error here. Anything else is an ordinary `[]` send so a
+    /// user Class can define its own.
+    fn index_read(&mut self, target: Value, index: Value) -> Result<Value, EvaluationError> {
+        match &target {
+            Value::Array(values) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(position
+                    .to_usize()
+                    .and_then(|position| values.get(position).cloned())
+                    .unwrap_or(Value::Nil))
+            }
+            // C028 dispatches the key's current `==`, which for the built-in
+            // values is structural equality.
+            Value::Hash(entries) => Ok(entries
+                .iter()
+                .find(|(key, _)| *key == index)
+                .map_or(Value::Nil, |(_, value)| value.clone())),
+            _ => self.send(target, "[]", &[index]),
+        }
+    }
+
+    /// Writes `receiver[index] = value` for the built-in containers.
+    ///
+    /// The built-in containers are value-typed here rather than heap cells, so
+    /// an Array or Hash reached through a NAME is written back through that
+    /// binding. Anything else is an ordinary `[]=` send.
+    fn index_write(
+        &mut self,
+        target: Value,
+        index: Value,
+        value: Value,
+    ) -> Result<Value, EvaluationError> {
+        match target {
+            Value::Array(mut values) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let position = position
+                    .to_usize()
+                    .filter(|position| *position < values.len())
+                    .ok_or(EvaluationError::Runtime(iris_runtime::KernelError::Type))?;
+                values[position] = value.clone();
+                Ok(Value::Array(values))
+            }
+            Value::Hash(mut entries) => {
+                // C134 rejects a NaN key on INSERTION as well as construction.
+                self.send(index.clone(), "hash", &[])?;
+                match entries.iter_mut().find(|(key, _)| *key == index) {
+                    Some(entry) => entry.1 = value.clone(),
+                    None => entries.push((index, value.clone())),
+                }
+                Ok(Value::Hash(entries))
+            }
+            target => self.send(target, "[]=", &[index, value]),
         }
     }
 
@@ -3078,6 +3209,31 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",
+    }
+}
+
+/// Maps a compound assignment to the ordinary operator selector it sends.
+///
+/// `IRIS-V1-CONTROL-C036` gives ten symbolic compound assignments and `D-348`
+/// stresses that none of them is an independent selector, so each reuses its
+/// ordinary operator. `Assign` writes directly and the logical forms
+/// short-circuit under `C037`, so both yield `None`.
+const fn compound_selector(operator: &iris_syntax::AssignmentOperator) -> Option<&'static str> {
+    use iris_syntax::AssignmentOperator;
+    match operator {
+        AssignmentOperator::Add => Some("+"),
+        AssignmentOperator::Subtract => Some("-"),
+        AssignmentOperator::Multiply => Some("*"),
+        AssignmentOperator::Divide => Some("/"),
+        AssignmentOperator::Power => Some("**"),
+        AssignmentOperator::BitwiseAnd => Some("&"),
+        AssignmentOperator::BitwiseOr => Some("|"),
+        AssignmentOperator::BitwiseXor => Some("^"),
+        AssignmentOperator::ShiftLeft => Some("<<"),
+        AssignmentOperator::ShiftRight => Some(">>"),
+        AssignmentOperator::Assign
+        | AssignmentOperator::LogicalAnd
+        | AssignmentOperator::LogicalOr => None,
     }
 }
 

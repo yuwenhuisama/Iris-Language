@@ -23,7 +23,7 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V009` | negative | executable | A duplicate keyword argument raises `ArgumentError`, per `D-357`. |
 | `V010` | negative | executable | Arity mismatch raises `ArgumentError` per `IRIS-V1-CONTROL-C025`. |
 | `V011` | positive | executable | Property setter marker propagation. |
-| `V012` | positive | needs-subsystem | Requires index assignment targets, which are still `UnsupportedConstruct`. |
+| `V012` | positive | executable | Receiver, index and RHS are each evaluated exactly once, per `IRIS-V1-CONTROL-C036` and `D-347`. |
 | `V013` | positive | executable | `&&=` skips the right side on the no-write path, per `IRIS-V1-CONTROL-C037`. |
 | `V014` | positive | executable | `||=` writes on the falsy path. |
 | `V015` | negative | executable | A non-Bool `to_bool` raises `TypeContractError`. |

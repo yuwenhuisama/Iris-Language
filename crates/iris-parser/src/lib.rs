@@ -1314,6 +1314,18 @@ impl Parser {
         }
         Some(name.to_owned())
     }
+    /// Reports whether the token before the cursor ends the logical line.
+    ///
+    /// `a[0]` is an index, but a `[` that STARTS a line is an Array literal
+    /// statement. Distinguishing them keeps the postfix index from swallowing a
+    /// following literal.
+    fn newline_before_cursor(&self) -> bool {
+        self.cursor == 0
+            || self
+                .tokens
+                .get(self.cursor - 1)
+                .is_some_and(|token| matches!(token.text.as_str(), "\n" | ";"))
+    }
     fn peek_next(&self) -> Option<&str> {
         self.tokens
             .get(self.cursor + 1)

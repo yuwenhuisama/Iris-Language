@@ -64,7 +64,8 @@ impl IntegerValue {
         }
     }
 
-    pub(crate) fn to_usize(&self) -> Option<usize> {
+    /// Returns the value as a container index, or `None` when out of range.
+    pub fn to_usize(&self) -> Option<usize> {
         self.to_u64().and_then(|value| value.try_into().ok())
     }
 
