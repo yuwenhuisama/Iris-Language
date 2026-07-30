@@ -132,6 +132,11 @@ pub enum Value {
     BoundMethod(BoundMethod),
     /// An unbound reflective Method object.
     Method(Method),
+    /// An immutable Contract view over a receiver.
+    ///
+    /// `IRIS-V1-TYPES-C050` makes views identity-less capability values, so this
+    /// carries the receiver and Contract identity rather than an allocation.
+    ContractView(Box<Value>, ContractId),
     /// A declared Contract object.
     ///
     /// `IRIS-V1-TYPES-C041` makes Contract the obligation surface, and

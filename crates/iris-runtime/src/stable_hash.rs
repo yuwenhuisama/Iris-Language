@@ -41,6 +41,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::Class(_)
         | Value::Type(_)
         | Value::Contract(_)
+        | Value::ContractView(_, _)
         | Value::Object(_)
         | Value::BoundMethod(_)
         | Value::Method(_) => Err(StableHashError::UnsupportedValue),

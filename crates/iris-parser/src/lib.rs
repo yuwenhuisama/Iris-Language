@@ -520,6 +520,7 @@ impl Parser {
             return Some(Statement::Expression(Expression::Name(binding)));
         }
         let is_override = self.consume("override");
+        let is_impl = self.consume("impl");
         let visibility = if self.consume("public") {
             Some(Visibility::Public)
         } else if self.consume("protected") {
@@ -543,7 +544,12 @@ impl Parser {
             MethodKind::Instance | MethodKind::Class | MethodKind::Module => Visibility::Private,
         });
         if self.consume("fun") {
+            let mut impl_contract = is_impl.then_some(None);
             let mut selector = self.selector()?;
+            if is_impl && self.consume("::") {
+                impl_contract = Some(Some(selector));
+                selector = self.selector()?;
+            }
             if kind == MethodKind::Property && self.consume("=") {
                 selector.push('=');
             }
@@ -568,6 +574,7 @@ impl Parser {
                 Statement::Method(MethodDeclaration {
                     decorators,
                     is_override,
+                    impl_contract,
                     kind,
                     selector,
                     parameters,

@@ -515,6 +515,7 @@ impl Kernel {
             | Value::Symbol(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => Err(KernelError::Type),

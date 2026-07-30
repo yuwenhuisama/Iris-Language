@@ -389,6 +389,7 @@ impl Evaluator {
             | RuntimeValue::Class(_)
             | RuntimeValue::Type(_)
             | RuntimeValue::Contract(_)
+            | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
             | RuntimeValue::BoundMethod(_)
             | RuntimeValue::Method(_) => Err(EvaluationError::TypeContractError),
@@ -420,6 +421,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
+        RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",

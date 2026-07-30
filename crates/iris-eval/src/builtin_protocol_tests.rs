@@ -463,3 +463,45 @@ fn c024_publishes_no_class_when_a_declaration_is_rejected() {
     assert!(outcome.is_err());
     assert!(!published);
 }
+
+#[test]
+fn c049_qualified_and_ordinary_selector_namespaces_stay_separate() {
+    // Given
+    let source = "contract C { } class A for C { impl fun C::m() { :qualified } \
+                  public fun m() { :ordinary } } let a = A.new(); [(a as C)..m(), a.m()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Symbol(\"qualified\"), Symbol(\"ordinary\")])"
+    );
+}
+
+#[test]
+fn c049_rejects_a_view_the_receiver_never_declared_with_for() {
+    // Given
+    let source = "contract C { } class B { public fun m() { :ordinary } } \
+                  let b = B.new(); (b as C)..m()";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert!(result.contains("Type"));
+}
+
+#[test]
+fn c048_a_qualified_impl_is_unreachable_through_ordinary_dispatch() {
+    // Given
+    let source = "contract C { } class A for C { impl fun C::only() { :qualified } } \
+                  let a = A.new(); a.only()";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert!(result.contains("MessageNotFound"));
+}

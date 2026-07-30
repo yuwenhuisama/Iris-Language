@@ -88,6 +88,7 @@ impl ComparisonProtocol {
             | Value::Class(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
@@ -151,6 +152,7 @@ impl Truthiness {
                 | Value::Class(_)
                 | Value::Type(_)
                 | Value::Contract(_)
+                | Value::ContractView(_, _)
                 | Value::Object(_)
                 | Value::BoundMethod(_)
                 | Value::Method(_) => Value::Bool(true),
@@ -169,6 +171,7 @@ impl Truthiness {
             | Value::Class(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => Err(TruthinessError::TypeContract),

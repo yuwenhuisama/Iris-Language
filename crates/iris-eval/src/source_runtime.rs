@@ -25,6 +25,8 @@ pub(super) struct SourceEvaluator {
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
     contract_names: HashMap<String, iris_runtime::ContractId>,
+    class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
+    qualified_methods: HashMap<(ClassId, iris_runtime::ContractId, Selector), Method>,
     contract_parents: HashMap<iris_runtime::ContractId, Vec<iris_runtime::ContractId>>,
     next_contract: u64,
     module_names: HashMap<String, ModuleId>,
@@ -90,6 +92,8 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             contract_names: HashMap::new(),
+            class_contracts: HashMap::new(),
+            qualified_methods: HashMap::new(),
             contract_parents: HashMap::new(),
             next_contract: 0,
             module_names: HashMap::new(),
@@ -223,6 +227,7 @@ impl SourceEvaluator {
             let body = self.register_body(MethodDeclaration {
                 decorators: Vec::new(),
                 is_override: false,
+                impl_contract: None,
                 kind: MethodKind::Instance,
                 selector: "to_bool".into(),
                 parameters: Vec::new(),
@@ -240,6 +245,22 @@ impl SourceEvaluator {
             );
             self.static_superclasses.insert(class, superclass);
             self.class_mixins.insert(class, class_mixins);
+            // IRIS-V1-TYPES-C044: only a Class declares instance Contract
+            // conformance, and it must list each claimed Contract explicitly in
+            // its header, so this records the `for` list rather than deriving it.
+            let mut conformances = Vec::new();
+            for target in &declaration.implements {
+                let iris_syntax::TypeExpression::Name(name) = target else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                conformances.push(
+                    *self
+                        .contract_names
+                        .get(name)
+                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                );
+            }
+            self.class_contracts.insert(class, conformances);
             class
         };
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
@@ -325,6 +346,34 @@ impl SourceEvaluator {
         method: &MethodDeclaration,
     ) -> Result<(), EvaluationError> {
         let selector = self.selector(&method.selector);
+        // IRIS-V1-TYPES-C048: `impl C::member` qualifies a slot in the
+        // Contract-qualified namespace. C049 keeps that namespace separate from
+        // ordinary dispatch, so this must NOT publish into the ordinary table.
+        if let Some(Some(contract)) = &method.impl_contract {
+            let contract = *self
+                .contract_names
+                .get(contract)
+                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            if !self
+                .class_contracts
+                .get(&class)
+                .is_some_and(|declared| declared.contains(&contract))
+            {
+                return Err(EvaluationError::UnsupportedConstruct);
+            }
+            let body = self.register_body(method.clone());
+            let qualified = Method::new(
+                iris_runtime::MethodId::new(self.next_body),
+                iris_runtime::MethodOwner::Class(class),
+                selector,
+                body,
+                iris_runtime::Visibility::Public,
+            );
+            self.next_body += 1;
+            self.qualified_methods
+                .insert((class, contract, selector), qualified);
+            return Ok(());
+        }
         let replaces = self.replaces_method(class, builtin, method.kind, selector)?;
         if method.is_override && !replaces {
             return Err(EvaluationError::Class(ClassError::OverrideWithoutTarget {
@@ -426,6 +475,7 @@ impl SourceEvaluator {
         let getter = MethodDeclaration {
             decorators: Vec::new(),
             is_override: false,
+            impl_contract: None,
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -437,6 +487,7 @@ impl SourceEvaluator {
         let setter = MethodDeclaration {
             decorators: Vec::new(),
             is_override: false,
+            impl_contract: None,
             kind: MethodKind::Property,
             selector: format!("{name}="),
             parameters: vec!["value".into()],
@@ -450,6 +501,7 @@ impl SourceEvaluator {
         let initializer = MethodDeclaration {
             decorators: Vec::new(),
             is_override: false,
+            impl_contract: None,
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
@@ -881,6 +933,13 @@ impl SourceEvaluator {
                     .map(|argument| self.expression(argument, locals, receiver.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 match callee.as_ref() {
+                    Expression::ContractView {
+                        receiver: target,
+                        selector,
+                    } => {
+                        let view = self.expression(target, locals, receiver.clone())?;
+                        self.qualified_send(view, selector, &arguments)
+                    }
                     Expression::Member {
                         receiver: target,
                         selector,
@@ -1020,6 +1079,9 @@ impl SourceEvaluator {
                     }
                     BinaryOperator::Is => {
                         return self.type_test(&left, &right);
+                    }
+                    BinaryOperator::As => {
+                        return self.contract_view(left, &right);
                     }
                     _ => return Err(EvaluationError::UnsupportedConstruct),
                 };
@@ -1715,6 +1777,7 @@ impl SourceEvaluator {
                         | Value::Class(_)
                         | Value::Type(_)
                         | Value::Contract(_)
+                        | Value::ContractView(_, _)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
                         | Value::Method(_) => {
@@ -1746,6 +1809,7 @@ impl SourceEvaluator {
             | Value::Class(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1911,6 +1975,7 @@ impl SourceEvaluator {
             | Value::Symbol(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::ContractView(_, _)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
                 return Ok(Value::Bool(false));
@@ -1950,6 +2015,68 @@ impl SourceEvaluator {
             .iter()
             .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if *entry == right));
         Ok(Value::Bool(ancestry))
+    }
+
+    /// Builds the Contract view that `value as ContractType` proves.
+    ///
+    /// `IRIS-V1-TYPES-C049` requires the `as ContractType` part to prove or check
+    /// the nominal Contract view, so a receiver whose Class never declared that
+    /// Contract with `for` is rejected rather than silently viewed.
+    fn contract_view(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
+        let Value::Contract(contract) = target else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let Value::Object(object) = value else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        if !self
+            .class_contracts
+            .get(&class)
+            .is_some_and(|declared| declared.contains(contract))
+        {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        }
+        Ok(Value::ContractView(
+            Box::new(Value::Object(object)),
+            *contract,
+        ))
+    }
+
+    /// Sends `view..member(args)` to the Contract-qualified slot.
+    ///
+    /// `IRIS-V1-TYPES-C049` states that `..member` chooses the Contract-qualified
+    /// slot identity while ordinary `value.member` always sends the unqualified
+    /// selector, so this resolves ONLY the qualified table and never falls back
+    /// to ordinary dispatch, which would merge the two namespaces.
+    fn qualified_send(
+        &mut self,
+        view: Value,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let Value::ContractView(receiver, contract) = view else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let Value::Object(object) = *receiver else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        let selector_id = self.selector(selector);
+        let method = *self
+            .qualified_methods
+            .get(&(class, contract, selector_id))
+            .ok_or_else(|| EvaluationError::MessageNotFound {
+                receiver_class: "ContractView".into(),
+                selector: selector.into(),
+            })?;
+        self.invoke_method(method, Value::Object(object), arguments)
     }
 
     fn resolve_instance_method(
@@ -2276,6 +2403,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",
         Value::Contract(_) => "Contract",
+        Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",

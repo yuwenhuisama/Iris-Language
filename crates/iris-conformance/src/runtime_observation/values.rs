@@ -161,6 +161,7 @@ fn render_value(value: &RuntimeValue) -> String {
         RuntimeValue::Class(_)
         | RuntimeValue::Type(_)
         | RuntimeValue::Contract(_)
+        | RuntimeValue::ContractView(_, _)
         | RuntimeValue::Object(_)
         | RuntimeValue::BoundMethod(_)
         | RuntimeValue::Method(_) => "{\"opaque\":true}".into(),
@@ -179,6 +180,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
+        RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",

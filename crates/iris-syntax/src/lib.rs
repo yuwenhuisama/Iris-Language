@@ -168,6 +168,13 @@ pub enum CatchBinding {
 pub struct MethodDeclaration {
     pub decorators: Vec<Decorator>,
     pub is_override: bool,
+    /// The Contract this member satisfies, from `impl` or `impl C::member`.
+    ///
+    /// `IRIS-V1-TYPES-C046` requires `impl` on a member satisfying a declared
+    /// Contract requirement, and `IRIS-V1-TYPES-C048` writes a qualified
+    /// implementation as `impl C::member`, whose `Some(name)` selects a slot in
+    /// the Contract-qualified namespace rather than the ordinary one.
+    pub impl_contract: Option<Option<String>>,
     pub kind: MethodKind,
     pub selector: String,
     pub parameters: Vec<String>,

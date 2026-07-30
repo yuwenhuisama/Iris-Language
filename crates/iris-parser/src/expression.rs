@@ -190,7 +190,9 @@ impl Parser {
             "^" => (8, Associativity::Left),
             "|" => (7, Associativity::Left),
             "..=" | "..<" => (6, Associativity::NonAssociative),
-            "<" | "<=" | ">" | ">=" | "<=>" | "is" => (5, Associativity::NonAssociative),
+            "<" | "<=" | ">" | ">=" | "<=>" | "is" | "as" | "as?" => {
+                (5, Associativity::NonAssociative)
+            }
             "==" | "!=" => (4, Associativity::NonAssociative),
             "&&" => (2, Associativity::Left),
             "||" => (1, Associativity::Left),
@@ -223,6 +225,8 @@ impl Parser {
             ">=" => BinaryOperator::GreaterEqual,
             "<=>" => BinaryOperator::Compare,
             "is" => BinaryOperator::Is,
+            "as" => BinaryOperator::As,
+            "as?" => BinaryOperator::AsOptional,
             "==" => BinaryOperator::Equal,
             "!=" => BinaryOperator::NotEqual,
             "&&" => BinaryOperator::LogicalAnd,
