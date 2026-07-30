@@ -200,6 +200,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
         EvaluationError::TypeContractError => "TypeContractError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
+        EvaluationError::ArgumentError => "ArgumentError".into(),
         EvaluationError::Runtime(error) => kernel_error_code(error).into(),
         EvaluationError::Class(
             iris_runtime::ClassError::MetaCapabilityDenied { .. }

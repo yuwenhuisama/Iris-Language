@@ -50,6 +50,8 @@ pub enum EvaluationError {
     TypeContractError,
     /// A `<=>` Method returned a value outside `Integer(-1|0|1)` and `nil`.
     ComparisonContractError,
+    /// A send supplied the wrong number of arguments for the selected Method.
+    ArgumentError,
     /// An ordinary selector was absent and the default `method_missing` applied.
     MessageNotFound {
         receiver_class: String,

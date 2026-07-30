@@ -9,6 +9,11 @@ macro_rules! define_id {
             pub const fn new(raw: u64) -> Self {
                 Self(raw)
             }
+
+            /// Exposes the raw identity for cross-namespace diagnostics.
+            pub const fn raw(self) -> u64 {
+                self.0
+            }
         }
     };
 }

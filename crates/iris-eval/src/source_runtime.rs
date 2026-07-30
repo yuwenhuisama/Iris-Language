@@ -2194,10 +2194,17 @@ impl SourceEvaluator {
         let method = *self
             .qualified_methods
             .get(&(class, contract, selector_id))
-            .ok_or_else(|| EvaluationError::MessageNotFound {
-                receiver_class: "ContractView".into(),
-                selector: selector.into(),
-            })?;
+            // A missing qualified slot is a Contract dispatch failure, NOT a
+            // missing message: IRIS-V1-TYPES-C049 keeps the qualified namespace
+            // separate, so `method_missing` must not be reached from here.
+            .ok_or(EvaluationError::Construction(
+                iris_runtime::ConstructionError::Dispatch(
+                    iris_runtime::DispatchError::ContractDispatch {
+                        contract: iris_runtime::ModuleId::new(contract.raw()),
+                        selector: selector_id,
+                    },
+                ),
+            ))?;
         self.invoke_method(method, Value::Object(object), arguments)
     }
 
@@ -2483,9 +2490,15 @@ impl SourceEvaluator {
         };
         let parameters = declaration.parameters.clone();
         let body = declaration.body.clone();
+        // IRIS-V1-CONTROL-C025 requires an arity mismatch to raise ArgumentError.
+        // A trailing block parameter is exempt because C025 also binds an omitted
+        // optional block to `nil`, so supplying one fewer argument is legal there.
+        if arguments.len() > parameters.len() {
+            return Err(EvaluationError::ArgumentError);
+        }
         let mut locals = HashMap::new();
         for (index, parameter) in parameters.iter().enumerate() {
-            // IRIS-V1-CONTROL-C025: an omitted optional block binds `nil`, so a
+            // An omitted optional block binds `nil` under the same clause, so a
             // declared parameter with no matching argument must still be bound.
             // Zipping alone would leave it absent and unresolvable in the body.
             let argument = arguments.get(index).cloned().unwrap_or(Value::Nil);

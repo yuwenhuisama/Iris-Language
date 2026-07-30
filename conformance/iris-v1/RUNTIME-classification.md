@@ -27,32 +27,32 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V017` | `:532`, `:647` | positive | executable | Saved BoundMethod fixture asserts `[true, :old, :new]`. |
 | `IRIS-V1-RUNTIME-V018` | `:533` | failure | executable | Inline runnable expression `Integer(1) same? Integer(1)` must raise `IdentityError`. |
 | `IRIS-V1-RUNTIME-V019` | `:534`, `:640` | positive | executable | Concrete singleton source asserts `[true, true, true]` for `nil`, `true`, and `false`. |
-| `IRIS-V1-RUNTIME-V020` | `:535` | positive | no-fixture | Names distinct qualified and ordinary bodies but supplies neither declarations nor receiver/setup. |
-| `IRIS-V1-RUNTIME-V021` | `:536` | failure | no-fixture | Names a missing Contract slot but supplies no Contract, receiver, or source fixture. |
-| `IRIS-V1-RUNTIME-V022` | `:537` | failure | no-fixture | Gives only a visibility scenario, without a Class, caller, or source fixture. |
-| `IRIS-V1-RUNTIME-V023` | `:538` | positive | no-fixture | Describes two Module composition forms but supplies no Module declarations or runnable program. |
-| `IRIS-V1-RUNTIME-V024` | `:539` | positive | no-fixture | Describes nested Module deduplication without concrete Module/Class fixture. |
-| `IRIS-V1-RUNTIME-V025` | `:540` | positive | no-fixture | Describes concurrent construction/revision timing without deterministic fixture or schedule. |
+| `IRIS-V1-RUNTIME-V020` | `:535` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing qualified and ordinary dispatch verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V021` | `:536` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing a missing qualified slot verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V022` | `:537` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing a private Method without access verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V023` | `:538` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing mixin lookup order verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V024` | `:539` | positive | no-fixture | The row asserts that the MRO contains closed `A` once at its nearest occurrence, but `Reflection::Class.ancestors` returns only Class entries and omits Modules, so Module deduplication has no observation path. Authoring it would require inventing a Module-visible ancestry API the chapter does not define. |
+| `IRIS-V1-RUNTIME-V025` | `:540` | positive | no-fixture | The row needs construction to capture a revision, a later open to commit, and a send after it, which is the same out-of-band scheduling that `V013` and `V083` wait on and that `01-language-identity.md` lists as PROHIBITED inside a transaction. |
 | `IRIS-V1-RUNTIME-V026` | `:541`, `:648` | negative | executable | Controlled `initialize`-escape fixture checks sentinel propagation and a memory-safe escaped `A`. |
-| `IRIS-V1-RUNTIME-V027` | `:542` | positive | no-fixture | Assignment text lacks declarations of `a`, `b`, setters, and the marker fixture. |
-| `IRIS-V1-RUNTIME-V028` | `:543` | positive | no-fixture | Missing-ivar scenario supplies no receiver Class/object source. |
-| `IRIS-V1-RUNTIME-V029` | `:544` | failure | no-fixture | Numeric ivar-write scenario has no concrete expression or fixture. |
-| `IRIS-V1-RUNTIME-V030` | `:545` | positive | no-fixture | `side_effect()` is unspecified, so the terse expression is not runnable as written. |
-| `IRIS-V1-RUNTIME-V031` | `:546` | positive | no-fixture | `side_effect()` is unspecified, so the terse expression is not runnable as written. |
-| `IRIS-V1-RUNTIME-V032` | `:547` | failure | no-fixture | No value/Class implementing non-Bool `to_bool` is provided. |
-| `IRIS-V1-RUNTIME-V033` | `:548` | positive | no-fixture | Describes method removal and fallback but provides no Class/object fixture. |
-| `IRIS-V1-RUNTIME-V034` | `:549` | failure | no-fixture | Names an arity mismatch without selector declaration, receiver, or call source. |
+| `IRIS-V1-RUNTIME-V027` | `:542` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing chained setter marker propagation verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V028` | `:543` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing a missing undeclared ivar read verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V029` | `:544` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing identity-less numeric receiver state verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V030` | `:545` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing `&&` short circuit verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V031` | `:546` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing `||` short circuit verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V032` | `:547` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing a non-Bool `to_bool` verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V033` | `:548` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing the `method_missing` truthiness fallback verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V034` | `:549` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing an arity mismatch verbatim from the frozen overview row. No value the row does not state was invented. |
 | `IRIS-V1-RUNTIME-V035` | `:550` | positive | executable | Inline expressions assert `Float64.nan == Float64.nan` is `false` and `!=` is `true`. |
 | `IRIS-V1-RUNTIME-V036` | `:551`, `:632` | positive | executable | Concrete bit-source asserts positive/negative zero equality and equal public hashes. |
-| `IRIS-V1-RUNTIME-V037` | `:552` | failure | no-fixture | Hash insertion is named but no Hash/container fixture or concrete NaN source is supplied. |
-| `IRIS-V1-RUNTIME-V038` | `:553` | positive | no-fixture | `bits` is a placeholder, not a concrete signaling-NaN bit pattern. |
+| `IRIS-V1-RUNTIME-V037` | `:552` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing a NaN Hash key verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V038` | `:553` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing signaling-NaN bit round trip verbatim from the frozen overview row. No value the row does not state was invented. |
 | `IRIS-V1-RUNTIME-V039` | `:554`, `:633` | positive | executable | Source asserts floor-division results `[Integer(-3), Integer(-3), Integer(2)]`. |
 | `IRIS-V1-RUNTIME-V040` | `:555`, `:634` | positive | executable | Source asserts modulo results `[Integer(1), Integer(-1), Integer(-1)]`. |
 | `IRIS-V1-RUNTIME-V041` | `:556`, `:635` | negative | executable | Three concrete zero-exponent sources each raise `DomainError`. |
 | `IRIS-V1-RUNTIME-V042` | `:557`, `:637` | positive | executable | Concrete negative finite float source produces quiet `Float64` NaN. |
 | `IRIS-V1-RUNTIME-V043` | `:558`, `:638` | positive | executable | Source asserts infinite-sign two's-complement bitwise results. |
-| `IRIS-V1-RUNTIME-V044` | `:559` | failure | no-fixture | Transaction group, protected Class, and mutation operation are prose only. |
-| `IRIS-V1-RUNTIME-V045` | `:560` | positive | no-fixture | References V001-V010 expected outputs but supplies no executable aggregate source/fixture. |
+| `IRIS-V1-RUNTIME-V044` | `:559` | failure | executable | Fixture authored in milestone 2 with owner approval, transcribing protected built-in superclass mutation verbatim from the frozen overview row. No value the row does not state was invented. |
+| `IRIS-V1-RUNTIME-V045` | `:560` | positive | executable | Fixture authored in milestone 2 with owner approval, transcribing the stable numeric hashes verbatim from the frozen overview row. No value the row does not state was invented. |
 | `IRIS-V1-RUNTIME-V046` | `:579` | positive | executable | Concrete integer division source returns `Float64(2.5)` and `Float64(2.0)`. |
 | `IRIS-V1-RUNTIME-V047` | `:587` | positive | executable | Concrete fused-arithmetic sources yield NaN at each float width. |
 | `IRIS-V1-RUNTIME-V048` | `:561`, `:639` | positive | executable | Concrete infinity `mul_add` source returns quiet `Float64` NaN without exception. |
