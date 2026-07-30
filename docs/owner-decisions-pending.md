@@ -74,3 +74,35 @@ the SECOND to reverse a decided semantic. It would also open a gap the current
 design does not have: a parameter annotated `Closure<...>` could no longer accept
 a BoundMethod, even though `C021` lists BoundMethod as an ordinary callable kind.
 Any such errata should state what happens at that boundary.
+
+## 3. `D-266` names a reserved keyword as a parameter (frozen conflict)
+
+**Status:** needs a ruling. Nothing implemented; no spec text changed.
+
+`D-266` fixes the conventional signature as:
+
+```
+migrate_revision(from: ClassRevision, to: ClassRevision) -> Nil
+```
+
+But `from` is a reserved keyword in the `IRIS-V1-GRAMMAR-C013` inventory, used
+by `import_decl` and `raise_cause`. Probing confirms `fun m(from)` is a parse
+diagnostic while `fun m(a)` is accepted, so the signature `D-266` specifies
+cannot be written in Iris source.
+
+This blocks transcribing `IRIS-V1-RUNTIME-V085` verbatim. I did not work around
+it: renaming the parameter would make the vector pass while diverging from the
+frozen signature, and inventing a keyword-escape syntax would fabricate a
+production the grammar never defines.
+
+Two ways out, both needing your approval:
+
+- **A.** An errata restating the `D-266` signature with a non-reserved parameter
+  name. Smallest change, but it amends a frozen decision.
+- **B.** A grammar errata admitting reserved words in parameter position. Wider
+  blast radius, since it changes how every declaration parses.
+
+Note that `V085` is blocked independently of this anyway: it also needs the
+`ClassRevision` object and its `reactivate()` rejection, neither of which
+exists. So this ruling is not urgent unless you want the signature corrected on
+principle.
