@@ -2551,10 +2551,25 @@ impl SourceEvaluator {
         }
         // IRIS-V1-RUNTIME-C042 makes Closure default equality identity-only and
         // forbids structural comparison, and IRIS-V1-RUNTIME-C040 gives each
-        // BoundMethod read a distinct identity. Neither has a built-in Class to
-        // dispatch through, so both answer by identity here rather than failing.
+        // BoundMethod read a distinct identity. IRIS-V1-CONTROL-C056 gives an
+        // ExceptionContext the same identity-bearing treatment. None has a
+        // built-in Class to dispatch through, so all answer by identity here
+        // rather than failing with a missing message.
+        // IRIS-V1-RUNTIME-C088 gives an identity-bearing value a runtime-stable
+        // identity hash, which is what lets an ExceptionContext be a Hash key
+        // under IRIS-V1-CONTROL-V305. The identity it already carries is that
+        // stable value, so no separate allocation is needed.
+        if selector == "hash"
+            && arguments.is_empty()
+            && let Value::ExceptionContext(identity, ..) = &receiver
+        {
+            return Ok(Value::Integer(identity.raw().into()));
+        }
         if matches!(selector, "==" | "!=")
-            && matches!(receiver, Value::Closure(_) | Value::BoundMethod(_))
+            && matches!(
+                receiver,
+                Value::Closure(_) | Value::BoundMethod(_) | Value::ExceptionContext(..)
+            )
         {
             let [other] = arguments else {
                 return Err(EvaluationError::UnsupportedConstruct);

@@ -1480,3 +1480,37 @@ fn c094_makes_every_value_answer_to_bool_through_root_object() {
     assert_eq!(rendered(falsehood), "Symbol(\"no\")");
     assert!(rendered(short_circuit).ends_with("Symbol(\"kept\")])"));
 }
+
+#[test]
+fn c027_reads_a_bare_identifier_hash_key_as_a_binding() {
+    // Given a bare identifier as a Hash key. C027 makes every key position an
+    // ordinary expression, so `a` READS that binding and must not become an
+    // implicit Symbol. The parser consumed a lone `:` while probing for a `::`
+    // qualified separator, so this form failed to parse at all.
+    let identifier_key = "let a = 1; let h = %{ a: 10 }; h[1]";
+    // A qualified name must still parse, since the fix narrows that lookahead.
+    let qualified = "class C { public fun m() { 1 } } C.new().m()";
+
+    // When / Then the key is the BOUND value, not the symbol `:a`: reading the
+    // Hash at `1` finds the entry, which an implicit `:a` key could not.
+    assert_eq!(rendered(identifier_key), "Integer(IntegerValue(10))");
+    assert_eq!(rendered(qualified), "Integer(IntegerValue(1))");
+}
+
+#[test]
+fn c088_lets_an_exception_context_serve_as_a_hash_key() {
+    // Given two contexts from separate raises of the SAME value. C056 makes
+    // them distinct events, so default equality separates them and each is its
+    // own Hash key. Reading back through both keys proves two entries exist: a
+    // single merged entry could not return two different values.
+    let source = "let first = try { raise :same } catch _, c { c }; \
+                  let second = try { raise :same } catch _, c { c }; \
+                  let h = %{ first: 1, second: 2 }; \
+                  [first == second, first same? second, h[first], h[second]]";
+
+    // When / Then
+    assert_eq!(
+        rendered(source),
+        "Array([Bool(false), Bool(false), Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
+    );
+}

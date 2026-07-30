@@ -1281,7 +1281,19 @@ impl Parser {
     }
 
     pub(crate) fn consume_qualified_separator(&mut self) -> bool {
-        self.consume("::") || (self.consume(":") && self.consume(":"))
+        if self.consume("::") {
+            return true;
+        }
+        // A lone `:` must NOT be consumed here. Testing the second colon only
+        // after eating the first advanced the cursor past a `:` that belongs to
+        // its enclosing form, which made a bare identifier Hash key such as
+        // `%{ a: 10 }` fail to parse at all.
+        if self.check(":") && self.peek_next() == Some(":") {
+            self.advance();
+            self.advance();
+            return true;
+        }
+        false
     }
     fn is_name(&self) -> bool {
         self.peek().is_some_and(is_identifier)
