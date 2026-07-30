@@ -876,6 +876,17 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match expression {
+            Expression::Hash(entries) => {
+                // IRIS-V1-RUNTIME-C134: Hash CONSTRUCTION with a NaN key of
+                // either width must raise InvalidKeyError, so every key is
+                // hashed here rather than only on later insertion.
+                for (key, value) in entries {
+                    let key = self.expression(key, locals, receiver.clone())?;
+                    self.send(key, "hash", &[])?;
+                    self.expression(value, locals, receiver.clone())?;
+                }
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             Expression::Closure { parameters, body } => {
                 // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
                 // with its own captured environment, so this never caches.

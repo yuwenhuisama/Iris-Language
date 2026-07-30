@@ -688,3 +688,22 @@ fn c037_or_assignment_writes_only_on_the_falsy_path() {
     assert_eq!(written, "Integer(IntegerValue(7))");
     assert_eq!(skipped, "Array([])");
 }
+
+#[test]
+fn c134_rejects_a_nan_key_at_hash_construction() {
+    // Given
+    let float64 = "%{ Float64.nan: 1 }";
+    let float32 = "%{ Float32.nan: 1 }";
+    // A non-NaN key gets past the C134 check and fails later for another reason.
+    let finite = "%{ 1: 2 }";
+
+    // When
+    let float64 = rendered(float64);
+    let float32 = rendered(float32);
+    let finite = rendered(finite);
+
+    // Then
+    assert!(float64.contains("InvalidNumericKey"));
+    assert!(float32.contains("InvalidNumericKey"));
+    assert!(!finite.contains("InvalidNumericKey"));
+}

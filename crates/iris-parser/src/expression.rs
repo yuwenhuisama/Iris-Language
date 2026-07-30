@@ -111,6 +111,22 @@ impl Parser {
         if self.consume("[") {
             return self.array();
         }
+        if self.consume("%{") {
+            // `hash_literal ::= "%{" hash_entry_list? "}"` with
+            // `hash_entry ::= expression ":" expression`.
+            let mut entries = Vec::new();
+            while !self.check("}") && !self.at_end() {
+                let key = self.expression(0)?;
+                self.expect(":")?;
+                let value = self.expression(0)?;
+                entries.push((key, value));
+                if !self.consume(",") {
+                    break;
+                }
+            }
+            self.expect("}")?;
+            return Some(Expression::Hash(entries));
+        }
         if self.check("{") && !self.no_trailing_block {
             return self.closure_literal();
         }

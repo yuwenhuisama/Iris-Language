@@ -76,7 +76,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V069` | `:589` | negative | executable | Concrete out-of-range `from_bits` calls each raise `RangeError`. |
 | `IRIS-V1-RUNTIME-V070` | `:590` | negative | executable | Three controlled sources assert numeric ivar `InstanceStateError` and numeric identity `IdentityError`. |
 | `IRIS-V1-RUNTIME-V071` | `:591` | positive | executable | Concrete numeric equality source asserts exactness boundary and equal numeric hashes. |
-| `IRIS-V1-RUNTIME-V072` | `:592` | negative | needs-subsystem | Re-probed in milestone 2 and NARROWED. Two of its three sends already raise correctly, and the runner now renders that as the `C134` `InvalidKeyError` rather than a generic runtime error. Only the third term, the `%{ Float64.nan: 1 }` Hash literal, is unimplemented. |
+| `IRIS-V1-RUNTIME-V072` | `:592` | negative | executable | Concrete NaN-key source. Reclassified in milestone 2: the row needs only `C134` construction-time rejection, not a Hash container, and `hash_literal` simply had no parser production though the lexer already emitted its token. |
 | `IRIS-V1-RUNTIME-V073` | `:593` | differential | differential | Explicitly requires exact public hashes to agree between interpreter and JIT. |
 | `IRIS-V1-RUNTIME-V074` | `:594` | negative | executable | Concrete unavailable-selector send asserts `MessageNotFoundError`. |
 | `IRIS-V1-RUNTIME-V075` | `:595` | positive | executable | Concrete comparison source with a concrete asserted aggregate and call log. Reclassified in milestone 2 once the `C083` root `<=>`, the `C084` derivation and the `C086` identity fast path were implemented. |

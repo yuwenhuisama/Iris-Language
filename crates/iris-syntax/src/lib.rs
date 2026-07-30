@@ -239,6 +239,11 @@ pub enum Expression {
         receiver: Box<Expression>,
         selector: String,
     },
+    /// A `%{ key: value, ... }` Hash literal.
+    ///
+    /// `IRIS-V1-RUNTIME-C134` rejects a NaN key at CONSTRUCTION, so the entries
+    /// stay unevaluated here and the evaluator applies that check.
+    Hash(Vec<(Expression, Expression)>),
     /// A `{ |params| body }` closure literal.
     ///
     /// `IRIS-V1-RUNTIME-C042` gives every EVALUATION of this expression a fresh

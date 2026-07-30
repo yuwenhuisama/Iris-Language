@@ -253,6 +253,7 @@ impl Evaluator {
             | Expression::ClassVar(_)
             | Expression::ContractView { .. }
             | Expression::Closure { .. }
+            | Expression::Hash(_)
             | Expression::Assignment { .. }
             | Expression::If { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
@@ -467,7 +468,7 @@ fn constructs_root_object(callee: &Expression) -> bool {
 fn source_runtime_expression(expression: &Expression) -> bool {
     match expression {
         // A Closure needs the heap the literal evaluator does not have.
-        Expression::Closure { .. } | Expression::If { .. } => true,
+        Expression::Closure { .. } | Expression::Hash(_) | Expression::If { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }
