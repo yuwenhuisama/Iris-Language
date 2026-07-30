@@ -218,9 +218,11 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::PatternMatchError => "PatternMatchError".into(),
         EvaluationError::NoActiveExceptionError => "NoActiveExceptionError".into(),
         EvaluationError::ExceptionChainError => "ExceptionChainError".into(),
-        EvaluationError::LoopBreak(..) | EvaluationError::LoopContinue(_) => {
-            "ControlTargetError".into()
-        }
+        // A  that escaped every callable boundary has no target, which
+        // is the same control-target failure a stray break reports.
+        EvaluationError::LoopBreak(..)
+        | EvaluationError::LoopContinue(_)
+        | EvaluationError::Return(_) => "ControlTargetError".into(),
         EvaluationError::Runtime(error) => kernel_error_code(error).into(),
         EvaluationError::Class(
             iris_runtime::ClassError::MetaCapabilityDenied { .. }

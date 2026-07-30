@@ -81,6 +81,12 @@ pub enum EvaluationError {
     /// `expr` as the LOOP result, so this travels as a control signal rather
     /// than an ordinary value and is consumed by the loop that catches it.
     LoopBreak(Option<String>, RuntimeValue),
+    /// A `return` unwinding to its nearest callable boundary.
+    ///
+    /// `IRIS-V1-CONTROL-D-421` makes `return` inside a Closure end only THAT
+    /// Closure invocation, so this is caught at the nearest Method or Closure
+    /// boundary rather than propagating to an enclosing one.
+    Return(RuntimeValue),
     /// An ordinary selector was absent and the default `method_missing` applied.
     MessageNotFound {
         receiver_class: String,

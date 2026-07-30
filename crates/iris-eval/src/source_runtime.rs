@@ -809,8 +809,16 @@ impl SourceEvaluator {
             } => self.match_statement(subject, arms, fallback.as_ref(), locals, receiver),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
-            | Statement::Method(_)
-            | Statement::Return(_) => Err(EvaluationError::UnsupportedConstruct),
+            | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
+            // D-421 unwinds to the NEAREST callable boundary, so this is a
+            // control signal caught there rather than an ordinary value.
+            Statement::Return(value) => {
+                let value = match value {
+                    Some(value) => self.expression(value, locals, receiver)?,
+                    None => Value::Nil,
+                };
+                Err(EvaluationError::Return(value))
+            }
         }
     }
 
@@ -1054,13 +1062,39 @@ impl SourceEvaluator {
         parent: &HashMap<String, Value>,
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
+        // The restore must run on EVERY exit, including the `break`, `return`
+        // and raise paths that leave the block early, so the body is run
+        // separately and its outcome passed through.
+        let mut shadowed = Vec::new();
+        let result = self.block_body(statements, parent, receiver, &mut shadowed);
+        self.restore_shadowed(shadowed);
+        result
+    }
+
+    fn block_body(
+        &mut self,
+        statements: &[Statement],
+        parent: &HashMap<String, Value>,
+        receiver: Option<Value>,
+        shadowed: &mut Vec<(String, Option<Binding>)>,
+    ) -> Result<Value, EvaluationError> {
         let mut locals = parent.clone();
         let mut result = Value::Nil;
         for statement in statements {
             match statement {
-                Statement::Binding { name, value, .. } => {
+                Statement::Binding {
+                    mutable,
+                    name,
+                    value,
+                } => {
                     let value = self.expression(value, &locals, receiver.clone())?;
-                    locals.insert(name.clone(), value);
+                    if *mutable {
+                        locals.remove(name);
+                        shadowed.push((name.clone(), self.names.get(name).cloned()));
+                        self.names.insert(name.clone(), Binding::new(value, true));
+                    } else {
+                        locals.insert(name.clone(), value);
+                    }
                 }
                 Statement::Expression(_) | Statement::If { .. } | Statement::Try { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
@@ -1077,14 +1111,30 @@ impl SourceEvaluator {
                 Statement::DeferredBinding { .. }
                 | Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
-                | Statement::Method(_)
-                | Statement::Return(_) => return Err(EvaluationError::UnsupportedConstruct),
+                | Statement::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
+                Statement::Return(_) => {
+                    return self.statement(statement, &locals, receiver.clone());
+                }
                 Statement::Match { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
             }
         }
         Ok(result)
+    }
+
+    /// Restores the bindings a block's `mut` declarations shadowed.
+    fn restore_shadowed(&mut self, shadowed: Vec<(String, Option<Binding>)>) {
+        for (name, previous) in shadowed.into_iter().rev() {
+            match previous {
+                Some(binding) => {
+                    self.names.insert(name, binding);
+                }
+                None => {
+                    self.names.remove(&name);
+                }
+            }
+        }
     }
 
     fn try_statement(
@@ -2899,7 +2949,12 @@ impl SourceEvaluator {
         // the enclosing binding map and OVERWRITE an outer name of the same
         // spelling, which `IRIS-V1-CONTROL-C028` forbids: a nested block
         // shadows a captured binding rather than replacing it.
-        self.block(&body, &locals, receiver)
+        match self.block(&body, &locals, receiver) {
+            // A Closure `return` ends only this invocation under D-421, so it
+            // is absorbed here rather than reaching an enclosing Method.
+            Err(EvaluationError::Return(value)) => Ok(value),
+            result => result,
+        }
     }
 
     fn resolve_instance_method(
@@ -3256,7 +3311,10 @@ impl SourceEvaluator {
         let parameters = declaration.parameters.clone();
         let body = declaration.body.clone();
         let locals = self.bind_parameters(&parameters, arguments)?;
-        self.block(&body, &locals, Some(receiver))
+        match self.block(&body, &locals, Some(receiver)) {
+            Err(EvaluationError::Return(value)) => Ok(value),
+            result => result,
+        }
     }
 
     fn super_send(

@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 60 are
-committed here; the remaining 74 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 62 are
+committed here; the remaining 72 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -56,7 +56,7 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V034` | positive | executable | A `finally` raise becomes primary and the pending context becomes its cause, per `IRIS-V1-CONTROL-C064`. |
 | `V035` | positive | executable | A cleanup failure is appended to the primary context's `suppressed`, per `IRIS-V1-CONTROL-C047`. |
 | `V036` | negative | executable | A cause cycle raises `ExceptionChainError` and leaves the graph unchanged, per `D-161`. |
-| `V037` | positive | needs-subsystem | Requires `return` with cleanup traversal. |
+| `V037` | positive | executable | `return` runs active traversal cleanup before leaving the callable. |
 | `V038` | diagnostic | executable | The v1.14 errata names `CONTROL_RETURN_OUTSIDE_CALLABLE` in `IRIS-V1-CONTROL-C077`. |
 | `V039` | positive | executable | Mutable binding assignment. |
 | `V040` | diagnostic | executable | The v1.14 errata names `BINDING_ASSIGN_TO_IMMUTABLE` in `IRIS-V1-CONTROL-C077`. |
@@ -89,3 +89,4 @@ existing channel.
 | `V343` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
 | `V346` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
 | `V353` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V339` | positive | executable | Transcribed after probing; `return` boundary semantics verified against the frozen row. |

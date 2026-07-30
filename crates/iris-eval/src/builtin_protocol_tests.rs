@@ -1216,3 +1216,43 @@ fn c028_lets_a_nested_block_shadow_a_captured_binding_without_replacing_it() {
             .ends_with("Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])])")
     );
 }
+
+#[test]
+fn d421_returns_to_the_nearest_callable_boundary_only() {
+    // Given a `return` inside a Closure inside a Method. D-421 ends only that
+    // CLOSURE invocation: v1 has no nonlocal-return Closure, so the Method
+    // continues and returns its own final expression.
+    let closure_boundary =
+        "class C { public fun m() { let c = { return 4 }; let a = c.call(); [a, 5] } } C.new().m()";
+    let method_return = "class C { public fun m() { return 1; 2 } } C.new().m()";
+    let bare_return = "class C { public fun m() { return } } C.new().m()";
+    // A `return` inside a loop still leaves the Method, not just the loop.
+    let from_loop = "class C { public fun m() { let mut i = 0; while i < 5 { i = i + 1; return i } } } \
+         C.new().m()";
+
+    // When / Then
+    assert_eq!(
+        rendered(closure_boundary),
+        "Array([Integer(IntegerValue(4)), Integer(IntegerValue(5))])"
+    );
+    assert_eq!(rendered(method_return), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(bare_return), "Nil");
+    assert_eq!(rendered(from_loop), "Integer(IntegerValue(1))");
+}
+
+#[test]
+fn a_block_local_mut_binding_is_assignable_and_does_not_escape() {
+    // Given `let mut` inside a Method body. Block locals were stored as plain
+    // values with no mutability, so ANY assignment to one was rejected as an
+    // immutable-binding write and no Method could use a mutable local.
+    let assigned = "class C { public fun m() { let mut i = 0; i = 1; i } } C.new().m()";
+    let counted = "class C { public fun m() { let mut i = 0; while i < 3 { i = i + 1 }; i } } \
+                   C.new().m()";
+    // The binding is block-local, so it must not remain visible afterwards.
+    let escaped = "class C { public fun m() { let mut i = 0; i } } let r = C.new().m(); i";
+
+    // When / Then
+    assert_eq!(rendered(assigned), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(counted), "Integer(IntegerValue(3))");
+    assert_eq!(rendered(escaped), "UnsupportedConstruct");
+}
