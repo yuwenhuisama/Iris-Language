@@ -511,6 +511,7 @@ impl Kernel {
             Value::Float64(_) => self.class(BuiltinClass::Float64),
             Value::Class(class) => Ok(*class),
             Value::Array(_)
+            | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(_)
             | Value::Contract(_)

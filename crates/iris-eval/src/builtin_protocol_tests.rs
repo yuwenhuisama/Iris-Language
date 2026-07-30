@@ -961,3 +961,41 @@ fn initialize_does_not_collide_with_the_add_native_selector() {
     assert_eq!(rendered(construct), "Object(ObjectId(0))");
     assert_eq!(rendered(operator), "Symbol(\"plus\")");
 }
+
+#[test]
+fn c027_hash_literals_build_a_hash_and_c134_still_rejects_a_nan_key() {
+    // Given
+    let empty = "%{}";
+    let entries = "%{ 1: 2, 3: 4 }";
+    // C028 dispatches the key's current `==`, so a repeated key UPDATES its
+    // entry rather than adding a second one.
+    let repeated_key = "%{ 1: 2, 1: 9 }";
+    let nan_key = "%{ Float64.nan: 1 }";
+
+    // When / Then
+    assert_eq!(rendered(empty), "Hash([])");
+    assert_eq!(
+        rendered(entries),
+        "Hash([(Integer(IntegerValue(1)), Integer(IntegerValue(2))), \
+         (Integer(IntegerValue(3)), Integer(IntegerValue(4)))])"
+    );
+    assert_eq!(
+        rendered(repeated_key),
+        "Hash([(Integer(IntegerValue(1)), Integer(IntegerValue(9)))])"
+    );
+    assert_eq!(rendered(nan_key), "Runtime(StableHash(InvalidNumericKey))");
+}
+
+#[test]
+fn c023_keyword_rest_collects_the_unmatched_keywords_into_a_hash() {
+    // Given a call supplying one keyword a parameter names and one it does not.
+    let source = "class A { public fun m(key k, **kw) { [k, kw] } } A.new().m(k: 5, z: 6)";
+    let none_left_over = "class A { public fun m(key k, **kw) { kw } } A.new().m(k: 5)";
+
+    // When / Then
+    assert_eq!(
+        rendered(source),
+        "Array([Integer(IntegerValue(5)), Hash([(Symbol(\"z\"), Integer(IntegerValue(6)))])])"
+    );
+    assert_eq!(rendered(none_left_over), "Hash([])");
+}

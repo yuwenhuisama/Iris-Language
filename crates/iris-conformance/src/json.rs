@@ -159,3 +159,33 @@ impl Parser<'_> {
         Some(byte)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Value, parse};
+
+    fn field(source: &str) -> Option<Value> {
+        match parse(source) {
+            Ok(Value::Object(mut object)) => object.remove("hash"),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn numbers_carry_no_value_so_expectations_must_not_rely_on_them() {
+        // Given two objects differing ONLY in a numeric literal, the parsed
+        // field is `Value::Number` in BOTH cases. `Number` is a valueless
+        // variant, so the two are indistinguishable and a vector expectation
+        // written as a bare number is HOLLOW: it passes for any number at that
+        // position.
+        assert!(matches!(field(r#"{"hash":0}"#), Some(Value::Number)));
+        assert!(matches!(field(r#"{"hash":1}"#), Some(Value::Number)));
+
+        // Numeric expectations are therefore written as strings, as the corpus
+        // already does for `integer`, which keeps them distinguishable.
+        let zero = field(r#"{"hash":"0"}"#);
+        let one = field(r#"{"hash":"1"}"#);
+        assert!(matches!(&zero, Some(Value::String(value)) if value == "0"));
+        assert!(matches!(&one, Some(Value::String(value)) if value == "1"));
+    }
+}

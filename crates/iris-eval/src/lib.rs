@@ -409,6 +409,7 @@ impl Evaluator {
             | RuntimeValue::Float32(_)
             | RuntimeValue::Float64(_)
             | RuntimeValue::Array(_)
+            | RuntimeValue::Hash(_)
             | RuntimeValue::Symbol(_)
             | RuntimeValue::Class(_)
             | RuntimeValue::Type(_)
@@ -446,6 +447,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

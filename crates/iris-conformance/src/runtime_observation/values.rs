@@ -157,6 +157,11 @@ fn render_value(value: &RuntimeValue) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        // IRIS-V1-COLLECTIONS-C033 leaves Hash iteration order UNSPECIFIED, so
+        // only the entry count is rendered. Rendering the entries in stored
+        // order would let a vector depend on an order the clause refuses to
+        // promise.
+        RuntimeValue::Hash(entries) => format!("{{\"hash\":\"{}\"}}", entries.len()),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
         RuntimeValue::Class(_)
         | RuntimeValue::Type(_)
@@ -181,6 +186,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

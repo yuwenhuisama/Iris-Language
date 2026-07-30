@@ -122,6 +122,14 @@ pub enum Value {
     Float64(f64),
     /// A literal Iris Array.
     Array(Vec<Value>),
+    /// A literal Iris `Hash<K,V>`.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C033` leaves iteration order UNSPECIFIED, and
+    /// `C028` dispatches each key's current `==` rather than a container-owned
+    /// relation. Entries are therefore kept as an association list keyed by
+    /// `Value` equality instead of a host `HashMap`, which would impose both a
+    /// host hash and a host equality the clauses do not permit.
+    Hash(Vec<(Value, Value)>),
     /// An interned Iris Symbol spelling.
     Symbol(String),
     /// A logical built-in Class object.

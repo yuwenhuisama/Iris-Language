@@ -1215,12 +1215,20 @@ impl SourceEvaluator {
                 // IRIS-V1-RUNTIME-C134: Hash CONSTRUCTION with a NaN key of
                 // either width must raise InvalidKeyError, so every key is
                 // hashed here rather than only on later insertion.
+                let mut built: Vec<(Value, Value)> = Vec::new();
                 for (key, value) in entries {
                     let key = self.expression(key, locals, receiver.clone())?;
-                    self.send(key, "hash", &[])?;
-                    self.expression(value, locals, receiver.clone())?;
+                    self.send(key.clone(), "hash", &[])?;
+                    let value = self.expression(value, locals, receiver.clone())?;
+                    // IRIS-V1-COLLECTIONS-C028 dispatches the key's current
+                    // `==`, so a repeated key UPDATES its entry rather than
+                    // adding a second one.
+                    match built.iter_mut().find(|(seen, _)| *seen == key) {
+                        Some(entry) => entry.1 = value,
+                        None => built.push((key, value)),
+                    }
                 }
-                Err(EvaluationError::UnsupportedConstruct)
+                Ok(Value::Hash(built))
             }
             Expression::Closure { parameters, body } => {
                 // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
@@ -2289,6 +2297,7 @@ impl SourceEvaluator {
                         | Value::Float32(_)
                         | Value::Float64(_)
                         | Value::Array(_)
+                        | Value::Hash(_)
                         | Value::Symbol(_)
                         | Value::Class(_)
                         | Value::Type(_)
@@ -2326,6 +2335,7 @@ impl SourceEvaluator {
             Value::Float32(_) => self.kernel.class(iris_runtime::BuiltinClass::Float32),
             Value::Float64(_) => self.kernel.class(iris_runtime::BuiltinClass::Float64),
             Value::Array(_)
+            | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Class(_)
             | Value::Type(_)
@@ -2503,6 +2513,7 @@ impl SourceEvaluator {
                 .map_err(EvaluationError::Runtime)?,
             Value::Class(class) => *class,
             Value::Array(_)
+            | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(_)
             | Value::Contract(_)
@@ -2937,11 +2948,14 @@ impl SourceEvaluator {
                     .iter()
                     .position(|(seen, _)| *seen == name)
                     .map(|index| keyword.remove(index).1),
-                // `**kwargs` binds a `Hash<Symbol,V>`, and Hash is not yet a
-                // representable runtime Value, so the category is parsed and
-                // rejected rather than bound to a stand-in of the wrong type.
+                // `**kwargs` binds a fresh `Hash<Symbol,V>` of the keywords no
+                // declared parameter matched.
                 ParameterCategory::KeywordRest => {
-                    return Err(EvaluationError::UnsupportedConstruct);
+                    let rest = std::mem::take(&mut keyword)
+                        .into_iter()
+                        .map(|(name, value)| (Value::Symbol(name), value))
+                        .collect();
+                    Some(Value::Hash(rest))
                 }
                 // C025 binds an omitted optional block to `nil`, so the block
                 // channel is never a missing-argument error.
@@ -3051,7 +3065,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Integer(_) => "Integer",
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
-        Value::Array(_) => "Array",
+        Value::Array(_) | Value::Hash(_) => "Array",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",
