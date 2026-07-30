@@ -341,3 +341,64 @@ fn c148_composes_a_module_into_a_built_in_class_without_weakening_c150() {
     );
     assert!(state.contains("InstanceState"));
 }
+
+#[test]
+fn c028_is_tests_current_runtime_ancestry_not_static_declaration() {
+    // Given
+    let before = "class A { } class N { } let a = A.new(); a is N";
+    let after = "class A { } class N { } let a = A.new(); \
+                 let committed = Reflection::Class.set_superclass(A, N); a is N";
+
+    // When
+    let before = rendered(before);
+    let after = rendered(after);
+
+    // Then
+    assert_eq!(before, "Bool(false)");
+    assert_eq!(after, "Bool(true)");
+}
+
+#[test]
+fn c009_every_value_is_an_object_and_unrelated_classes_are_not() {
+    // Given
+    let source = "class A { } class B { } let a = A.new(); \
+                  [a is A, a is B, a is Object, 1 is Integer, 1 is Object, nil is Nil]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(true), Bool(true), Bool(true)])"
+    );
+}
+
+#[test]
+fn c076_a_type_object_is_interned_and_distinct_from_its_class() {
+    // Given
+    let source = "class A { }; [A.type same? A.type, A.type same? A]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Array([Bool(true), Bool(false)])");
+}
+
+#[test]
+fn c079_subtype_uses_the_same_ancestry_that_is_consults() {
+    // Given
+    let source = "class A { } class B extends A { } class C { } \
+                  [B.type.subtype?(A.type), A.type.subtype?(B.type), \
+                   C.type.subtype?(A.type), A.type.subtype?(Object.type)]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(false), Bool(true)])"
+    );
+}

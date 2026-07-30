@@ -132,4 +132,11 @@ pub enum Value {
     BoundMethod(BoundMethod),
     /// An unbound reflective Method object.
     Method(Method),
+    /// An interned Type object, distinct from the Class it reifies.
+    ///
+    /// `IRIS-V1-TYPES-C016` requires Type objects to be interned and
+    /// identity-bearing, and `IRIS-V1-TYPES-C076` requires them to be distinct
+    /// from the Class object, so a nominal Type carries the ClassId rather than
+    /// being that ClassId.
+    Type(ClassId),
 }

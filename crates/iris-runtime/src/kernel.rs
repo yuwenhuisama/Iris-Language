@@ -513,6 +513,7 @@ impl Kernel {
             Value::Class(class) => Ok(*class),
             Value::Array(_)
             | Value::Symbol(_)
+            | Value::Type(_)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => Err(KernelError::Type),

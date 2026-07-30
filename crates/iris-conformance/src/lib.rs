@@ -162,7 +162,7 @@ mod tests {
         assert!(matches!(
             outcomes
                 .iter()
-                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V053"),
+                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V064"),
             Some(Outcome::NeedsSubsystem { .. })
         ));
         Ok(())

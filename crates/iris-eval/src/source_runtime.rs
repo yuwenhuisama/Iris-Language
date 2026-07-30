@@ -951,6 +951,9 @@ impl SourceEvaluator {
                     BinaryOperator::Identity => {
                         return Ok(Value::Bool(left == right));
                     }
+                    BinaryOperator::Is => {
+                        return self.type_test(&left, &right);
+                    }
                     _ => return Err(EvaluationError::UnsupportedConstruct),
                 };
                 self.send(left, selector, &[right])
@@ -1174,6 +1177,15 @@ impl SourceEvaluator {
                 self.set_superclass(class, *superclass)
             }
             Value::Class(class) if selector == "ancestors" => self.ancestors(class),
+            // IRIS-V1-TYPES-C076: a Class exposes `.type` metadata, and the Type
+            // object it yields is deliberately NOT the Class object itself.
+            Value::Class(class) if selector == "type" => Ok(Value::Type(class)),
+            Value::Type(left) if selector == "subtype?" => {
+                let [Value::Type(right)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.subtype(left, *right)
+            }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
                 if self.is_builtin_class(class) {
@@ -1634,6 +1646,7 @@ impl SourceEvaluator {
                         | Value::Array(_)
                         | Value::Symbol(_)
                         | Value::Class(_)
+                        | Value::Type(_)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
                         | Value::Method(_) => {
@@ -1663,6 +1676,7 @@ impl SourceEvaluator {
             Value::Array(_)
             | Value::Symbol(_)
             | Value::Class(_)
+            | Value::Type(_)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1779,6 +1793,93 @@ impl SourceEvaluator {
             (ComparisonSlot::NotEqual, Some(order)) => order != 0,
             _ => false,
         }))
+    }
+
+    /// Evaluates `value is T` against the receiver's CURRENT runtime ancestry.
+    ///
+    /// `IRIS-V1-TYPES-C028` requires the test to consult current runtime
+    /// ancestry, so a committed superclass change is observable here, and
+    /// forbids it from sending `to_bool` or converting the value. `C009` makes
+    /// `Object` the top Type, so every value answers true for it.
+    fn type_test(&mut self, value: &Value, target: &Value) -> Result<Value, EvaluationError> {
+        let Value::Class(target) = target else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        if self
+            .kernel
+            .class(iris_runtime::BuiltinClass::Object)
+            .is_ok_and(|root| root == *target)
+        {
+            return Ok(Value::Bool(true));
+        }
+        let class = match value {
+            Value::Object(object) => self
+                .runtime
+                .class_of(*object)
+                .map_err(EvaluationError::Construction)?,
+            Value::Nil => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Nil)
+                .map_err(EvaluationError::Runtime)?,
+            Value::Bool(_) => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Bool)
+                .map_err(EvaluationError::Runtime)?,
+            Value::Integer(_) => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Integer)
+                .map_err(EvaluationError::Runtime)?,
+            Value::Float32(_) => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Float32)
+                .map_err(EvaluationError::Runtime)?,
+            Value::Float64(_) => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Float64)
+                .map_err(EvaluationError::Runtime)?,
+            Value::Class(class) => *class,
+            Value::Array(_)
+            | Value::Symbol(_)
+            | Value::Type(_)
+            | Value::BoundMethod(_)
+            | Value::Method(_) => {
+                return Ok(Value::Bool(false));
+            }
+        };
+        let ancestry = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .mro()
+            .iter()
+            .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if entry == target));
+        Ok(Value::Bool(ancestry))
+    }
+
+    /// Answers `Type#subtype?` over current nominal ancestry.
+    ///
+    /// `IRIS-V1-TYPES-C079` requires this query to use the SAME nominal rules as
+    /// the runtime guards, so it walks the same active MRO that `is` consults
+    /// rather than a separately cached relation. `C009` makes `Object` the top
+    /// Type, so every nominal Type is its subtype.
+    fn subtype(&mut self, left: ClassId, right: ClassId) -> Result<Value, EvaluationError> {
+        if self
+            .kernel
+            .class(iris_runtime::BuiltinClass::Object)
+            .is_ok_and(|root| root == right)
+        {
+            return Ok(Value::Bool(true));
+        }
+        let ancestry = self
+            .runtime
+            .registry()
+            .active(left)
+            .map_err(EvaluationError::Class)?
+            .mro()
+            .iter()
+            .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if *entry == right));
+        Ok(Value::Bool(ancestry))
     }
 
     fn resolve_instance_method(
@@ -2103,6 +2204,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Array(_) => "Array",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
+        Value::Type(_) => "Type",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",
