@@ -51,7 +51,10 @@ impl Parser {
                     right: Box::new(right),
                 };
             } else if self.consume("%=") {
-                self.error("PARSE_INVALID_ASSIGNMENT_OPERATOR");
+                // `IRIS-V1-CONTROL-V324` NAMES this code, so it is used rather
+                // than the locally invented one: `%` is not an Iris v1 operator
+                // and therefore has no compound form.
+                self.error("PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT");
                 return None;
             }
         }

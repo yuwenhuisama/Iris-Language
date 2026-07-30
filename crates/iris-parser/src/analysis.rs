@@ -462,3 +462,37 @@ mod tests {
         assert!(codes("class C { public fun m() { return 1 } }").is_empty());
     }
 }
+
+#[cfg(test)]
+mod reserved_form_tests {
+    use crate::parse;
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        parse(source)
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn reserved_forms_report_the_codes_their_frozen_rows_name() {
+        // `IRIS-V1-CONTROL-V359` and `V324` NAME these codes, so the parser uses
+        // them rather than a locally invented spelling.
+        assert_eq!(codes("defer { cleanup() }"), ["PARSE_UNSUPPORTED_DEFER"]);
+        assert_eq!(
+            codes("let mut x = 1; x %= 2"),
+            ["PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT"]
+        );
+
+        // The ten compound assignments C036 lists must all still parse, so the
+        // rejection is specific to `%=` rather than to compound assignment.
+        assert!(
+            codes(
+                "let mut a = 1; a += 1; a -= 1; a *= 1; a /= 1; a **= 1; \
+                 a &= 1; a |= 1; a ^= 1; a <<= 1; a >>= 1"
+            )
+            .is_empty()
+        );
+    }
+}

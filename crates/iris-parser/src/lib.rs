@@ -744,6 +744,13 @@ impl Parser {
             };
             return Some(Statement::Raise(Some(Raise { value, cause })));
         }
+        // `IRIS-V1-CONTROL-V359` NAMES this code. `defer` is reserved but has no
+        // v1 production, so it is rejected before any cleanup Closure is built.
+        if self.check("defer") {
+            self.advance();
+            self.error("PARSE_UNSUPPORTED_DEFER");
+            return None;
+        }
         if self.consume("try") {
             let (body, catches, finally) = self.try_parts()?;
             return Some(Statement::Try {
@@ -1624,7 +1631,7 @@ mod tests {
         );
         assert_eq!(
             assignments.diagnostics[0].code,
-            "PARSE_INVALID_ASSIGNMENT_OPERATOR"
+            "PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT"
         );
     }
 
@@ -1640,7 +1647,7 @@ mod tests {
         assert!(right.program_accepted, "{right:#?}");
         assert_eq!(
             invalid.diagnostics[0].code,
-            "PARSE_INVALID_ASSIGNMENT_OPERATOR"
+            "PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT"
         );
     }
 

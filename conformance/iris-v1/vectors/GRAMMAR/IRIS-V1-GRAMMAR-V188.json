@@ -3,9 +3,42 @@
   "id": "IRIS-V1-GRAMMAR-V188",
   "name": "Compound assignment accepts the fixed operator set and rejects percent",
   "category": "diagnostic",
-  "source": {"chapter": "GRAMMAR", "artifact": "spec/iris-v1/02-lexical-grammar.md", "clauses": ["IRIS-V1-GRAMMAR-C016", "IRIS-V1-GRAMMAR-C045", "IRIS-V1-GRAMMAR-C049", "IRIS-V1-GRAMMAR-C054"], "decisions": ["D-348"]},
-  "input": {"kind": "source", "source_text": "a += b; a -= b; a *= b; a /= b; a **= b; a &= b; a |= b; a ^= b; a <<= b; a >>= b; a %= b; a &&= b; a ||= b", "malformed": true},
-  "applicability": {"interpreter": "not_applicable", "jit": "not_applicable", "native": "not_applicable", "reason": "This vector is a parse-time fixed-operator inventory check."},
-  "expect": {"diagnostics": [{"code": "PARSE_INVALID_ASSIGNMENT_OPERATOR", "severity": "error", "phase": "parse", "clause": "IRIS-V1-GRAMMAR-C016"}]},
-  "tags": ["phase:parse", "diagnostic:assignment-operator"]
+  "source": {
+    "chapter": "GRAMMAR",
+    "artifact": "spec/iris-v1/02-lexical-grammar.md",
+    "clauses": [
+      "IRIS-V1-GRAMMAR-C016",
+      "IRIS-V1-GRAMMAR-C045",
+      "IRIS-V1-GRAMMAR-C049",
+      "IRIS-V1-GRAMMAR-C054"
+    ],
+    "decisions": [
+      "D-348"
+    ]
+  },
+  "input": {
+    "kind": "source",
+    "source_text": "a += b; a -= b; a *= b; a /= b; a **= b; a &= b; a |= b; a ^= b; a <<= b; a >>= b; a %= b; a &&= b; a ||= b",
+    "malformed": true
+  },
+  "applicability": {
+    "interpreter": "not_applicable",
+    "jit": "not_applicable",
+    "native": "not_applicable",
+    "reason": "This vector is a parse-time fixed-operator inventory check."
+  },
+  "expect": {
+    "diagnostics": [
+      {
+        "code": "PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT",
+        "severity": "error",
+        "phase": "parse",
+        "clause": "IRIS-V1-GRAMMAR-C016"
+      }
+    ]
+  },
+  "tags": [
+    "phase:parse",
+    "diagnostic:assignment-operator"
+  ]
 }
