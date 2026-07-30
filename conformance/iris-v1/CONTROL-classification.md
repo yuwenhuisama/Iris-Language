@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 106 are
-committed here; the remaining 28 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 107 are
+committed here; the remaining 27 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -138,3 +138,4 @@ existing channel.
 | `V347A` | diagnostic | needs-subsystem | The local-binding fixture is diagnosed, but `$missing = 1` is a parse error rather than a missing-storage diagnostic and `@@missing = 1` produces none, so two of the three fixtures cannot yet be asserted. |
 | `V305` | positive | executable | Transcribed after probing; two contexts from separate raises are distinct Hash keys. |
 | `V294` | diagnostic | executable | Transcribed after probing; a write to a catch binding reports the spec-named immutable-binding code. |
+| `V284` | positive | executable | Transcribed after probing; nested cleanup failures suppress in occurrence order with the body failure primary. |
