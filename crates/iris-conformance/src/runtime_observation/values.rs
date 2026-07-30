@@ -250,6 +250,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::Raised(RuntimeValue::Symbol(value)) => value.clone(),
         EvaluationError::Raised(_) => "Raised".into(),
         EvaluationError::ImmutableBinding => "ImmutableBindingError".into(),
+        EvaluationError::NameError => "NameError".into(),
         EvaluationError::MessageNotFound { .. } => "MessageNotFoundError".into(),
     }
 }

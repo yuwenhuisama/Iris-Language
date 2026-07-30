@@ -6,6 +6,10 @@ mod expression;
 mod expression_tests;
 
 use iris_lexer::{TokenKind, lex};
+mod analysis;
+
+pub use analysis::analyze;
+
 use iris_syntax::{
     CatchBinding, CatchClause, ClassDeclaration, Constraint, ContractDeclaration, Declaration,
     Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, MixinEntry,
@@ -554,9 +558,12 @@ impl Parser {
                 return None;
             }
             let binding = self.binding_name()?;
-            if self.consume(":") {
+            let annotated = if self.consume(":") {
                 self.type_expression()?;
-            }
+                true
+            } else {
+                false
+            };
             if self.consume("=") {
                 return self.expression(0).map(|value| Statement::Binding {
                     mutable,
@@ -564,7 +571,11 @@ impl Parser {
                     value,
                 });
             }
-            return Some(Statement::Expression(Expression::Name(binding)));
+            return Some(Statement::DeferredBinding {
+                mutable,
+                annotated,
+                name: binding,
+            });
         }
         let is_override = self.consume("override");
         let is_impl = self.consume("impl");

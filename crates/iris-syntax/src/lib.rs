@@ -110,6 +110,16 @@ pub enum Statement {
         name: String,
         value: Expression,
     },
+    /// A binding declared WITHOUT an initializer.
+    ///
+    /// `IRIS-V1-CONTROL-D-427` makes this legal only for `mut` with an explicit
+    /// type, so the declaration keyword and the presence of an annotation are
+    /// both retained for static analysis rather than collapsing to a name.
+    DeferredBinding {
+        mutable: bool,
+        annotated: bool,
+        name: String,
+    },
     StoredProperty {
         decorators: Vec<Decorator>,
         name: String,

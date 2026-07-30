@@ -690,6 +690,10 @@ impl SourceEvaluator {
                     .insert(name.clone(), Binding::new(value.clone(), *mutable));
                 Ok(value)
             }
+            // D-427 lets a typed `mut` defer initialization, and D-094 makes a
+            // read before definite assignment an error rather than a nil read,
+            // so no value is bound here.
+            Statement::DeferredBinding { .. } => Ok(Value::Nil),
             Statement::Expression(expression) => self.expression(expression, locals, receiver),
             Statement::If {
                 condition,
@@ -1026,7 +1030,8 @@ impl SourceEvaluator {
                 Statement::While { .. } | Statement::For { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
-                Statement::SharedBinding { .. }
+                Statement::DeferredBinding { .. }
+                | Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::Return(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1576,6 +1581,11 @@ impl SourceEvaluator {
                         return binding
                             .assign(value)
                             .map_err(|()| EvaluationError::ImmutableBinding);
+                    }
+                    // C009: a bare `name = expr` never creates a binding, so an
+                    // absent target is a NameError rather than a silent declare.
+                    if !self.names.contains_key(name) {
+                        return Err(EvaluationError::NameError);
                     }
                     let value = self.expression(right, locals, receiver)?;
                     let value = match compound_selector(operator) {

@@ -13,12 +13,12 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | Vector ID | Category | Bucket | Reason |
 | --- | --- | --- | --- |
 | `V001` | positive | executable | Binding initializer value. |
-| `V002` | diagnostic | needs-subsystem | Requires a compiler diagnostic channel; the runner observes runtime values and errors only. |
-| `V003` | diagnostic | needs-subsystem | Same diagnostic channel. |
-| `V004` | negative | needs-subsystem | Requires deferred `mut` bindings with definite-assignment tracking. |
-| `V005` | negative | needs-subsystem | Requires static unresolved-binding detection. |
+| `V002` | diagnostic | executable | The static pass reports `BINDING_LET_REQUIRES_INITIALIZER`, a code the spec NAMES in `IRIS-V1-CONTROL-C004`. |
+| `V003` | diagnostic | executable | The static pass reports `BINDING_MISSING_TYPE_FOR_DEFERRED_INIT`, a code the spec NAMES in `IRIS-V1-CONTROL-C004`. |
+| `V004` | negative | needs-subsystem | Deferred `mut` now parses and is retained, but definite-assignment tracking does not exist. |
+| `V005` | negative | executable | `IRIS-V1-CONTROL-C009` accepts a runtime `NameError`, which is a spec-named code, so no invented static code is needed. |
 | `V006` | positive | executable | Closure captures a mutable binding by reference, per `IRIS-V1-CONTROL-C028`. |
-| `V007` | diagnostic | needs-subsystem | Same diagnostic channel. |
+| `V007` | diagnostic | needs-subsystem | The diagnostic channel now exists, but `IRIS-V1-CONTROL-C017` conditions the code on there being no unique expected callable type, and no expected-type inference exists. |
 | `V008` | positive | executable | All six `IRIS-V1-CONTROL-C023` parameter categories bind as declared, including `**kwargs` into a `Hash<Symbol,V>`. |
 | `V009` | negative | executable | A duplicate keyword argument raises `ArgumentError`, per `D-357`. |
 | `V010` | negative | executable | Arity mismatch raises `ArgumentError` per `IRIS-V1-CONTROL-C025`. |
@@ -30,14 +30,14 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V016` | positive | executable | `if` without `else` yields `nil`. |
 | `V017` | positive | executable | `while` natural completion yields `nil`, per `IRIS-V1-CONTROL-C043`. |
 | `V018` | positive | executable | `break 7` carries the loop result. |
-| `V019` | negative | needs-subsystem | Requires loop control-target validation. |
+| `V019` | negative | needs-subsystem | The static pass detects the condition, but `IRIS-V1-CONTROL-D-438` names no stable code, so the expectation would be authored rather than spec-derived. |
 | `V020` | positive | executable | `for` runs the body for a yielded `nil` and closes the Iterator on exit, per `C044` and `C046`. |
 | `V021` | negative | executable | A `for` destructuring mismatch raises `PatternMatchError`, per `IRIS-V1-CONTROL-C045`. |
 | `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
 | `V023` | positive | executable | A labelled `break` reaches the named outer loop while a bare one targets the nearest, per `IRIS-V1-CONTROL-C048`. |
-| `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
+| `V024` | diagnostic | needs-subsystem | The static pass detects a transfer crossing a Closure boundary, but `D-421` names no stable code for it. |
 | `V025` | positive | executable | `match` tests arms in source order with no fallthrough, per `IRIS-V1-CONTROL-C050`. |
-| `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |
+| `V026` | diagnostic | needs-subsystem | Requires match exhaustiveness over an open-ended type, which needs type information the pass does not have. |
 | `V027` | positive | executable | A catch binds the `ExceptionContext` and `context.value` is the raised object. |
 | `V028` | positive | executable | `raise value from nil` suppresses chaining, so the cause is `nil`. |
 | `V029` | negative | executable | A non-`ExceptionContext` cause is a `TypeError`, per `IRIS-V1-CONTROL-C057`. |
@@ -49,9 +49,10 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V035` | positive | executable | A cleanup failure is appended to the primary context's `suppressed`, per `IRIS-V1-CONTROL-C047`. |
 | `V036` | negative | executable | A cause cycle raises `ExceptionChainError` and leaves the graph unchanged, per `D-161`. |
 | `V037` | positive | needs-subsystem | Requires `return` with cleanup traversal. |
-| `V038` | diagnostic | needs-subsystem | Same diagnostic channel. |
+| `V038` | diagnostic | needs-subsystem | The static pass detects `return` outside any callable, but `D-421` names no stable code for it. |
 | `V039` | positive | executable | Mutable binding assignment. |
-| `V040`-`V041` | diagnostic | needs-subsystem | Same diagnostic channel. |
+| `V040` | diagnostic | needs-subsystem | The static pass detects the write to an immutable binding, but `D-426` names no stable code for it. |
+| `V041` | diagnostic | needs-subsystem | Requires fixed inferred local types, which needs type inference the pass does not have. |
 
 ## Note on the diagnostic rows
 

@@ -98,12 +98,28 @@ pub fn diagnostics(source: &str) -> Vec<Diagnostic> {
         phase: "lex".into(),
         clause: String::new(),
     }));
-    values.extend(parse(source).diagnostics.iter().map(|value| Diagnostic {
+    let parsed = parse(source);
+    values.extend(parsed.diagnostics.iter().map(|value| Diagnostic {
         code: value.code.into(),
         severity: "error".into(),
         phase: "parse".into(),
         clause: String::new(),
     }));
+    // A malformed source never produces a well-formed program, so static
+    // analysis runs only once parsing ACCEPTED the program. Reporting both
+    // would attribute parse damage to the static phase.
+    if parsed.program_accepted {
+        values.extend(
+            iris_parser::analyze(&parsed.program)
+                .iter()
+                .map(|value| Diagnostic {
+                    code: value.code.into(),
+                    severity: "error".into(),
+                    phase: "static".into(),
+                    clause: String::new(),
+                }),
+        );
+    }
     values.sort_by(|left, right| left.code.cmp(&right.code));
     values.dedup_by(|left, right| left.code == right.code);
     values

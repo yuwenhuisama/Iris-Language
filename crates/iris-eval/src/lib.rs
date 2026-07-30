@@ -44,6 +44,12 @@ pub enum EvaluationError {
     Raised(RuntimeValue),
     /// Source code attempted to write an immutable lexical binding.
     ImmutableBinding,
+    /// An unqualified name resolved to no binding.
+    ///
+    /// `IRIS-V1-CONTROL-C009` requires assignment to an absent ordinary local to
+    /// fail as `NameError` and to create NO binding, which is what stops a typo
+    /// from silently introducing a local.
+    NameError,
     /// Source symbols are not yet representable as runtime Values.
     Symbol(String),
     /// A truthiness `to_bool` Method returned a value other than Bool.
@@ -145,6 +151,7 @@ impl Evaluator {
         match statement {
             Statement::SharedBinding { .. }
             | Statement::Binding { .. }
+            | Statement::DeferredBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
             Statement::Expression(expression) => self
@@ -467,7 +474,9 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
 
 fn source_runtime_statement(statement: &Statement) -> bool {
     match statement {
-        Statement::SharedBinding { .. } | Statement::Binding { .. } => true,
+        Statement::SharedBinding { .. }
+        | Statement::Binding { .. }
+        | Statement::DeferredBinding { .. } => true,
         Statement::Expression(expression) => source_runtime_expression(expression),
         Statement::If { .. } => true,
         // A loop needs the source runtime: the literal evaluator has no heap and
@@ -534,7 +543,10 @@ fn source_runtime_expression(expression: &Expression) -> bool {
                 || source_runtime_expression(callee)
                 || arguments.iter().any(source_runtime_expression)
         }
-        Expression::Binary { left, right, .. } | Expression::Assignment { left, right, .. } => {
+        // An assignment needs the binding environment to decide whether the
+        // target exists at all, which C009 makes a NameError when it does not.
+        Expression::Assignment { .. } => true,
+        Expression::Binary { left, right, .. } => {
             source_runtime_expression(left) || source_runtime_expression(right)
         }
         Expression::Name(_)

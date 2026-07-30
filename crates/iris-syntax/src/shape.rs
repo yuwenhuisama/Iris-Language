@@ -55,6 +55,7 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                 Statement::Expression(expression) => Some(source_shape(expression, 0)),
                 Statement::SharedBinding { .. }
                 | Statement::Binding { .. }
+                | Statement::DeferredBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::If { .. }
