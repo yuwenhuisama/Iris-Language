@@ -36,7 +36,7 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
 | `V023` | positive | executable | A labelled `break` reaches the named outer loop while a bare one targets the nearest, per `IRIS-V1-CONTROL-C048`. |
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
-| `V025` | positive | needs-subsystem | Requires match expressions. |
+| `V025` | positive | executable | `match` tests arms in source order with no fallthrough, per `IRIS-V1-CONTROL-C050`. |
 | `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V027`-`V031` | mixed | needs-subsystem | Require `ExceptionContext` objects, cause chaining, or catch dynamic-extent tracking. |
 | `V032` | positive | executable | Normal catch completion. |

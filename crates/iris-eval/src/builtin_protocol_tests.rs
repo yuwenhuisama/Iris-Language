@@ -824,3 +824,25 @@ fn c048_labels_target_the_named_loop_and_bare_control_targets_the_nearest() {
     // continue starts the next iteration, so the rest of the body never runs.
     assert!(skipped.ends_with("Array([])])"));
 }
+
+#[test]
+fn c050_match_tests_arms_in_source_order_with_no_fallthrough() {
+    // Given
+    let first = "let x = 1; match x { 1 => :one, 2 => :two, else => :other }";
+    let second = "let x = 2; match x { 1 => :one, 2 => :two, else => :other }";
+    let fallback = "let x = 9; match x { 1 => :one, 2 => :two, else => :other }";
+    // C053: `_` discards and creates no binding, and a binding pattern binds.
+    let binding = "let x = 5; match x { found => found }";
+
+    // When
+    let first = rendered(first);
+    let second = rendered(second);
+    let fallback = rendered(fallback);
+    let binding = rendered(binding);
+
+    // Then
+    assert_eq!(first, "Symbol(\"one\")");
+    assert_eq!(second, "Symbol(\"two\")");
+    assert_eq!(fallback, "Symbol(\"other\")");
+    assert_eq!(binding, "Integer(IntegerValue(5))");
+}

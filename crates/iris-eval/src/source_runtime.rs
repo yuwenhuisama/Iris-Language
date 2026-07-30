@@ -732,11 +732,97 @@ impl SourceEvaluator {
                 body,
             } => self.for_statement(label.as_deref(), binding, iterable, body, locals, receiver),
             Statement::Continue(label) => Err(EvaluationError::LoopContinue(label.clone())),
+            Statement::Match {
+                subject,
+                arms,
+                fallback,
+            } => self.match_statement(subject, arms, fallback.as_ref(), locals, receiver),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_)
-            | Statement::Return(_)
-            | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
+            | Statement::Return(_) => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    /// Runs `match value { arms }` per `IRIS-V1-CONTROL-C050`.
+    ///
+    /// The scrutinee is evaluated ONCE and arms are tested in source order, with
+    /// no fallthrough: the first match produces the result. A guard runs only
+    /// after structural success and after provisional bindings exist, per
+    /// `IRIS-V1-CONTROL-C052`, and a false guard discards those bindings and
+    /// continues with the next arm.
+    fn match_statement(
+        &mut self,
+        subject: &Expression,
+        arms: &[iris_syntax::MatchArm],
+        fallback: Option<&iris_syntax::MatchBody>,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let value = self.expression(subject, locals, receiver.clone())?;
+        for arm in arms {
+            let mut bound = locals.clone();
+            if !self.pattern_matches(&arm.pattern, &value, &mut bound)? {
+                continue;
+            }
+            if let Some(guard) = &arm.guard {
+                let test = self.expression(guard, &bound, receiver.clone())?;
+                if !self.truthy(test)? {
+                    continue;
+                }
+            }
+            return self.match_body(&arm.body, &bound, receiver);
+        }
+        match fallback {
+            Some(body) => self.match_body(body, locals, receiver),
+            None => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    fn match_body(
+        &mut self,
+        body: &iris_syntax::MatchBody,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        match body {
+            iris_syntax::MatchBody::Expression(expression) => {
+                self.expression(expression, locals, receiver)
+            }
+            iris_syntax::MatchBody::Block(statements) => self.block(statements, locals, receiver),
+        }
+    }
+
+    /// Tests one pattern from the `IRIS-V1-CONTROL-C051` vocabulary.
+    ///
+    /// `_` discards and creates no binding per `IRIS-V1-CONTROL-C053`, a binding
+    /// pattern always matches and binds, and alternatives succeed on the first
+    /// alternative that matches.
+    fn pattern_matches(
+        &mut self,
+        pattern: &iris_syntax::Pattern,
+        value: &Value,
+        bound: &mut HashMap<String, Value>,
+    ) -> Result<bool, EvaluationError> {
+        match pattern {
+            iris_syntax::Pattern::Name(name) if name == "_" => Ok(true),
+            iris_syntax::Pattern::Name(name) => {
+                bound.insert(name.clone(), value.clone());
+                Ok(true)
+            }
+            iris_syntax::Pattern::Literal(literal) => {
+                let expected =
+                    self.expression(&Expression::Literal(literal.clone()), &HashMap::new(), None)?;
+                Ok(expected == *value)
+            }
+            iris_syntax::Pattern::Alternatives(alternatives) => {
+                for alternative in alternatives {
+                    if self.pattern_matches(alternative, value, bound)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
         }
     }
 
@@ -863,8 +949,10 @@ impl SourceEvaluator {
                 Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
-                | Statement::Return(_)
-                | Statement::Match { .. } => return Err(EvaluationError::UnsupportedConstruct),
+                | Statement::Return(_) => return Err(EvaluationError::UnsupportedConstruct),
+                Statement::Match { .. } => {
+                    result = self.statement(statement, &locals, receiver.clone())?;
+                }
             }
         }
         Ok(result)

@@ -460,11 +460,9 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         Statement::While { .. }
         | Statement::For { .. }
         | Statement::Break { .. }
-        | Statement::Continue(_) => true,
-        Statement::StoredProperty { .. }
-        | Statement::Method(_)
-        | Statement::Return(_)
-        | Statement::Match { .. } => false,
+        | Statement::Continue(_)
+        | Statement::Match { .. } => true,
+        Statement::StoredProperty { .. } | Statement::Method(_) | Statement::Return(_) => false,
         Statement::Raise(_) | Statement::Try { .. } => true,
     }
 }

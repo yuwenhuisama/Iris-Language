@@ -831,7 +831,12 @@ impl Parser {
     }
 
     fn match_statement(&mut self) -> Option<Statement> {
-        let subject = self.expression(0)?;
+        // The scrutinee is followed by `{`, which would otherwise be read as a
+        // trailing block, exactly as for a `while` condition or a `for` iterable.
+        let outer = std::mem::replace(&mut self.no_trailing_block, true);
+        let subject = self.expression(0);
+        self.no_trailing_block = outer;
+        let subject = subject?;
         self.expect("{")?;
         self.consume_terminators();
         let mut arms = Vec::new();
@@ -878,15 +883,29 @@ impl Parser {
         }
     }
     fn pattern(&mut self) -> Option<Pattern> {
-        let mut values = vec![Pattern::Name(self.name()?)];
+        let mut values = vec![self.pattern_alternative()?];
         while self.consume("|") {
-            values.push(Pattern::Name(self.name()?));
+            values.push(self.pattern_alternative()?);
         }
         if values.len() == 1 {
             values.pop()
         } else {
             Some(Pattern::Alternatives(values))
         }
+    }
+
+    /// Parses one `match_pattern_alternative` from the C051 vocabulary.
+    ///
+    /// A literal, `nil`, or a Bool literal compares by value; anything else is a
+    /// binding pattern, and `_` discards without binding.
+    fn pattern_alternative(&mut self) -> Option<Pattern> {
+        if let Some(token) = self.peek()
+            && (self.is_literal(token) || matches!(token, "nil" | "true" | "false"))
+        {
+            let literal = self.advance()?.text;
+            return Some(Pattern::Literal(literal));
+        }
+        self.name().map(Pattern::Name)
     }
 
     fn generic_parameters(&mut self) -> Vec<String> {
