@@ -1285,3 +1285,23 @@ fn a_try_in_expression_position_yields_the_clause_that_supplied_the_result() {
          Symbol(\"handled\")])"
     );
 }
+
+#[test]
+fn d159_makes_the_exception_context_payload_read_only() {
+    // Given a captured context. The payload is readable, and every setter is
+    // rejected rather than falling through to a generic missing-message error.
+    let read = "try { raise :x } catch _, c { c.value }";
+    let written = "try { raise :x } catch _, c { c.value = :other }";
+    // The context stays usable after its catch and can chain a later raise.
+    let outlives_catch = "let saved = try { raise :x } catch _, c { c }; \
+                          let read = saved.value; \
+                          try { raise :next from saved } catch _, n { [read, n.cause same? saved] }";
+
+    // When / Then
+    assert_eq!(rendered(read), "Symbol(\"x\")");
+    assert_eq!(rendered(written), "ReadonlyProperty");
+    assert_eq!(
+        rendered(outlives_catch),
+        "Array([Symbol(\"x\"), Bool(true)])"
+    );
+}

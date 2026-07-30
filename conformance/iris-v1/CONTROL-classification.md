@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 67 are
-committed here; the remaining 67 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 71 are
+committed here; the remaining 63 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -95,3 +95,7 @@ existing channel.
 | `V311` | positive | executable | Transcribed after probing; `try` in expression position verified against the frozen row. |
 | `V312` | positive | executable | Transcribed after probing; `try` in expression position verified against the frozen row. |
 | `V313` | positive | executable | Transcribed after probing; `try` in expression position verified against the frozen row. |
+| `V291` | positive | executable | Transcribed after probing; catch selection and ExceptionContext identity verified against the frozen row. |
+| `V296` | positive | executable | Transcribed after probing; catch selection and ExceptionContext identity verified against the frozen row. |
+| `V302A` | negative | executable | Transcribed after probing; catch selection and ExceptionContext identity verified against the frozen row. |
+| `V306` | positive | executable | Transcribed after probing; catch selection and ExceptionContext identity verified against the frozen row. |

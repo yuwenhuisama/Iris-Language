@@ -50,6 +50,11 @@ pub enum EvaluationError {
     /// that fails to terminate is reported as evidence instead of hanging the
     /// conformance suite indefinitely.
     StepBudgetExhausted,
+    /// A write was attempted against a read-only property.
+    ///
+    /// `IRIS-V1-CONTROL-V302A` names this for an `ExceptionContext` value,
+    /// which `D-159` makes readable but never assignable.
+    ReadonlyProperty,
     /// An unqualified name resolved to no binding.
     ///
     /// `IRIS-V1-CONTROL-C009` requires assignment to an absent ordinary local to

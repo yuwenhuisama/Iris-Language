@@ -2481,6 +2481,12 @@ impl SourceEvaluator {
         // the context rather than dispatched sends.
         if let Value::ExceptionContext(_, value, cause, suppressed) = &receiver {
             match selector {
+                // D-159 makes the context payload readable but never
+                // assignable, so the setter selectors are rejected rather than
+                // falling through to a generic missing-message failure.
+                "value=" | "cause=" | "suppressed=" => {
+                    return Err(EvaluationError::ReadonlyProperty);
+                }
                 "value" => return Ok((**value).clone()),
                 "cause" => return Ok((**cause).clone()),
                 "suppressed" => return Ok(Value::Array(suppressed.clone())),
