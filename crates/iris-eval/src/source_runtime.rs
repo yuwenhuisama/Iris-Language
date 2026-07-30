@@ -2894,11 +2894,12 @@ impl SourceEvaluator {
         for (name, argument) in parameters.iter().zip(arguments) {
             locals.insert(name.clone(), argument.clone());
         }
-        let mut result = Value::Nil;
-        for statement in &body {
-            result = self.statement(statement, &locals, receiver.clone())?;
-        }
-        Ok(result)
+        // The body runs through `block`, which scopes its bindings. Running the
+        // statements directly would let a `let` inside the Closure write into
+        // the enclosing binding map and OVERWRITE an outer name of the same
+        // spelling, which `IRIS-V1-CONTROL-C028` forbids: a nested block
+        // shadows a captured binding rather than replacing it.
+        self.block(&body, &locals, receiver)
     }
 
     fn resolve_instance_method(

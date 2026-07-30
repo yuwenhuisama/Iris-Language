@@ -1185,3 +1185,34 @@ fn c011_makes_an_array_iterable_through_the_ordinary_iterator_protocol() {
         "Array([IterationYield(Integer(IntegerValue(1))), IterationDone, IterationDone])"
     );
 }
+
+#[test]
+fn c028_lets_a_nested_block_shadow_a_captured_binding_without_replacing_it() {
+    // Given a Closure capturing `value`, then a SEPARATE Closure that declares
+    // its own `value`. The inner declaration must shadow, not overwrite: the
+    // Closure body previously ran its statements directly against the enclosing
+    // binding map, so the inner `let` replaced the outer name and the captured
+    // Closure observed 2 instead of 1.
+    let shadowed = "let value = 1; let c = { value }; \
+                    let inner = { let value = 2; value }; [inner.call(), c.call()]";
+    // Capture by REFERENCE is unaffected: a Closure that assigns the captured
+    // binding is still seen by the enclosing scope.
+    let shared_cell = "let mut v = 1; let c = { v = v + 1; v }; let a = c.call(); [a, v + 3]";
+    // Each loop iteration owns a fresh cell, so two escaping Closures differ.
+    let per_iteration = "let mut fs = []; for x in [1, 2] { fs.append({ x }) }; \
+                         [fs[0].call(), fs[1].call()]";
+
+    // When / Then
+    assert_eq!(
+        rendered(shadowed),
+        "Array([Integer(IntegerValue(2)), Integer(IntegerValue(1))])"
+    );
+    assert_eq!(
+        rendered(shared_cell),
+        "Array([Integer(IntegerValue(2)), Integer(IntegerValue(5))])"
+    );
+    assert!(
+        rendered(per_iteration)
+            .ends_with("Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])])")
+    );
+}

@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 54 are
-committed here; the remaining 80 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 60 are
+committed here; the remaining 74 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -83,3 +83,9 @@ existing channel.
 | `V357` | positive | executable | Transcribed after probing; exception, truthiness and loop-target semantics verified against the frozen row. |
 | `V360` | positive | executable | Transcribed after probing; exception, truthiness and loop-target semantics verified against the frozen row. |
 | `V361` | diagnostic | executable | Transcribed after probing; exception, truthiness and loop-target semantics verified against the frozen row. |
+| `V338` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V340` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V341` | negative | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V343` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V346` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
+| `V353` | positive | executable | Transcribed after probing; Closure capture, block channel and callable-Type behaviour verified against the frozen row. |
