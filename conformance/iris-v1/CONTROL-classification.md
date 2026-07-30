@@ -28,7 +28,9 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V014` | positive | executable | `||=` writes on the falsy path. |
 | `V015` | negative | executable | A non-Bool `to_bool` raises `TypeContractError`. |
 | `V016` | positive | executable | `if` without `else` yields `nil`. |
-| `V017`-`V023` | mixed | needs-subsystem | Require loops, loop control targets, the Iterator protocol, destructuring, or loop labels. |
+| `V017` | positive | executable | `while` natural completion yields `nil`, per `IRIS-V1-CONTROL-C043`. |
+| `V018` | positive | executable | `break 7` carries the loop result. |
+| `V019`-`V023` | mixed | needs-subsystem | Require loop control-target validation, the Iterator protocol, destructuring, or loop labels. |
 | `V024` | diagnostic | needs-subsystem | Same diagnostic channel. |
 | `V025` | positive | needs-subsystem | Requires match expressions. |
 | `V026` | diagnostic | needs-subsystem | Same diagnostic channel. |

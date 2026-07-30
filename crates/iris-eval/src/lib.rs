@@ -52,6 +52,12 @@ pub enum EvaluationError {
     ComparisonContractError,
     /// A send supplied the wrong number of arguments for the selected Method.
     ArgumentError,
+    /// A `break` is unwinding to its target loop, carrying the loop result.
+    ///
+    /// `IRIS-V1-CONTROL-C043` makes `break expr` exit the target loop with
+    /// `expr` as the LOOP result, so this travels as a control signal rather
+    /// than an ordinary value and is consumed by the loop that catches it.
+    LoopBreak(Option<String>, RuntimeValue),
     /// An ordinary selector was absent and the default `method_missing` applied.
     MessageNotFound {
         receiver_class: String,
@@ -439,12 +445,14 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         Statement::SharedBinding { .. } | Statement::Binding { .. } => true,
         Statement::Expression(expression) => source_runtime_expression(expression),
         Statement::If { .. } => true,
+        // A loop needs the source runtime: the literal evaluator has no heap and
+        // no statement sequencing. Its BODY is checked too, since a `break`
+        // there is what carries the loop result.
+        Statement::While { .. } | Statement::Break { .. } => true,
         Statement::StoredProperty { .. }
         | Statement::Method(_)
         | Statement::Return(_)
-        | Statement::Break { .. }
         | Statement::Continue(_)
-        | Statement::While { .. }
         | Statement::For { .. }
         | Statement::Match { .. } => false,
         Statement::Raise(_) | Statement::Try { .. } => true,

@@ -713,15 +713,57 @@ impl SourceEvaluator {
                 catches,
                 finally,
             } => self.try_statement(body, catches, finally, locals, receiver),
+            Statement::Break { label, value } => {
+                let value = match value {
+                    Some(value) => self.expression(value, locals, receiver)?,
+                    None => Value::Nil,
+                };
+                Err(EvaluationError::LoopBreak(label.clone(), value))
+            }
+            Statement::While {
+                label,
+                condition,
+                body,
+            } => self.while_statement(label.as_deref(), condition, body, locals, receiver),
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_)
             | Statement::Return(_)
-            | Statement::Break { .. }
             | Statement::Continue(_)
-            | Statement::While { .. }
             | Statement::For { .. }
             | Statement::Match { .. } => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+
+    /// Runs `while condition { body }` per `IRIS-V1-CONTROL-C043`.
+    ///
+    /// The condition is truth-tested BEFORE each iteration, so zero iterations
+    /// are possible, and natural completion yields `nil`. A `break` unwinds as a
+    /// control signal: this loop consumes one that targets it, either unlabelled
+    /// or naming its own label, and lets any other keep unwinding to an outer
+    /// loop.
+    fn while_statement(
+        &mut self,
+        label: Option<&str>,
+        condition: &Expression,
+        body: &[Statement],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        loop {
+            let test = self.expression(condition, locals, receiver.clone())?;
+            if !self.truthy(test)? {
+                return Ok(Value::Nil);
+            }
+            match self.block(body, locals, receiver.clone()) {
+                Ok(_) => {}
+                Err(EvaluationError::LoopBreak(target, value))
+                    if target.is_none() || target.as_deref() == label =>
+                {
+                    return Ok(value);
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -743,13 +785,19 @@ impl SourceEvaluator {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
                 Statement::Raise(_) => return self.statement(statement, &locals, receiver.clone()),
+                // A `break` leaves the block immediately, carrying its loop
+                // result outward as the control signal the target loop consumes.
+                Statement::Break { .. } => {
+                    return self.statement(statement, &locals, receiver.clone());
+                }
+                Statement::While { .. } => {
+                    result = self.statement(statement, &locals, receiver.clone())?;
+                }
                 Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_)
                 | Statement::Return(_)
-                | Statement::Break { .. }
                 | Statement::Continue(_)
-                | Statement::While { .. }
                 | Statement::For { .. }
                 | Statement::Match { .. } => return Err(EvaluationError::UnsupportedConstruct),
             }

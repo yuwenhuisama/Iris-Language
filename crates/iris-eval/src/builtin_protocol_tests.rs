@@ -744,3 +744,26 @@ fn c088_an_ordinary_object_has_a_stable_identity_hash() {
     assert_eq!(distinct, "Bool(false)");
     assert_eq!(numeric, "Integer(IntegerValue(17824117788395916856))");
 }
+
+#[test]
+fn c043_while_tests_before_each_iteration_and_break_carries_the_loop_result() {
+    // Given
+    let zero = "while false { 1 }";
+    let counted = "let mut n = 0; while n < 3 { n = n + 1 }; n";
+    let broke = "while true { break 7 }";
+    let bare = "while true { break }";
+
+    // When
+    let zero = rendered(zero);
+    let counted = rendered(counted);
+    let broke = rendered(broke);
+    let bare = rendered(bare);
+
+    // Then
+    assert_eq!(zero, "Nil");
+    // `while` is a STATEMENT, not an expression, so a multi-statement program
+    // returns every statement value and the count arrives last.
+    assert!(counted.ends_with("Integer(IntegerValue(3))])"));
+    assert_eq!(broke, "Integer(IntegerValue(7))");
+    assert_eq!(bare, "Nil");
+}
