@@ -231,6 +231,15 @@ pub enum Expression {
         receiver: Box<Expression>,
         selector: String,
     },
+    /// A `{ |params| body }` closure literal.
+    ///
+    /// `IRIS-V1-RUNTIME-C042` gives every EVALUATION of this expression a fresh
+    /// identity, so the node describes the code and the evaluator allocates a
+    /// distinct Closure each time it is reached.
+    Closure {
+        parameters: Vec<String>,
+        body: Vec<Statement>,
+    },
     Call {
         callee: Box<Expression>,
         arguments: Vec<Expression>,

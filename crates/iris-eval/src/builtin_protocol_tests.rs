@@ -509,3 +509,74 @@ fn c048_a_qualified_impl_is_unreachable_through_ordinary_dispatch() {
     // Then
     assert!(result.contains("MessageNotFound"));
 }
+
+#[test]
+fn c042_each_closure_evaluation_creates_a_distinct_identity() {
+    // Given
+    let source = "let mk = { { :v } }; let a = mk(); let b = mk(); \
+                  [a same? a, a same? b, a == a, a == b]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(false)])"
+    );
+}
+
+#[test]
+fn c072_an_escaped_closure_keeps_writing_its_captured_receiver() {
+    // Given
+    let source = "class A { public property fun x() { @x } \
+                  public property fun x=(v) { @x = v } \
+                  public fun mk() { { @x = 5 } } } \
+                  let a = A.new(); let escaped = a.mk(); let ran = escaped(); a.x";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Integer(IntegerValue(5))");
+}
+
+#[test]
+fn c099_passes_a_trailing_block_as_the_separate_block_parameter() {
+    // Given
+    let with_block = "class A { public fun method_missing(s, a, b) { [s, a, b()] } } \
+                      let o = A.new(); o.missing(1) { :block }";
+    let without = "class A { public fun method_missing(s, a, b) { [s, a] } } \
+                   let o = A.new(); o.missing(1)";
+
+    // When
+    let with_block = rendered(with_block);
+    let without = rendered(without);
+
+    // Then
+    assert_eq!(
+        with_block,
+        "Array([Symbol(\"missing\"), Array([Integer(IntegerValue(1))]), Symbol(\"block\")])"
+    );
+    assert_eq!(
+        without,
+        "Array([Symbol(\"missing\"), Array([Integer(IntegerValue(1))])])"
+    );
+}
+
+#[test]
+fn a_local_callable_shadows_a_self_send_without_recursing() {
+    // Given
+    let called = "class A { public fun m(b) { b() } } let o = A.new(); o.m({ :v })";
+    // A nil block must fail cleanly rather than recurse through method_missing.
+    let nil_block = "class A { public fun method_missing(s, a, b) { b() } } \
+                     let o = A.new(); o.missing(1)";
+
+    // When
+    let called = rendered(called);
+    let nil_block = rendered(nil_block);
+
+    // Then
+    assert_eq!(called, "Symbol(\"v\")");
+    assert_eq!(nil_block, "UnsupportedConstruct");
+}

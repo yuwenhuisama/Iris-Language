@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 73, failed: 3, needs_subsystem: 12, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 75, failed: 3, needs_subsystem: 10, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 73.
+Milestone 2 opened at RUNTIME 41 and closed at 75.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 73 of the 76 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 75 of the 78 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 37 rows, 20 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 38 rows, 21 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 73 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 75 across the
 milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
 conformance-host infrastructure, never on missing language behaviour, and each has its own row
 in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
@@ -129,10 +129,14 @@ invisible for a milestone because a bucketed vector is never executed.
 All 21 bucket reasons were re-probed and rewritten, so what follows is measured rather than
 inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 
-1. **Closure literals** do not parse at all, which alone blocks `V077`, `V087` and `V099`. For
-   `V099` that is the only remaining term, making this the largest single blocker by count.
-   The type-system block is finished apart from `V086`, which needs a `String` runtime value and
-   a static-Type observation path that `C068` gives no runtime surface for.
+1. **The remaining 10 bucketed rows have no single dominant blocker.** Closures landed and closed
+   `V077` and `V099`. What is left is spread thin: `V064` needs a resource-limit harness, `V072`
+   a Hash literal, `V079` a compacting GC, `V085` `migrate_revision`, `V110` a stable diagnostic
+   category, and `V111` static rebinding rejection.
+2. **Three rows are blocked on something the specification says must not exist or cannot be
+   observed**, and should be treated as closed rather than pending: `V086` needs a static-Type
+   observation path `C068` gives no runtime surface for, `V087` needs a rebind API `D-311`
+   forbids, and `V103` is recorded the same way.
 2. **Closure literals** do not parse at all, which alone blocks `V077`, `V087` and `V099`. For
    `V099` that is the only remaining term.
 3. **`V110` needs a stable diagnostic category**, not implementation. Its five reserved-selector

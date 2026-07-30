@@ -250,6 +250,7 @@ impl Evaluator {
             | Expression::RawIvar(_)
             | Expression::ClassVar(_)
             | Expression::ContractView { .. }
+            | Expression::Closure { .. }
             | Expression::Assignment { .. }
             | Expression::If { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
@@ -389,6 +390,7 @@ impl Evaluator {
             | RuntimeValue::Class(_)
             | RuntimeValue::Type(_)
             | RuntimeValue::Contract(_)
+            | RuntimeValue::Closure(_)
             | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
             | RuntimeValue::BoundMethod(_)
@@ -421,6 +423,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
+        RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
@@ -461,7 +464,8 @@ fn constructs_root_object(callee: &Expression) -> bool {
 
 fn source_runtime_expression(expression: &Expression) -> bool {
     match expression {
-        Expression::If { .. } => true,
+        // A Closure needs the heap the literal evaluator does not have.
+        Expression::Closure { .. } | Expression::If { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }

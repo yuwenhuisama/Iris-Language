@@ -144,6 +144,13 @@ pub enum Value {
     /// stay mutually distinct, so a Contract carries its own identity rather
     /// than reusing `ClassId` or `ModuleId`.
     Contract(ContractId),
+    /// An identity-bearing Closure object.
+    ///
+    /// `IRIS-V1-RUNTIME-C042` requires each evaluation of a Closure expression to
+    /// create a NEW identity-bearing object with its own captured environment,
+    /// and makes default equality identity-only, so this carries an allocation
+    /// identity rather than the code it runs.
+    Closure(ObjectId),
     /// An interned Type object, distinct from the Class it reifies.
     ///
     /// `IRIS-V1-TYPES-C016` requires Type objects to be interned and

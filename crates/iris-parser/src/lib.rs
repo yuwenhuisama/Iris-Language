@@ -77,6 +77,7 @@ pub fn parse(source: &str) -> ParseResult {
         tokens,
         cursor: 0,
         diagnostics: Vec::new(),
+        no_trailing_block: false,
     };
     let program = parser.program();
     let program_accepted = parser.diagnostics.is_empty() && parser.at_end();
@@ -224,6 +225,13 @@ struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
     diagnostics: Vec<Diagnostic>,
+    /// Suppresses `trailing_block` while parsing an `if` condition.
+    ///
+    /// Both a trailing block and an `if` branch body open with `{`, so in
+    /// `if cond() { ... }` the brace belongs to the conditional. The chapter 02
+    /// grammar resolves this by position, and this flag carries that position
+    /// down through the expression parser.
+    pub(crate) no_trailing_block: bool,
 }
 
 impl Parser {
@@ -446,6 +454,45 @@ impl Parser {
         })
     }
 
+    /// Parses `closure_literal ::= "{" closure_header? closure_body "}"`.
+    ///
+    /// The optional header is `"|" closure_parameters? "|"`, so a leading `|`
+    /// after `{` distinguishes a parameterised Closure from a bare one. The body
+    /// reuses the ordinary statement list, which is what `closure_body` names.
+    pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
+        self.expect("{")?;
+        let mut parameters = Vec::new();
+        if self.consume("|") {
+            while !self.check("|") && !self.at_end() {
+                parameters.push(self.binding_name()?);
+                if self.consume(":") {
+                    self.type_expression()?;
+                }
+                if !self.consume(",") {
+                    break;
+                }
+            }
+            self.expect("|")?;
+            if self.consume("-") {
+                self.expect(">")?;
+                self.type_expression()?;
+            }
+            self.consume_terminators();
+        }
+        let mut body = Vec::new();
+        self.consume_terminators();
+        while !self.check("}") && !self.at_end() {
+            if let Some(statement) = self.statement() {
+                body.push(statement);
+            } else {
+                self.advance_to_terminator();
+            }
+            self.consume_terminators();
+        }
+        self.expect("}")?;
+        Some(Expression::Closure { parameters, body })
+    }
+
     fn body(&mut self) -> Option<Vec<Statement>> {
         self.expect("{")?;
         let mut body = Vec::new();
@@ -603,7 +650,10 @@ impl Parser {
             return None;
         }
         if self.consume("if") {
-            let condition = self.expression(0)?;
+            let outer = std::mem::replace(&mut self.no_trailing_block, true);
+            let condition = self.expression(0);
+            self.no_trailing_block = outer;
+            let condition = condition?;
             let then_body = self.body()?;
             let else_body = if self.consume("else") {
                 if self.check("if") {

@@ -79,9 +79,16 @@ impl Parser {
                     selector: self.selector()?,
                 };
             } else if self.consume("(") {
+                let mut arguments = self.arguments()?;
+                // `trailing_block ::= closure_literal` is a postfix part, so a
+                // Closure written after the argument list is one more argument.
+                // IRIS-V1-RUNTIME-C099 receives it as the `block` parameter.
+                if self.check("{") && !self.no_trailing_block {
+                    arguments.push(self.closure_literal()?);
+                }
                 expression = Expression::Call {
                     callee: Box::new(expression),
-                    arguments: self.arguments()?,
+                    arguments,
                 };
             } else {
                 return Some(expression);
@@ -103,6 +110,9 @@ impl Parser {
         }
         if self.consume("[") {
             return self.array();
+        }
+        if self.check("{") && !self.no_trailing_block {
+            return self.closure_literal();
         }
         if self.consume(":") {
             if self.consume("@") {
@@ -133,7 +143,10 @@ impl Parser {
     }
 
     pub(super) fn if_expression(&mut self) -> Option<Expression> {
-        let condition = self.expression(0)?;
+        let outer = std::mem::replace(&mut self.no_trailing_block, true);
+        let condition = self.expression(0);
+        self.no_trailing_block = outer;
+        let condition = condition?;
         let then_body = self.body()?;
         let else_body = if self.consume("else") {
             if self.consume("if") {

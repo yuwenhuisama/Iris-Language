@@ -18,12 +18,26 @@ pub(super) fn evaluate(program: &Program) -> Result<Value, EvaluationError> {
     evaluator.program(program)
 }
 
+/// The code, captured environment and receiver of one Closure allocation.
+///
+/// `IRIS-V1-RUNTIME-C072` requires a Closure created in an instance Method to
+/// capture its CURRENT receiver and keep reading and writing that receiver's raw
+/// ivars after escape, so the receiver is stored alongside the captured locals.
+struct ClosureRecord {
+    parameters: Vec<String>,
+    body: Vec<Statement>,
+    captured: HashMap<String, Value>,
+    receiver: Option<Value>,
+}
+
 pub(super) struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
+    closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
+    next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
     qualified_methods: HashMap<(ClassId, iris_runtime::ContractId, Selector), Method>,
@@ -91,6 +105,8 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
+            closures: HashMap::new(),
+            next_closure: 900_000,
             contract_names: HashMap::new(),
             class_contracts: HashMap::new(),
             qualified_methods: HashMap::new(),
@@ -859,6 +875,22 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match expression {
+            Expression::Closure { parameters, body } => {
+                // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
+                // with its own captured environment, so this never caches.
+                let object = iris_runtime::ObjectId::new(self.next_closure);
+                self.next_closure += 1;
+                self.closures.insert(
+                    object,
+                    ClosureRecord {
+                        parameters: parameters.clone(),
+                        body: body.clone(),
+                        captured: locals.clone(),
+                        receiver: receiver.clone(),
+                    },
+                );
+                Ok(Value::Closure(object))
+            }
             Expression::Name(name) if name == "super" => Err(EvaluationError::Runtime(
                 iris_runtime::KernelError::Dispatch(iris_runtime::DispatchError::InvalidSuper {
                     selector: self
@@ -1025,6 +1057,18 @@ impl SourceEvaluator {
                         let target = self.expression(target, locals, receiver)?;
                         self.send(target, selector, &arguments)
                     }
+                    // A local binding shadows a self-send: `b()` where `b` is a
+                    // parameter invokes that value rather than sending `b` to
+                    // self. This must cover EVERY local, not just callable ones,
+                    // because falling through for a nil block would send `b` to
+                    // self, reach method_missing, and re-evaluate `b()` forever.
+                    Expression::Name(selector) if locals.contains_key(selector) => {
+                        let callee = locals
+                            .get(selector)
+                            .cloned()
+                            .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        self.call(callee, &arguments)
+                    }
                     Expression::Name(selector) => match receiver {
                         Some(receiver) => self.send(receiver, selector, &arguments),
                         None => self
@@ -1158,6 +1202,7 @@ impl SourceEvaluator {
 
     fn call(&mut self, value: Value, arguments: &[Value]) -> Result<Value, EvaluationError> {
         match value {
+            Value::Closure(object) => self.invoke_closure(object, arguments),
             Value::Class(class) => match self.kernel.construct(class, arguments) {
                 Ok(value) => Ok(value),
                 Err(iris_runtime::KernelError::Type) => {
@@ -1745,6 +1790,19 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // IRIS-V1-RUNTIME-C042 makes Closure default equality identity-only and
+        // forbids structural comparison, and IRIS-V1-RUNTIME-C040 gives each
+        // BoundMethod read a distinct identity. Neither has a built-in Class to
+        // dispatch through, so both answer by identity here rather than failing.
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::Closure(_) | Value::BoundMethod(_))
+        {
+            let [other] = arguments else {
+                return Err(EvaluationError::UnsupportedConstruct);
+            };
+            let equal = receiver == *other;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
         let selector_id = iris_runtime::NativeSelector::from_source(selector)
             .map_or_else(|| self.selector(selector), iris_runtime::NativeSelector::id);
         match self
@@ -1777,6 +1835,7 @@ impl SourceEvaluator {
                         | Value::Class(_)
                         | Value::Type(_)
                         | Value::Contract(_)
+                        | Value::Closure(_)
                         | Value::ContractView(_, _)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
@@ -1809,6 +1868,7 @@ impl SourceEvaluator {
             | Value::Class(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::Closure(_)
             | Value::ContractView(_, _)
             | Value::Object(_)
             | Value::BoundMethod(_)
@@ -1980,6 +2040,7 @@ impl SourceEvaluator {
             | Value::Symbol(_)
             | Value::Type(_)
             | Value::Contract(_)
+            | Value::Closure(_)
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
@@ -2084,6 +2145,34 @@ impl SourceEvaluator {
         self.invoke_method(method, Value::Object(object), arguments)
     }
 
+    /// Invokes a Closure with its captured environment restored.
+    ///
+    /// `IRIS-V1-RUNTIME-C072` keeps the captured receiver fixed, so the body runs
+    /// against the receiver captured at creation rather than any current one,
+    /// which is what lets an escaped Closure keep writing that receiver's ivars.
+    fn invoke_closure(
+        &mut self,
+        object: iris_runtime::ObjectId,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let record = self
+            .closures
+            .get(&object)
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let parameters = record.parameters.clone();
+        let body = record.body.clone();
+        let receiver = record.receiver.clone();
+        let mut locals = record.captured.clone();
+        for (name, argument) in parameters.iter().zip(arguments) {
+            locals.insert(name.clone(), argument.clone());
+        }
+        let mut result = Value::Nil;
+        for statement in &body {
+            result = self.statement(statement, &locals, receiver.clone())?;
+        }
+        Ok(result)
+    }
+
     fn resolve_instance_method(
         &self,
         object: iris_runtime::ObjectId,
@@ -2170,13 +2259,20 @@ impl SourceEvaluator {
             }
             Err(error) => return Err(error),
         };
+        // IRIS-V1-RUNTIME-C099 passes the trailing block as the separate
+        // `block: Closure?` parameter, NOT inside the positional argument
+        // snapshot, so a Closure in final position is split out here.
+        let (positional, block) = match arguments {
+            [head @ .., Value::Closure(closure)] => (head.to_vec(), Value::Closure(*closure)),
+            _ => (arguments.to_vec(), Value::Nil),
+        };
         self.invoke_method(
             method,
             Value::Object(object),
             &[
                 Value::Symbol(self.selector_name(missing)),
-                Value::Array(arguments.to_vec()),
-                Value::Nil,
+                Value::Array(positional),
+                block,
             ],
         )
     }
@@ -2408,6 +2504,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",
         Value::Contract(_) => "Contract",
+        Value::Closure(_) => "Closure",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
