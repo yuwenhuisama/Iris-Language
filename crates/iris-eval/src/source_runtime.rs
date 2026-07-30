@@ -1144,10 +1144,43 @@ impl SourceEvaluator {
                 }
             },
             Expression::ContractView { .. } => Err(EvaluationError::UnsupportedConstruct),
-            Expression::Assignment { left, right, .. } => {
+            Expression::Assignment {
+                left,
+                operator,
+                right,
+            } => {
                 if let Expression::Name(name) = left.as_ref() {
                     if locals.contains_key(name) {
                         return Err(EvaluationError::ImmutableBinding);
+                    }
+                    // IRIS-V1-CONTROL-C037: logical assignment reads the target
+                    // ONCE, truth-tests it, and evaluates the right side only on
+                    // the writing path. A `to_bool` failure must therefore
+                    // prevent both the RHS and the write.
+                    if let iris_syntax::AssignmentOperator::LogicalAnd
+                    | iris_syntax::AssignmentOperator::LogicalOr = operator
+                    {
+                        let current = self
+                            .names
+                            .get(name)
+                            .map(Binding::value)
+                            .ok_or(EvaluationError::ImmutableBinding)?;
+                        let truthy = self.truthy(current.clone())?;
+                        let writes = match operator {
+                            iris_syntax::AssignmentOperator::LogicalAnd => truthy,
+                            _ => !truthy,
+                        };
+                        if !writes {
+                            return Ok(current);
+                        }
+                        let value = self.expression(right, locals, receiver)?;
+                        let binding = self
+                            .names
+                            .get_mut(name)
+                            .ok_or(EvaluationError::ImmutableBinding)?;
+                        return binding
+                            .assign(value)
+                            .map_err(|()| EvaluationError::ImmutableBinding);
                     }
                     let value = self.expression(right, locals, receiver)?;
                     let binding = self

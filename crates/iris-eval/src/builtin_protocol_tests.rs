@@ -653,3 +653,38 @@ fn c094_and_c095_require_a_callable_annotation_to_name_its_kind() {
     assert_eq!(closure, "Symbol(\"c\")");
     assert_eq!(bare, "ParseDiagnostic");
 }
+
+#[test]
+fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
+    // Given
+    let raises = "class P { public fun to_bool() -> Bool { raise :sentinel } } \
+                  let mut x = P.new(); x &&= 1";
+    let skipped = "let mut log = []; let mut x = nil; let r = x &&= log.append(:ran); log";
+    let written = "let mut x = true; let r = x &&= 5; x";
+
+    // When
+    let raises = rendered(raises);
+    let skipped = rendered(skipped);
+    let written = rendered(written);
+
+    // Then
+    assert_eq!(raises, "Raised(Symbol(\"sentinel\"))");
+    // C037: a no-write path must not evaluate the right side at all.
+    assert_eq!(skipped, "Array([])");
+    assert_eq!(written, "Integer(IntegerValue(5))");
+}
+
+#[test]
+fn c037_or_assignment_writes_only_on_the_falsy_path() {
+    // Given
+    let written = "let mut x = nil; let r = x ||= 7; x";
+    let skipped = "let mut log = []; let mut x = true; let r = x ||= log.append(:ran); log";
+
+    // When
+    let written = rendered(written);
+    let skipped = rendered(skipped);
+
+    // Then
+    assert_eq!(written, "Integer(IntegerValue(7))");
+    assert_eq!(skipped, "Array([])");
+}
