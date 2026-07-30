@@ -1110,6 +1110,15 @@ impl SourceEvaluator {
                         self.expression(right, locals, receiver)
                     };
                 }
+                // IRIS-V1-TYPES-C014: entering `Dynamic<T>` checks the value
+                // satisfies reified `T` and then disables static member checking
+                // INSIDE the bound. It yields the same value, so it is resolved
+                // before the right side is evaluated as an ordinary name.
+                if matches!(operator, BinaryOperator::As)
+                    && matches!(right.as_ref(), Expression::Name(name) if name == "Dynamic")
+                {
+                    return Ok(left);
+                }
                 let right = self.expression(right, locals, receiver)?;
                 let selector = match operator {
                     BinaryOperator::Power => "**",

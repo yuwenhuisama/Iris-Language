@@ -707,3 +707,20 @@ fn c134_rejects_a_nan_key_at_hash_construction() {
     assert!(float32.contains("InvalidNumericKey"));
     assert!(!finite.contains("InvalidNumericKey"));
 }
+
+#[test]
+fn c014_dynamic_entry_yields_the_value_without_widening_visibility() {
+    // Given
+    let public_send = "class A { public fun m() { :m } } let a = A.new(); (a as Dynamic<A>).m()";
+    // D-313: Dynamic must NOT reach a private Method merely because the
+    // selector exists, so the denial survives the Dynamic boundary.
+    let private_send = "class A { private fun p() { :p } } let a = A.new(); (a as Dynamic<A>).p()";
+
+    // When
+    let public_send = rendered(public_send);
+    let private_send = rendered(private_send);
+
+    // Then
+    assert_eq!(public_send, "Symbol(\"m\")");
+    assert!(private_send.contains("VisibilityDenied"));
+}

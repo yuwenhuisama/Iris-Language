@@ -953,7 +953,23 @@ impl Parser {
             self.expect(")")?;
             TypeExpression::Typeof(Box::new(expression))
         } else {
-            TypeExpression::Name(self.qualified_name()?)
+            let name = self.qualified_name()?;
+            // `type_primary ::= ... | qualified_type_name generic_args? | ...`
+            // so any nominal Type name may carry closed generic arguments,
+            // including `Dynamic<T>` from IRIS-V1-TYPES-C014.
+            if self.consume("<") {
+                let mut arguments = Vec::new();
+                while !self.check(">") && !self.at_end() {
+                    arguments.push(self.type_expression()?);
+                    if !self.consume(",") {
+                        break;
+                    }
+                }
+                self.expect(">")?;
+                TypeExpression::Generic { name, arguments }
+            } else {
+                TypeExpression::Name(name)
+            }
         };
         let mut values = vec![first];
         while self.consume("&") {

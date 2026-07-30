@@ -15,7 +15,18 @@ impl Parser {
             } else {
                 precedence + 1
             };
-            let right = self.expression(next)?;
+            // The chapter 02 grammar puts a TYPE on the right of `is`, `as` and
+            // `as?`. Parsing it as an expression would read the `<` of a closed
+            // generic such as `Dynamic<A>` as a comparison operator.
+            let right = if matches!(
+                operator,
+                BinaryOperator::Is | BinaryOperator::As | BinaryOperator::AsOptional
+            ) {
+                let target = self.type_expression()?;
+                Expression::Name(type_expression_name(&target)?)
+            } else {
+                self.expression(next)?
+            };
             if associativity == Associativity::NonAssociative
                 && self
                     .infix()
@@ -271,5 +282,18 @@ impl Parser {
             _ => return None,
         };
         Some(operator)
+    }
+}
+
+/// Renders a Type expression back to the single name the evaluator resolves.
+///
+/// `is`, `as` and `as?` take a Type on the right, but the evaluator resolves it
+/// through the ordinary name table, so a closed generic such as `Dynamic<A>`
+/// contributes its constructor name and its argument is checked separately.
+fn type_expression_name(value: &iris_syntax::TypeExpression) -> Option<String> {
+    match value {
+        iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+        iris_syntax::TypeExpression::Generic { name, .. } => Some(name.clone()),
+        _ => None,
     }
 }
