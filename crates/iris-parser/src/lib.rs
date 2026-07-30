@@ -893,6 +893,24 @@ impl Parser {
         }
         entries
     }
+    /// Reads a `quoted_symbol` body, the `:"..."` form of a Symbol literal.
+    ///
+    /// The chapter 02 grammar limits `selector_suffix` to `?` and `!`, so a
+    /// setter selector such as `name=` is NOT expressible as a bare `:name=`.
+    /// `symbol_literal` admits `quoted_symbol` precisely to name one, which
+    /// reflection needs to reach the setter that `IRIS-V1-RUNTIME-C061` defines.
+    /// The production is `string_double_body_without_interpolation`, so an
+    /// interpolating body is rejected here.
+    fn quoted_symbol(&mut self) -> Option<String> {
+        let text = self.peek()?;
+        let body = text.strip_prefix('"')?.strip_suffix('"')?.to_owned();
+        if body.contains("#{") {
+            return None;
+        }
+        self.advance();
+        Some(body)
+    }
+
     fn selector(&mut self) -> Option<String> {
         if let Some(operator) = self.operator_selector() {
             return Some(operator.into());

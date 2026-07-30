@@ -110,6 +110,9 @@ impl Parser {
                     .name()
                     .map(|name| Expression::Symbol(format!("@{name}")));
             }
+            if let Some(quoted) = self.quoted_symbol() {
+                return Some(Expression::Symbol(quoted));
+            }
             return self.selector().map(Expression::Symbol);
         }
         if self.consume("if") {

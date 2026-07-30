@@ -244,3 +244,100 @@ fn c085_rejects_a_spaceship_result_outside_the_contract() {
     assert_eq!(integer, "ComparisonContractError");
     assert_eq!(symbol, "ComparisonContractError");
 }
+
+#[test]
+fn c075_shares_a_hierarchy_cell_while_class_object_ivars_stay_distinct() {
+    // Given
+    let source = "class A { shared mut @@x = 0; \
+                  class fun set_shared(v) { @@x = v } class fun shared() { @@x } \
+                  class fun set_own(v) { @x = v } class fun own() { @x } } \
+                  class B extends A { }; \
+                  let s1 = A.set_shared(1); let s2 = B.set_shared(2); \
+                  let o1 = A.set_own(:a); let o2 = B.set_own(:b); \
+                  [A.shared(), B.shared(), A.own(), B.own()]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Integer(IntegerValue(2)), Integer(IntegerValue(2)), \
+         Symbol(\"a\"), Symbol(\"b\")])"
+    );
+}
+
+#[test]
+fn c162_rejects_a_subclass_redeclaring_an_anchored_cell() {
+    // Given
+    let source = "class A { shared mut @@x = 0; }; class B extends A { shared mut @@x = 1; }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert!(matches!(
+        result,
+        Err(crate::EvaluationError::Class(
+            iris_runtime::ClassError::DuplicateClassVariable { .. }
+        ))
+    ));
+}
+
+#[test]
+fn d446_runs_property_initializers_superclass_first_then_initialize() {
+    // Given
+    let source = "let mut log = []; \
+                  class Base { property b: Nil = log.append(:base); } \
+                  class Child extends Base { property c: Nil = log.append(:child); \
+                  fun initialize() { log.append(:initialize) } } \
+                  let x = Child.new(); log";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Symbol(\"base\"), Symbol(\"child\"), Symbol(\"initialize\")])"
+    );
+}
+
+#[test]
+fn c061_quoted_symbol_names_a_setter_selector_for_reflection() {
+    // Given
+    let source = "class P { property v: Nil = nil; }; \
+                  let getter = Reflection::Class.method(P, :v); \
+                  let setter = Reflection::Class.method(P, :\"v=\"); \
+                  [getter same? getter, setter same? setter, getter same? setter]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Array([Bool(true), Bool(true), Bool(false)])");
+}
+
+#[test]
+fn c148_composes_a_module_into_a_built_in_class_without_weakening_c150() {
+    // Given
+    let composed = "module Marker { public fun marker() { :nil } }; \
+                    open class Nil mixin Marker { }; \
+                    open class Bool { public fun mark() { :bool } } \
+                    open class Integer { public fun mark() { :integer } } \
+                    let n = 1; [nil.marker(), true.mark(), n.mark(), nil same? nil]";
+    let state = "open class Integer { \
+                 public property fun px=(value: Integer) -> Integer { @x = value } }; \
+                 let n = 1; n.px = 2";
+
+    // When
+    let composed = rendered(composed);
+    let state = rendered(state);
+
+    // Then
+    assert_eq!(
+        composed,
+        "Array([Symbol(\"nil\"), Symbol(\"bool\"), Symbol(\"integer\"), Bool(true)])"
+    );
+    assert!(state.contains("InstanceState"));
+}

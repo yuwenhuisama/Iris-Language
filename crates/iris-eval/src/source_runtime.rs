@@ -173,8 +173,24 @@ impl SourceEvaluator {
                     .map_err(EvaluationError::Class)?;
                 return Ok(());
             }
-            if superclass.is_some() || !mixins.is_empty() {
+            if superclass.is_some() {
                 return Err(EvaluationError::UnsupportedConstruct);
+            }
+            if !mixins.is_empty() {
+                // IRIS-V1-RUNTIME-C148 lets a stable built-in Class compose
+                // Modules on open; only its superclass is protected, by C150.
+                let mut candidate = self
+                    .runtime
+                    .registry_mut()
+                    .open(class)
+                    .map_err(EvaluationError::Class)?;
+                for edge in &mixins {
+                    candidate.add_module(edge.module());
+                }
+                self.runtime
+                    .registry_mut()
+                    .publish(candidate)
+                    .map_err(EvaluationError::Class)?;
             }
             if !declaration.meta_deny.is_empty() {
                 return Err(EvaluationError::Class(ClassError::MetaCapabilityDenied {

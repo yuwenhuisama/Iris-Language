@@ -95,8 +95,8 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V088` | `:608` | negative | needs-subsystem | Required Dynamic and reflection sends need excluded type/reflection APIs. |
 | `IRIS-V1-RUNTIME-V089` | `:609` | positive | executable | Concrete composed-Module ivar fixture asserts state access and private-edge behavior. |
 | `IRIS-V1-RUNTIME-V090` | `:610` | positive | executable | Concrete Module/Class fixture asserts `:B` dispatch and a single closed `A` MRO entry. |
-| `IRIS-V1-RUNTIME-V091` | `:611` | positive | needs-subsystem | Re-probed in milestone 2: the collections reason is stale. It needs `@@x` hierarchy binding cells shared across a subclass and the rejection of subclass redeclaration, which is its own feature rather than a bucket artefact. |
-| `IRIS-V1-RUNTIME-V092` | `:612` | positive | needs-subsystem | Re-probed in milestone 2: the collections reason is stale. It needs stored-property initializers to run in declaration order across the MRO during construction, which is unimplemented. |
+| `IRIS-V1-RUNTIME-V091` | `:611` | positive | executable | Concrete class-variable storage source with a concrete asserted aggregate. Reclassified in milestone 2 after probing showed the shared cell, the independent Class-object ivars and the `C162` redeclaration rejection were ALL already implemented; no code change was needed. |
+| `IRIS-V1-RUNTIME-V092` | `:612` | positive | executable | Concrete construction-order source. Reclassified in milestone 2: the `D-446` ordering was already correct, and only the `quoted_symbol` production was missing, without which reflection cannot name the `C061` setter selector `name=`. |
 | `IRIS-V1-RUNTIME-V093` | `:613` | negative | executable | Concrete bare/explicit `super` cases assert parse rejection and `NoSuperMethodError`. |
 | `IRIS-V1-RUNTIME-V094` | `:614` | positive | executable | Concrete alias/remove/undef sequence asserts shared Method identity, ancestor exposure, and missing-message. |
 | `IRIS-V1-RUNTIME-V095` | `:615` | positive | executable | Concrete Class-object Method source asserts singleton selection and Class-object-chain lookup. |
@@ -105,7 +105,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V098` | `:618` | negative | needs-subsystem | Requires excluded control-flow/assignment evaluator semantics for `if`, `&&=`, and `||=` propagation. |
 | `IRIS-V1-RUNTIME-V099` | `:619` | positive | needs-subsystem | Required block argument is a Closure, requiring the callable/Closure subsystem. |
 | `IRIS-V1-RUNTIME-V100` | `:620` | positive | needs-subsystem | Requires excluded reflection/type APIs and Array result to assert runtime-superclass reflection. |
-| `IRIS-V1-RUNTIME-V101` | `:621` | positive | needs-subsystem | Re-probed in milestone 2: the collections reason is stale. It needs Module composition into the `Nil` built-in Class and Method addition to `Bool` and `Integer`, which is built-in openness work rather than a bucket artefact. |
+| `IRIS-V1-RUNTIME-V101` | `:621` | positive | executable | Concrete built-in openness source. Reclassified in milestone 2 after one over-broad reopen guard was narrowed: it had rejected any mixin on a built-in Class, conflating `C148`, which permits Module composition, with `C150`, which protects only the superclass. |
 | `IRIS-V1-RUNTIME-V102` | `:622` | positive | needs-subsystem | Required `%` rejection needs lexer/parser diagnostic support outside the object kernel. |
 | `IRIS-V1-RUNTIME-V103` | `:623` | positive | executable | Concrete special-value getter/setter replacement fixture observes replacement and no implicit storage. |
 | `IRIS-V1-RUNTIME-V104` | `:624` | positive | executable | Concrete NaN arithmetic source asserts quiet NaN at receiver/common width. |
