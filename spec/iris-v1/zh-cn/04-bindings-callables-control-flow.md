@@ -1,6 +1,6 @@
 # Iris v1 绑定、可调用体与控制流
 
-状态：Iris v1.1，冻结语义并有所有者批准的勘误。
+状态：Iris v1.14，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-CONTROL-C001: 本章定义 Iris v1 的绑定、作用域、名称查找、可调用运行时种类、参数绑定、Closure 捕获与返回、调用与尾随块、赋值、条件、循环、match、Iterator 降低、异常，以及控制转移结果。它 MUST 在 [README.md](README.md)、[02-lexical-grammar.md](02-lexical-grammar.md) 和 [03-runtime-object-model.md](03-runtime-object-model.md) 之后阅读。
 
@@ -412,7 +412,7 @@ IRIS-V1-CONTROL-C070: 下列控制流向量表是规范性的。一致性章节 
 | `IRIS-V1-CONTROL-V016` | positive | 需要 interpreter；需要 JIT；native 不适用 | `if` 没有 `else` 且条件 false | 结果是 `nil`。 | `D-437` |
 | `IRIS-V1-CONTROL-V017` | positive | 需要 interpreter；需要 JIT；native 不适用 | `while` 自然完成 | 结果是 `nil`。 | `D-438` |
 | `IRIS-V1-CONTROL-V018` | positive | 需要 interpreter；需要 JIT；native 不适用 | 从循环 `break 7` | 循环结果是 `Integer(7)`。 | `D-438` |
-| `IRIS-V1-CONTROL-V019` | negative | 需要 interpreter；需要 JIT；native 不适用 | 循环外 `break` | 控制目标错误。 | `D-438` |
+| `IRIS-V1-CONTROL-V019` | negative | 需要 interpreter；需要 JIT；native 不适用 | 循环外 `break` | 控制目标错误 `CONTROL_TRANSFER_WITHOUT_TARGET`（IRIS-V1-CONTROL-C077）。 | `D-438` |
 | `IRIS-V1-CONTROL-V020` | positive | 需要 interpreter；需要 JIT；native 不适用 | `for` 遍历先 yield `Iteration.yield(nil)` 再 done 的 Iterator | 主体收到合法 `nil`，然后循环完成。 | `D-439` |
 | `IRIS-V1-CONTROL-V021` | negative | 需要 interpreter；需要 JIT；native 不适用 | `for` 解构不匹配 | Iterator 关闭，然后 `PatternMatchError` 传播。 | `D-139`, `D-439` |
 | `IRIS-V1-CONTROL-V022` | positive | 需要 interpreter；需要 JIT；native 不适用 | `for` 中的 Closure 捕获逐迭代绑定 | 逃逸 Closures 返回不同迭代值。 | `D-434` |
@@ -431,7 +431,7 @@ IRIS-V1-CONTROL-C070: 下列控制流向量表是规范性的。一致性章节 
 | `IRIS-V1-CONTROL-V035` | positive | 需要 interpreter；需要 JIT；native 不适用 | 存在待定异常时清理失败 | Cleanup context 出现在 primary `suppressed` 中。 | `D-140`, `D-160` |
 | `IRIS-V1-CONTROL-V036` | negative | 需要 interpreter；需要 JIT；native 不适用 | ExceptionContext cause 环尝试 | `ExceptionChainError`；图不变。 | `D-161` |
 | `IRIS-V1-CONTROL-V037` | positive | 需要 interpreter；需要 JIT；native 不适用 | 活动遍历清理后从当前可调用体 `return 3` | 当前可调用体在清理后返回 `Integer(3)`。 | `D-139`, `D-421` |
-| `IRIS-V1-CONTROL-V038` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 任何可调用体外的 `return` | 无效返回位置诊断。 | `D-421` |
+| `IRIS-V1-CONTROL-V038` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 任何可调用体外的 `return` | 无效返回位置诊断 `CONTROL_RETURN_OUTSIDE_CALLABLE`（IRIS-V1-CONTROL-C077）。 | `D-421` |
 
 ## 控制覆盖向量
 
@@ -441,10 +441,14 @@ IRIS-V1-CONTROL-C074：在 Module 声明内，`module fun` 将 Method 安装到�
 
 IRIS-V1-CONTROL-C075：当具名 Method 省略 `-> ReturnType` 时，其声明的静态和运行时返回 Contract 是 `Dynamic<Object>`，不受推断出的最终表达式或显式 return 的主体事实影响。实现 MAY 在本地使用这些主体事实进行诊断或优化，但 MUST NOT 将它们发布为 Method 签名元数据、用它们选择不同 Method 或 overload，或推断更窄的返回 Contract。若最终表达式的静态 Type 不已知，它在主体分析中是 `Dynamic<Object>`，且该 Method 声明的返回 Contract 仍是 `Dynamic<Object>`。
 
+IRIS-V1-CONTROL-C076：v1.10 勘误使 `call` 成为 IRIS-V1-CONTROL-C021 所述普通可调用类别的唯一调用拼写。`closure.call(args...)`、`bound.call(args...)` 和 `block.call(args...)` 调用 Closure 或 BoundMethod，且可调用值不得通过直接对其应用实参列表来调用。本次修订取代了 IRIS-V1-MIG-004 先前指定为遗留 `cast.call(...)` 替代形式的直接应用拼写，并取代 `D-454` 中移除 `call` 作为调用面的那一部分。`call` 是可调用对象上的普通选择子，因此 Closure 与 BoundMethod 在 IRIS-V1-RUNTIME-C042 和 IRIS-V1-RUNTIME-C040 下仍是带标识的可调用对象，按 IRIS-V1-CONTROL-C022 至 IRIS-V1-CONTROL-C026 的参数规则接收实参，并通过普通派发应答 `call`。尾随 Closure 仍通过 IRIS-V1-GRAMMAR-C050 的专用 `&block` 通道绑定，省略的可选 block 仍按 IRIS-V1-CONTROL-C025 绑定 `nil`，因此 `block != nil` 仍是 `block.call(...)` 之前的存在性测试。
+
+IRIS-V1-CONTROL-C077：v1.14 勘误为三行命名稳定诊断码，这些行的冻结文本以散文描述诊断但未命名。目标循环在所属可调用体内不存在的 `break` 或 `continue` 必须诊断为 `CONTROL_TRANSFER_WITHOUT_TARGET`，即 IRIS-V1-CONTROL-V019 中“控制目标错误”的对应码。出现在任何可调用体之外的 `return` 必须诊断为 `CONTROL_RETURN_OUTSIDE_CALLABLE`，即 IRIS-V1-CONTROL-V038 中“无效 return 位置诊断”的对应码。目标为不可变绑定的赋值必须诊断为 `BINDING_ASSIGN_TO_IMMUTABLE`，即 IRIS-V1-CONTROL-V040 中“静态不可变绑定诊断”的对应码。本条款仅命名诊断码：它不改变哪些源代码被拒绝，不改动 `D-421`、`D-426` 与 `D-438` 所述的条件，也不影响 IRIS-V1-CONTROL-V024——后者的诊断已由 IRIS-V1-CONTROL-V339A 在同一 `D-421` 下命名为 `CONTROL_TARGET_CROSSES_CLOSURE`。`CONTROL_TRANSFER_WITHOUT_TARGET` 与 `CONTROL_TARGET_CROSSES_CLOSURE` 保持相互区别：前者报告所属可调用体内不存在目标循环，后者报告目标存在但位于 Closure 调用边界之外。
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-CONTROL-V039` | positive | 需要 interpreter；需要 JIT；native 不适用 | `mut x: Integer = 1; x = 2; x` | `Integer(2)`；绑定可变且固定为 `Integer`。 | `D-426`, `D-427` |
-| `IRIS-V1-CONTROL-V040` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `let x: Integer = 1; x = 2` | 赋值处出现静态不可变绑定诊断；不发生写入。 | `D-426` |
+| `IRIS-V1-CONTROL-V040` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `let x: Integer = 1; x = 2` | 赋值处出现静态不可变绑定诊断 `BINDING_ASSIGN_TO_IMMUTABLE`（IRIS-V1-CONTROL-C077）；不发生写入。 | `D-426` |
 | `IRIS-V1-CONTROL-V041` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `mut x = 1; x = "s"` | 静态固定推断类型诊断；`x` 不拓宽。 | `D-427` |
 
 ## 可追溯性说明

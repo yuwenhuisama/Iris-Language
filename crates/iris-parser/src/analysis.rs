@@ -35,6 +35,14 @@ struct Local {
 struct Control {
     loop_depth: usize,
     in_callable: bool,
+    /// Whether a loop exists OUTSIDE the nearest Closure boundary.
+    ///
+    /// `IRIS-V1-CONTROL-C077` keeps two diagnostics distinct: a transfer with no
+    /// target loop anywhere reports `CONTROL_TRANSFER_WITHOUT_TARGET`, while one
+    /// whose target exists but lies across a Closure call boundary reports
+    /// `CONTROL_TARGET_CROSSES_CLOSURE`. Distinguishing them needs the enclosing
+    /// loop state the Closure boundary discarded.
+    enclosing_loop_across_closure: bool,
 }
 
 impl Control {
@@ -42,6 +50,7 @@ impl Control {
         Self {
             loop_depth: 0,
             in_callable: false,
+            enclosing_loop_across_closure: false,
         }
     }
 
@@ -49,6 +58,18 @@ impl Control {
         Self {
             loop_depth: 0,
             in_callable: true,
+            enclosing_loop_across_closure: false,
+        }
+    }
+
+    /// Enters a Closure body, which resets the loop depth but REMEMBERS whether
+    /// a loop was in scope outside it.
+    const fn entering_closure(self) -> Self {
+        Self {
+            loop_depth: 0,
+            in_callable: true,
+            enclosing_loop_across_closure: self.loop_depth > 0
+                || self.enclosing_loop_across_closure,
         }
     }
 
@@ -56,6 +77,18 @@ impl Control {
         Self {
             loop_depth: self.loop_depth + 1,
             in_callable: self.in_callable,
+            enclosing_loop_across_closure: self.enclosing_loop_across_closure,
+        }
+    }
+
+    /// The diagnostic for a `break`/`continue` with no reachable target.
+    const fn transfer_diagnostic(self) -> Option<&'static str> {
+        if self.loop_depth > 0 {
+            None
+        } else if self.enclosing_loop_across_closure {
+            Some("CONTROL_TARGET_CROSSES_CLOSURE")
+        } else {
+            Some("CONTROL_TRANSFER_WITHOUT_TARGET")
         }
     }
 }
@@ -188,16 +221,16 @@ impl Analyzer {
             // `D-438` and `D-421`: a loop transfer needs a loop in the SAME
             // callable, since a Closure boundary resets the depth.
             Statement::Break { value, .. } => {
-                if control.loop_depth == 0 {
-                    self.report("CONTROL_TRANSFER_WITHOUT_TARGET");
+                if let Some(code) = control.transfer_diagnostic() {
+                    self.report(code);
                 }
                 if let Some(value) = value {
                     self.expression(value, control);
                 }
             }
             Statement::Continue(_) => {
-                if control.loop_depth == 0 {
-                    self.report("CONTROL_TRANSFER_WITHOUT_TARGET");
+                if let Some(code) = control.transfer_diagnostic() {
+                    self.report(code);
                 }
             }
             // `D-421` puts `return` at a callable boundary, so one outside any
@@ -276,7 +309,7 @@ impl Analyzer {
             // A Closure body is a callable boundary for `return`, and it resets
             // the loop depth so a `break` inside it cannot target an outer loop.
             Expression::Closure { body, .. } => {
-                self.scoped_body(body, Control::callable());
+                self.scoped_body(body, control.entering_closure());
             }
             Expression::Call { callee, arguments } => {
                 self.expression(callee, control);
@@ -387,10 +420,15 @@ mod tests {
 
     #[test]
     fn d421_binds_a_loop_transfer_and_a_return_to_their_own_callable() {
-        // A Closure boundary RESETS the loop depth, so a `break` inside one
-        // cannot target a loop outside it even though that loop is enclosing.
+        // C077 keeps the two control-target diagnostics DISTINCT. A loop exists
+        // here, but it lies across a Closure call boundary.
         assert_eq!(
             codes("let mut i = 0; while i < 3 { let c = { break }; i = i + 1 }"),
+            ["CONTROL_TARGET_CROSSES_CLOSURE"]
+        );
+        // With no loop anywhere, the target does not exist at all.
+        assert_eq!(
+            codes("let c = { break }"),
             ["CONTROL_TRANSFER_WITHOUT_TARGET"]
         );
         assert_eq!(codes("break"), ["CONTROL_TRANSFER_WITHOUT_TARGET"]);

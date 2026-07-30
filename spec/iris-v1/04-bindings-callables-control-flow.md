@@ -1,6 +1,6 @@
 # Iris v1 Bindings, Callables, And Control Flow
 
-Status: Iris v1.1, frozen semantics with owner-approved errata.
+Status: Iris v1.14, frozen semantics with owner-approved errata.
 
 IRIS-V1-CONTROL-C001: This chapter defines bindings, scopes, name lookup, callable runtime kinds, parameter binding, Closure capture and return, calls and trailing blocks, assignment, conditionals, loops, match, Iterator lowering, exceptions, and control-transfer results for Iris v1. It MUST be read after [README.md](README.md), [02-lexical-grammar.md](02-lexical-grammar.md), and [03-runtime-object-model.md](03-runtime-object-model.md).
 
@@ -412,7 +412,7 @@ IRIS-V1-CONTROL-C070: The following control-flow vector table is normative. The 
 | `IRIS-V1-CONTROL-V016` | positive | interpreter required; JIT required; native not applicable | `if` without `else` and false condition | Result is `nil`. | `D-437` |
 | `IRIS-V1-CONTROL-V017` | positive | interpreter required; JIT required; native not applicable | `while` natural completion | Result is `nil`. | `D-438` |
 | `IRIS-V1-CONTROL-V018` | positive | interpreter required; JIT required; native not applicable | `break 7` from loop | Loop result is `Integer(7)`. | `D-438` |
-| `IRIS-V1-CONTROL-V019` | negative | interpreter required; JIT required; native not applicable | `break` outside loop | Control-target error. | `D-438` |
+| `IRIS-V1-CONTROL-V019` | negative | interpreter required; JIT required; native not applicable | `break` outside loop | Control-target error `CONTROL_TRANSFER_WITHOUT_TARGET` (IRIS-V1-CONTROL-C077). | `D-438` |
 | `IRIS-V1-CONTROL-V020` | positive | interpreter required; JIT required; native not applicable | `for` over Iterator yielding `Iteration.yield(nil)` then done | Body receives legitimate `nil`, then loop completes. | `D-439` |
 | `IRIS-V1-CONTROL-V021` | negative | interpreter required; JIT required; native not applicable | `for` destructuring mismatch | Iterator closes, then `PatternMatchError` propagates. | `D-139`, `D-439` |
 | `IRIS-V1-CONTROL-V022` | positive | interpreter required; JIT required; native not applicable | Closure in `for` captures per-iteration binding | Escaped Closures return distinct iteration values. | `D-434` |
@@ -431,7 +431,7 @@ IRIS-V1-CONTROL-C070: The following control-flow vector table is normative. The 
 | `IRIS-V1-CONTROL-V035` | positive | interpreter required; JIT required; native not applicable | Cleanup failure while exception pending | Cleanup context appears in primary `suppressed`. | `D-140`, `D-160` |
 | `IRIS-V1-CONTROL-V036` | negative | interpreter required; JIT required; native not applicable | ExceptionContext cause cycle attempt | `ExceptionChainError`; graph is unchanged. | `D-161` |
 | `IRIS-V1-CONTROL-V037` | positive | interpreter required; JIT required; native not applicable | `return 3` from current callable after active traversal cleanup | Current callable returns `Integer(3)` after cleanup. | `D-139`, `D-421` |
-| `IRIS-V1-CONTROL-V038` | diagnostic | compiler required; JIT not applicable; native not applicable | `return` outside any callable | Invalid-return-placement diagnostic. | `D-421` |
+| `IRIS-V1-CONTROL-V038` | diagnostic | compiler required; JIT not applicable; native not applicable | `return` outside any callable | Invalid-return-placement diagnostic `CONTROL_RETURN_OUTSIDE_CALLABLE` (IRIS-V1-CONTROL-C077). | `D-421` |
 
 ## Control Coverage Vectors
 
@@ -443,10 +443,12 @@ IRIS-V1-CONTROL-C075: When a named Method omits `-> ReturnType`, its declared st
 
 IRIS-V1-CONTROL-C076: The v1.10 errata makes `call` the sole invocation spelling for the ordinary callable kinds of IRIS-V1-CONTROL-C021. `closure.call(args...)`, `bound.call(args...)`, and `block.call(args...)` invoke a Closure or BoundMethod, and a callable value MUST NOT be invoked by applying an argument list directly to it. This revision supersedes the direct-application spelling that IRIS-V1-MIG-004 previously named as the replacement for legacy `cast.call(...)`, and supersedes that part of `D-454` which removed `call` as an invocation surface. `call` is an ordinary selector on the callable, so a Closure and a BoundMethod remain identity-bearing callable objects under IRIS-V1-RUNTIME-C042 and IRIS-V1-RUNTIME-C040, receive their arguments under the parameter rules of IRIS-V1-CONTROL-C022 through IRIS-V1-CONTROL-C026, and answer `call` through ordinary dispatch. A trailing Closure still binds through the dedicated `&block` channel of IRIS-V1-GRAMMAR-C050, and an omitted optional block still binds `nil` under IRIS-V1-CONTROL-C025, so `block != nil` remains the presence test before `block.call(...)`.
 
+IRIS-V1-CONTROL-C077: The v1.14 errata names the stable diagnostic codes for three rows whose frozen text describes a diagnostic in prose without naming it. A `break` or `continue` whose target loop does not exist in the enclosing callable MUST be diagnosed as `CONTROL_TRANSFER_WITHOUT_TARGET`, which is the code for the "control-target error" of IRIS-V1-CONTROL-V019. A `return` appearing outside any callable body MUST be diagnosed as `CONTROL_RETURN_OUTSIDE_CALLABLE`, which is the code for the "invalid-return-placement diagnostic" of IRIS-V1-CONTROL-V038. An assignment whose target is an immutable binding MUST be diagnosed as `BINDING_ASSIGN_TO_IMMUTABLE`, which is the code for the "static immutable-binding diagnostic" of IRIS-V1-CONTROL-V040. This clause names codes only. It does not change which sources are rejected, does not alter the conditions stated by `D-421`, `D-426` and `D-438`, and does not affect IRIS-V1-CONTROL-V024, whose diagnostic is already named `CONTROL_TARGET_CROSSES_CLOSURE` by IRIS-V1-CONTROL-V339A under the same `D-421`. `CONTROL_TRANSFER_WITHOUT_TARGET` and `CONTROL_TARGET_CROSSES_CLOSURE` remain distinct: the former reports that no target loop exists in the enclosing callable, while the latter reports that a target exists but lies across a Closure call boundary.
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-CONTROL-V039` | positive   | interpreter required; JIT required; native not applicable    | `mut x: Integer = 1; x = 2; x` | `Integer(2)`; the binding is mutable and fixed to `Integer`.        | `D-426`, `D-427` |
-| `IRIS-V1-CONTROL-V040` | diagnostic | compiler required; JIT not applicable; native not applicable | `let x: Integer = 1; x = 2`    | Static immutable-binding diagnostic at the assignment; no write occurs. | `D-426`            |
+| `IRIS-V1-CONTROL-V040` | diagnostic | compiler required; JIT not applicable; native not applicable | `let x: Integer = 1; x = 2`    | Static immutable-binding diagnostic `BINDING_ASSIGN_TO_IMMUTABLE` (IRIS-V1-CONTROL-C077) at the assignment; no write occurs. | `D-426`            |
 | `IRIS-V1-CONTROL-V041` | diagnostic | compiler required; JIT not applicable; native not applicable | `mut x = 1; x = "s"`           | Static fixed-inferred-type diagnostic;`x` does not widen.             | `D-427`            |
 
 ## Traceability Notes

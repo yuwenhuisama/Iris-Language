@@ -30,12 +30,12 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V016` | positive | executable | `if` without `else` yields `nil`. |
 | `V017` | positive | executable | `while` natural completion yields `nil`, per `IRIS-V1-CONTROL-C043`. |
 | `V018` | positive | executable | `break 7` carries the loop result. |
-| `V019` | negative | needs-subsystem | The static pass detects the condition, but `IRIS-V1-CONTROL-D-438` names no stable code, so the expectation would be authored rather than spec-derived. |
+| `V019` | negative | executable | The v1.14 errata names `CONTROL_TRANSFER_WITHOUT_TARGET` in `IRIS-V1-CONTROL-C077`. |
 | `V020` | positive | executable | `for` runs the body for a yielded `nil` and closes the Iterator on exit, per `C044` and `C046`. |
 | `V021` | negative | executable | A `for` destructuring mismatch raises `PatternMatchError`, per `IRIS-V1-CONTROL-C045`. |
 | `V022` | positive | executable | Each iteration binds in a fresh scope, so escaped Closures return distinct values. |
 | `V023` | positive | executable | A labelled `break` reaches the named outer loop while a bare one targets the nearest, per `IRIS-V1-CONTROL-C048`. |
-| `V024` | diagnostic | needs-subsystem | The static pass detects a transfer crossing a Closure boundary, but `D-421` names no stable code for it. |
+| `V024` | diagnostic | executable | `CONTROL_TARGET_CROSSES_CLOSURE` was ALREADY named by `IRIS-V1-CONTROL-V339A` under the same `D-421`; no errata was needed. |
 | `V025` | positive | executable | `match` tests arms in source order with no fallthrough, per `IRIS-V1-CONTROL-C050`. |
 | `V026` | diagnostic | needs-subsystem | Requires match exhaustiveness over an open-ended type, which needs type information the pass does not have. |
 | `V027` | positive | executable | A catch binds the `ExceptionContext` and `context.value` is the raised object. |
@@ -49,9 +49,9 @@ rows were tamper-tested: reversing the asserted behaviour correctly fails each.
 | `V035` | positive | executable | A cleanup failure is appended to the primary context's `suppressed`, per `IRIS-V1-CONTROL-C047`. |
 | `V036` | negative | executable | A cause cycle raises `ExceptionChainError` and leaves the graph unchanged, per `D-161`. |
 | `V037` | positive | needs-subsystem | Requires `return` with cleanup traversal. |
-| `V038` | diagnostic | needs-subsystem | The static pass detects `return` outside any callable, but `D-421` names no stable code for it. |
+| `V038` | diagnostic | executable | The v1.14 errata names `CONTROL_RETURN_OUTSIDE_CALLABLE` in `IRIS-V1-CONTROL-C077`. |
 | `V039` | positive | executable | Mutable binding assignment. |
-| `V040` | diagnostic | needs-subsystem | The static pass detects the write to an immutable binding, but `D-426` names no stable code for it. |
+| `V040` | diagnostic | executable | The v1.14 errata names `BINDING_ASSIGN_TO_IMMUTABLE` in `IRIS-V1-CONTROL-C077`. |
 | `V041` | diagnostic | needs-subsystem | Requires fixed inferred local types, which needs type inference the pass does not have. |
 
 ## Note on the diagnostic rows
