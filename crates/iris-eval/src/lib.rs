@@ -44,6 +44,12 @@ pub enum EvaluationError {
     Raised(RuntimeValue),
     /// Source code attempted to write an immutable lexical binding.
     ImmutableBinding,
+    /// Evaluation exceeded its step budget and was abandoned.
+    ///
+    /// This is a HARNESS limit, not an Iris semantic. It exists so a vector
+    /// that fails to terminate is reported as evidence instead of hanging the
+    /// conformance suite indefinitely.
+    StepBudgetExhausted,
     /// An unqualified name resolved to no binding.
     ///
     /// `IRIS-V1-CONTROL-C009` requires assignment to an absent ordinary local to

@@ -33,6 +33,20 @@ struct ClosureRecord {
 pub(super) struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
+    /// Remaining evaluation steps before the run is abandoned.
+    ///
+    /// A conformance vector that fails to terminate would otherwise hang the
+    /// whole suite with no diagnostic, so non-termination is turned into a
+    /// reportable error rather than a stall. The budget bounds LOOP iterations
+    /// and Method invocations, which are the only unbounded constructs.
+    remaining_steps: u64,
+    /// Current Method/Closure invocation depth.
+    ///
+    /// The step budget alone cannot stop unbounded RECURSION: each frame is a
+    /// host stack frame, so the process aborts on stack overflow long before a
+    /// step budget large enough for ordinary loops is exhausted. Depth is
+    /// therefore bounded separately.
+    invocation_depth: u32,
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
@@ -103,6 +117,8 @@ impl SourceEvaluator {
         Ok(Self {
             runtime,
             kernel,
+            remaining_steps: STEP_BUDGET,
+            invocation_depth: 0,
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
@@ -963,6 +979,7 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         loop {
+            self.charge_step()?;
             let step = self.send(iterator.clone(), "next", &[])?;
             let value = match step {
                 Value::IterationDone => return Ok(Value::Nil),
@@ -1006,6 +1023,7 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         loop {
+            self.charge_step()?;
             let test = self.expression(condition, locals, receiver.clone())?;
             if !self.truthy(test)? {
                 return Ok(Value::Nil);
@@ -2553,6 +2571,15 @@ impl SourceEvaluator {
     ///
     /// `IRIS-V1-CONTROL-C056` makes every `raise` a DISTINCT event, so this
     /// never reuses an identity even when the raised value is the same.
+    /// Consumes one step of the evaluation budget.
+    fn charge_step(&mut self) -> Result<(), EvaluationError> {
+        self.remaining_steps = self
+            .remaining_steps
+            .checked_sub(1)
+            .ok_or(EvaluationError::StepBudgetExhausted)?;
+        Ok(())
+    }
+
     fn next_context_identity(&mut self) -> iris_runtime::ObjectId {
         let identity = iris_runtime::ObjectId::new(self.next_closure);
         self.next_closure += 1;
@@ -3164,6 +3191,24 @@ impl SourceEvaluator {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // Unbounded recursion is the other way a run fails to terminate.
+        self.charge_step()?;
+        self.invocation_depth += 1;
+        if self.invocation_depth > DEPTH_BUDGET {
+            self.invocation_depth -= 1;
+            return Err(EvaluationError::StepBudgetExhausted);
+        }
+        let result = self.invoke_method_body(method, receiver, arguments);
+        self.invocation_depth -= 1;
+        result
+    }
+
+    fn invoke_method_body(
+        &mut self,
+        method: Method,
+        receiver: Value,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
         let Some(declaration) = self.bodies.get(&method.body().raw()) else {
             return Err(EvaluationError::Execution(
                 iris_runtime::ExecutionError::Raised(Value::Nil),
@@ -3255,6 +3300,21 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Method(_) => "Method",
     }
 }
+
+/// The evaluation budget for one program run.
+///
+/// Large enough that no legitimate conformance vector approaches it, small
+/// enough that a non-terminating one fails in well under a second.
+const STEP_BUDGET: u64 = 1_000_000;
+
+/// The invocation depth bound for one program run.
+///
+/// Each Iris invocation consumes MANY host stack frames. Measured overflow is
+/// near 115 frames on the main thread but near 28 on a default test thread, so
+/// the bound is set below the tighter of the two. Recursion then fails as a
+/// REPORTABLE error rather than aborting the process, which no test can catch
+/// and which would take the whole conformance suite down with it.
+const DEPTH_BUDGET: u32 = 16;
 
 /// Maps a compound assignment to the ordinary operator selector it sends.
 ///

@@ -251,6 +251,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::Raised(_) => "Raised".into(),
         EvaluationError::ImmutableBinding => "ImmutableBindingError".into(),
         EvaluationError::NameError => "NameError".into(),
+        // A harness limit rather than an Iris error, reported so a
+        // non-terminating vector is visible evidence instead of a hang.
+        EvaluationError::StepBudgetExhausted => "StepBudgetExhausted".into(),
         EvaluationError::MessageNotFound { .. } => "MessageNotFoundError".into(),
     }
 }

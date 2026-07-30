@@ -1122,3 +1122,44 @@ fn c056_gives_every_propagation_event_a_distinct_identity() {
         "Array([Symbol(\"second\"), Symbol(\"first\"), Bool(false)])"
     );
 }
+
+#[test]
+fn a_non_terminating_program_is_reported_rather_than_hanging_the_suite() {
+    // Given the two ways a run fails to terminate. The first is the exact
+    // source that hung the conformance suite: the inner `break` leaves only the
+    // inner loop, so the outer `while true` reruns forever.
+    let unbounded_loop = "outer: while true { while true { break 9 } }";
+    let bare_loop = "while true { 1 }";
+    // Unbounded recursion needs its own bound: each frame is a host stack
+    // frame, so a step budget large enough for ordinary loops would abort the
+    // process on stack overflow before ever being exhausted.
+    let unbounded_recursion = "class C { public fun f() { self.f() } } C.new().f()";
+
+    // When / Then each is reported as evidence instead of stalling.
+    assert_eq!(rendered(unbounded_loop), "StepBudgetExhausted");
+    assert_eq!(rendered(bare_loop), "StepBudgetExhausted");
+    assert_eq!(rendered(unbounded_recursion), "StepBudgetExhausted");
+}
+
+#[test]
+fn the_execution_bounds_admit_ordinary_loops_and_recursion() {
+    // Given work far larger than any committed vector performs.
+    let counted = "let mut i = 0; while i < 1000 { i = i + 1 }; i";
+    // `for` needs a scripted iterator: an Array is not itself iterable here.
+    let iterated = "let mut n = 0; let mut total = 0; \
+                    class It { public fun next() { n = n + 1; \
+                    if n <= 3 { Iteration.yield(n) } else { Iteration.done } } \
+                    public fun close() { nil } } \
+                    class Src { public fun iterator() { It.new() } } \
+                    for x in Src.new() { total = total + x }; total";
+    let recursive = "class C { public fun f(n) { if n <= 0 { 0 } else { self.f(n - 1) } } } \
+                     C.new().f(12)";
+    // The labeled form the hang was mistranscribed FROM still terminates.
+    let labeled = "outer: while true { while true { break outer: 7 } }";
+
+    // When / Then the bounds never fire.
+    assert!(rendered(counted).ends_with("Integer(IntegerValue(1000))])"));
+    assert!(rendered(iterated).ends_with("Integer(IntegerValue(6))])"));
+    assert_eq!(rendered(recursive), "Integer(IntegerValue(0))");
+    assert_eq!(rendered(labeled), "Integer(IntegerValue(7))");
+}
