@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 69, failed: 3, needs_subsystem: 16, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 71, failed: 3, needs_subsystem: 14, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 69.
+Milestone 2 opened at RUNTIME 41 and closed at 71.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 69 of the 72 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 71 of the 74 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 34 rows, 17 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 35 rows, 18 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 69 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 71 across the
 milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
 conformance-host infrastructure, never on missing language behaviour, and each has its own row
 in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
@@ -129,10 +129,11 @@ invisible for a milestone because a bucketed vector is never executed.
 All 21 bucket reasons were re-probed and rewritten, so what follows is measured rather than
 inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 
-1. **Contract declarations** are the largest remaining type-system gap, blocking `V078`, `V080`,
-   `V081` and `V107`. The `is` operator, nominal Type objects, `.type` and `subtype?` all landed,
-   which closed `V053` and `V100`. `V086` now needs only the `Dynamic<Object>` slot Type, its
-   behavioural half already being correct.
+1. **Qualified Contract dispatch** is the remaining type-system work. Contract objects now exist,
+   which closed `V078` and `V080`, but `V081` needs `class ... for C` conformance plus `impl`
+   members and the `(value as C)..m()` view call, and `V107` needs Dynamic return-Contract
+   enforcement. `V086` needs only the `Dynamic<Object>` slot Type, its behavioural half already
+   being correct.
 2. **Closure literals** do not parse at all, which alone blocks `V077`, `V087` and `V099`. For
    `V099` that is the only remaining term.
 3. **`V110` needs a stable diagnostic category**, not implementation. Its five reserved-selector

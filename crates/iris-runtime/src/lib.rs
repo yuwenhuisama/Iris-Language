@@ -26,7 +26,7 @@ pub use class_revision::{
 pub use decorator::{AppliedDecorator, DecoratorTransform, DecoratorViolation};
 pub use dispatch::{DispatchContext, DispatchError, DispatchOutcome};
 pub use heap::{HeapObject, HeapPayload, RuntimeError, RuntimeHeap};
-pub use identity::{ClassId, MethodId, ModuleId, ObjectId, RevisionId, Selector};
+pub use identity::{ClassId, ContractId, MethodId, ModuleId, ObjectId, RevisionId, Selector};
 pub use kernel::{Kernel, KernelError, NativeSelector};
 pub use meta::{BuiltinClass, Capability, MetaCapabilities};
 pub use method::{BoundMethod, BoundReceiver, Method, MethodBody, MethodOwner, Visibility};

@@ -402,3 +402,64 @@ fn c079_subtype_uses_the_same_ancestry_that_is_consults() {
         "Array([Bool(true), Bool(false), Bool(false), Bool(true)])"
     );
 }
+
+#[test]
+fn c076_contract_objects_carry_identity_distinct_from_classes_and_modules() {
+    // Given
+    let source = "contract C { } contract D { } class A { } module M { } \
+                  [C same? C, C same? D, A same? A, M same? M]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(
+        result,
+        "Array([Bool(true), Bool(false), Bool(true), Bool(true)])"
+    );
+}
+
+#[test]
+fn c043_contract_inheritance_records_parents_without_an_implementation_mro() {
+    // Given
+    let source = "contract Parent { } contract Child extends Parent { } [Child same? Child, Child same? Parent]";
+
+    // When
+    let result = rendered(source);
+
+    // Then
+    assert_eq!(result, "Array([Bool(true), Bool(false)])");
+}
+
+#[test]
+fn c024_rejects_a_duplicate_selector_inside_one_class_body() {
+    // Given
+    let duplicate = "class A { public fun f(v) { :i } public fun f(v) { :j } }";
+    let distinct = "class A { public fun f(v) { :i } public fun g(v) { :j } }; :ok";
+
+    // When
+    let duplicate = evaluate(duplicate);
+    let distinct = rendered(distinct);
+
+    // Then
+    assert!(matches!(
+        duplicate,
+        Err(crate::EvaluationError::Class(
+            iris_runtime::ClassError::OverrideRequired { .. }
+        ))
+    ));
+    assert_eq!(distinct, "Symbol(\"ok\")");
+}
+
+#[test]
+fn c024_publishes_no_class_when_a_declaration_is_rejected() {
+    // Given
+    let source = "class A { public fun f(v) { :i } public fun f(v) { :j } }";
+
+    // When
+    let (outcome, published) = crate::evaluate_with_class_publication(source, "A");
+
+    // Then
+    assert!(outcome.is_err());
+    assert!(!published);
+}

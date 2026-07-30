@@ -24,6 +24,9 @@ pub(super) struct SourceEvaluator {
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
+    contract_names: HashMap<String, iris_runtime::ContractId>,
+    contract_parents: HashMap<iris_runtime::ContractId, Vec<iris_runtime::ContractId>>,
+    next_contract: u64,
     module_names: HashMap<String, ModuleId>,
     module_classes: HashMap<ModuleId, ClassId>,
     module_methods: HashMap<(ModuleId, Selector), Method>,
@@ -86,6 +89,9 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
+            contract_names: HashMap::new(),
+            contract_parents: HashMap::new(),
+            next_contract: 0,
             module_names: HashMap::new(),
             module_classes: HashMap::new(),
             module_methods: HashMap::new(),
@@ -111,8 +117,8 @@ impl SourceEvaluator {
                 ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
                     self.module(module)?;
                 }
-                ProgramEntry::Declaration(iris_syntax::Declaration::Contract(_)) => {
-                    return Err(EvaluationError::UnsupportedConstruct);
+                ProgramEntry::Declaration(iris_syntax::Declaration::Contract(contract)) => {
+                    self.contract(contract)?;
                 }
                 ProgramEntry::Statement(statement) => {
                     let value = self.statement(statement, &HashMap::new(), None)?;
@@ -237,7 +243,24 @@ impl SourceEvaluator {
             class
         };
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
+        let outcome = self.class_body(class, builtin, declaration);
+        if outcome.is_err() && !declaration.reopen {
+            // IRIS-V1-RUNTIME-C024 requires a rejected declaration to publish no
+            // Class. The name is bound before the body is validated, so an origin
+            // declaration that fails validation must unbind it again.
+            self.names.remove(&declaration.name);
+        }
+        outcome
+    }
+
+    fn class_body(
+        &mut self,
+        class: ClassId,
+        builtin: bool,
+        declaration: &ClassDeclaration,
+    ) -> Result<(), EvaluationError> {
         self.publish_decorators(class, &declaration.decorators)?;
+        let mut declared_in_body: Vec<(MethodKind, Selector)> = Vec::new();
         for statement in &declaration.body {
             match statement {
                 Statement::StoredProperty {
@@ -253,7 +276,17 @@ impl SourceEvaluator {
                     value,
                 } => self.shared_binding(class, *mutable, name, value)?,
                 Statement::Method(method) => {
-                    self.class_method(class, builtin, declaration.reopen, method)?;
+                    let selector = self.selector(&method.selector);
+                    // IRIS-V1-RUNTIME-C024 forbids an overload set: one complete
+                    // selector maps to at most one Method per revision, and a
+                    // redefinition needs `override`. An origin declaration passes
+                    // `requires_override` as false, so a duplicate inside ONE body
+                    // would otherwise publish silently with the second body winning.
+                    let duplicate = declared_in_body
+                        .iter()
+                        .any(|(kind, seen)| *kind == method.kind && *seen == selector);
+                    self.class_method(class, builtin, declaration.reopen || duplicate, method)?;
+                    declared_in_body.push((method.kind, selector));
                 }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
@@ -475,6 +508,40 @@ impl SourceEvaluator {
                 )
             })
             .collect()
+    }
+
+    /// Registers a declared Contract as an object with its own identity.
+    ///
+    /// `IRIS-V1-TYPES-C043` forms Contract inheritance as the union of static
+    /// requirements with no implementation MRO, `super`, stored state, or Method
+    /// bodies, so parents are recorded as a plain relation rather than composed
+    /// the way a Module is.
+    fn contract(
+        &mut self,
+        declaration: &iris_syntax::ContractDeclaration,
+    ) -> Result<(), EvaluationError> {
+        let mut parents = Vec::new();
+        for parent in &declaration.parents {
+            let iris_syntax::TypeExpression::Name(name) = parent else {
+                return Err(EvaluationError::UnsupportedConstruct);
+            };
+            parents.push(
+                *self
+                    .contract_names
+                    .get(name)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?,
+            );
+        }
+        let contract = iris_runtime::ContractId::new(self.next_contract);
+        self.next_contract += 1;
+        self.contract_names
+            .insert(declaration.name.clone(), contract);
+        self.contract_parents.insert(contract, parents);
+        self.names.insert(
+            declaration.name.clone(),
+            Binding::immutable(Value::Contract(contract)),
+        );
+        Ok(())
     }
 
     fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
@@ -1647,6 +1714,7 @@ impl SourceEvaluator {
                         | Value::Symbol(_)
                         | Value::Class(_)
                         | Value::Type(_)
+                        | Value::Contract(_)
                         | Value::Object(_)
                         | Value::BoundMethod(_)
                         | Value::Method(_) => {
@@ -1677,6 +1745,7 @@ impl SourceEvaluator {
             | Value::Symbol(_)
             | Value::Class(_)
             | Value::Type(_)
+            | Value::Contract(_)
             | Value::Object(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1841,6 +1910,7 @@ impl SourceEvaluator {
             Value::Array(_)
             | Value::Symbol(_)
             | Value::Type(_)
+            | Value::Contract(_)
             | Value::BoundMethod(_)
             | Value::Method(_) => {
                 return Ok(Value::Bool(false));
@@ -2205,6 +2275,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",
+        Value::Contract(_) => "Contract",
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",

@@ -18,4 +18,5 @@ define_id!(ClassId);
 define_id!(RevisionId);
 define_id!(MethodId);
 define_id!(ModuleId);
+define_id!(ContractId);
 define_id!(Selector);

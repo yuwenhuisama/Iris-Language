@@ -2,7 +2,7 @@ use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
 
-use crate::{BoundMethod, ClassId, Method, ObjectId};
+use crate::{BoundMethod, ClassId, ContractId, Method, ObjectId};
 
 /// An arbitrary-precision Iris integer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -132,6 +132,13 @@ pub enum Value {
     BoundMethod(BoundMethod),
     /// An unbound reflective Method object.
     Method(Method),
+    /// A declared Contract object.
+    ///
+    /// `IRIS-V1-TYPES-C041` makes Contract the obligation surface, and
+    /// `IRIS-V1-TYPES-C076` requires Class, Module, Contract and Type objects to
+    /// stay mutually distinct, so a Contract carries its own identity rather
+    /// than reusing `ClassId` or `ModuleId`.
+    Contract(ContractId),
     /// An interned Type object, distinct from the Class it reifies.
     ///
     /// `IRIS-V1-TYPES-C016` requires Type objects to be interned and
