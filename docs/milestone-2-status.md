@@ -7,11 +7,11 @@
 ## Current Conformance
 
 ```
-RUNTIME  passed: 64, failed: 3, needs_subsystem: 21, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
+RUNTIME  passed: 66, failed: 3, needs_subsystem: 19, no_fixture: 18, differential: 3   (109 records, buckets sum 109)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 64.
+Milestone 2 opened at RUNTIME 41 and closed at 66.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
@@ -80,7 +80,7 @@ Three real defects surfaced through probing rather than through the corpus.
 
 ## Remaining Failures
 
-Milestone 2 is closed as delivered at 64 of the 67 runnable RUNTIME vectors. None of the three
+Milestone 2 is closed as delivered at 66 of the 69 runnable RUNTIME vectors. None of the three
 remaining failures is an implementation gap, and none can be closed by writing more code.
 
 | Vector | Blocker |
@@ -93,7 +93,7 @@ The revision-capture semantics `V013` and `V083` describe are implemented and ex
 neighbouring vectors; what is absent is an out-of-band frame scheduler in the conformance host.
 Building it is milestone-3 sized infrastructure.
 
-`docs/spec-defects-v1.md` holds 31 rows, 14 resolved, and records the blocker for every one.
+`docs/spec-defects-v1.md` holds 32 rows, 15 resolved, and records the blocker for every one.
 
 ## Working Agreements
 
@@ -114,7 +114,7 @@ Building it is milestone-3 sized infrastructure.
 
 ## Milestone Status
 
-**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 64 across the
+**Milestone 2 is closed as delivered.** RUNTIME conformance advanced from 41 to 66 across the
 milestone. The three FAILING vectors listed above are each blocked on an owner decision or on
 conformance-host infrastructure, never on missing language behaviour, and each has its own row
 in `docs/spec-defects-v1.md` stating the blocker and what closing it would require.
@@ -126,15 +126,20 @@ invisible for a milestone because a bucketed vector is never executed.
 
 ### Next work, in order of value
 
-1. **Re-probe the 21 remaining `needs_subsystem` reasons.** Three of the last four vectors closed
-   needed little or no implementation once probed, and `V091` needed none at all. Several reasons
-   still cite subsystems that now exist.
-2. **Type system and Contracts** is the largest remaining block at eight vectors, `V053`, `V078`,
-   `V080`, `V081`, `V082`, `V086`, `V100` and `V107`. `V100` needs the `is` operator and
-   `type_of`/`subtype?`; the ancestry half it asserts is already produced correctly.
-3. **Closure and callable** for `V077`, `V087` and `V099`.
-4. **Parser and declaration validation** for `V054`, `V102`, `V110` and `V111`.
-5. **Hash literals**, for `V072`.
+All 21 bucket reasons were re-probed and rewritten, so what follows is measured rather than
+inherited. Six rows were narrowed to a strictly smaller blocker in the process.
+
+1. **Type system and Contracts** is the largest remaining block at seven vectors: `V053`, `V078`,
+   `V080`, `V081`, `V086`, `V100` and `V107`. `V100` needs only `is` and `type_of`/`subtype?`,
+   and `V078` needs only Contract and Type objects since Method alias identity already holds.
+2. **Closure literals** do not parse at all, which alone blocks `V077`, `V087` and `V099`. For
+   `V099` that is the only remaining term.
+3. **A `diagnostics` observation channel on the RUNTIME runner** for `V054` and `V110`. Neither
+   needs implementation work: `LEX_BAD_FLOAT_SUFFIX` is already emitted and reserved-selector
+   declarations are already rejected. Only the GRAMMAR runner can observe a diagnostic today.
+4. **Hash literals**, the last term of `V072`.
+5. **`migrate_revision` and revision reactivation** for `V085`, and static rebinding rejection
+   for `V111`.
 
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 

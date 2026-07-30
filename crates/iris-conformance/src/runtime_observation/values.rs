@@ -249,6 +249,9 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Dispatch(iris_runtime::DispatchError::InvalidSuper { .. }) => {
             "InvalidSuperError"
         }
+        KernelError::StableHash(iris_runtime::StableHashError::InvalidNumericKey) => {
+            "InvalidKeyError"
+        }
         KernelError::Class(_)
         | KernelError::Dispatch(_)
         | KernelError::Numeric(_)

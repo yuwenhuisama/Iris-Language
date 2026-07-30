@@ -4,7 +4,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 
 `executable` means that the chapter gives a concrete controlled fixture or directly assertable runtime value/bit/hash artifact and a concrete observable within the milestone 2 object-kernel boundary. `no-fixture` means the overview gives only an incomplete prose scenario. `needs-subsystem` means the vector is concrete but its required observable depends on a subsystem excluded from that boundary. `differential` requires the interpreter/JIT comparison that does not yet exist.
 
-**The `needs-subsystem` reasons below were written before milestone 2 and several are now stale.** Array literals and the `Reflection::*` namespace are implemented, so any reason citing "the excluded collections library", "Array literals", or an excluded reflection API must be re-probed rather than trusted. `V105` was reclassified `executable` on exactly those grounds, and probing it uncovered a real `IRIS-V1-RUNTIME-C131` exactness defect that the stale bucket had been hiding from the suite. Every row that cited collections or an excluded reflection API has since been re-probed, and each now states the concrete feature it actually waits on: `V068` and `V105` were reclassified `executable`, `V075` shares the root-Class blocker, `V091` needs `@@x` hierarchy cells, `V092` needs ordered stored-property initialization, `V101` needs built-in Class openness, and `V072` needs a Hash literal. No reason below is known to be stale, but the lesson stands: a bucket reason is a claim to re-probe, not a fact, because a bucketed vector is never executed and so can never fail.
+**The `needs-subsystem` reasons below were written before milestone 2 and several are now stale.** Array literals and the `Reflection::*` namespace are implemented, so any reason citing "the excluded collections library", "Array literals", or an excluded reflection API must be re-probed rather than trusted. `V105` was reclassified `executable` on exactly those grounds, and probing it uncovered a real `IRIS-V1-RUNTIME-C131` exactness defect that the stale bucket had been hiding from the suite. Every row that cited collections or an excluded reflection API has since been re-probed, and each now states the concrete feature it actually waits on: `V068` and `V105` were reclassified `executable`, `V075` shares the root-Class blocker, `V091` needs `@@x` hierarchy cells, `V092` needs ordered stored-property initialization, `V101` needs built-in Class openness, and `V072` needs a Hash literal. All 21 reasons were systematically re-probed in milestone 2 and rewritten to name the concrete feature each waits on; six were narrowed to a strictly smaller blocker, and two rows turned out to need no implementation at all. The lesson stands: a bucket reason is a claim to re-probe, not a fact, because a bucketed vector is never executed and so can never fail.
 
 | Vector ID | Chapter 03 line(s) | Category | Bucket | Concrete runtime artifact or reason |
 | --- | --- | --- | --- | --- |
@@ -57,8 +57,8 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V047` | `:587` | positive | executable | Concrete fused-arithmetic sources yield NaN at each float width. |
 | `IRIS-V1-RUNTIME-V048` | `:561`, `:639` | positive | executable | Concrete infinity `mul_add` source returns quiet `Float64` NaN without exception. |
 | `IRIS-V1-RUNTIME-V052` | `:570` | differential | differential | Requires interpreter and JIT agreement on arbitrary-precision integer representation. |
-| `IRIS-V1-RUNTIME-V053` | `:571` | positive | needs-subsystem | `type_of` observations require the excluded reflection/type-introspection API. |
-| `IRIS-V1-RUNTIME-V054` | `:572` | negative | needs-subsystem | Requires lexer/parser diagnostic subsystem for `LEX_BAD_FLOAT_SUFFIX`. |
+| `IRIS-V1-RUNTIME-V053` | `:571` | positive | needs-subsystem | Re-probed in milestone 2. The reflection reason is stale: `Reflection::*` exists. `type_of` is vector observation NOTATION rather than a selector, and asserting a runtime Type needs the Type objects the type system will supply. |
+| `IRIS-V1-RUNTIME-V054` | `:572` | negative | needs-subsystem | Re-probed in milestone 2. `LEX_BAD_FLOAT_SUFFIX` IS emitted by the lexer; the blocker is that the RUNTIME runner has no `diagnostics` observation channel, which only the GRAMMAR runner provides. |
 | `IRIS-V1-RUNTIME-V055` | `:573` | positive | executable | Controlled dispatch/replacement fixture asserts values and exact evaluation log. |
 | `IRIS-V1-RUNTIME-V056` | `:574` | positive | executable | Concrete mixed-width arithmetic source asserts rounded values and result widths. |
 | `IRIS-V1-RUNTIME-V057` | `:575` | positive | executable | Concrete float division source asserts signed infinities and NaN without Iris error. |
@@ -68,7 +68,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V061` | `:580` | positive | executable | Class fixture asserts ordinary and named-infix sends select the same `scale` Method. |
 | `IRIS-V1-RUNTIME-V062` | `:581` | positive | executable | Concrete exponentiation source asserts integer, reciprocal Float64, and negative Float32 infinity. |
 | `IRIS-V1-RUNTIME-V063` | `:582` | positive | executable | Concrete large/negative-shift source asserts exact Integer results. |
-| `IRIS-V1-RUNTIME-V064` | `:583` | negative | needs-subsystem | Requires excluded resource-limit/quota harness to observe `ResourceError` or `MemoryLimitError`. |
+| `IRIS-V1-RUNTIME-V064` | `:583` | negative | needs-subsystem | Confirmed in milestone 2. Needs a resource-limit/quota harness to observe `ResourceError` or `MemoryLimitError`; no such harness exists. |
 | `IRIS-V1-RUNTIME-V065` | `:584` | positive | executable | Concrete special-value sends assert canonical values/types and absent bare names. |
 | `IRIS-V1-RUNTIME-V066` | `:585` | differential | differential | Explicitly compares interpreter and JIT under controlled host rounding mode. |
 | `IRIS-V1-RUNTIME-V067` | `:586` | positive | executable | Concrete `mul_add` and multiply-then-add bit results assert one-rounding distinction. |
@@ -76,23 +76,23 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V069` | `:589` | negative | executable | Concrete out-of-range `from_bits` calls each raise `RangeError`. |
 | `IRIS-V1-RUNTIME-V070` | `:590` | negative | executable | Three controlled sources assert numeric ivar `InstanceStateError` and numeric identity `IdentityError`. |
 | `IRIS-V1-RUNTIME-V071` | `:591` | positive | executable | Concrete numeric equality source asserts exactness boundary and equal numeric hashes. |
-| `IRIS-V1-RUNTIME-V072` | `:592` | negative | needs-subsystem | The required `%{ Float64.nan: 1 }` assertion needs the excluded Hash collections library. |
+| `IRIS-V1-RUNTIME-V072` | `:592` | negative | needs-subsystem | Re-probed in milestone 2 and NARROWED. Two of its three sends already raise correctly, and the runner now renders that as the `C134` `InvalidKeyError` rather than a generic runtime error. Only the third term, the `%{ Float64.nan: 1 }` Hash literal, is unimplemented. |
 | `IRIS-V1-RUNTIME-V073` | `:593` | differential | differential | Explicitly requires exact public hashes to agree between interpreter and JIT. |
 | `IRIS-V1-RUNTIME-V074` | `:594` | negative | executable | Concrete unavailable-selector send asserts `MessageNotFoundError`. |
 | `IRIS-V1-RUNTIME-V075` | `:595` | positive | executable | Concrete comparison source with a concrete asserted aggregate and call log. Reclassified in milestone 2 once the `C083` root `<=>`, the `C084` derivation and the `C086` identity fast path were implemented. |
 | `IRIS-V1-RUNTIME-V076` | `:596` | positive | executable | Concrete singleton comparison source with a concrete asserted aggregate. Reclassified in milestone 2 after the `C091`/`C092` protocols and the `C005` root Class both landed. |
-| `IRIS-V1-RUNTIME-V077` | `:597` | positive | needs-subsystem | Requires the callable/Closure subsystem for `closure()` identity/equality. |
-| `IRIS-V1-RUNTIME-V078` | `:598` | positive | needs-subsystem | Requires Contract and Type objects from the excluded contracts/generics type system. |
-| `IRIS-V1-RUNTIME-V079` | `:599` | positive | needs-subsystem | Requires the excluded compacting-GC subsystem and its controlled compaction hook. |
-| `IRIS-V1-RUNTIME-V080` | `:600` | negative | needs-subsystem | Requires declaration validation against the excluded contracts/generics type system. |
-| `IRIS-V1-RUNTIME-V081` | `:601` | positive | needs-subsystem | Qualified Contract dispatch requires the excluded contracts/generics type system. |
-| `IRIS-V1-RUNTIME-V082` | `:602` | positive | needs-subsystem | Required invariant includes preserved Contract identity, requiring the excluded contracts system. |
+| `IRIS-V1-RUNTIME-V077` | `:597` | positive | needs-subsystem | Re-probed in milestone 2. Closure literals do not parse, so `closure() == closure()` is not expressible; the BoundMethod half of the row already behaves per `C040`. |
+| `IRIS-V1-RUNTIME-V078` | `:598` | positive | needs-subsystem | Re-probed in milestone 2 and NARROWED. Method alias identity and distinct-definition inequality BOTH already hold, and Class and Module object comparison works. Only the Contract and Type objects the fixture also compares are unimplemented. |
+| `IRIS-V1-RUNTIME-V079` | `:599` | positive | needs-subsystem | Confirmed in milestone 2. Needs a compacting-GC subsystem and its controlled compaction hook. |
+| `IRIS-V1-RUNTIME-V080` | `:600` | negative | needs-subsystem | Re-probed in milestone 2. The declaration is rejected, but the row requires the rejection to be anchored to `C024` as a declaration-validation error, which needs the type system to distinguish an overload set from an ordinary duplicate. |
+| `IRIS-V1-RUNTIME-V081` | `:601` | positive | needs-subsystem | Confirmed in milestone 2. Qualified Contract dispatch through `..` needs Contract declarations, which do not parse. |
+| `IRIS-V1-RUNTIME-V082` | `:602` | positive | executable | Concrete compatible-open source with a concrete asserted aggregate. Reclassified in milestone 2 after probing showed nominal Type identity across a compatible open already holds; no code change was needed. |
 | `IRIS-V1-RUNTIME-V083` | `:603` | positive | executable | Controlled construction/revision schedule asserts captured construction revision and active later dispatch. |
 | `IRIS-V1-RUNTIME-V084` | `:604` | negative | executable | Two concrete absent-selector sends each raise `MessageNotFoundError`. |
-| `IRIS-V1-RUNTIME-V085` | `:605` | positive | needs-subsystem | Requires reflection/meta-operation API to invoke `migrate_revision` and reactivate a revision. |
-| `IRIS-V1-RUNTIME-V086` | `:606` | positive | needs-subsystem | Required `Dynamic<Object>` slot-type observation needs the excluded contracts/type system. |
-| `IRIS-V1-RUNTIME-V087` | `:607` | positive | needs-subsystem | Requires the callable/Closure subsystem for escaped Closure capture and rebinding. |
-| `IRIS-V1-RUNTIME-V088` | `:608` | negative | needs-subsystem | Required Dynamic and reflection sends need excluded type/reflection APIs. |
+| `IRIS-V1-RUNTIME-V085` | `:605` | positive | needs-subsystem | Confirmed in milestone 2. Needs `migrate_revision` and revision reactivation, neither of which exists. |
+| `IRIS-V1-RUNTIME-V086` | `:606` | positive | needs-subsystem | Re-probed in milestone 2. The raw-ivar behaviour is expressible through property accessors, but the row also asserts the slot Type is `Dynamic<Object>`, which needs the type system. |
+| `IRIS-V1-RUNTIME-V087` | `:607` | positive | needs-subsystem | Re-probed in milestone 2. Closure literals do not parse, so an escaped Closure cannot be created. |
+| `IRIS-V1-RUNTIME-V088` | `:608` | negative | needs-subsystem | Re-probed in milestone 2 and NARROWED. The external private send already raises `MethodVisibilityError` correctly. What remains is the Dynamic send the row also requires, which needs the type system. |
 | `IRIS-V1-RUNTIME-V089` | `:609` | positive | executable | Concrete composed-Module ivar fixture asserts state access and private-edge behavior. |
 | `IRIS-V1-RUNTIME-V090` | `:610` | positive | executable | Concrete Module/Class fixture asserts `:B` dispatch and a single closed `A` MRO entry. |
 | `IRIS-V1-RUNTIME-V091` | `:611` | positive | executable | Concrete class-variable storage source with a concrete asserted aggregate. Reclassified in milestone 2 after probing showed the shared cell, the independent Class-object ivars and the `C162` redeclaration rejection were ALL already implemented; no code change was needed. |
@@ -102,20 +102,20 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V095` | `:615` | positive | executable | Concrete Class-object Method source asserts singleton selection and Class-object-chain lookup. |
 | `IRIS-V1-RUNTIME-V096` | `:616` | positive | executable | Concrete property fixture asserts getter `name`, setter `name=`, and `:get`/`:set` values. |
 | `IRIS-V1-RUNTIME-V097` | `:617` | positive | executable | Concrete truth test asserts one `to_bool` send and singleton truthiness. |
-| `IRIS-V1-RUNTIME-V098` | `:618` | negative | needs-subsystem | Requires excluded control-flow/assignment evaluator semantics for `if`, `&&=`, and `||=` propagation. |
-| `IRIS-V1-RUNTIME-V099` | `:619` | positive | needs-subsystem | Required block argument is a Closure, requiring the callable/Closure subsystem. |
-| `IRIS-V1-RUNTIME-V100` | `:620` | positive | needs-subsystem | Requires excluded reflection/type APIs and Array result to assert runtime-superclass reflection. |
+| `IRIS-V1-RUNTIME-V098` | `:618` | negative | needs-subsystem | Re-probed in milestone 2. The `if`, `&&=` and `||=` forms all evaluate correctly now; the row's expectation is prose describing a `to_bool` that raises, so it needs authoring as a fixture rather than more implementation. ||=` propagation. |
+| `IRIS-V1-RUNTIME-V099` | `:619` | positive | needs-subsystem | Re-probed in milestone 2 and NARROWED. `method_missing` already dispatches and records its inputs. Only the trailing block argument, which is a Closure, is unimplemented. |
+| `IRIS-V1-RUNTIME-V100` | `:620` | positive | needs-subsystem | Re-probed in milestone 2 and NARROWED. The ancestry term now yields `[A, NewBase, Object]` correctly. The remaining two terms need the `is` operator and `type_of`/`subtype?` type introspection. |
 | `IRIS-V1-RUNTIME-V101` | `:621` | positive | executable | Concrete built-in openness source. Reclassified in milestone 2 after one over-broad reopen guard was narrowed: it had rejected any mixin on a built-in Class, conflating `C148`, which permits Module composition, with `C150`, which protects only the superclass. |
-| `IRIS-V1-RUNTIME-V102` | `:622` | positive | needs-subsystem | Required `%` rejection needs lexer/parser diagnostic support outside the object kernel. |
+| `IRIS-V1-RUNTIME-V102` | `:622` | positive | executable | Concrete integer-modulo source. Reclassified in milestone 2 after probing showed the `mod` Method, the named infix and the `%` rejection ALL already hold; no code change was needed. |
 | `IRIS-V1-RUNTIME-V103` | `:623` | positive | executable | Concrete special-value getter/setter replacement fixture observes replacement and no implicit storage. |
 | `IRIS-V1-RUNTIME-V104` | `:624` | positive | executable | Concrete NaN arithmetic source asserts quiet NaN at receiver/common width. |
 | `IRIS-V1-RUNTIME-V105` | `:625` | positive | executable | Concrete mixed-numeric comparison source with a concrete asserted aggregate. Reclassified in milestone 2: the earlier `needs-subsystem` reason cited an excluded collections library, but Array literals are implemented, and probing this row exposed a real `C131` exactness defect in `Numeric::compare`. |
 | `IRIS-V1-RUNTIME-V106` | `:626` | positive | executable | Controlled built-in Method replacements assert independent `<=>` and `==` behavior. |
-| `IRIS-V1-RUNTIME-V107` | `:627` | negative | needs-subsystem | Requires excluded Dynamic return-Contract enforcement from contracts/generics. |
+| `IRIS-V1-RUNTIME-V107` | `:627` | negative | needs-subsystem | Confirmed in milestone 2. Needs Dynamic return-Contract enforcement from the type system. |
 | `IRIS-V1-RUNTIME-V108` | `:628` | negative | executable | Controlled MetaCapabilities validation asserts no Child publication after denied subclass creation. |
 | `IRIS-V1-RUNTIME-V109` | `:629` | positive | executable | Controlled side-effect fixture asserts `same?` is true without calling replaceable comparison Methods. |
-| `IRIS-V1-RUNTIME-V110` | `:630` | negative | needs-subsystem | Requires parser/declaration-validation subsystem to reject reserved control-flow selector declarations. |
-| `IRIS-V1-RUNTIME-V111` | `:631` | negative | needs-subsystem | Requires parser/static-binding declaration-validation subsystem. |
+| `IRIS-V1-RUNTIME-V110` | `:630` | negative | needs-subsystem | Re-probed in milestone 2. Each reserved-selector declaration is rejected as a parse diagnostic, but the row requires a declaration-validation rejection observable per source, which the RUNTIME runner cannot express without a diagnostics channel. |
+| `IRIS-V1-RUNTIME-V111` | `:631` | negative | needs-subsystem | Confirmed in milestone 2. Static rebinding of a Class, Module, Contract or const is not expressible, and the row needs a per-source rejection observation. |
 | `IRIS-V1-RUNTIME-V112` | `:636` | positive | executable | Concrete `0 ** -1` source asserts positive `Float64` infinity without error. |
 
 ## Classification Totals
