@@ -518,6 +518,7 @@ impl Kernel {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)

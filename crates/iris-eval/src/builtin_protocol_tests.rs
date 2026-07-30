@@ -1163,3 +1163,25 @@ fn the_execution_bounds_admit_ordinary_loops_and_recursion() {
     assert_eq!(rendered(recursive), "Integer(IntegerValue(0))");
     assert_eq!(rendered(labeled), "Integer(IntegerValue(7))");
 }
+
+#[test]
+fn c011_makes_an_array_iterable_through_the_ordinary_iterator_protocol() {
+    // Given `for` over an Array, which C012 drives through iterator()/next().
+    let summed = "let mut total = 0; for x in [1, 2, 3] { total = total + x }; total";
+    let empty = "let mut count = 0; for x in [] { count = count + 1 }; count";
+    // Each iterator() call must allocate an INDEPENDENT cursor, or a nested
+    // traversal of the same Array would share one position and stop early.
+    let nested = "let a = [1, 2]; let mut count = 0; \
+                  for x in a { for y in a { count = count + 1 } }; count";
+    // C013 returns the same done singleton on every call after exhaustion.
+    let exhausted = "let i = [1].iterator(); [i.next(), i.next(), i.next()]";
+
+    // When / Then
+    assert!(rendered(summed).ends_with("Integer(IntegerValue(6))])"));
+    assert!(rendered(empty).ends_with("Integer(IntegerValue(0))])"));
+    assert!(rendered(nested).ends_with("Integer(IntegerValue(4))])"));
+    assert_eq!(
+        rendered(exhausted),
+        "Array([IterationYield(Integer(IntegerValue(1))), IterationDone, IterationDone])"
+    );
+}

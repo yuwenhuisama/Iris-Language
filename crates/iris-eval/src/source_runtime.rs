@@ -47,6 +47,11 @@ pub(super) struct SourceEvaluator {
     /// step budget large enough for ordinary loops is exhausted. Depth is
     /// therefore bounded separately.
     invocation_depth: u32,
+    /// Live Array cursors, keyed by the identity their Value carries.
+    ///
+    /// The cursor must ADVANCE across `next()` calls, so its position lives
+    /// here rather than inside the Value, which is copied on every send.
+    array_iterators: HashMap<iris_runtime::ObjectId, (Vec<Value>, usize)>,
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
@@ -119,6 +124,7 @@ impl SourceEvaluator {
             kernel,
             remaining_steps: STEP_BUDGET,
             invocation_depth: 0,
+            array_iterators: HashMap::new(),
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
@@ -2423,6 +2429,35 @@ impl SourceEvaluator {
                 _ => {}
             }
         }
+        // IRIS-V1-COLLECTIONS-C011 makes Array iterable, and C012 drives `for`
+        // through `iterator()` then repeated `next()`. Each call allocates a
+        // fresh cursor so nested traversals of one Array stay independent.
+        if let Value::Array(values) = &receiver
+            && selector == "iterator"
+            && arguments.is_empty()
+        {
+            let identity = self.next_context_identity();
+            self.array_iterators.insert(identity, (values.clone(), 0));
+            return Ok(Value::ArrayIterator(identity));
+        }
+        if let Value::ArrayIterator(identity) = &receiver {
+            match selector {
+                "next" if arguments.is_empty() => {
+                    let Some((values, position)) = self.array_iterators.get_mut(identity) else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    let Some(value) = values.get(*position).cloned() else {
+                        // C013 returns the same `Iteration.done` singleton on
+                        // every call after exhaustion.
+                        return Ok(Value::IterationDone);
+                    };
+                    *position += 1;
+                    return Ok(Value::IterationYield(Box::new(value)));
+                }
+                "close" if arguments.is_empty() => return Ok(Value::Nil),
+                _ => {}
+            }
+        }
         if selector == "call" {
             match receiver {
                 Value::Closure(object) => return self.invoke_closure(object, arguments),
@@ -2488,6 +2523,7 @@ impl SourceEvaluator {
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
                         | Value::IterationYield(_)
+                        | Value::ArrayIterator(_)
                         | Value::IterationDone
                         | Value::ExceptionContext(..)
                         | Value::ContractView(_, _)
@@ -2526,6 +2562,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
@@ -2722,6 +2759,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
@@ -3292,7 +3330,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
-        Value::IterationDone => "Iteration",
+        Value::ArrayIterator(..) | Value::IterationDone => "Iteration",
         Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",

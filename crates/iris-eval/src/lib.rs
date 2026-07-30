@@ -432,6 +432,7 @@ impl Evaluator {
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
             | RuntimeValue::IterationYield(_)
+            | RuntimeValue::ArrayIterator(_)
             | RuntimeValue::IterationDone
             | RuntimeValue::ExceptionContext(..)
             | RuntimeValue::ContractView(_, _)
@@ -469,7 +470,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
-        RuntimeValue::IterationDone => "Iteration",
+        RuntimeValue::ArrayIterator(..) | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",

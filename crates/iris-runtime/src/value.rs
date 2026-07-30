@@ -123,6 +123,13 @@ pub enum Value {
     Float64(f64),
     /// A literal Iris Array.
     Array(Vec<Value>),
+    /// A cursor over an Array, produced by `Array#iterator`.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C011` makes Array iterable and `C012` drives `for`
+    /// through `iterator()`/`next()`. The cursor carries its own position, so
+    /// nested traversals of one Array use distinct Iterator objects as `C037`
+    /// requires of the collection iterators generally.
+    ArrayIterator(ObjectId),
     /// A literal Iris `Hash<K,V>`.
     ///
     /// `IRIS-V1-COLLECTIONS-C033` leaves iteration order UNSPECIFIED, and
