@@ -50,17 +50,14 @@ enum StaticType {
 }
 
 impl StaticType {
-    /// Maps a written annotation to a tracked Type.
+    /// Maps a written nominal annotation to a tracked Type.
     ///
-    /// A union, intersection, generic, or `typeof` annotation deliberately
-    /// yields `None`: those widen the cell in ways this pass does not model,
-    /// and `C005` explicitly points at `String | Integer` and `Dynamic<Object>`
-    /// as the way to ask for a wider cell.
-    fn from_annotation(annotation: &iris_syntax::TypeExpression) -> Option<Self> {
-        let iris_syntax::TypeExpression::Name(name) = annotation else {
-            return None;
-        };
-        match name.as_str() {
+    /// A union, intersection, or generic annotation deliberately yields
+    /// `None`: those widen the cell in ways this pass does not model, and
+    /// `C005` explicitly points at `String | Integer` and `Dynamic<Object>` as
+    /// the way to ask for a wider cell.
+    fn from_nominal(name: &str) -> Option<Self> {
+        match name {
             "Bool" => Some(Self::Bool),
             "Integer" => Some(Self::Integer),
             "Float32" | "Float64" => Some(Self::Float),
@@ -203,6 +200,40 @@ impl Analyzer {
         }
     }
 
+    /// Resolves a written annotation to a tracked Type.
+    ///
+    /// `IRIS-V1-TYPES-C093` makes `typeof(expression)` denote the NORMALIZED
+    /// STATIC Type of its operand at that program point, without evaluating it,
+    /// so it resolves to whatever Type this pass already tracks there.
+    fn annotation_type(&self, annotation: &iris_syntax::TypeExpression) -> Option<StaticType> {
+        match annotation {
+            iris_syntax::TypeExpression::Name(name) => StaticType::from_nominal(name),
+            iris_syntax::TypeExpression::Typeof(operand) => self.expression_type(operand),
+            _ => None,
+        }
+    }
+
+    /// Infers an expression's static Type, or `None` when it is not known.
+    fn expression_type(&self, expression: &Expression) -> Option<StaticType> {
+        match expression {
+            // `nil`, `true` and `false` reach the parser as NAMES rather than
+            // literals, so they are resolved here before an ordinary binding
+            // lookup, which would otherwise find nothing and report no Type.
+            Expression::Name(name) if name == "nil" => Some(StaticType::Nil),
+            Expression::Name(name) if name == "true" || name == "false" => Some(StaticType::Bool),
+            // Any other name carries the fixed Type its binding was declared
+            // with.
+            Expression::Name(name) => self.lookup(name).and_then(|local| local.fixed_type),
+            // `D-361`: `!x` and `!!x` ALWAYS have static Type Bool, whatever the
+            // operand's Type is.
+            Expression::Unary {
+                operator: iris_syntax::UnaryOperator::Not,
+                ..
+            } => Some(StaticType::Bool),
+            _ => StaticType::of(expression),
+        }
+    }
+
     fn lookup(&self, name: &str) -> Option<&Local> {
         self.scopes
             .iter()
@@ -253,8 +284,20 @@ impl Analyzer {
                 // C005: an annotation is the contract when written, otherwise
                 // the initializer's precise static Type becomes the fixed one.
                 let fixed_type = match annotation {
-                    Some(annotation) => StaticType::from_annotation(annotation),
-                    None => StaticType::of(value),
+                    Some(annotation) => {
+                        let declared = self.annotation_type(annotation);
+                        // C005 makes the annotation a CONTRACT for the cell, so
+                        // the initializer must satisfy it at the declaration
+                        // just as later assignments must.
+                        if let (Some(declared), Some(initial)) =
+                            (declared, self.expression_type(value))
+                            && declared != initial
+                        {
+                            self.report("BINDING_FIXED_LOCAL_TYPE");
+                        }
+                        declared
+                    }
+                    None => self.expression_type(value),
                 };
                 self.declare_typed(name, *mutable, fixed_type);
             }
@@ -409,8 +452,8 @@ impl Analyzer {
                         // annotation leaves the binding unchecked rather than
                         // guessed at.
                         Some(local) => {
-                            if let (Some(fixed), Some(assigned)) =
-                                (local.fixed_type, StaticType::of(right))
+                            let assigned = self.expression_type(right);
+                            if let (Some(fixed), Some(assigned)) = (local.fixed_type, assigned)
                                 && fixed != assigned
                             {
                                 self.report("BINDING_FIXED_LOCAL_TYPE");
@@ -725,5 +768,50 @@ mod fixed_local_type_tests {
         // UNCHECKED rather than guessed at, since a wrong rejection is worse
         // than a missed one.
         assert!(codes("class C {} let mut value = C.new(); value = 1").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod static_type_observation_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c093_typeof_copies_the_static_type_at_that_program_point() {
+        // IRIS-V1-TYPES-C093 makes `typeof(expression)` the operand's static
+        // Type without evaluating it, which is what makes a Type OBSERVABLE
+        // from source at all: annotate with it and see whether the initializer
+        // is accepted.
+        assert!(codes("let a = 1; let b: typeof(a) = 2").is_empty());
+        assert_eq!(
+            codes("let a = 1; let b: typeof(a) = :sym"),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+    }
+
+    #[test]
+    fn d360_and_d361_fix_the_types_of_a_tested_binding_and_a_negation() {
+        // D-360: a condition does NOT narrow the tested binding, so `x` is
+        // still Integer afterwards and a Bool initializer is rejected.
+        assert_eq!(
+            codes("let x = 1; if x { nil } else { nil }; let probe: typeof(x) = true"),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+        assert!(codes("let x = 1; if x { nil } else { nil }; let probe: typeof(x) = 2").is_empty());
+
+        // D-361: `!x` ALWAYS has static Type Bool, whatever the operand is.
+        assert_eq!(
+            codes("let x = 1; let negated = !x; let probe: typeof(negated) = 1"),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+        assert!(codes("let x = 1; let negated = !x; let probe: typeof(negated) = true").is_empty());
     }
 }
