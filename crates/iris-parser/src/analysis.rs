@@ -286,6 +286,51 @@ impl Analyzer {
         self.check_generic_arity(annotation);
     }
 
+    /// Rejects a construction whose closed generic Type is not the annotated one.
+    ///
+    /// `IRIS-V1-TYPES-V226` makes generic arguments INVARIANT: `Box<String>` is
+    /// not assignable to `Box<Object>` even though `String` is an `Object`. The
+    /// declared and constructed argument lists must therefore match exactly
+    /// rather than by subtyping.
+    fn check_generic_invariance(
+        &mut self,
+        annotation: &iris_syntax::TypeExpression,
+        value: &Expression,
+    ) {
+        let iris_syntax::TypeExpression::Generic {
+            name: declared,
+            arguments: declared_arguments,
+        } = annotation
+        else {
+            return;
+        };
+        let Expression::Call { callee, .. } = value else {
+            return;
+        };
+        let Expression::Member { receiver, selector } = callee.as_ref() else {
+            return;
+        };
+        if selector != "new" {
+            return;
+        }
+        let Expression::ClosedGeneric {
+            name: constructed,
+            arguments: constructed_arguments,
+        } = receiver.as_ref()
+        else {
+            return;
+        };
+        // A mismatched ARITY is already reported as GENERIC_ARGUMENT_ARITY, and
+        // an argument list of the wrong length says nothing about variance, so
+        // only a same-length mismatch is an invariance violation.
+        if constructed == declared
+            && constructed_arguments.len() == declared_arguments.len()
+            && constructed_arguments != declared_arguments
+        {
+            self.report("GENERIC_ARGUMENT_INVARIANCE");
+        }
+    }
+
     /// Rejects a closed generic Type whose argument count does not match the
     /// declared parameter list.
     ///
@@ -764,6 +809,9 @@ impl Analyzer {
                 // the initializer's precise static Type becomes the fixed one.
                 if let Some(annotation) = annotation {
                     self.check_raw_generic(annotation);
+                }
+                if let Some(annotation) = annotation {
+                    self.check_generic_invariance(annotation, value);
                 }
                 let fixed_type = match annotation {
                     Some(annotation) => {
@@ -1339,6 +1387,25 @@ mod tests {
         assert_eq!(codes(short_arity), vec!["GENERIC_ARGUMENT_ARITY"]);
         assert_eq!(codes(exact_arity), Vec::<&str>::new());
         assert_eq!(codes(undeclared), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn v226_keeps_generic_arguments_invariant() {
+        // V226 makes generic arguments INVARIANT: `Box<String>` is not
+        // assignable to `Box<Object>` even though `String` IS an `Object`, so
+        // the argument lists must match exactly rather than by subtyping.
+        let widened = "class Box<T> {} let target: Box<Object> = Box<String>.new()";
+        let exact = "class Box<T> {} let target: Box<String> = Box<String>.new()";
+        let non_generic = "class A {} let a: A = A.new()";
+        // A mismatched ARITY says nothing about variance and is already its own
+        // diagnostic, so only a same-length mismatch is an invariance failure.
+        let wrong_arity = "class Pair<T,U> {} let p: Pair<String> = Pair<String, Integer>.new()";
+
+        // When / Then
+        assert_eq!(codes(widened), vec!["GENERIC_ARGUMENT_INVARIANCE"]);
+        assert_eq!(codes(exact), Vec::<&str>::new());
+        assert_eq!(codes(non_generic), Vec::<&str>::new());
+        assert_eq!(codes(wrong_arity), vec!["GENERIC_ARGUMENT_ARITY"]);
     }
 
     #[test]
