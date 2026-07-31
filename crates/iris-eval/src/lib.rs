@@ -459,7 +459,7 @@ impl Evaluator {
             | RuntimeValue::Text(_)
             | RuntimeValue::Symbol(_)
             | RuntimeValue::Class(_)
-            | RuntimeValue::Type(_)
+            | RuntimeValue::Type(..)
             | RuntimeValue::Contract(_)
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
@@ -510,7 +510,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
-        RuntimeValue::Type(_) => "Type",
+        RuntimeValue::Type(..) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",

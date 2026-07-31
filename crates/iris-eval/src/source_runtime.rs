@@ -1682,6 +1682,33 @@ impl SourceEvaluator {
             {
                 Ok(Value::IterationDone)
             }
+            // D-206 interns a closed identity by definition AND normalized
+            // arguments. The construction itself resolves to the definition's
+            // Class, so the arguments are read from the SOURCE here; going
+            // through the evaluated receiver would have already lost them and
+            // made `Box<String>.type` equal `Box<Integer>.type`.
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if selector == "type"
+                && matches!(target.as_ref(), Expression::ClosedGeneric { .. }) =>
+            {
+                let Expression::ClosedGeneric { name, arguments } = target.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
+                let mut normalized = Vec::new();
+                for argument in arguments {
+                    let iris_syntax::TypeExpression::Name(argument) = argument else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    normalized.push(
+                        self.class_name(argument)?
+                            .ok_or(EvaluationError::NameError)?,
+                    );
+                }
+                Ok(Value::Type(class, normalized))
+            }
             Expression::Member {
                 receiver: target,
                 selector,
@@ -2289,9 +2316,11 @@ impl SourceEvaluator {
             Value::Class(class) if selector == "ancestors" => self.ancestors(class),
             // IRIS-V1-TYPES-C076: a Class exposes `.type` metadata, and the Type
             // object it yields is deliberately NOT the Class object itself.
-            Value::Class(class) if selector == "type" => Ok(Value::Type(class)),
-            Value::Type(left) if selector == "subtype?" => {
-                let [Value::Type(right)] = arguments else {
+            // A bare Class name carries no generic arguments, so its Type is
+            // the unapplied definition's.
+            Value::Class(class) if selector == "type" => Ok(Value::Type(class, Vec::new())),
+            Value::Type(left, _) if selector == "subtype?" => {
+                let [Value::Type(right, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.subtype(left, *right)
@@ -2934,7 +2963,7 @@ impl SourceEvaluator {
                         | Value::Text(_)
                         | Value::Symbol(_)
                         | Value::Class(_)
-                        | Value::Type(_)
+                        | Value::Type(..)
                         | Value::Contract(_)
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
@@ -2978,7 +3007,7 @@ impl SourceEvaluator {
             | Value::Text(_)
             | Value::Symbol(_)
             | Value::Class(_)
-            | Value::Type(_)
+            | Value::Type(..)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
@@ -3214,7 +3243,7 @@ impl SourceEvaluator {
             Value::Array(_)
             | Value::Hash(_)
             | Value::Symbol(_)
-            | Value::Type(_)
+            | Value::Type(..)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
@@ -3836,7 +3865,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Text(_) => "String",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
-        Value::Type(_) => "Type",
+        Value::Type(..) => "Type",
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",

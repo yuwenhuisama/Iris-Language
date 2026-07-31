@@ -1852,3 +1852,24 @@ fn c004_guards_the_parameter_and_return_boundaries() {
     assert_eq!(rendered(unannotated), "Nil");
     assert_eq!(rendered(nil_return), "Nil");
 }
+
+#[test]
+fn d206_interns_a_closed_type_by_definition_and_arguments() {
+    // D-206 interns a CLOSED Type identity by definition AND normalized
+    // arguments, so two constructions of one definition are the same Type only
+    // when their arguments match. The arguments were dropped, which made every
+    // construction of a definition one interned Type.
+    let same_arguments = "class Box<T> {} Box<String>.type same? Box<String>.type";
+    let different_arguments = "class Box<T> {} Box<String>.type same? Box<Integer>.type";
+    // A bare Class name carries no arguments, so its Type is the unapplied
+    // definition's and still interns to one identity.
+    let unapplied = "class A {} A.type same? A.type";
+    // C076 keeps the Type object DISTINCT from the Class object it reifies.
+    let type_is_not_class = "class A {} A.type same? A";
+
+    // When / Then
+    assert_eq!(rendered(same_arguments), "Bool(true)");
+    assert_eq!(rendered(different_arguments), "Bool(false)");
+    assert_eq!(rendered(unapplied), "Bool(true)");
+    assert_eq!(rendered(type_is_not_class), "Bool(false)");
+}

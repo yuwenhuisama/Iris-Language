@@ -533,7 +533,7 @@ impl Kernel {
             Value::Array(_)
             | Value::Hash(_)
             | Value::Symbol(_)
-            | Value::Type(_)
+            | Value::Type(..)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)

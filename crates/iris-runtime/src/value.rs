@@ -235,5 +235,11 @@ pub enum Value {
     /// identity-bearing, and `IRIS-V1-TYPES-C076` requires them to be distinct
     /// from the Class object, so a nominal Type carries the ClassId rather than
     /// being that ClassId.
-    Type(ClassId),
+    ///
+    /// `IRIS-V1-TYPES-D-206` interns a CLOSED identity by definition AND
+    /// normalized arguments, so `Box<String>` and `Box<Integer>` are different
+    /// Types of one definition. The arguments therefore travel with the
+    /// ClassId; dropping them made every construction of a definition one
+    /// interned Type.
+    Type(ClassId, Vec<ClassId>),
 }

@@ -41,7 +41,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::Text(_)
         | Value::Symbol(_)
         | Value::Class(_)
-        | Value::Type(_)
+        | Value::Type(..)
         | Value::Contract(_)
         | Value::Closure(_)
         | Value::KeywordArgument(_, _)
