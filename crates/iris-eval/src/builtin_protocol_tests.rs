@@ -1570,8 +1570,10 @@ fn c012_makes_a_top_level_call_a_privileged_implicit_send_to_main() {
     let unresolved = "module M { fun helper() -> Integer { 1 } helper_missing }";
     // A helper declared LATER in the body is still callable, since declarations
     // are published before any executable statement runs.
+    // The call and the declaration need a separator: C078 makes a bare
+    // `f 1` the parenthesis-less call form, so two statements must be split.
     let forward = "let mut log = 0; \
-                   module M { later() fun later() -> Integer { log = 2; 1 } } log";
+                   module M { later(); fun later() -> Integer { log = 2; 1 } } log";
 
     // When / Then
     assert_eq!(rendered(called), "Integer(IntegerValue(1))");

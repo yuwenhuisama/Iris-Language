@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 124 are
-committed here; the remaining 10 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 125 are
+committed here; the remaining 9 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -156,6 +156,7 @@ existing channel.
 | `V358` | diagnostic | executable | The errata names `DECLARATION_REBINDING`. |
 | `V337A` | diagnostic | executable | Both diagnostics are reported: the immutable parameter write and the forward-referencing default. |
 | `V347A` | diagnostic | executable | Assignment to absent `@@` storage and to an undeclared local are each diagnosed. |
+| `V342A` | diagnostic | executable | The v1.15 errata names `PARSE_CALL_REQUIRES_PARENTHESES`. |
 
 ## Remaining rows and their blockers
 
@@ -169,5 +170,4 @@ blocked. Grouped by the capability each one actually waits on.
 | `ExceptionContext` reflection surface | `V302` | Blocked on the SPECIFICATION, not on implementation effort. The row asserts the static Types of `original_stack`, `re_raise_sites` and `raise_location`, but `StackFrame`, `RaiseSite` and `SourceLocation` appear ONLY inside `IRIS-V1-CONTROL-C065`, `V302` and `D-473`: nothing anywhere in the frozen text defines their members. Implementing them would mean inventing a record shape and then asserting the implementation against itself. This is an errata candidate under `IRIS-V1-TRACE-C019`. |
 | Collection surface | `V285` | Needs `append`, `delete` and `length` on the suppressed `ReadonlyArray`; `length` reports a missing message. |
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
-| No-parentheses call forms | `V342A` | `f 1` and `obj.m 1` are rejected, which is the row's expectation, but it names no code. |
 

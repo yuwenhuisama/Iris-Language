@@ -841,7 +841,17 @@ impl Parser {
         if self.consume("match") {
             return self.match_statement();
         }
-        self.expression(0).map(Statement::Expression)
+        let statement = self.expression(0).map(Statement::Expression)?;
+        // `IRIS-V1-CONTROL-C078`: an ordinary call requires parentheses. A bare
+        // `f 1` parses as a NAME followed by a stranded operand, since a named
+        // infix would have consumed the following token as its operator. Only a
+        // statement terminator or a closing brace may follow a complete
+        // expression, so anything else here is the parenthesis-less call form.
+        if !self.at_end() && !matches!(self.peek(), Some(";" | "}" | "\n")) {
+            self.error("PARSE_CALL_REQUIRES_PARENTHESES");
+            return None;
+        }
+        Some(statement)
     }
 
     fn catch_clause(&mut self) -> Option<CatchClause> {

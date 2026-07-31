@@ -1098,3 +1098,33 @@ mod errata_storage_and_default_tests {
         assert!(codes("class C { shared mut @@x = 0 public fun m() { @@x } }").is_empty());
     }
 }
+
+#[cfg(test)]
+mod call_parenthesis_tests {
+    use crate::parse;
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        parse(source)
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c078_requires_parentheses_for_an_ordinary_call() {
+        assert_eq!(codes("f 1"), ["PARSE_CALL_REQUIRES_PARENTHESES"]);
+        assert_eq!(
+            codes("let o = 1; o.m 1"),
+            ["PARSE_CALL_REQUIRES_PARENTHESES"]
+        );
+
+        // A NAMED INFIX has the same `name token token` shape but consumes the
+        // middle token as its operator, so it must remain legal. Without this
+        // the rejection would swallow `n mod 2`.
+        assert!(codes("let n = 5; n mod 2").is_empty());
+        assert!(codes("let o = 1; o.to_bool()").is_empty());
+        assert!(codes("let a = 1; let b = 2").is_empty());
+        assert!(codes("class C { public fun m() { 1 } }").is_empty());
+    }
+}
