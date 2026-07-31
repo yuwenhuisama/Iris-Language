@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 126 are
-committed here; the remaining 8 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 127 are
+committed here; the remaining 7 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -158,6 +158,7 @@ existing channel.
 | `V347A` | diagnostic | executable | Assignment to absent `@@` storage and to an undeclared local are each diagnosed. |
 | `V342A` | diagnostic | executable | The v1.15 errata names `PARSE_CALL_REQUIRES_PARENTHESES`. |
 | `V302` | positive | executable | All six get-only properties are readable; the v1.15 errata defined the three record Types they expose. |
+| `V285` | negative | executable | Every mutation of the runtime-owned suppressed collection is rejected while reading stays legal. |
 
 ## Remaining rows and their blockers
 
@@ -168,6 +169,5 @@ blocked. Grouped by the capability each one actually waits on.
 | --- | --- | --- |
 | Callable-kind reflection | `V333` | Needs a reflective read of a callable's KIND. `class_name` reports a missing message on a BoundMethod and a Closure. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
-| Collection surface | `V285` | Needs `append`, `delete` and `length` on the suppressed `ReadonlyArray`; `length` reports a missing message. |
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
 

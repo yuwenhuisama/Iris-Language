@@ -123,6 +123,13 @@ pub enum Value {
     Float64(f64),
     /// A literal Iris Array.
     Array(Vec<Value>),
+    /// A runtime-owned `ReadonlyArray` view.
+    ///
+    /// `IRIS-V1-CONTROL-D-142` lets user code iterate and copy a suppressed
+    /// collection but never insert, delete, replace, or reorder it, so the
+    /// read-only view is a DISTINCT value rather than an ordinary Array that
+    /// happens not to be mutated.
+    ReadonlyArray(Vec<Value>),
     /// A `SourceLocation` record: path, one-based line, one-based column.
     ///
     /// `IRIS-V1-CONTROL-C079` makes it an immutable identity-less value that

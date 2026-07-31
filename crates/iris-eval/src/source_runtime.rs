@@ -1965,7 +1965,7 @@ impl SourceEvaluator {
     /// user Class can define its own.
     fn index_read(&mut self, target: Value, index: Value) -> Result<Value, EvaluationError> {
         match &target {
-            Value::Array(values) => {
+            Value::Array(values) | Value::ReadonlyArray(values) => {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
@@ -2643,15 +2643,15 @@ impl SourceEvaluator {
                 }
                 "value" => return Ok((**value).clone()),
                 "cause" => return Ok((**cause).clone()),
-                "suppressed" => return Ok(Value::Array(suppressed.clone())),
+                "suppressed" => return Ok(Value::ReadonlyArray(suppressed.clone())),
                 // C065 lists `re_raise_sites` among the get-only properties,
                 // and D-155 makes it ordered by occurrence.
-                "re_raise_sites" => return Ok(Value::Array(sites.clone())),
+                "re_raise_sites" => return Ok(Value::ReadonlyArray(sites.clone())),
                 // C065 exposes both get-only. C079 types `original_stack` as
                 // `ReadonlyArray<StackFrame>`; this evaluator keeps no call
                 // stack, so it is EMPTY rather than fabricated, which C066
                 // forbids. `raise_location` is the initial raise position.
-                "original_stack" => return Ok(Value::Array(Vec::new())),
+                "original_stack" => return Ok(Value::ReadonlyArray(Vec::new())),
                 "raise_location" => return Ok((**location).clone()),
                 // `IRIS-V1-CONTROL-V300` reads `class_name` on the context
                 // itself, which names the context's own Class rather than the
@@ -2659,6 +2659,17 @@ impl SourceEvaluator {
                 "class_name" => return Ok(Value::Symbol("ExceptionContext".into())),
                 _ => {}
             }
+        }
+        // D-142 lets user code ITERATE and COPY a runtime-owned collection but
+        // never insert, delete, replace, or reorder it, so a mutating selector
+        // is rejected rather than reaching the ordinary Array path.
+        if matches!(receiver, Value::ReadonlyArray(_))
+            && matches!(
+                selector,
+                "append" | "push" | "delete" | "clear" | "insert" | "[]=" | "reverse!" | "sort!"
+            )
+        {
+            return Err(EvaluationError::ReadonlyMutation);
         }
         // C079 makes each record an immutable identity-less value with get-only
         // members, so these are ordinary reads rather than dispatched sends.
@@ -2683,7 +2694,7 @@ impl SourceEvaluator {
         // IRIS-V1-COLLECTIONS-C011 makes Array iterable, and C012 drives `for`
         // through `iterator()` then repeated `next()`. Each call allocates a
         // fresh cursor so nested traversals of one Array stay independent.
-        if let Value::Array(values) = &receiver
+        if let Value::Array(values) | Value::ReadonlyArray(values) = &receiver
             && selector == "iterator"
             && arguments.is_empty()
         {
@@ -2789,6 +2800,7 @@ impl SourceEvaluator {
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
                         | Value::IterationYield(_)
+                        | Value::ReadonlyArray(_)
                         | Value::SourceLocation(..)
                         | Value::StackFrame(..)
                         | Value::RaiseSite(_)
@@ -2831,6 +2843,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
@@ -2860,6 +2873,14 @@ impl SourceEvaluator {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
         };
         let Expression::Name(name) = target else {
+            // `append` is routed by SYNTAX before the receiver is evaluated, so
+            // a runtime-owned read-only view would otherwise never reach the
+            // send path that rejects mutation. D-142 forbids the append itself,
+            // whatever the receiver expression looks like.
+            let receiver = self.expression(target, locals, None)?;
+            if matches!(receiver, Value::ReadonlyArray(_)) {
+                return Err(EvaluationError::ReadonlyMutation);
+            }
             return Err(EvaluationError::UnsupportedConstruct);
         };
         if locals.contains_key(name) {
@@ -3051,6 +3072,7 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
@@ -3633,6 +3655,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
         Value::Array(_) | Value::Hash(_) => "Array",
+        Value::ReadonlyArray(_) => "ReadonlyArray",
         Value::SourceLocation(..) => "SourceLocation",
         Value::StackFrame(..) => "StackFrame",
         Value::RaiseSite(_) => "RaiseSite",

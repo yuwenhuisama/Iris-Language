@@ -45,6 +45,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::Closure(_)
         | Value::KeywordArgument(_, _)
         | Value::IterationYield(_)
+        | Value::ReadonlyArray(_)
         | Value::SourceLocation(..)
         | Value::StackFrame(..)
         | Value::RaiseSite(_)

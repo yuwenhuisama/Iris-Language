@@ -1087,7 +1087,9 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
     // does not promise.
     let payload = rendered(source);
     assert!(
-        payload.starts_with("Array([Symbol(\"body\"), Symbol(\"body\"), Array([ExceptionContext("),
+        payload.starts_with(
+            "Array([Symbol(\"body\"), Symbol(\"body\"), ReadonlyArray([ExceptionContext("
+        ),
         "unexpected payload: {payload}"
     );
     assert!(
@@ -1431,7 +1433,7 @@ fn c047_distinguishes_a_cleanup_failure_with_and_without_a_pending_exception() {
     // When / Then
     assert_eq!(
         rendered(cleanup_only),
-        "Array([Symbol(\"close\"), Array([])])"
+        "Array([Symbol(\"close\"), ReadonlyArray([])])"
     );
     assert!(rendered(break_closes).ends_with("Array([Symbol(\"close\")])])"));
 }
@@ -1531,13 +1533,13 @@ fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
     // otherwise make a retained context compare as a different one.
     let one = rendered(one_site);
     assert!(
-        one.starts_with("Array([Bool(true), Array([RaiseSite("),
+        one.starts_with("Array([Bool(true), ReadonlyArray([RaiseSite("),
         "{one}"
     );
     assert_eq!(one.matches("RaiseSite(").count(), 1, "{one}");
     let two = rendered(two_sites);
     assert_eq!(two.matches("RaiseSite(").count(), 2, "{two}");
-    assert_eq!(rendered(no_site), "Array([])");
+    assert_eq!(rendered(no_site), "ReadonlyArray([])");
 }
 
 #[test]
@@ -1619,5 +1621,36 @@ fn c079_exposes_source_locations_with_one_based_line_and_column() {
         "Array([Integer(IntegerValue(1)), Integer(IntegerValue(7))])"
     );
     assert_eq!(rendered(third_line), "Integer(IntegerValue(3))");
-    assert_eq!(rendered(stack), "Array([])");
+    assert_eq!(rendered(stack), "ReadonlyArray([])");
+}
+
+#[test]
+fn d142_rejects_every_mutation_of_a_runtime_owned_collection() {
+    // D-142 lets user code ITERATE and COPY a suppressed collection but never
+    // insert, delete, replace, or reorder it.
+    let prefix = "let mut n = 0; \
+                  class It { public fun next() { n = n + 1; \
+                  if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+                  public fun close() { raise :close } } \
+                  class Src { public fun iterator() { It.new() } } \
+                  try { for x in Src.new() { raise :body } } catch _, c { ";
+    for mutation in [
+        "c.suppressed.append(1)",
+        "c.suppressed.delete(0)",
+        "c.suppressed[0] = 1",
+        "c.suppressed.reverse!()",
+    ] {
+        assert_eq!(
+            rendered(&format!("{prefix}{mutation} }}")),
+            "ReadonlyMutation",
+            "not rejected: {mutation}"
+        );
+    }
+
+    // Reading and indexing stay legal, so the rejection is specific to mutation
+    // rather than making the collection unusable.
+    assert_eq!(
+        rendered(&format!("{prefix}c.suppressed[0].value }}")),
+        "Symbol(\"close\")"
+    );
 }

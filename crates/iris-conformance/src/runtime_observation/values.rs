@@ -149,7 +149,11 @@ fn render_value(value: &RuntimeValue) -> String {
         }
         RuntimeValue::Float64(value) if value.is_infinite() => "{\"float64\":\"-Infinity\"}".into(),
         RuntimeValue::Float64(value) => format!("{{\"float64\":\"{value}\"}}"),
-        RuntimeValue::Array(values) => format!(
+        // A ReadonlyArray is an ORDERED readable collection under C079, so it
+        // renders as an array. Only its mutation is rejected, and a distinct
+        // rendering would make every existing suppressed-list expectation
+        // opaque rather than comparable.
+        RuntimeValue::Array(values) | RuntimeValue::ReadonlyArray(values) => format!(
             "{{\"array\":[{}]}}",
             values
                 .iter()
@@ -191,6 +195,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
         RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
         RuntimeValue::RaiseSite(_) => "RaiseSite",
@@ -266,6 +271,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ImmutableBinding => "ImmutableBindingError".into(),
         EvaluationError::NameError => "NameError".into(),
         EvaluationError::ReadonlyProperty => "ReadonlyPropertyError".into(),
+        EvaluationError::ReadonlyMutation => "ReadonlyMutationError".into(),
         // A harness limit rather than an Iris error, reported so a
         // non-terminating vector is visible evidence instead of a hang.
         EvaluationError::StepBudgetExhausted => "StepBudgetExhausted".into(),

@@ -50,6 +50,11 @@ pub enum EvaluationError {
     /// that fails to terminate is reported as evidence instead of hanging the
     /// conformance suite indefinitely.
     StepBudgetExhausted,
+    /// A mutation was attempted against a runtime-owned read-only collection.
+    ///
+    /// `IRIS-V1-CONTROL-V285` names this for `ExceptionContext.suppressed`,
+    /// which `D-142` lets user code iterate and copy but never modify.
+    ReadonlyMutation,
     /// A write was attempted against a read-only property.
     ///
     /// `IRIS-V1-CONTROL-V302A` names this for an `ExceptionContext` value,
@@ -447,6 +452,7 @@ impl Evaluator {
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
             | RuntimeValue::IterationYield(_)
+            | RuntimeValue::ReadonlyArray(_)
             | RuntimeValue::SourceLocation(..)
             | RuntimeValue::StackFrame(..)
             | RuntimeValue::RaiseSite(_)
@@ -482,6 +488,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
         RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
         RuntimeValue::RaiseSite(_) => "RaiseSite",
