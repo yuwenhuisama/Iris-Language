@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 130 are
-committed here; the remaining 4 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 131 are
+committed here; the remaining 3 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -161,6 +161,7 @@ existing channel.
 | `V333` | positive | executable | The three callable kinds are distinguishable and `Function` is absent. |
 | `V351A` | diagnostic | executable | A constant and a Class may not share one qualified name. |
 | `V362` | positive | executable | An absent `to_bool` dispatches through `method_missing` exactly once with `[:to_bool, [], nil]`. |
+| `V292` | positive | executable | A committed inheritance change is visible to a later typed catch. |
 
 ## Remaining rows and their blockers
 
@@ -170,5 +171,5 @@ blocked. Grouped by the capability each one actually waits on.
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
 | Name resolution across Modules and packages | `V350`, `V351` | Blocked on a PACKAGE subsystem, not a parser gap. `D-431` makes a global's true identity `(package_id, $name)`, and `IRIS-V1-META-C003` puts `package_id` in an `iris.toml` MANIFEST rather than in source syntax, so `V350`'s two packages cannot be written as source at all. `V351` needs `import` plus a package or Module namespace to import FROM before lexical, Module and import resolution orders can be compared. Neither `global` nor `import` parses today, but implementing only those would leave both rows still unassertable. |
-| Runtime metaprogramming | `V286`, `V292` | `V286` replaces a public getter at runtime and then reads the PROTECTED record behind it, which needs a diagnostic payload channel separate from the public getter. `V292` commits a Class revision mid-program that changes an inheritance edge, which needs dynamic superclass mutation. |
+| Runtime metaprogramming | `V286` | Replaces the public `suppressed` getter at runtime and then reads the PROTECTED record behind it, which needs a diagnostic payload channel separate from the public getter. `D-143` makes the getter replaceable while runtime diagnostics keep reading the protected record, and no such channel exists. |
 

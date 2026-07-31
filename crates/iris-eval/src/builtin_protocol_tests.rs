@@ -1709,3 +1709,27 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
         "Array([Symbol(\"then\"), Integer(IntegerValue(0))])"
     );
 }
+
+#[test]
+fn d149_matches_a_typed_catch_against_the_current_class_hierarchy() {
+    // D-149: exception dispatch uses the CURRENT Class hierarchy when selection
+    // begins. A committed `set_superclass` must therefore be visible to a later
+    // typed catch, which walked a declaration-time map that the commit never
+    // updated: `is Parent` already saw the change while the catch did not.
+    let after_commit = "class Parent {} class Child {} \
+                        Reflection::Class.set_superclass(Child, Parent); \
+                        try { raise Child.new() } catch _: Parent { :matched } \
+                        catch _ { :unmatched }";
+    let before_commit = "class Parent {} class Child {} \
+                         try { raise Child.new() } catch _: Parent { :matched } \
+                         catch _ { :unmatched }";
+    // A statically declared superclass must keep working, since both now read
+    // the same runtime hierarchy.
+    let declared = "class Parent {} class Child extends Parent {} \
+                    try { raise Child.new() } catch _: Parent { :matched } catch _ { :unmatched }";
+
+    // When / Then
+    assert!(rendered(after_commit).ends_with("Symbol(\"matched\")])"));
+    assert_eq!(rendered(before_commit), "Symbol(\"unmatched\")");
+    assert_eq!(rendered(declared), "Symbol(\"matched\")");
+}

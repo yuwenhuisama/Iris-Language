@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    Capability, ClassError, ClassId, ComparisonSlot, CompositionEdge, DispatchContext,
-    DispatchError, DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody, MethodOwner,
-    ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError, TruthinessMethod, Value,
+    Capability, ClassError, ClassId, ClassRevision, ComparisonSlot, CompositionEdge,
+    DispatchContext, DispatchError, DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody,
+    MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError,
+    TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -1392,8 +1393,18 @@ impl SourceEvaluator {
                             if class == filter {
                                 break true;
                             }
-                            let Some(superclass) =
-                                self.static_superclasses.get(&class).copied().flatten()
+                            // D-149: exception dispatch uses the CURRENT Class
+                            // hierarchy, so the runtime superclass is read from
+                            // the active revision. The declaration-time map is
+                            // not updated by a later `set_superclass`, which
+                            // made a committed inheritance change invisible to a
+                            // typed catch while `is` already saw it.
+                            let Some(superclass) = self
+                                .runtime
+                                .registry()
+                                .active(class)
+                                .ok()
+                                .and_then(ClassRevision::runtime_superclass)
                             else {
                                 break false;
                             };
