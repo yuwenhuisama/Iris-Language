@@ -217,7 +217,14 @@ pub struct MethodDeclaration {
     pub selector: String,
     pub parameters: Vec<Parameter>,
     pub visibility: Visibility,
-    pub body: Vec<Statement>,
+    /// The Method body, absent when the source wrote a bodyless requirement.
+    ///
+    /// `IRIS-V1-GRAMMAR-C062` makes `block_body` optional so a Contract can
+    /// state the Method requirements `IRIS-V1-TYPES-C042` already presupposes.
+    /// `None` is a REQUIREMENT declaring an obligation with no implementation;
+    /// it is distinct from `Some(vec![])`, which is a body that happens to be
+    /// empty and still supplies an implementation.
+    pub body: Option<Vec<Statement>>,
 }
 
 /// One declared parameter with the category `IRIS-V1-CONTROL-C023` gives it.

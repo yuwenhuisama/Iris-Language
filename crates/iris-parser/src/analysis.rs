@@ -389,15 +389,50 @@ impl Analyzer {
         let (name, body) = match declaration {
             iris_syntax::Declaration::Class(value) => (&value.name, Some(&value.body)),
             iris_syntax::Declaration::Module(value) => (&value.name, Some(&value.body)),
-            iris_syntax::Declaration::Contract(value) => (&value.name, None),
+            iris_syntax::Declaration::Contract(value) => {
+                self.check_contract_body(&value.body);
+                (&value.name, None)
+            }
         };
         self.publish_qualified_name(name);
         let Some(body) = body else {
             return;
         };
+        // C062 makes a bodyless Method declaration a Contract REQUIREMENT, so
+        // one in a Class or Module body declares an obligation where only an
+        // implementation belongs.
+        for statement in body {
+            if let Statement::Method(method) = statement
+                && method.body.is_none()
+            {
+                self.report("METHOD_BODY_REQUIRED");
+            }
+        }
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
         self.scoped_body(body, Control::top_level());
+    }
+
+    /// Checks the members a Contract body may hold.
+    ///
+    /// `IRIS-V1-TYPES-C042` permits Method and property REQUIREMENTS and
+    /// forbids Method bodies, stored state, initializers, and executable
+    /// statements. `IRIS-V1-GRAMMAR-C062` makes the body optional so the
+    /// requirement form parses at all; a body that IS written now reaches here
+    /// and is reported, which is what `IRIS-V1-TYPES-V258` observes.
+    fn check_contract_body(&mut self, body: &[Statement]) {
+        for statement in body {
+            match statement {
+                Statement::Method(method) if method.body.is_some() => {
+                    self.report("CONTRACT_METHOD_BODY_FORBIDDEN");
+                }
+                Statement::Method(_) => {}
+                // Anything else in a Contract body is stored state, an
+                // initializer, or an executable statement, all of which C042
+                // forbids outright.
+                _ => self.report("CONTRACT_BODY_MEMBER_FORBIDDEN"),
+            }
+        }
     }
 
     /// Analyzes a body in its own scope, so a binding does not leak outward.
@@ -589,7 +624,9 @@ impl Analyzer {
                     }
                     self.declare(&parameter.name, false);
                 }
-                for statement in &declaration.body {
+                // A bodyless C062 requirement has no statements to analyse; it
+                // declares an obligation rather than an implementation.
+                for statement in declaration.body.iter().flatten() {
                     self.statement(statement, Control::callable());
                 }
                 self.scopes.pop();
@@ -815,6 +852,38 @@ mod tests {
         assert!(codes("let mut i = 0; while i < 3 { i = i + 1; break }").is_empty());
         assert!(codes("for x in [1, 2] { continue }").is_empty());
         assert!(codes("class C { public fun m() { return 1 } }").is_empty());
+    }
+
+    #[test]
+    fn c062_admits_a_bodyless_contract_requirement_and_rejects_a_body() {
+        // C062 makes `block_body` optional so a Contract can state the Method
+        // requirements C042 already presupposes. Before this, `fun m() -> Nil`
+        // could not parse at all, so a Contract could not be written.
+        let requirement = "contract C { fun m() -> Nil }";
+        // C042 forbids a Method body in a Contract. The body now PARSES and is
+        // reported as a static diagnostic rather than failing as a parse error,
+        // which is what V258 observes.
+        let body_in_contract = "contract C { fun m() -> Nil { nil } }";
+        // A bodyless declaration is a REQUIREMENT, so one in a Class body
+        // declares an obligation where only an implementation belongs.
+        let requirement_in_class = "class A { fun m() -> Nil }";
+        // C042 also forbids stored state and executable statements.
+        let statement_in_contract = "contract C { let x = 1 }";
+        // An ordinary Method that writes a body is unaffected.
+        let ordinary = "class A { public fun m() { 7 } }";
+
+        // When / Then
+        assert_eq!(codes(requirement), Vec::<&str>::new());
+        assert_eq!(
+            codes(body_in_contract),
+            vec!["CONTRACT_METHOD_BODY_FORBIDDEN"]
+        );
+        assert_eq!(codes(requirement_in_class), vec!["METHOD_BODY_REQUIRED"]);
+        assert_eq!(
+            codes(statement_in_contract),
+            vec!["CONTRACT_BODY_MEMBER_FORBIDDEN"]
+        );
+        assert_eq!(codes(ordinary), Vec::<&str>::new());
     }
 }
 

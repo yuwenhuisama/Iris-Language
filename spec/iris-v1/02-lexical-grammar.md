@@ -354,7 +354,7 @@ meta_capability_list ::= meta_capability ("," meta_capability)* ","?
 meta_capability    ::= ordinary_name
 declaration_body   ::= "{" terminator* declaration_or_statement* "}"
 
-method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
+method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body?
 property_decl      ::= visibility? "override"? "impl"? "property" (stored_property_decl | property_accessor_decl)
 stored_property_decl ::= ordinary_name ":" type_expr ("=" expression)? property_accessor_block?
 property_accessor_block ::= "{" property_accessor_member* "}"
@@ -566,6 +566,8 @@ IRIS-V1-GRAMMAR-C059: The v1.2 errata grammar adds `shared_decl ::= "shared" ("l
 IRIS-V1-GRAMMAR-C060: The v1.3 errata admits `if_expression` in expression position and defines `if_statement` in terms of that production. Its value, branch scope, missing-`else` result, and reachable-branch result type remain exclusively as specified by IRIS-V1-CONTROL-C041. In a `match_arm`, `match_guard` consumes its leading `if` before its guard `expression` is parsed; `if_expression` therefore begins only where a primary expression is required. The `block_body` following an `if_expression` starts with `{`, while Hash literals start with the distinct `%{` opener required by IRIS-V1-GRAMMAR-C021.
 
 IRIS-V1-GRAMMAR-C061: The v1.4 errata replaces `class_mixin` and `module_mixin` with `mixin_entry_list`; each `mixin_entry` MAY carry `private` to record private authorization at that static composition edge. The authorization, its scope, and its revocation remain exclusively owned by IRIS-V1-RUNTIME-C050, IRIS-V1-META-C056, and IRIS-V1-META-C060. Raw current-receiver `@x` access is independent of this option and remains exclusively owned by IRIS-V1-RUNTIME-C051 and IRIS-V1-META-C058.
+
+IRIS-V1-GRAMMAR-C062: The v1.16 errata makes `block_body` optional in `method_decl`, so a Method declaration MAY state a signature with no body. This supplies the requirement syntax that IRIS-V1-TYPES-C042 already presupposes when it permits a Contract body to declare instance, Class-object, property, and generic Method requirements, and which no prior production could express. A bodyless `method_decl` is a REQUIREMENT: it declares an obligation and provides no implementation. It is well-formed only inside `contract_decl`; a bodyless `method_decl` in a `class_decl` or `module_decl` body is rejected. The converse case remains owned by IRIS-V1-TYPES-C042, which forbids a Method body in a Contract: that body now PARSES and is rejected as the static `CONTRACT_METHOD_BODY_FORBIDDEN` that IRIS-V1-TYPES-V258 observes, rather than failing as a parse error. This errata adds no new keyword, no new token, and no new declaration form, and it does not alter the meaning of any Method that writes a body.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

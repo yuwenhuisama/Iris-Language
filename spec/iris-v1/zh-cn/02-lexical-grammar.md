@@ -354,7 +354,7 @@ meta_capability_list ::= meta_capability ("," meta_capability)* ","?
 meta_capability    ::= ordinary_name
 declaration_body   ::= "{" terminator* declaration_or_statement* "}"
 
-method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body
+method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body?
 property_decl      ::= visibility? "override"? "impl"? "property" (stored_property_decl | property_accessor_decl)
 stored_property_decl ::= ordinary_name ":" type_expr ("=" expression)? property_accessor_block?
 property_accessor_block ::= "{" property_accessor_member* "}"
@@ -566,6 +566,8 @@ IRIS-V1-GRAMMAR-C059：v1.2 勘误语法添加 `shared_decl ::= "shared" ("let" 
 IRIS-V1-GRAMMAR-C060：v1.3 勘误允许 `if_expression` 出现在表达式位置，并依照该产生式定义 `if_statement`。其值、分支作用域、缺少 `else` 时的结果和可达分支结果类型仍完全由 IRIS-V1-CONTROL-C041 规定。在 `match_arm` 中，`match_guard` 在解析 guard `expression` 之前消耗其开头的 `if`；因此 `if_expression` 只在需要主表达式的位置开始。`if_expression` 后的 `block_body` 以 `{` 开始，而 Hash 字面量使用 IRIS-V1-GRAMMAR-C021 要求的不同 `%{` 开场。
 
 IRIS-V1-GRAMMAR-C061：v1.4 勘误将 `class_mixin` 和 `module_mixin` 替换为 `mixin_entry_list`；每个 `mixin_entry` MAY 携带 `private`，以在该静态组合边缘记录 private authorization。该授权、其作用域和撤销仍完全由 IRIS-V1-RUNTIME-C050、IRIS-V1-META-C056 和 IRIS-V1-META-C060 拥有。原始 current-receiver `@x` 访问独立于该选项，仍完全由 IRIS-V1-RUNTIME-C051 和 IRIS-V1-META-C058 拥有。
+
+IRIS-V1-GRAMMAR-C062：v1.16 勘误将 `method_decl` 中的 `block_body` 改为可选，因此方法声明 MAY 只给出签名而不带方法体。这补上了 IRIS-V1-TYPES-C042 在允许 Contract 体声明实例、类对象、属性与泛型方法要求时已经预设、但此前没有任何产生式能够表达的要求语法。无方法体的 `method_decl` 是一条**要求**：它声明义务而不提供实现。它仅在 `contract_decl` 内部是良构的；出现在 `class_decl` 或 `module_decl` 体内的无体 `method_decl` 会被拒绝。相反的情形仍由 IRIS-V1-TYPES-C042 拥有，该条款禁止 Contract 内出现方法体：该方法体现在能够**解析**，并按 IRIS-V1-TYPES-V258 所观察的那样，作为静态诊断 `CONTRACT_METHOD_BODY_FORBIDDEN` 被拒绝，而不再表现为解析错误。本勘误不新增关键字、不新增词法单元、不新增声明形式，也不改变任何书写了方法体的方法的含义。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

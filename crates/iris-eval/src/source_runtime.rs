@@ -295,7 +295,9 @@ impl SourceEvaluator {
                 selector: "to_bool".into(),
                 parameters: Vec::new(),
                 visibility: iris_syntax::Visibility::Public,
-                body: vec![Statement::Expression(Expression::Literal("true".into()))],
+                body: Some(vec![Statement::Expression(Expression::Literal(
+                    "true".into(),
+                ))]),
             });
             let selector = self.selector("to_bool");
             self.runtime
@@ -543,9 +545,9 @@ impl SourceEvaluator {
             selector: name.into(),
             parameters: Vec::new(),
             visibility: iris_syntax::Visibility::Public,
-            body: vec![Statement::Expression(Expression::RawIvar(format!(
+            body: Some(vec![Statement::Expression(Expression::RawIvar(format!(
                 "@{name}"
-            )))],
+            )))]),
         };
         let setter = MethodDeclaration {
             decorators: Vec::new(),
@@ -559,11 +561,11 @@ impl SourceEvaluator {
                 default: None,
             }],
             visibility: iris_syntax::Visibility::Public,
-            body: vec![Statement::Expression(Expression::Assignment {
+            body: Some(vec![Statement::Expression(Expression::Assignment {
                 left: Box::new(Expression::RawIvar(format!("@{name}"))),
                 operator: iris_syntax::AssignmentOperator::Assign,
                 right: Box::new(Expression::Name("value".into())),
-            })],
+            })]),
         };
         let initializer = MethodDeclaration {
             decorators: Vec::new(),
@@ -573,11 +575,11 @@ impl SourceEvaluator {
             selector: name.into(),
             parameters: Vec::new(),
             visibility: iris_syntax::Visibility::Private,
-            body: vec![Statement::Expression(Expression::Assignment {
+            body: Some(vec![Statement::Expression(Expression::Assignment {
                 left: Box::new(Expression::RawIvar(format!("@{name}"))),
                 operator: iris_syntax::AssignmentOperator::Assign,
                 right: Box::new(initializer),
-            })],
+            })]),
         };
         self.class_method(class, builtin, false, &getter)?;
         self.class_method(class, builtin, false, &setter)?;
@@ -3710,7 +3712,14 @@ impl SourceEvaluator {
             ));
         };
         let parameters = declaration.parameters.clone();
-        let body = declaration.body.clone();
+        // A bodyless C062 requirement declares an obligation and supplies NO
+        // implementation, so invoking one is not a call that can run. It cannot
+        // reach here through a Contract, which is never instantiated, but a
+        // requirement reached any other way must not execute as an empty body
+        // returning nil.
+        let Some(body) = declaration.body.clone() else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
         let locals = self.bind_parameters(&parameters, arguments)?;
         match self.block(&body, &locals, Some(receiver)) {
             Err(EvaluationError::Return(value)) => Ok(value),

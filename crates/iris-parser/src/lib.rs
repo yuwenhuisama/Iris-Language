@@ -690,18 +690,25 @@ impl Parser {
                 self.expect(">")?;
                 self.type_expression()?;
             }
-            return self.body().map(|body| {
-                Statement::Method(MethodDeclaration {
-                    decorators,
-                    is_override,
-                    impl_contract,
-                    kind,
-                    selector,
-                    parameters,
-                    visibility,
-                    body,
-                })
-            });
+            // C062 makes `block_body` optional, so a signature that is NOT
+            // followed by `{` is a bodyless requirement rather than a parse
+            // error. Only a present `{` commits to parsing a body, which keeps
+            // a malformed body reported as the body error it is.
+            let body = if self.check("{") {
+                Some(self.body()?)
+            } else {
+                None
+            };
+            return Some(Statement::Method(MethodDeclaration {
+                decorators,
+                is_override,
+                impl_contract,
+                kind,
+                selector,
+                parameters,
+                visibility,
+                body,
+            }));
         }
         if kind == MethodKind::Property {
             let name = self.name()?;
