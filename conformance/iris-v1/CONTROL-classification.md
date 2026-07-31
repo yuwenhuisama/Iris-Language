@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 110 are
-committed here; the remaining 24 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 109 are
+committed here; the remaining 25 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -139,6 +139,9 @@ existing channel.
 | `V305` | positive | executable | Transcribed after probing; two contexts from separate raises are distinct Hash keys. |
 | `V294` | diagnostic | executable | Transcribed after probing; a write to a catch binding reports the spec-named immutable-binding code. |
 | `V284` | positive | executable | Transcribed after probing; nested cleanup failures suppress in occurrence order with the body failure primary. |
+| `V331` | positive | executable | Observed through a `typeof` annotation: the tested binding keeps its Type, so a Bool initializer is rejected. |
+| `V332` | positive | executable | Observed through a `typeof` annotation: `!x` is Bool, so an Integer initializer is rejected. |
+| `V330` | positive | executable | Observed through a `typeof` annotation: `left \|\| fallback` types as the normalized operand union, so a Bool initializer is rejected. |
 
 ## Remaining rows and their blockers
 
@@ -159,6 +162,4 @@ blocked. Grouped by the capability each one actually waits on.
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
 | Parameter default diagnostics | `V337A` | Asserts static diagnostics for assigning a parameter and for a default referencing a later parameter; only the first is reported today. |
 | No-parentheses call forms | `V342A` | `f 1` and `obj.m 1` are rejected, which is the row's expectation, but it names no code. |
-| `V331` | positive | executable | Observed through a `typeof` annotation: the tested binding keeps its Type, so a Bool initializer is rejected. |
-| `V332` | positive | executable | Observed through a `typeof` annotation: `!x` is Bool, so an Integer initializer is rejected. |
-| `V330` | positive | executable | Observed through a `typeof` annotation: `left \|\| fallback` types as the normalized operand union, so a Bool initializer is rejected. |
+
