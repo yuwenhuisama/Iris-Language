@@ -472,9 +472,12 @@ impl Evaluator {
             Evaluated::Member(receiver, selector) => self
                 .send(receiver, &selector, &[])
                 .and_then(|value| self.value(value)),
-            Evaluated::UnresolvedClass(_) | Evaluated::UnresolvedClassMember { .. } => {
-                Err(EvaluationError::UnsupportedConstruct)
-            }
+            // IRIS-V1-CONTROL-C011 makes an unresolved bare name a `NameError`
+            // regardless of spelling. Reporting `UnsupportedConstruct` for an
+            // UPPERCASE name conflated "this implementation cannot do it" with
+            // "the program named a Class that does not exist".
+            Evaluated::UnresolvedClass(_) => Err(EvaluationError::NameError),
+            Evaluated::UnresolvedClassMember { .. } => Err(EvaluationError::UnsupportedConstruct),
         }
     }
 }

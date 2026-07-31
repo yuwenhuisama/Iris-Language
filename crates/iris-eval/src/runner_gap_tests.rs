@@ -602,8 +602,10 @@ fn rejects_bare_infinity_outside_float64_construction() {
     // When
     let result = evaluate(source);
 
-    // Then
-    assert_eq!(result, Err(EvaluationError::UnsupportedConstruct));
+    // Then bare `Infinity` names nothing, and IRIS-V1-CONTROL-C011 makes an
+    // unresolved bare name a `NameError` whatever its spelling. It remains
+    // reachable only through `Float64.infinity`.
+    assert_eq!(result, Err(EvaluationError::NameError));
 }
 
 #[test]

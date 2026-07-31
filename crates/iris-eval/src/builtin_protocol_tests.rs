@@ -1654,3 +1654,24 @@ fn d142_rejects_every_mutation_of_a_runtime_owned_collection() {
         "Symbol(\"close\")"
     );
 }
+
+#[test]
+fn d415_names_three_callable_kinds_and_no_function() {
+    // D-415: Iris has NO separate Function runtime kind. An unbound Method is
+    // reflective, a BoundMethod captures a receiver plus Method, and a Closure
+    // is anonymous lexical code.
+    let kinds = "class C { public fun m(x: Integer) -> Integer { x } } \
+                 let method = Reflection::Class.method(C, :m); \
+                 let bound = C.new().m; let closure = { |x: Integer| x }; \
+                 [method.class_name, bound.class_name, closure.class_name]";
+    // The absence is part of the requirement, so it is asserted rather than
+    // left unchecked.
+    let absent = "Function";
+
+    // When / Then
+    assert_eq!(
+        rendered(kinds),
+        "Array([Symbol(\"Method\"), Symbol(\"BoundMethod\"), Symbol(\"Closure\")])"
+    );
+    assert_eq!(rendered(absent), "NameError");
+}

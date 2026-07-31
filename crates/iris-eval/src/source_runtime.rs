@@ -2671,6 +2671,21 @@ impl SourceEvaluator {
         {
             return Err(EvaluationError::ReadonlyMutation);
         }
+        // `D-415` gives Iris no separate Function runtime kind: an unbound
+        // Method is reflective, a BoundMethod captures a receiver plus Method,
+        // and a Closure is anonymous lexical code. `class_name` names which of
+        // the three a callable value actually is.
+        if selector == "class_name" && arguments.is_empty() {
+            let kind = match &receiver {
+                Value::Method(_) => Some("Method"),
+                Value::BoundMethod(_) => Some("BoundMethod"),
+                Value::Closure(_) => Some("Closure"),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                return Ok(Value::Symbol(kind.into()));
+            }
+        }
         // C079 makes each record an immutable identity-less value with get-only
         // members, so these are ordinary reads rather than dispatched sends.
         match (&receiver, selector) {
