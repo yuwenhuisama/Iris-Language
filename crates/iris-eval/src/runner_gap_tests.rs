@@ -616,7 +616,7 @@ fn rejects_bare_infinity_outside_float64_construction() {
 #[test]
 fn source_method_returns_symbol_literal() {
     // Given
-    let source = "class A { public fun m() -> Integer { :added } }; A.new().m()";
+    let source = "class A { public fun m() { :added } }; A.new().m()";
 
     // When
     let result = evaluate(source);
@@ -952,8 +952,7 @@ fn source_class_fun_dispatches_on_the_class_object() {
 #[test]
 fn source_class_object_dispatch_inherits_singleton_methods_from_runtime_superclasses() {
     // Given
-    let source =
-        "class A { class fun build() -> Integer { :class } }; class B extends A { }; B.build()";
+    let source = "class A { class fun build() { :class } }; class B extends A { }; B.build()";
 
     // When
     let result = evaluate(source);
@@ -965,7 +964,7 @@ fn source_class_object_dispatch_inherits_singleton_methods_from_runtime_supercla
 #[test]
 fn source_class_object_dispatch_keeps_direct_singleton_method_lookup() {
     // Given
-    let source = "class A { class fun build() -> Integer { :class } }; A.build()";
+    let source = "class A { class fun build() { :class } }; A.build()";
 
     // When
     let result = evaluate(source);
@@ -977,7 +976,7 @@ fn source_class_object_dispatch_keeps_direct_singleton_method_lookup() {
 #[test]
 fn source_class_object_dispatch_prefers_its_own_singleton_method_over_an_inherited_one() {
     // Given
-    let source = "class A { class fun build() -> Integer { :parent } }; class B extends A { class fun build() -> Integer { :child } }; B.build()";
+    let source = "class A { class fun build() { :parent } }; class B extends A { class fun build() { :child } }; B.build()";
 
     // When
     let result = evaluate(source);
@@ -989,7 +988,7 @@ fn source_class_object_dispatch_prefers_its_own_singleton_method_over_an_inherit
 #[test]
 fn source_class_object_super_continues_after_the_singleton_method_owner() {
     // Given
-    let source = "class A { class fun build() -> Integer { :parent } }; class B extends A { class fun build() -> Integer { super() } }; B.build()";
+    let source = "class A { class fun build() { :parent } }; class B extends A { class fun build() { super() } }; B.build()";
 
     // When
     let result = evaluate(source);
@@ -1001,8 +1000,7 @@ fn source_class_object_super_continues_after_the_singleton_method_owner() {
 #[test]
 fn source_class_object_dispatch_reports_missing_selector_after_superclass_chain() {
     // Given
-    let source =
-        "class A { class fun build() -> Integer { :class } }; class B extends A { }; B.unknown()";
+    let source = "class A { class fun build() { :class } }; class B extends A { }; B.unknown()";
 
     // When
     let result = evaluate(source);
@@ -1020,7 +1018,7 @@ fn source_class_object_dispatch_reports_missing_selector_after_superclass_chain(
 #[test]
 fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
     // Given
-    let source = "class A { property fun name() -> Integer { :get } property fun name=(value: Integer) -> Integer { :set } }; let a = A.new(); [a.name, a.name = 1]";
+    let source = "class A { property fun name() { :get } property fun name=(value) { :set } }; let a = A.new(); [a.name, a.name = 1]";
 
     // When
     let result = evaluate(source);

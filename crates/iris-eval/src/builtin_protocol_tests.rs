@@ -1827,3 +1827,28 @@ fn c004_enforces_a_written_binding_annotation_as_a_runtime_guard() {
     assert_eq!(rendered(union_violated), "TypeContractError");
     assert_eq!(rendered(root), "Text(\"iris\")");
 }
+
+#[test]
+fn c004_guards_the_parameter_and_return_boundaries() {
+    // C004 makes a written annotation a runtime boundary guard on a PARAMETER
+    // and a RETURN as well as on a binding. Both were parsed and discarded, so
+    // a violating value crossed either boundary silently.
+    let return_violated = "class A { public fun m() -> Integer { nil } } A.new().m()";
+    let return_satisfied = "class A { public fun m() -> Integer { 1 } } A.new().m()";
+    let parameter_violated = "class A { public fun m(x: Integer) { x } } A.new().m(nil)";
+    let parameter_satisfied = "class A { public fun m(x: Integer) { x } } A.new().m(7)";
+    // An unannotated boundary has no guard to apply, so it still accepts
+    // anything. This is what keeps gradual typing gradual.
+    let unannotated = "class A { public fun m(x) { x } } A.new().m(nil)";
+    // A `Nil` return annotation ADMITS nil, so the guard must not treat every
+    // nil as a violation.
+    let nil_return = "class A { public fun m() -> Nil { nil } } A.new().m()";
+
+    // When / Then
+    assert_eq!(rendered(return_violated), "TypeContractError");
+    assert_eq!(rendered(return_satisfied), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(parameter_violated), "TypeContractError");
+    assert_eq!(rendered(parameter_satisfied), "Integer(IntegerValue(7))");
+    assert_eq!(rendered(unannotated), "Nil");
+    assert_eq!(rendered(nil_return), "Nil");
+}

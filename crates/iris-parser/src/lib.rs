@@ -721,10 +721,12 @@ impl Parser {
                 }
             }
             self.expect(")")?;
-            if self.consume("-") {
+            let return_type = if self.consume("-") {
                 self.expect(">")?;
-                self.type_expression()?;
-            }
+                Some(self.type_expression()?)
+            } else {
+                None
+            };
             // C062 makes `block_body` optional, so a signature that is NOT
             // followed by `{` is a bodyless requirement rather than a parse
             // error. Only a present `{` commits to parsing a body, which keeps
@@ -741,6 +743,7 @@ impl Parser {
                 kind,
                 selector,
                 parameters,
+                return_type,
                 visibility,
                 body,
             }));
@@ -1048,9 +1051,11 @@ impl Parser {
             ParameterCategory::Positional
         };
         let name = self.binding_name()?;
-        if self.consume(":") {
-            self.type_expression()?;
-        }
+        let annotation = if self.consume(":") {
+            Some(self.type_expression()?)
+        } else {
+            None
+        };
         let default = if self.consume("=") {
             self.expression(0)
         } else {
@@ -1059,6 +1064,7 @@ impl Parser {
         Some(Parameter {
             name,
             category,
+            annotation,
             default,
         })
     }

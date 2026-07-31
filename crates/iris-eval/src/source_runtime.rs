@@ -294,6 +294,7 @@ impl SourceEvaluator {
                 kind: MethodKind::Instance,
                 selector: "to_bool".into(),
                 parameters: Vec::new(),
+                return_type: None,
                 visibility: iris_syntax::Visibility::Public,
                 body: Some(vec![Statement::Expression(Expression::Literal(
                     "true".into(),
@@ -545,6 +546,7 @@ impl SourceEvaluator {
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
+            return_type: None,
             visibility: iris_syntax::Visibility::Public,
             body: Some(vec![Statement::Expression(Expression::RawIvar(format!(
                 "@{name}"
@@ -556,9 +558,13 @@ impl SourceEvaluator {
             impl_contract: None,
             kind: MethodKind::Property,
             selector: format!("{name}="),
+            return_type: None,
             parameters: vec![iris_syntax::Parameter {
                 name: "value".into(),
                 category: iris_syntax::ParameterCategory::Positional,
+                // A synthesized accessor writes no annotation, so it carries no
+                // C004 boundary guard of its own.
+                annotation: None,
                 default: None,
             }],
             visibility: iris_syntax::Visibility::Public,
@@ -575,6 +581,7 @@ impl SourceEvaluator {
             kind: MethodKind::Property,
             selector: name.into(),
             parameters: Vec::new(),
+            return_type: None,
             visibility: iris_syntax::Visibility::Private,
             body: Some(vec![Statement::Expression(Expression::Assignment {
                 left: Box::new(Expression::RawIvar(format!("@{name}"))),
@@ -3681,6 +3688,19 @@ impl SourceEvaluator {
                     None => return Err(EvaluationError::ArgumentError),
                 },
             };
+            // C004 guards the PARAMETER boundary: a written annotation is
+            // checked before the argument is passed across it. A rest or
+            // keyword-rest parameter collects into a container whose annotation
+            // describes the ELEMENTS, so only a single-value parameter is
+            // checked here.
+            if let Some(annotation) = &parameter.annotation
+                && matches!(
+                    parameter.category,
+                    ParameterCategory::Positional | ParameterCategory::Keyword
+                )
+            {
+                self.check_binding_annotation(&value, annotation)?;
+            }
             locals.insert(name, value);
         }
         // A leftover argument in either channel matches no parameter, which
@@ -3721,6 +3741,7 @@ impl SourceEvaluator {
             ));
         };
         let parameters = declaration.parameters.clone();
+        let return_type = declaration.return_type.clone();
         // A bodyless C062 requirement declares an obligation and supplies NO
         // implementation, so invoking one is not a call that can run. It cannot
         // reach here through a Contract, which is never instantiated, but a
@@ -3730,10 +3751,16 @@ impl SourceEvaluator {
             return Err(EvaluationError::UnsupportedConstruct);
         };
         let locals = self.bind_parameters(&parameters, arguments)?;
-        match self.block(&body, &locals, Some(receiver)) {
+        let result = match self.block(&body, &locals, Some(receiver)) {
             Err(EvaluationError::Return(value)) => Ok(value),
             result => result,
+        }?;
+        // C004 guards the RETURN boundary before the value is published to the
+        // caller, whether the body fell off the end or returned explicitly.
+        if let Some(annotation) = &return_type {
+            self.check_binding_annotation(&result, annotation)?;
         }
+        Ok(result)
     }
 
     fn super_send(

@@ -241,6 +241,11 @@ pub struct MethodDeclaration {
     pub kind: MethodKind,
     pub selector: String,
     pub parameters: Vec<Parameter>,
+    /// The written return Type, when the source declared one.
+    ///
+    /// `IRIS-V1-TYPES-C004` guards the return boundary too, so the annotation
+    /// is retained rather than parsed and discarded.
+    pub return_type: Option<TypeExpression>,
     pub visibility: Visibility,
     /// The Method body, absent when the source wrote a bodyless requirement.
     ///
@@ -261,6 +266,12 @@ pub struct MethodDeclaration {
 pub struct Parameter {
     pub name: String,
     pub category: ParameterCategory,
+    /// The written Type of this parameter, when the source declared one.
+    ///
+    /// `IRIS-V1-TYPES-C004` makes a parameter annotation a runtime boundary
+    /// guard, which can only be enforced against what was actually written, so
+    /// the annotation is retained rather than parsed and discarded.
+    pub annotation: Option<TypeExpression>,
     pub default: Option<Expression>,
 }
 
