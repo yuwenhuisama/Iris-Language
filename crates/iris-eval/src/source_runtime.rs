@@ -2239,8 +2239,18 @@ impl SourceEvaluator {
                         iris_runtime::ConstructionError::Dispatch(
                             iris_runtime::DispatchError::MissingMethod { .. },
                         ),
+                        // IRIS-V1-RUNTIME-C096: when `to_bool` is ABSENT after a
+                        // permitted removal, truth testing invokes
+                        // `method_missing(:to_bool, [], nil)` once and uses its
+                        // Bool result. Only when that fallback is itself missing
+                        // does the C094 default `true` apply, so a Class defining
+                        // `method_missing` is consulted rather than bypassed.
                     )) if selector == self.selector("to_bool") && arguments.is_empty() => {
-                        Ok(Value::Bool(true))
+                        match self.invoke_method_missing(object, selector, arguments) {
+                            Ok(value) => Ok(value),
+                            Err(EvaluationError::MessageNotFound { .. }) => Ok(Value::Bool(true)),
+                            Err(error) => Err(error),
+                        }
                     }
                     // IRIS-V1-RUNTIME-C088: an ordinary object answers `hash`
                     // with a runtime-stable identity hash assigned at allocation,

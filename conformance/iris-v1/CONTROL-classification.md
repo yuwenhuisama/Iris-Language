@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 129 are
-committed here; the remaining 5 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 130 are
+committed here; the remaining 4 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -128,7 +128,6 @@ existing channel.
 | `V290` | positive | executable | Transcribed after probing; subclass catch matching and six-category parameter binding verified against the frozen row. |
 | `V336` | positive | executable | Transcribed after probing; subclass catch matching and six-category parameter binding verified against the frozen row. |
 | `V347` | positive | executable | Transcribed after probing; raw current-receiver ivar creation verified against the frozen row. |
-| `V362` | positive | needs-subsystem | `method_missing` IS reached for an unknown selector, but the truthiness path never consults it: with `to_bool` absent, `if` falls back to DEFAULT truthiness instead of dispatching the missing message. Probing this row produced a false positive, since the expected `:then` arrives either way; a call counter shows `method_missing` runs zero times. |
 | `V349` | positive | executable | Transcribed after probing; instance and Class Methods read the declaring lexical Class cell. |
 | `V348` | negative | needs-subsystem | The redeclaration IS rejected, but the runner renders every `ClassError` as a generic `RuntimeError`, so the expectation could not distinguish a class-variable redeclaration from any other Class failure. |
 | `V315` | diagnostic | executable | Transcribed after probing; catch-binding immutability and logical-assignment short-circuit verified against the frozen row. |
@@ -161,6 +160,7 @@ existing channel.
 | `V285` | negative | executable | Every mutation of the runtime-owned suppressed collection is rejected while reading stays legal. |
 | `V333` | positive | executable | The three callable kinds are distinguishable and `Function` is absent. |
 | `V351A` | diagnostic | executable | A constant and a Class may not share one qualified name. |
+| `V362` | positive | executable | An absent `to_bool` dispatches through `method_missing` exactly once with `[:to_bool, [], nil]`. |
 
 ## Remaining rows and their blockers
 
@@ -170,5 +170,5 @@ blocked. Grouped by the capability each one actually waits on.
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
 | Name resolution across Modules and packages | `V350`, `V351` | Blocked on a PACKAGE subsystem, not a parser gap. `D-431` makes a global's true identity `(package_id, $name)`, and `IRIS-V1-META-C003` puts `package_id` in an `iris.toml` MANIFEST rather than in source syntax, so `V350`'s two packages cannot be written as source at all. `V351` needs `import` plus a package or Module namespace to import FROM before lexical, Module and import resolution orders can be compared. Neither `global` nor `import` parses today, but implementing only those would leave both rows still unassertable. |
-| Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
+| Runtime metaprogramming | `V286`, `V292` | `V286` replaces a public getter at runtime and then reads the PROTECTED record behind it, which needs a diagnostic payload channel separate from the public getter. `V292` commits a Class revision mid-program that changes an inheritance edge, which needs dynamic superclass mutation. |
 

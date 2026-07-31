@@ -1675,3 +1675,37 @@ fn d415_names_three_callable_kinds_and_no_function() {
     );
     assert_eq!(rendered(absent), "NameError");
 }
+
+#[test]
+fn c096_dispatches_an_absent_to_bool_through_method_missing() {
+    // C096: when `to_bool` is ABSENT after a permitted removal, truth testing
+    // invokes `method_missing(:to_bool, [], nil)` ONCE and uses its Bool result
+    // directly. A call counter is required here: probing this row previously
+    // produced a FALSE POSITIVE, because the expected `:then` also arrives from
+    // the C094 default while `method_missing` runs zero times.
+    let dispatched = "let mut calls = 0; let mut seen = nil; \
+                      class C { public fun method_missing(selector, args, block) { \
+                      calls = calls + 1; seen = [selector, args, block]; true } } \
+                      C.undef_method(:to_bool); \
+                      let result = if C.new() { :then } else { :else }; [result, calls, seen]";
+    // The fallback's Bool result is used directly, so returning false selects
+    // the else branch rather than being truth-tested again.
+    let falsehood = "class C { public fun method_missing(s, a, b) { false } } \
+                     C.undef_method(:to_bool); if C.new() { :then } else { :else }";
+    // With `to_bool` still present, the ordinary path applies and the fallback
+    // is never consulted.
+    let present = "let mut calls = 0; \
+                   class C { public fun method_missing(s, a, b) { calls = calls + 1; true } } \
+                   let result = if C.new() { :then } else { :else }; [result, calls]";
+
+    // When / Then
+    assert!(rendered(dispatched).ends_with(
+        "Array([Symbol(\"then\"), Integer(IntegerValue(1)), \
+         Array([Symbol(\"to_bool\"), Array([]), Nil])])])"
+    ));
+    assert!(rendered(falsehood).ends_with("Symbol(\"else\")])"));
+    assert_eq!(
+        rendered(present),
+        "Array([Symbol(\"then\"), Integer(IntegerValue(0))])"
+    );
+}
