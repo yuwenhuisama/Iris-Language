@@ -1733,3 +1733,23 @@ fn d149_matches_a_typed_catch_against_the_current_class_hierarchy() {
     assert_eq!(rendered(before_commit), "Symbol(\"unmatched\")");
     assert_eq!(rendered(declared), "Symbol(\"matched\")");
 }
+
+#[test]
+fn raw_ivar_slots_are_dynamic_and_per_instance() {
+    // A raw `@x` slot is `Dynamic<Object>`, so one instance may store an
+    // Integer and then a Symbol in the same slot, and a SECOND instance is
+    // unaffected: the slot belongs to the receiver rather than the Class.
+    let per_instance = "class A { public fun w(v) { @x = v } public fun r() { @x } } \
+                        let a = A.new(); let b = A.new(); a.w(1); a.w(:s); [a.r(), b.r()]";
+    // A Closure created in an instance Method captures its CURRENT receiver and
+    // keeps mutating that receiver's raw ivars after the Method returns.
+    let escaped = "class A { public fun m() { @x = 0; { @x = @x + 1; @x } } } \
+                   let c = A.new().m(); [c.call(), c.call()]";
+
+    // When / Then
+    assert!(rendered(per_instance).ends_with("Array([Symbol(\"s\"), Nil])])"));
+    assert_eq!(
+        rendered(escaped),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
+    );
+}
