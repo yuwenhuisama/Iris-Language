@@ -228,6 +228,11 @@ fn error_code(error: &EvaluationError) -> String {
             iris_runtime::ClassError::MetaCapabilityDenied { .. }
             | iris_runtime::ClassError::ProtectedSuperclass { .. },
         ) => "MetaOperationError".into(),
+        // IRIS-V1-CONTROL-C078 names this code, so a class-variable
+        // redeclaration is distinguishable from any other Class failure.
+        EvaluationError::Class(iris_runtime::ClassError::DuplicateClassVariable { .. }) => {
+            "CLASS_VARIABLE_REDECLARATION".into()
+        }
         EvaluationError::Class(_) => "RuntimeError".into(),
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::NoSuperMethod { .. },

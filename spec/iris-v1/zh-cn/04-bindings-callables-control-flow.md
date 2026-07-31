@@ -1,6 +1,6 @@
 # Iris v1 绑定、可调用体与控制流
 
-状态：Iris v1.14，冻结语义并有所有者批准的勘误。
+状态：Iris v1.15，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-CONTROL-C001: 本章定义 Iris v1 的绑定、作用域、名称查找、可调用运行时种类、参数绑定、Closure 捕获与返回、调用与尾随块、赋值、条件、循环、match、Iterator 降低、异常，以及控制转移结果。它 MUST 在 [README.md](README.md)、[02-lexical-grammar.md](02-lexical-grammar.md) 和 [03-runtime-object-model.md](03-runtime-object-model.md) 之后阅读。
 
@@ -433,6 +433,10 @@ IRIS-V1-CONTROL-C070: 下列控制流向量表是规范性的。一致性章节 
 | `IRIS-V1-CONTROL-V037` | positive | 需要 interpreter；需要 JIT；native 不适用 | 活动遍历清理后从当前可调用体 `return 3` | 当前可调用体在清理后返回 `Integer(3)`。 | `D-139`, `D-421` |
 | `IRIS-V1-CONTROL-V038` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 任何可调用体外的 `return` | 无效返回位置诊断 `CONTROL_RETURN_OUTSIDE_CALLABLE`（IRIS-V1-CONTROL-C077）。 | `D-421` |
 
+IRIS-V1-CONTROL-C078：v1.15 勘误为那些冻结文本以散文描述拒绝但未命名的行命名稳定诊断码。本条款仅命名诊断码：它不改变任何拒绝条件，也不改动任何决策。在需要 v1 产生式的位置写出遗留的异常、循环或分支形式，必须诊断为 `PARSE_LEGACY_FORM`；这涵盖 IRIS-V1-CONTROL-V288A 与 V289A 的 `groan`、`rescue`、`ensure`、`throw` 形式，V355B 的 `repeat` 形式，以及 V357A 的 `switch`/`when` 形式。这些拼写在 D-509 下仍是普通标识符，因此本条款仅在 D-509 已允许的上下文特定位置拒绝它们。不带括号书写的普通调用必须诊断为 `PARSE_CALL_REQUIRES_PARENTHESES`，即 IRIS-V1-CONTROL-V342A 的对应码。`const` 声明重新绑定同一作用域中已声明的名称，必须诊断为 `DECLARATION_REBINDING`，即 V358 的对应码，且原声明保持绑定。子类重新声明锚定于祖先的类变量，必须诊断为 `CLASS_VARIABLE_REDECLARATION`，即 V348 的对应码，且祖先单元保持不变。会拓宽绑定固定局部类型的赋值，必须诊断为 `BINDING_FIXED_LOCAL_TYPE`，即 V345 中“固定局部类型诊断”的对应码。引用后声明参数的参数默认值，必须诊断为 `PARAMETER_DEFAULT_FORWARD_REFERENCE`，这是 IRIS-V1-CONTROL-V337A 要求的第二个码；其第一个码是 IRIS-V1-CONTROL-C077 的 `BINDING_ASSIGN_TO_IMMUTABLE`。向不存在的 `$name` 或 `@@name` 存储赋值，必须诊断为 `MISSING_DECLARED_STORAGE`，即 V347A 中缺失存储诊断的对应码，且不创建任何存储。
+
+IRIS-V1-CONTROL-C079：v1.15 勘误定义三个记录 Type，它们是 IRIS-V1-CONTROL-C065 与 `D-473` 已要求 `ExceptionContext` 暴露、却从未规定其成员的类型。本条款仅定义 Type：它不改变任何传播、清理或链接行为。`SourceLocation` 是不可变、无标识的值，具有只读的 `path: String`、`line: Integer`、`column: Integer`，其中 `line` 与 `column` 从 1 开始计数。`StackFrame` 是不可变、无标识的值，具有只读的 `callable_name: Symbol` 与 `location: SourceLocation`。`RaiseSite` 是不可变、无标识的值，具有只读的 `location: SourceLocation`，记录一次裸 `raise` 在 `D-155` 下继续传播的位置。三者均按结构比较与哈希，这与 IRIS-V1-CONTROL-C067 保持基于标识的 `ExceptionContext` 不同：命名同一可调用体且位于同一位置的两个栈帧相等。`original_stack` 按原始 raise 处由内向外排序，`re_raise_sites` 保持 `D-155` 已要求的出现顺序。两个集合均不可由用户构造，这与 IRIS-V1-CONTROL-C066 禁止伪造传播元数据一致。
+
 ## 控制覆盖向量
 
 IRIS-V1-CONTROL-C073: 下列向量是带有具体源输入和预期控制观察的规范性可追溯向量。
@@ -472,9 +476,9 @@ IRIS-V1-CONTROL-N003: Informative note：Hash rehash、Hash 遍历、构造生�
 | `IRIS-V1-CONTROL-V286` | diagnostic | 需要 interpreter；需要 JIT；native 不适用 | 把公共`ExceptionContext.suppressed` getter 替换为返回 `[]`；然后 raise `:body`，同时 `FailingCloseIterator.close()` raise `:close`。 | 普通`context.suppressed == []`；uncaught diagnostic payload 仍包含受保护 suppressed context，其 `value == :close`。 | `D-143` |
 | `IRIS-V1-CONTROL-V287` | positive | 需要 interpreter；需要 JIT；native 不适用 | `try { raise :first } catch value, first { try { raise :second } catch _, second { [second.value, second.cause.same?(first)] } }` | `[:second, true]`；处理期间普通 `raise value` 创建新的 context，自动 cause 为活动 context。 | `D-144` |
 | `IRIS-V1-CONTROL-V288` | positive | 需要 interpreter；需要 JIT；native 不适用 | 独立源 fixtures 在 catches 中执行`raise :x`、`raise :x from context` 和 `raise :x from nil`。 | 捕获值是`:x`；causes 分别是自动、显式和 `nil`。 | `D-145` |
-| `IRIS-V1-CONTROL-V288A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `groan :x` | 旧 throw 词汇在执行前被解析拒绝。 | `D-145` |
+| `IRIS-V1-CONTROL-V288A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `groan :x` | 旧 throw 词汇在执行前被解析拒绝。 `PARSE_LEGACY_FORM`（IRIS-V1-CONTROL-C078） | `D-145` |
 | `IRIS-V1-CONTROL-V289` | positive | 需要 interpreter；需要 JIT；native 不适用 | `try { raise :x } catch error: Symbol { error } finally { nil }` | 结果是`:x`；类型化 catch 在 `finally` 前执行。 | `D-146` |
-| `IRIS-V1-CONTROL-V289A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 解析旧 `groan`、`rescue`、`ensure` 和 `throw` 异常形式。 | 每个旧形式都在执行前被解析拒绝。 | `D-146` |
+| `IRIS-V1-CONTROL-V289A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 解析旧 `groan`、`rescue`、`ensure` 和 `throw` 异常形式。 | 每个旧形式都在执行前被解析拒绝。 `PARSE_LEGACY_FORM`（IRIS-V1-CONTROL-C078） | `D-146` |
 | `IRIS-V1-CONTROL-V290` | positive | 需要 interpreter；需要 JIT；native 不适用 | 把`Child.new()` raise 到 `catch error: Parent`；把 `Nominal.new()` raise 到 `catch error: C`；把 `StructuralOnly.new()` raise 到 `catch error: C` 后接 catch-all，其中只有 `Nominal` 显式符合 `C`。 | 结果`["parent", "contract", "fallback"]`；Class catches 接受子类，Contract catches 要求名义符合。 | `D-147` |
 | `IRIS-V1-CONTROL-V291` | positive | 需要 interpreter；需要 JIT；native 不适用 | `try { raise Child.new() } catch _: Parent { :parent } catch _ { :fallback }` | `:parent`；选择第一个匹配 catch。 | `D-148` |
 | `IRIS-V1-CONTROL-V292` | positive | 需要 interpreter；需要 JIT；native 不适用 | 提交有效 revision，使`CurrentChild` 继承 `Parent`；然后把 `CurrentChild.new()` raise 到 `catch _: Parent`。 | 类型化 catch 在提交后执行；提交前未匹配 fixture 仍未匹配。 | `D-149` |
@@ -530,15 +534,15 @@ IRIS-V1-CONTROL-N003: Informative note：Hash rehash、Hash 遍历、构造生�
 | `IRIS-V1-CONTROL-V340` | positive | 需要 interpreter；需要 JIT；native 不适用 | 调用带整数最终表达式的 Method 和 Closure，然后调用值为空主体的 Method 和 Closure。 | 结果是`[7, 8, nil, nil]`；返回最终表达式，值为空主体返回 `nil`。 | `D-422` |
 | `IRIS-V1-CONTROL-V341` | negative | 需要 interpreter；需要 JIT；native 不适用 | 对接受 block 的 Method 分别用`&saved`、尾随 Closure 和两个通道同时调用。 | 前两次调用通过专用 block 通道接收 Closure；双通道调用在调用前引发`ArgumentError`。 | `D-423` |
 | `IRIS-V1-CONTROL-V342` | positive | 需要 interpreter；需要 JIT；native 不适用 | 求值`f()`、`obj.m()`、裸 callable 值 `f`、属性 getter 和具名中缀发送。 | 带括号调用执行，裸`f` 不被调用，且两个文档化的无括号例外执行。 | `D-424` |
-| `IRIS-V1-CONTROL-V342A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立普通调用 fixtures 使用`f 1` 和 `obj.m 1`。 | 二者都在调用前被解析拒绝，因为普通调用需要括号。 | `D-424` |
+| `IRIS-V1-CONTROL-V342A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立普通调用 fixtures 使用`f 1` 和 `obj.m 1`。 | 二者都在调用前被解析拒绝，因为普通调用需要括号。 `PARSE_CALL_REQUIRES_PARENTHESES`（IRIS-V1-CONTROL-C078） | `D-424` |
 | `IRIS-V1-CONTROL-V343` | positive | 需要 interpreter；需要 JIT；native 不适用 | 把 BoundMethod 和带注解 Closure 赋给同一一实参 callable Type 并调用二者。 | `[1, 2]`；两个值都满足同一 callable Type。 | `D-425` |
 | `IRIS-V1-CONTROL-V344` | positive | 需要 interpreter；需要 JIT；native 不适用 | `let fixed = 1; mut changed = 1; changed = 2; [fixed, changed]` | `[1, 2]`；不可变和可变声明具有其指定行为。 | `D-426` |
 | `IRIS-V1-CONTROL-V344A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立 fixtures 使用`let missing: Integer`、给 `let` 赋值，以及赋值 `undeclared = 1`。 | 缺少初始化器、不可变绑定和未解析绑定诊断发生；无效写入不创建存储。 | `D-426` |
-| `IRIS-V1-CONTROL-V345` | negative | 需要 compiler；JIT 不适用；native 不适用 | `mut value = 1; value = "text"` | 固定局部 Type 诊断；不发生拓宽。 | `D-427` |
+| `IRIS-V1-CONTROL-V345` | negative | 需要 compiler；JIT 不适用；native 不适用 | `mut value = 1; value = "text"` | 固定局部 Type 诊断；不发生拓宽。 `BINDING_FIXED_LOCAL_TYPE`（IRIS-V1-CONTROL-C078） | `D-427` |
 | `IRIS-V1-CONTROL-V346` | positive | 需要 interpreter；需要 JIT；native 不适用 | Closure 捕获外层`value`；嵌套块在使用外层初始化器后遮蔽它。 | 内层块返回`2`；closure 返回原始 `1`。 | `D-428` |
 | `IRIS-V1-CONTROL-V347` | positive | 需要 interpreter；需要 JIT；native 不适用 | 在授权 Method 中，赋值`@dynamic = 1`，然后读取它。 | 值是`1`；原始当前接收者 ivar 存储按其普通能力规则创建。 | `D-429` |
 | `IRIS-V1-CONTROL-V347A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | 独立 fixtures 对未声明的`$missing = 1`、`@@missing = 1` 和 `local_missing = 1` 赋值。 | 缺少存储和未解析绑定诊断发生；不创建存储。 | `D-429` |
-| `IRIS-V1-CONTROL-V348` | negative | 需要 compiler；JIT 不适用；native 不适用 | `class Parent { class mut @@x: Integer = 1 }; class Child extends Parent { class mut @@x: Integer = 2 }` | Class 变量重声明诊断；祖先单元保持不变。 | `D-430` |
+| `IRIS-V1-CONTROL-V348` | negative | 需要 compiler；JIT 不适用；native 不适用 | `class Parent { class mut @@x: Integer = 1 }; class Child extends Parent { class mut @@x: Integer = 2 }` | Class 变量重声明诊断；祖先单元保持不变。 `CLASS_VARIABLE_REDECLARATION`（IRIS-V1-CONTROL-C078） | `D-430` |
 | `IRIS-V1-CONTROL-V349` | positive | 需要 interpreter；需要 JIT；native 不适用 | `class Parent { class mut @@x: Integer = 1; fun read() -> Integer { @@x }; class fun read_class() -> Integer { @@x } }; class Child extends Parent {}; [Child.new().read(), Child.read_class()]` | `[1, 1]`；实例和 Class Methods 使用声明词法 Class 层级。 | `D-436` |
 | `IRIS-V1-CONTROL-V350` | negative | 需要 interpreter；需要 JIT；native 不适用 | Packages`a` 和 `b` 各自声明 private `global mut $count: Integer`；修改 `a::$count`，通过授权包代码读取二者，然后访问未声明 `$missing`。 | 值按包区分且为运行时局部；不存在访问引发`NameError` 且不创建存储。 | `D-431` |
 | `IRIS-V1-CONTROL-V351` | positive | 需要 interpreter；需要 JIT；native 不适用 | Fixture 把相同非限定名称给到词法绑定、可见 Module 常量和显式导入，然后在嵌套作用域读取它。 | 解析先选择词法作用域，然后当前 Module 或包声明，然后显式导入。 | `D-432` |
@@ -548,12 +552,12 @@ IRIS-V1-CONTROL-N003: Informative note：Hash rehash、Hash 遍历、构造生�
 | `IRIS-V1-CONTROL-V354` | positive | 需要 interpreter；需要 JIT；native 不适用 | 求值被选`if` 分支，带局部 `inside`，然后求值一个 `if false`，没有 `else`。 | 结果是`[1, nil]`；被选分支最终表达式提供第一个值。 | `D-437` |
 | `IRIS-V1-CONTROL-V354A` | negative | 需要 interpreter；需要 JIT；native 不适用 | 读取分支局部`inside`，在其 `if` 表达式完成后。 | `NameError`；分支绑定在外部不可见。 | `D-437` |
 | `IRIS-V1-CONTROL-V355` | positive | 需要 interpreter；需要 JIT；native 不适用 | 求值`while false` 和 `while true { break 7 }`。 | 循环值是`[nil, 7]`。 | `D-438` |
-| `IRIS-V1-CONTROL-V355B` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `repeat { nil }` | 旧循环形式在执行前被解析拒绝。 | `D-438` |
+| `IRIS-V1-CONTROL-V355B` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `repeat { nil }` | 旧循环形式在执行前被解析拒绝。 `PARSE_LEGACY_FORM`（IRIS-V1-CONTROL-C078） | `D-438` |
 | `IRIS-V1-CONTROL-V355A` | positive | 需要 interpreter；需要 JIT；native 不适用 | 脚本 iterable 返回`Iteration.yield(nil)` 然后 `Iteration.done`；`for` 追加每个绑定值，同时 probes 计数 `iterator()` 和 `next()`。 | 看到的值是`[nil]`；`iterator()` 运行一次，`next()` 运行两次，done 正常终止而不是把 yield 的 `nil` 当作完成。 | `D-439` |
 | `IRIS-V1-CONTROL-V356` | positive | 需要 interpreter；需要 JIT；native 不适用 | `outer: while true { while true { break outer: 7 } }` | 来自具名外层循环的 `Integer(7)`。 | `D-440` |
 | `IRIS-V1-CONTROL-V357` | positive | 需要 interpreter；需要 JIT；native 不适用 | `match 1 { 1 => :one, else => :other }` | 结果是`:one`；fallback 使 match 穷尽。 | `D-441` |
-| `IRIS-V1-CONTROL-V357A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `switch value { when 1 { :one } }` | 旧`switch`/`when` 在解析期间被拒绝且没有 arm 执行。 | `D-441` |
-| `IRIS-V1-CONTROL-V358` | negative | 需要 compiler；JIT 不适用；native 不适用 | `const Name = 1; const Name = 2`. | 声明重绑定诊断；原始声明保持绑定。 | `D-449` |
+| `IRIS-V1-CONTROL-V357A` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `switch value { when 1 { :one } }` | 旧`switch`/`when` 在解析期间被拒绝且没有 arm 执行。 `PARSE_LEGACY_FORM`（IRIS-V1-CONTROL-C078） | `D-441` |
+| `IRIS-V1-CONTROL-V358` | negative | 需要 compiler；JIT 不适用；native 不适用 | `const Name = 1; const Name = 2`. | 声明重绑定诊断；原始声明保持绑定。 `DECLARATION_REBINDING`（IRIS-V1-CONTROL-C078） | `D-449` |
 | `IRIS-V1-CONTROL-V359` | diagnostic | 需要 compiler；JIT 不适用；native 不适用 | `defer { cleanup() }` | `PARSE_UNSUPPORTED_DEFER`；不创建或运行 cleanup Closure。 | `D-468` |
 | `IRIS-V1-CONTROL-V360` | positive | 需要 interpreter；需要 JIT；native 不适用 | `try { raise :x } catch value: Symbol, context { raise :y from context } finally { nil }` | 向外 context 有`value == :y`，且其 cause 的 `value == :x`。 | `D-469` |
 | `IRIS-V1-CONTROL-V361` | diagnostic | 需要 interpreter；需要 JIT；native 不适用 | Raise`:body`，同时 cleanup raises `:close`；将捕获的 context 保留到 catch 之外，并提交给结构化诊断 sink fixture。 | Payload 报告不可变`value == :body`、一个 suppressed `ExceptionContext.value == :close`、原始 stack、raise location 和稳定保留 context identity。 | `D-473` |

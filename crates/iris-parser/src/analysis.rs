@@ -360,6 +360,16 @@ impl Analyzer {
                     }
                     None => self.expression_type(value),
                 };
+                // C078: a declaration rebinding a name already declared in the
+                // SAME scope is a diagnostic, and the original stays bound. An
+                // outer scope is unaffected, since shadowing is ordinary.
+                if self
+                    .scopes
+                    .last()
+                    .is_some_and(|scope| scope.iter().any(|local| local.name == *name))
+                {
+                    self.report("DECLARATION_REBINDING");
+                }
                 self.declare_typed(name, *mutable, fixed_type);
             }
             // `IRIS-V1-CONTROL-D-427`: `let` MUST be initialized, and a deferred
@@ -944,5 +954,62 @@ mod closure_header_tests {
 
         // A binding annotation is unaffected by the suppression.
         assert!(parse("let mut v: String | Integer = 1").program_accepted);
+    }
+}
+
+#[cfg(test)]
+mod errata_named_code_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        parsed
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .chain(if parsed.program_accepted {
+                analyze(&parsed.program)
+                    .into_iter()
+                    .map(|diagnostic| diagnostic.code)
+                    .collect()
+            } else {
+                Vec::new()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn c078_rejects_a_legacy_form_where_a_v1_production_is_required() {
+        for source in [
+            "groan :x",
+            "throw :x",
+            "try { nil } rescue { nil }",
+            "try { nil } ensure { nil }",
+            "repeat { nil }",
+            "switch value { when 1 { :one } }",
+        ] {
+            assert!(
+                codes(source).contains(&"PARSE_LEGACY_FORM"),
+                "not rejected: {source}"
+            );
+        }
+
+        // D-509 leaves these spellings ordinary IDENTIFIERS, so the rejection is
+        // context-specific: the v1 forms they were replaced by must still parse.
+        assert!(codes("raise :x").is_empty());
+        assert!(codes("try { nil } catch _ { nil }").is_empty());
+        assert!(codes("while false { nil }").is_empty());
+        assert!(codes("match 1 { 1 => :one, else => :other }").is_empty());
+    }
+
+    #[test]
+    fn c078_rejects_a_declaration_rebinding_the_same_scope() {
+        assert_eq!(codes("const N = 1; const N = 2"), ["DECLARATION_REBINDING"]);
+        assert_eq!(codes("let a = 1; let a = 2"), ["DECLARATION_REBINDING"]);
+
+        // Shadowing in an INNER scope stays legal, so the check is scoped rather
+        // than a blanket ban on repeating a name.
+        assert!(codes("let a = 1; if true { let a = 2; a } else { nil }").is_empty());
+        assert!(codes("const N = 1; const M = 2").is_empty());
     }
 }

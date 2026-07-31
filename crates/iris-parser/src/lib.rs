@@ -768,6 +768,18 @@ impl Parser {
             self.error("PARSE_UNSUPPORTED_DEFER");
             return None;
         }
+        // `IRIS-V1-CONTROL-C078` names this code. D-509 leaves these spellings
+        // ordinary identifiers, so they are rejected only in the STATEMENT
+        // position a v1 production is required, which is the context-specific
+        // rejection D-509 already permits.
+        if matches!(
+            self.peek(),
+            Some("groan" | "throw" | "rescue" | "ensure" | "repeat" | "switch")
+        ) {
+            self.advance();
+            self.error("PARSE_LEGACY_FORM");
+            return None;
+        }
         if self.consume("try") {
             let (body, catches, finally) = self.try_parts()?;
             return Some(Statement::Try {
