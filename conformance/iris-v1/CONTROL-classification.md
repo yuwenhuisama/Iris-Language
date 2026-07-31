@@ -169,6 +169,6 @@ blocked. Grouped by the capability each one actually waits on.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Name resolution across Modules and packages | `V350`, `V351` | `V350` needs package-scoped `global mut $name` declarations, which are a parse error. `V351` needs explicit imports so lexical, Module and import resolution orders can be compared; neither exists. |
+| Name resolution across Modules and packages | `V350`, `V351` | Blocked on a PACKAGE subsystem, not a parser gap. `D-431` makes a global's true identity `(package_id, $name)`, and `IRIS-V1-META-C003` puts `package_id` in an `iris.toml` MANIFEST rather than in source syntax, so `V350`'s two packages cannot be written as source at all. `V351` needs `import` plus a package or Module namespace to import FROM before lexical, Module and import resolution orders can be compared. Neither `global` nor `import` parses today, but implementing only those would leave both rows still unassertable. |
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
 
