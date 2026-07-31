@@ -220,6 +220,15 @@ fn combine_numeric_literals(raw: &[(TokenKind, &str, usize)]) -> Vec<Token> {
                 offset,
             });
             cursor += 2;
+        } else if text == "as" && raw.get(cursor + 1).is_some_and(|(_, next, _)| *next == "?") {
+            // `as?` is one operator in the chapter 02 precedence table, but `?`
+            // is a separate source character, so the two are joined here rather
+            // than leaving `as` to bind and the `?` to dangle.
+            tokens.push(Token {
+                text: "as?".into(),
+                offset,
+            });
+            cursor += 2;
         } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
             let mut value = String::from(text);
             cursor += 1;

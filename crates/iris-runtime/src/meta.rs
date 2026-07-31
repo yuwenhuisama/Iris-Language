@@ -24,6 +24,10 @@ pub enum BuiltinClass {
     Integer,
     Float32,
     Float64,
+    /// `IRIS-V1-COLLECTIONS-C041` makes a String an identity-less immutable
+    /// sequence of Unicode scalar values, so it is a value Class alongside the
+    /// numeric ones rather than an ordinary Object.
+    String,
 }
 
 /// Immutable effective meta-operation policy stored on each revision.

@@ -166,6 +166,9 @@ fn render_value(value: &RuntimeValue) -> String {
         // order would let a vector depend on an order the clause refuses to
         // promise.
         RuntimeValue::Hash(entries) => format!("{{\"hash\":\"{}\"}}", entries.len()),
+        // IRIS-V1-CONFORMANCE-C027 names `string` as the expectation key for an
+        // observable String value.
+        RuntimeValue::Text(value) => format!("{{\"string\":\"{value}\"}}"),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
         RuntimeValue::Class(_)
         | RuntimeValue::Type(_)
@@ -199,6 +202,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
         RuntimeValue::RaiseSite(_) => "RaiseSite",
+        RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

@@ -219,7 +219,7 @@ impl From<StableHashError> for KernelError {
 /// Built-in logical Classes with native method bodies selected by ordinary dispatch.
 #[derive(Debug)]
 pub struct Kernel {
-    classes: [(BuiltinClass, ClassId); 6],
+    classes: [(BuiltinClass, ClassId); 7],
 }
 
 impl Kernel {
@@ -231,7 +231,7 @@ impl Kernel {
     /// `IRIS-V1-RUNTIME-C005` unsatisfiable, since `Object` could never appear in
     /// a declared Class's MRO.
     pub fn new(registry: &mut ClassRegistry) -> Result<Self, KernelError> {
-        let mut classes = [(BuiltinClass::Object, ClassId::new(0)); 6];
+        let mut classes = [(BuiltinClass::Object, ClassId::new(0)); 7];
         for (index, kind) in [
             BuiltinClass::Object,
             BuiltinClass::Nil,
@@ -239,6 +239,7 @@ impl Kernel {
             BuiltinClass::Integer,
             BuiltinClass::Float32,
             BuiltinClass::Float64,
+            BuiltinClass::String,
         ]
         .into_iter()
         .enumerate()
@@ -260,6 +261,20 @@ impl Kernel {
         // ordinary object a runtime-stable IDENTITY hash, which the evaluator
         // supplies from the heap; the native numeric body would be wrong.
         kernel.install(registry, BuiltinClass::Object, &[NativeSelector::ToBool])?;
+        // IRIS-V1-COLLECTIONS-C043 compares the exact Unicode scalar sequence
+        // and case with no normalization, case folding, or locale mapping.
+        // Ordering selectors are NOT installed: the chapter defines String
+        // equality and hashing here but leaves `<=>` to the collation rules,
+        // so installing a native ordering body would be inventing one.
+        kernel.install(
+            registry,
+            BuiltinClass::String,
+            &[
+                NativeSelector::Equal,
+                NativeSelector::NotEqual,
+                NativeSelector::ToBool,
+            ],
+        )?;
         kernel.install(
             registry,
             BuiltinClass::Nil,
@@ -509,6 +524,7 @@ impl Kernel {
             Value::Integer(_) => self.class(BuiltinClass::Integer),
             Value::Float32(_) => self.class(BuiltinClass::Float32),
             Value::Float64(_) => self.class(BuiltinClass::Float64),
+            Value::Text(_) => self.class(BuiltinClass::String),
             Value::Class(class) => Ok(*class),
             // IRIS-V1-RUNTIME-C005 makes `Object` the single root, and C094
             // gives it a `to_bool` returning `true`. A value with no dedicated
@@ -823,6 +839,11 @@ fn singleton_equal(receiver: &Value, arguments: &[Value]) -> Result<Option<bool>
         (Value::Bool(left), Value::Bool(right)) => Some(left == right),
         (Value::Nil, Value::Nil) => Some(true),
         (Value::Bool(_) | Value::Nil, _) | (_, Value::Bool(_) | Value::Nil) => Some(false),
+        // C043: exact scalar sequence and case, which is what a host `String`
+        // comparison already performs. A String is never equal to a non-String,
+        // so it never falls through to the numeric path.
+        (Value::Text(left), Value::Text(right)) => Some(left == right),
+        (Value::Text(_), _) | (_, Value::Text(_)) => Some(false),
         _ => None,
     })
 }

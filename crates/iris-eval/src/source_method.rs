@@ -25,9 +25,11 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
             .map_err(|_| EvaluationError::UnsupportedConstruct),
         LiteralValue::Float32Bits(bits) => Ok(Value::Float32(f32::from_bits(bits))),
         LiteralValue::Float64Bits(bits) => Ok(Value::Float64(f64::from_bits(bits))),
-        LiteralValue::String(_) | LiteralValue::Array(_) => {
-            Err(EvaluationError::UnsupportedConstruct)
-        }
+        // IRIS-V1-COLLECTIONS-C041 makes a String an immutable sequence of
+        // Unicode scalar values, which the literal converter has already
+        // validated and unescaped.
+        LiteralValue::String(value) => Ok(Value::Text(value)),
+        LiteralValue::Array(_) => Err(EvaluationError::UnsupportedConstruct),
     }
 }
 
@@ -42,6 +44,10 @@ pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {
             .map(Value::Class),
         "Integer" => kernel
             .class(iris_runtime::BuiltinClass::Integer)
+            .ok()
+            .map(Value::Class),
+        "String" => kernel
+            .class(iris_runtime::BuiltinClass::String)
             .ok()
             .map(Value::Class),
         "Nil" => kernel

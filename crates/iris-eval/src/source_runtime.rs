@@ -1799,6 +1799,15 @@ impl SourceEvaluator {
                     BinaryOperator::As => {
                         return self.contract_view(left, &right);
                     }
+                    // IRIS-V1-TYPES-C030: `value as? T` evaluates `value` ONCE
+                    // and returns the SAME underlying value on success, or
+                    // `nil` on a failed runtime check. It never converts.
+                    BinaryOperator::AsOptional => {
+                        return match self.type_test(&left, &right)? {
+                            Value::Bool(true) => Ok(left),
+                            _ => Ok(Value::Nil),
+                        };
+                    }
                     _ => return Err(EvaluationError::UnsupportedConstruct),
                 };
                 self.send(left, selector, &[right])
@@ -2829,6 +2838,7 @@ impl SourceEvaluator {
                         | Value::Float64(_)
                         | Value::Array(_)
                         | Value::Hash(_)
+                        | Value::Text(_)
                         | Value::Symbol(_)
                         | Value::Class(_)
                         | Value::Type(_)
@@ -2872,6 +2882,7 @@ impl SourceEvaluator {
             Value::Float64(_) => self.kernel.class(iris_runtime::BuiltinClass::Float64),
             Value::Array(_)
             | Value::Hash(_)
+            | Value::Text(_)
             | Value::Symbol(_)
             | Value::Class(_)
             | Value::Type(_)
@@ -3100,6 +3111,13 @@ impl SourceEvaluator {
                 .class(iris_runtime::BuiltinClass::Float64)
                 .map_err(EvaluationError::Runtime)?,
             Value::Class(class) => *class,
+            // C041 makes a String a value with its own builtin Class, so `is
+            // String` must resolve it like the numeric value Classes rather
+            // than falling through to the ordinary-object arm.
+            Value::Text(_) => self
+                .kernel
+                .class(iris_runtime::BuiltinClass::String)
+                .map_err(EvaluationError::Runtime)?,
             Value::Array(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -3695,6 +3713,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::SourceLocation(..) => "SourceLocation",
         Value::StackFrame(..) => "StackFrame",
         Value::RaiseSite(_) => "RaiseSite",
+        Value::Text(_) => "String",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",

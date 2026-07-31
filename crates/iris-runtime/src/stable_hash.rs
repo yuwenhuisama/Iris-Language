@@ -38,6 +38,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::Float64(value) => numeric_hash(&NumericValue::Float64(*value)),
         Value::Array(_)
         | Value::Hash(_)
+        | Value::Text(_)
         | Value::Symbol(_)
         | Value::Class(_)
         | Value::Type(_)

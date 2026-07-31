@@ -1753,3 +1753,46 @@ fn raw_ivar_slots_are_dynamic_and_per_instance() {
         "Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
     );
 }
+
+#[test]
+fn c041_and_c043_make_string_a_value_with_exact_scalar_equality() {
+    // C041 makes a String an identity-less immutable sequence of Unicode scalar
+    // values, and C043 compares the EXACT sequence and case with no
+    // normalization, case folding, or locale mapping.
+    let literal = "\"iris\"";
+    let equal = "\"a\" == \"a\"";
+    let unequal = "\"a\" == \"b\"";
+    let case_sensitive = "\"A\" == \"a\"";
+    // A String is never equal to a non-String, so it never reaches the numeric
+    // comparison path.
+    let cross_type = "\"1\" == 1";
+    // C041 gives String its own builtin Class, so `is String` resolves it like
+    // the numeric value Classes rather than as an ordinary Object.
+    let typed = "let v = \"iris\"; [v is String, v is Object, 1 is String]";
+
+    // When / Then
+    assert_eq!(rendered(literal), "Text(\"iris\")");
+    assert_eq!(rendered(equal), "Bool(true)");
+    assert_eq!(rendered(unequal), "Bool(false)");
+    assert_eq!(rendered(case_sensitive), "Bool(false)");
+    assert_eq!(rendered(cross_type), "Bool(false)");
+    assert_eq!(
+        rendered(typed),
+        "Array([Bool(true), Bool(true), Bool(false)])"
+    );
+}
+
+#[test]
+fn c030_makes_a_safe_cast_yield_the_same_value_or_nil() {
+    // C030: `value as? T` evaluates `value` once and returns the SAME
+    // underlying value on success, or `nil` on a failed runtime check. It never
+    // converts, which is what separates it from a coercion.
+    let failed = "let v = \"iris\"; v as? Integer";
+    let succeeded = "let v = 1; v as? Integer";
+    let combined = "let value: Object = \"iris\"; [value is String, value as? Integer]";
+
+    // When / Then
+    assert_eq!(rendered(failed), "Nil");
+    assert_eq!(rendered(succeeded), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(combined), "Array([Bool(true), Nil])");
+}

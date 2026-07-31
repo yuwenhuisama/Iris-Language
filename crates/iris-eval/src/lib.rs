@@ -321,6 +321,11 @@ impl Evaluator {
                     .class(BuiltinClass::Integer)
                     .map_err(EvaluationError::Runtime)?,
             ),
+            "String" => RuntimeValue::Class(
+                self.kernel
+                    .class(BuiltinClass::String)
+                    .map_err(EvaluationError::Runtime)?,
+            ),
             "Float32" => RuntimeValue::Class(
                 self.kernel
                     .class(BuiltinClass::Float32)
@@ -379,7 +384,10 @@ impl Evaluator {
                 .map_err(|_| EvaluationError::UnsupportedConstruct),
             Value::Float32Bits(bits) => Ok(RuntimeValue::Float32(f32::from_bits(bits))),
             Value::Float64Bits(bits) => Ok(RuntimeValue::Float64(f64::from_bits(bits))),
-            Value::String(_) | Value::Array(_) => Err(EvaluationError::UnsupportedConstruct),
+            // IRIS-V1-COLLECTIONS-C041 makes a String an immutable sequence of
+            // Unicode scalar values, already validated and unescaped here.
+            Value::String(value) => Ok(RuntimeValue::Text(value)),
+            Value::Array(_) => Err(EvaluationError::UnsupportedConstruct),
         }
     }
 
@@ -445,6 +453,7 @@ impl Evaluator {
             | RuntimeValue::Float64(_)
             | RuntimeValue::Array(_)
             | RuntimeValue::Hash(_)
+            | RuntimeValue::Text(_)
             | RuntimeValue::Symbol(_)
             | RuntimeValue::Class(_)
             | RuntimeValue::Type(_)
@@ -495,6 +504,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
         RuntimeValue::RaiseSite(_) => "RaiseSite",
+        RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

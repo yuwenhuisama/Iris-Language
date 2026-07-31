@@ -155,6 +155,13 @@ pub enum Value {
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
     Hash(Vec<(Value, Value)>),
+    /// An Iris String value.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C041` makes a String contain only valid Unicode
+    /// scalar values, and `C043` compares the exact scalar sequence and case
+    /// with no normalization, case folding, or locale mapping, which is exactly
+    /// what a host `String` comparison already does.
+    Text(String),
     /// An interned Iris Symbol spelling.
     Symbol(String),
     /// A logical built-in Class object.

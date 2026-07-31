@@ -249,15 +249,20 @@ fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
         result,
         Ok(RuntimeValue::Array(vec![
             RuntimeValue::Nil,
+            // These ids are ALLOCATION ORDER, not identities the spec fixes:
+            // declared Classes are numbered after the builtin ones, so adding a
+            // builtin Class shifts every declared id. What the row asserts is
+            // the ANCESTOR RELATIONSHIP, `B` then its current superclass then
+            // `Object`, which the ids below spell out positionally.
             RuntimeValue::Array(vec![
-                RuntimeValue::Class(ClassId::new(7)),
                 RuntimeValue::Class(ClassId::new(8)),
+                RuntimeValue::Class(ClassId::new(9)),
                 RuntimeValue::Class(ClassId::new(0))
             ]),
             RuntimeValue::Nil,
             RuntimeValue::Array(vec![
+                RuntimeValue::Class(ClassId::new(8)),
                 RuntimeValue::Class(ClassId::new(7)),
-                RuntimeValue::Class(ClassId::new(6)),
                 RuntimeValue::Class(ClassId::new(0))
             ]),
         ]))
