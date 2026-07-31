@@ -123,6 +123,16 @@ pub enum Value {
     Float64(f64),
     /// A literal Iris Array.
     Array(Vec<Value>),
+    /// A `SourceLocation` record: path, one-based line, one-based column.
+    ///
+    /// `IRIS-V1-CONTROL-C079` makes it an immutable identity-less value that
+    /// compares and hashes STRUCTURALLY, unlike `ExceptionContext`, so two
+    /// locations naming the same position are equal.
+    SourceLocation(String, u32, u32),
+    /// A `StackFrame` record: the callable's name and its location.
+    StackFrame(String, Box<Value>),
+    /// A `RaiseSite` record: the location a bare `raise` continued from.
+    RaiseSite(Box<Value>),
     /// A cursor over an Array, produced by `Array#iterator`.
     ///
     /// `IRIS-V1-COLLECTIONS-C011` makes Array iterable and `C012` drives `for`
@@ -188,7 +198,16 @@ pub enum Value {
     /// The trailing `Vec` is `re_raise_sites`, which `IRIS-V1-CONTROL-D-155`
     /// makes an ORDERED sequence appended to by each bare `raise` without
     /// replacing the root stack, so multiple sites retain occurrence order.
-    ExceptionContext(ObjectId, Box<Value>, Box<Value>, Vec<Value>, Vec<Value>),
+    /// The trailing `Box<Value>` is `raise_location`, the `SourceLocation` of
+    /// the INITIAL raise, which `IRIS-V1-CONTROL-C065` exposes get-only.
+    ExceptionContext(
+        ObjectId,
+        Box<Value>,
+        Box<Value>,
+        Vec<Value>,
+        Vec<Value>,
+        Box<Value>,
+    ),
     /// An identity-bearing Closure object.
     ///
     /// `IRIS-V1-RUNTIME-C042` requires each evaluation of a Closure expression to

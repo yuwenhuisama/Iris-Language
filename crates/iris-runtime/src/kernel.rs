@@ -522,6 +522,9 @@ impl Kernel {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::SourceLocation(..)
+            | Value::StackFrame(..)
+            | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)

@@ -92,6 +92,9 @@ impl ComparisonProtocol {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::SourceLocation(..)
+            | Value::StackFrame(..)
+            | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -163,6 +166,9 @@ impl Truthiness {
                 | Value::Closure(_)
                 | Value::KeywordArgument(_, _)
                 | Value::IterationYield(_)
+                | Value::SourceLocation(..)
+                | Value::StackFrame(..)
+                | Value::RaiseSite(_)
                 | Value::ArrayIterator(_)
                 | Value::IterationDone
                 | Value::ExceptionContext(..)
@@ -189,6 +195,9 @@ impl Truthiness {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::SourceLocation(..)
+            | Value::StackFrame(..)
+            | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)

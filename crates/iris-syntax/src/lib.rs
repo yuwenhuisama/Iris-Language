@@ -174,6 +174,12 @@ pub enum Statement {
 pub struct Raise {
     pub value: Expression,
     pub cause: Option<Expression>,
+    /// Byte offset of the `raise` keyword.
+    ///
+    /// `IRIS-V1-CONTROL-C065` exposes `raise_location` as the INITIAL raise
+    /// source location, and `C079` defines it as a one-based line and column,
+    /// so the offset is carried here and converted when the context is built.
+    pub offset: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

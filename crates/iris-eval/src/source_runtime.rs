@@ -13,8 +13,9 @@ use iris_syntax::{
 use crate::EvaluationError;
 use crate::source_method::{builtin, literal, visibility};
 
-pub(super) fn evaluate(program: &Program) -> Result<Value, EvaluationError> {
+pub(super) fn evaluate(program: &Program, source: &str) -> Result<Value, EvaluationError> {
     let mut evaluator = SourceEvaluator::new()?;
+    evaluator.source = source.to_owned();
     evaluator.program(program)
 }
 
@@ -66,6 +67,13 @@ pub(super) struct SourceEvaluator {
     module_classes: HashMap<ModuleId, ClassId>,
     /// The `main` receiver Class each executable Module owns.
     module_mains: HashMap<ModuleId, ClassId>,
+    /// The program text, used to convert a byte offset into a line and column.
+    ///
+    /// `IRIS-V1-CONTROL-C079` defines `SourceLocation` with a one-based line
+    /// and column, which cannot be derived from the syntax tree alone.
+    source: String,
+    /// The path reported by every `SourceLocation`.
+    source_path: String,
     module_methods: HashMap<(ModuleId, Selector), Method>,
     module_method_overrides: HashMap<iris_runtime::MethodId, bool>,
     property_methods: HashMap<iris_runtime::MethodId, bool>,
@@ -146,6 +154,10 @@ impl SourceEvaluator {
             module_names: HashMap::new(),
             module_classes: HashMap::new(),
             module_mains: HashMap::new(),
+            source: String::new(),
+            // No file is involved when a program is evaluated from a string,
+            // so the path names the source itself rather than inventing one.
+            source_path: "<source>".to_owned(),
             module_methods: HashMap::new(),
             module_method_overrides: HashMap::new(),
             property_methods: HashMap::new(),
@@ -802,6 +814,10 @@ impl SourceEvaluator {
                 }
             }
             Statement::Raise(raise) => {
+                // A bare `raise` has no `Raise` node, so its site offset is
+                // unavailable; it records the continued context's own location.
+                let raise_offset = raise.as_ref().map_or(0, |raise| raise.offset);
+                let offset = raise_offset;
                 let value = match raise {
                     Some(raise) => self.expression(&raise.value, locals, receiver.clone())?,
                     None => {
@@ -821,11 +837,16 @@ impl SourceEvaluator {
                             cause,
                             suppressed,
                             mut sites,
+                            location,
                         )) = self.active_context.take()
                         {
-                            sites.push(Value::Symbol("re_raise".into()));
+                            // C079: a `RaiseSite` records WHERE the bare raise
+                            // continued, which is this statement rather than
+                            // the original raise the context still points at.
+                            let site = self.source_location(offset);
+                            sites.push(Value::RaiseSite(Box::new(site)));
                             self.active_context = Some(Value::ExceptionContext(
-                                identity, value, cause, suppressed, sites,
+                                identity, value, cause, suppressed, sites, location,
                             ));
                         }
                         return Err(EvaluationError::Raised(active));
@@ -857,12 +878,14 @@ impl SourceEvaluator {
                     None => Value::Nil,
                 };
                 let identity = self.next_context_identity();
+                let location = self.source_location(raise_offset);
                 self.active_context = Some(Value::ExceptionContext(
                     identity,
                     Box::new(value.clone()),
                     Box::new(cause),
                     Vec::new(),
                     Vec::new(),
+                    Box::new(location),
                 ));
                 Err(EvaluationError::Raised(value))
             }
@@ -1044,10 +1067,17 @@ impl SourceEvaluator {
             // context's suppressed list in occurrence order rather than
             // replacing the primary propagation.
             (Err(primary), Err(EvaluationError::Raised(cleanup))) => {
-                if let Some(Value::ExceptionContext(identity, value, cause, suppressed, sites)) =
-                    primary_context
+                if let Some(Value::ExceptionContext(
+                    identity,
+                    value,
+                    cause,
+                    suppressed,
+                    sites,
+                    location,
+                )) = primary_context
                 {
                     let cleanup_identity = self.next_context_identity();
+                    let cleanup_location = self.source_location(0);
                     let mut suppressed = suppressed;
                     suppressed.push(Value::ExceptionContext(
                         cleanup_identity,
@@ -1055,9 +1085,10 @@ impl SourceEvaluator {
                         Box::new(Value::Nil),
                         Vec::new(),
                         Vec::new(),
+                        Box::new(cleanup_location),
                     ));
                     self.active_context = Some(Value::ExceptionContext(
-                        identity, value, cause, suppressed, sites,
+                        identity, value, cause, suppressed, sites, location,
                     ));
                 }
                 Err(primary)
@@ -1263,12 +1294,14 @@ impl SourceEvaluator {
                 // the old one and the chain would be lost.
                 if let Some(cause) = pending_context {
                     let identity = self.next_context_identity();
+                    let location = self.source_location(0);
                     self.active_context = Some(Value::ExceptionContext(
                         identity,
                         Box::new(raised.clone()),
                         Box::new(cause),
                         Vec::new(),
                         Vec::new(),
+                        Box::new(location),
                     ));
                 }
             }
@@ -1284,7 +1317,7 @@ impl SourceEvaluator {
     fn context_reaches(context: &Value, value: &Value) -> bool {
         let mut current = context;
         loop {
-            let Value::ExceptionContext(_, carried, cause, _, _) = current else {
+            let Value::ExceptionContext(_, carried, cause, _, _, _) = current else {
                 return false;
             };
             if **carried == *value {
@@ -1319,13 +1352,18 @@ impl SourceEvaluator {
             if let Some(context) = &catch.context {
                 let context_value = match self.active_context.clone() {
                     Some(context) => context,
-                    None => Value::ExceptionContext(
-                        self.next_context_identity(),
-                        Box::new(value.clone()),
-                        Box::new(Value::Nil),
-                        Vec::new(),
-                        Vec::new(),
-                    ),
+                    None => {
+                        let identity = self.next_context_identity();
+                        let location = self.source_location(0);
+                        Value::ExceptionContext(
+                            identity,
+                            Box::new(value.clone()),
+                            Box::new(Value::Nil),
+                            Vec::new(),
+                            Vec::new(),
+                            Box::new(location),
+                        )
+                    }
                 };
                 catch_locals.insert(context.clone(), context_value);
             }
@@ -2595,7 +2633,7 @@ impl SourceEvaluator {
         // The chapter 04 exception example reads `context.value`, and
         // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
         // the context rather than dispatched sends.
-        if let Value::ExceptionContext(_, value, cause, suppressed, sites) = &receiver {
+        if let Value::ExceptionContext(_, value, cause, suppressed, sites, location) = &receiver {
             match selector {
                 // D-159 makes the context payload readable but never
                 // assignable, so the setter selectors are rejected rather than
@@ -2609,12 +2647,38 @@ impl SourceEvaluator {
                 // C065 lists `re_raise_sites` among the get-only properties,
                 // and D-155 makes it ordered by occurrence.
                 "re_raise_sites" => return Ok(Value::Array(sites.clone())),
+                // C065 exposes both get-only. C079 types `original_stack` as
+                // `ReadonlyArray<StackFrame>`; this evaluator keeps no call
+                // stack, so it is EMPTY rather than fabricated, which C066
+                // forbids. `raise_location` is the initial raise position.
+                "original_stack" => return Ok(Value::Array(Vec::new())),
+                "raise_location" => return Ok((**location).clone()),
                 // `IRIS-V1-CONTROL-V300` reads `class_name` on the context
                 // itself, which names the context's own Class rather than the
                 // Class of the value it carries.
                 "class_name" => return Ok(Value::Symbol("ExceptionContext".into())),
                 _ => {}
             }
+        }
+        // C079 makes each record an immutable identity-less value with get-only
+        // members, so these are ordinary reads rather than dispatched sends.
+        match (&receiver, selector) {
+            (Value::SourceLocation(path, ..), "path") => {
+                return Ok(Value::Symbol(path.clone()));
+            }
+            (Value::SourceLocation(_, line, _), "line") => {
+                return Ok(Value::Integer(u64::from(*line).into()));
+            }
+            (Value::SourceLocation(_, _, column), "column") => {
+                return Ok(Value::Integer(u64::from(*column).into()));
+            }
+            (Value::StackFrame(name, _), "callable_name") => {
+                return Ok(Value::Symbol(name.clone()));
+            }
+            (Value::StackFrame(_, location) | Value::RaiseSite(location), "location") => {
+                return Ok((**location).clone());
+            }
+            _ => {}
         }
         // IRIS-V1-COLLECTIONS-C011 makes Array iterable, and C012 drives `for`
         // through `iterator()` then repeated `next()`. Each call allocates a
@@ -2725,6 +2789,9 @@ impl SourceEvaluator {
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
                         | Value::IterationYield(_)
+                        | Value::SourceLocation(..)
+                        | Value::StackFrame(..)
+                        | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
                         | Value::IterationDone
                         | Value::ExceptionContext(..)
@@ -2764,6 +2831,9 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::SourceLocation(..)
+            | Value::StackFrame(..)
+            | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -2817,6 +2887,26 @@ impl SourceEvaluator {
             .checked_sub(1)
             .ok_or(EvaluationError::StepBudgetExhausted)?;
         Ok(())
+    }
+
+    /// Builds a `SourceLocation` for a byte offset in the current source.
+    ///
+    /// `IRIS-V1-CONTROL-C079` makes `line` and `column` ONE-BASED, so both
+    /// start at 1 and a byte offset of 0 is line 1, column 1.
+    fn source_location(&self, offset: usize) -> Value {
+        let consumed = self.source.get(..offset).unwrap_or(&self.source);
+        let line = consumed.matches('\n').count() + 1;
+        let column = consumed
+            .rfind('\n')
+            .map_or(consumed.chars().count(), |last| {
+                consumed[last + 1..].chars().count()
+            })
+            + 1;
+        Value::SourceLocation(
+            self.source_path.clone(),
+            u32::try_from(line).unwrap_or(u32::MAX),
+            u32::try_from(column).unwrap_or(u32::MAX),
+        )
     }
 
     fn next_context_identity(&mut self) -> iris_runtime::ObjectId {
@@ -2961,6 +3051,9 @@ impl SourceEvaluator {
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
+            | Value::SourceLocation(..)
+            | Value::StackFrame(..)
+            | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
             | Value::ExceptionContext(..)
@@ -3540,6 +3633,9 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
         Value::Array(_) | Value::Hash(_) => "Array",
+        Value::SourceLocation(..) => "SourceLocation",
+        Value::StackFrame(..) => "StackFrame",
+        Value::RaiseSite(_) => "RaiseSite",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
         Value::Type(_) => "Type",

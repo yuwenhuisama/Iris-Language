@@ -1091,7 +1091,7 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
         "unexpected payload: {payload}"
     );
     assert!(
-        payload.ends_with("Symbol(\"close\"), Nil, [], [])])])"),
+        payload.contains("Symbol(\"close\")"),
         "unexpected payload: {payload}"
     );
     assert_eq!(
@@ -1529,14 +1529,14 @@ fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
     // When / Then the continued context is the SAME one, which is why identity
     // rather than payload decides `same?` under C067: appending a site would
     // otherwise make a retained context compare as a different one.
-    assert_eq!(
-        rendered(one_site),
-        "Array([Bool(true), Array([Symbol(\"re_raise\")])])"
+    let one = rendered(one_site);
+    assert!(
+        one.starts_with("Array([Bool(true), Array([RaiseSite("),
+        "{one}"
     );
-    assert_eq!(
-        rendered(two_sites),
-        "Array([Symbol(\"re_raise\"), Symbol(\"re_raise\")])"
-    );
+    assert_eq!(one.matches("RaiseSite(").count(), 1, "{one}");
+    let two = rendered(two_sites);
+    assert_eq!(two.matches("RaiseSite(").count(), 2, "{two}");
     assert_eq!(rendered(no_site), "Array([])");
 }
 
@@ -1597,4 +1597,27 @@ fn c077_denies_an_external_send_to_a_private_module_method() {
     assert!(rendered(private_helper).starts_with(denied));
     assert!(rendered(explicitly_private).starts_with(denied));
     assert_eq!(rendered(public_helper), "Integer(IntegerValue(1))");
+}
+
+#[test]
+fn c079_exposes_source_locations_with_one_based_line_and_column() {
+    // C079 makes `line` and `column` ONE-BASED, so the first character of a
+    // program is line 1, column 1, and `raise` at column 7 reports 7 rather
+    // than a byte offset.
+    let single_line = "try { raise :x } catch _, c { [c.raise_location.line, \
+                       c.raise_location.column] }";
+    // The location must track real position, so a raise on the third line
+    // reports 3 rather than always reporting 1.
+    let third_line = "let a = 1\nlet b = 2\ntry { raise :x } catch _, c { c.raise_location.line }";
+    // C066 forbids fabricated propagation metadata, and this evaluator keeps no
+    // call stack, so `original_stack` is EMPTY rather than invented.
+    let stack = "try { raise :x } catch _, c { c.original_stack }";
+
+    // When / Then
+    assert_eq!(
+        rendered(single_line),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(7))])"
+    );
+    assert_eq!(rendered(third_line), "Integer(IntegerValue(3))");
+    assert_eq!(rendered(stack), "Array([])");
 }

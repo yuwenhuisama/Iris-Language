@@ -169,6 +169,9 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::Closure(_)
         | RuntimeValue::KeywordArgument(_, _)
         | RuntimeValue::IterationYield(_)
+        | RuntimeValue::SourceLocation(..)
+        | RuntimeValue::StackFrame(..)
+        | RuntimeValue::RaiseSite(_)
         | RuntimeValue::ArrayIterator(_)
         | RuntimeValue::IterationDone
         | RuntimeValue::ExceptionContext(..)
@@ -188,6 +191,9 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
         RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::SourceLocation(..) => "SourceLocation",
+        RuntimeValue::StackFrame(..) => "StackFrame",
+        RuntimeValue::RaiseSite(_) => "RaiseSite",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

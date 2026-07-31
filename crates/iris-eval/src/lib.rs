@@ -112,7 +112,7 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
             .iter()
             .any(source_runtime_statement)
     {
-        return source_runtime::evaluate(&parsed.program);
+        return source_runtime::evaluate(&parsed.program, source);
     }
     let mut registry = iris_runtime::ClassRegistry::new();
     let kernel = Kernel::new(&mut registry).map_err(EvaluationError::Runtime)?;
@@ -447,6 +447,9 @@ impl Evaluator {
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
             | RuntimeValue::IterationYield(_)
+            | RuntimeValue::SourceLocation(..)
+            | RuntimeValue::StackFrame(..)
+            | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
             | RuntimeValue::IterationDone
             | RuntimeValue::ExceptionContext(..)
@@ -479,6 +482,9 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
         RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::SourceLocation(..) => "SourceLocation",
+        RuntimeValue::StackFrame(..) => "StackFrame",
+        RuntimeValue::RaiseSite(_) => "RaiseSite",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
         RuntimeValue::Type(_) => "Type",

@@ -55,7 +55,7 @@ pub fn parse(source: &str) -> ParseResult {
     while cursor < lexer_tokens.len() {
         let token = lexer_tokens[cursor];
         if token.kind == TokenKind::Newline {
-            raw.push((token.kind, "\n"));
+            raw.push((token.kind, "\n", token.offset.0));
             cursor += 1;
             continue;
         }
@@ -69,7 +69,7 @@ pub fn parse(source: &str) -> ParseResult {
         };
         let text = source.get(start..end).unwrap_or_default().trim();
         if !text.is_empty() {
-            raw.push((token.kind, text));
+            raw.push((token.kind, text, start));
         }
         cursor += 1;
         while lexer_tokens
@@ -201,28 +201,43 @@ fn literal_end(remaining: &str) -> usize {
 #[derive(Clone, Debug)]
 struct Token {
     text: String,
+    /// Byte offset of this token in the source.
+    ///
+    /// `IRIS-V1-CONTROL-C079` defines `SourceLocation` with a one-based line
+    /// and column, so the offset is retained here and converted at the point a
+    /// location is built rather than being discarded during tokenization.
+    offset: usize,
 }
 
-fn combine_numeric_literals(raw: &[(TokenKind, &str)]) -> Vec<Token> {
+fn combine_numeric_literals(raw: &[(TokenKind, &str, usize)]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut cursor = 0;
     while cursor < raw.len() {
-        let (kind, text) = raw[cursor];
-        if text == ":" && raw.get(cursor + 1).is_some_and(|(_, next)| *next == ":") {
-            tokens.push(Token { text: "::".into() });
+        let (kind, text, offset) = raw[cursor];
+        if text == ":" && raw.get(cursor + 1).is_some_and(|(_, next, _)| *next == ":") {
+            tokens.push(Token {
+                text: "::".into(),
+                offset,
+            });
             cursor += 2;
         } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
             let mut value = String::from(text);
             cursor += 1;
-            while raw.get(cursor).is_some_and(|(next_kind, next)| {
+            while raw.get(cursor).is_some_and(|(next_kind, next, _)| {
                 *next_kind == TokenKind::SourceCharacter && next.as_bytes()[0].is_ascii_digit()
             }) {
                 value.push_str(raw[cursor].1);
                 cursor += 1;
             }
-            tokens.push(Token { text: value });
+            tokens.push(Token {
+                text: value,
+                offset,
+            });
         } else {
-            tokens.push(Token { text: text.into() });
+            tokens.push(Token {
+                text: text.into(),
+                offset,
+            });
             cursor += 1;
         }
     }
@@ -749,7 +764,11 @@ impl Parser {
                 None
             }));
         }
-        if self.consume("raise") {
+        if self.check("raise") {
+            // The offset is read BEFORE consuming, so the location names the
+            // `raise` keyword itself rather than whatever follows it.
+            let offset = self.current_offset();
+            self.advance();
             if self.is_terminator() {
                 return Some(Statement::Raise(None));
             }
@@ -759,7 +778,11 @@ impl Parser {
             } else {
                 None
             };
-            return Some(Statement::Raise(Some(Raise { value, cause })));
+            return Some(Statement::Raise(Some(Raise {
+                value,
+                cause,
+                offset,
+            })));
         }
         // `IRIS-V1-CONTROL-V359` NAMES this code. `defer` is reserved but has no
         // v1 production, so it is rejected before any cleanup Closure is built.
@@ -1426,6 +1449,10 @@ impl Parser {
                 .tokens
                 .get(self.cursor - 1)
                 .is_some_and(|token| matches!(token.text.as_str(), "\n" | ";"))
+    }
+    /// The byte offset of the token at the cursor.
+    fn current_offset(&self) -> usize {
+        self.tokens.get(self.cursor).map_or(0, |token| token.offset)
     }
     fn peek_next(&self) -> Option<&str> {
         self.tokens
