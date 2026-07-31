@@ -497,6 +497,27 @@ impl Analyzer {
         self.scoped_body(body, Control::top_level());
     }
 
+    /// Reports a value whose static Type the written annotation cannot accept.
+    ///
+    /// `IRIS-V1-TYPES-C004` requires a PROVABLE violation at any annotated
+    /// boundary to be diagnosed BEFORE execution. A value this pass cannot type
+    /// is not proven wrong and is left to the runtime guard.
+    fn check_annotated_value(
+        &mut self,
+        annotation: &iris_syntax::TypeExpression,
+        value: &Expression,
+    ) {
+        let (Some(declared), Some(actual)) = (
+            self.annotation_type(annotation),
+            self.expression_type(value),
+        ) else {
+            return;
+        };
+        if !declared.accepts(&actual) {
+            self.report("ANNOTATED_VALUE_CONTRACT_VIOLATION");
+        }
+    }
+
     /// Rejects a return whose Type is PROVABLY not the declared one.
     ///
     /// `IRIS-V1-TYPES-C004` makes a written annotation both a static Contract
@@ -789,7 +810,19 @@ impl Analyzer {
                 }
                 self.declare(name, *mutable);
             }
-            Statement::SharedBinding { name, mutable, .. } => {
+            Statement::SharedBinding {
+                name,
+                mutable,
+                annotation,
+                value,
+            } => {
+                // C004 guards a binding boundary whether the cell is local or
+                // class-level, so a class variable's annotation is checked with
+                // the same proof an ordinary binding uses.
+                if let Some(annotation) = annotation {
+                    self.check_raw_generic(annotation);
+                    self.check_annotated_value(annotation, value);
+                }
                 self.declared_class_variables.push(name.clone());
                 self.declare(name, *mutable);
             }
@@ -901,6 +934,12 @@ impl Analyzer {
                     // and a later one does not.
                     if let Some(default) = &parameter.default {
                         self.check_default_forward_reference(default, &declaration.parameters);
+                        // C004 names a PARAMETER as an annotated boundary, and
+                        // a written default is a value crossing it at the
+                        // declaration, so a provable mismatch is reported here.
+                        if let Some(annotation) = &parameter.annotation {
+                            self.check_annotated_value(annotation, default);
+                        }
                     }
                     self.declare(&parameter.name, false);
                 }
@@ -912,8 +951,17 @@ impl Analyzer {
                 self.check_return_annotation(declaration);
                 self.scopes.pop();
             }
-            Statement::StoredProperty { initializer, .. } => {
+            Statement::StoredProperty {
+                annotation,
+                initializer,
+                ..
+            } => {
                 self.expression(initializer, control);
+                // C004 names a PROPERTY as one of the annotated boundaries, so
+                // an initializer whose Type the annotation does not accept is a
+                // provable violation exactly as a binding's is.
+                self.check_raw_generic(annotation);
+                self.check_annotated_value(annotation, initializer);
             }
         }
     }
@@ -1341,6 +1389,39 @@ mod tests {
         assert_eq!(codes(never), vec!["RETURN_TYPE_CONTRACT_VIOLATION"]);
         assert_eq!(codes(unprovable), Vec::<&str>::new());
         assert_eq!(codes(unannotated), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c004_diagnoses_provable_violations_at_every_annotated_boundary() {
+        // C004 names binding, property, and parameter among the annotated
+        // boundaries. Only the binding one proved its violations; a property
+        // initializer, a parameter default, and a class-variable annotation
+        // were parsed and then ignored.
+        let property = "class A { property n: Integer = nil }";
+        let parameter_default = "class A { public fun m(x: Integer = nil) { x } }";
+        let class_variable = "class A { shared let @@n: Integer = nil }";
+        // The satisfying spelling of each must stay silent, so the checks prove
+        // a mismatch rather than firing on the presence of an annotation.
+        let property_ok = "class A { property n: Integer = 1 }";
+        let parameter_ok = "class A { public fun m(x: Integer = 1) { x } }";
+        let class_variable_ok = "class A { shared let @@n: Integer = 1 }";
+        // An unannotated boundary has nothing to prove against.
+        let unannotated_parameter = "class A { public fun m(x = nil) { x } }";
+
+        // When / Then
+        assert_eq!(codes(property), vec!["ANNOTATED_VALUE_CONTRACT_VIOLATION"]);
+        assert_eq!(
+            codes(parameter_default),
+            vec!["ANNOTATED_VALUE_CONTRACT_VIOLATION"]
+        );
+        assert_eq!(
+            codes(class_variable),
+            vec!["ANNOTATED_VALUE_CONTRACT_VIOLATION"]
+        );
+        assert_eq!(codes(property_ok), Vec::<&str>::new());
+        assert_eq!(codes(parameter_ok), Vec::<&str>::new());
+        assert_eq!(codes(class_variable_ok), Vec::<&str>::new());
+        assert_eq!(codes(unannotated_parameter), Vec::<&str>::new());
     }
 }
 

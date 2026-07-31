@@ -624,12 +624,15 @@ impl Parser {
             };
             self.expect("@@")?;
             let name = self.binding_name()?;
-            if self.consume(":") {
-                self.type_expression()?;
-            }
+            let annotation = if self.consume(":") {
+                Some(self.type_expression()?)
+            } else {
+                None
+            };
             self.expect("=")?;
             return self.expression(0).map(|value| Statement::SharedBinding {
                 mutable,
+                annotation,
                 name,
                 value,
             });

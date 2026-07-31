@@ -362,6 +362,7 @@ impl SourceEvaluator {
                     mutable,
                     name,
                     value,
+                    ..
                 } => self.shared_binding(class, *mutable, name, value)?,
                 Statement::Method(method) => {
                     let selector = self.selector(&method.selector);
@@ -710,6 +711,7 @@ impl SourceEvaluator {
                     mutable,
                     name,
                     value,
+                    ..
                 } => self.shared_binding(module_class, *mutable, name, value)?,
                 // Executable statements run in the second pass below.
                 Statement::Expression(_) => {}

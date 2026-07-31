@@ -115,6 +115,12 @@ pub enum Statement {
     SharedBinding {
         mutable: bool,
         name: String,
+        /// The declared Type, when the source wrote one.
+        ///
+        /// `IRIS-V1-TYPES-C004` guards a binding boundary whether the cell is
+        /// local or class-level, so the annotation is retained rather than
+        /// parsed and discarded.
+        annotation: Option<TypeExpression>,
         value: Expression,
     },
     Binding {
