@@ -1,1 +1,32 @@
-{"schema_version":"iris-v1-vector-schema-1","id":"IRIS-V1-RUNTIME-V013","name":"Entered Method frame","category":"positive","source":{"chapter":"RUNTIME","artifact":"spec/iris-v1/03-runtime-object-model.md","clauses":["IRIS-V1-RUNTIME-C160"],"decisions":["D-101"]},"input":{"kind":"fixture","fixture_ref":"fixture: {setup: \"A#m enters and pauses before returning :old\", schedule: [\"enter value.m()\", \"commit replacement A#m returning :new\", \"resume entered frame\", \"call value.m() again\"]}"},"applicability":{"interpreter":"required","jit":"required","native":"not_applicable","reason":"Deterministic Method-frame scheduler fixture has no native boundary."},"expect":{"value":"[:old, :new]; the entered frame keeps its selected body and the later send selects the replacement."},"tags":["bucket:executable"]}
+{
+  "schema_version": "iris-v1-vector-schema-1",
+  "id": "IRIS-V1-RUNTIME-V013",
+  "name": "Entered Method frame",
+  "category": "positive",
+  "source": {
+    "chapter": "RUNTIME",
+    "artifact": "spec/iris-v1/03-runtime-object-model.md",
+    "clauses": [
+      "IRIS-V1-RUNTIME-C160"
+    ],
+    "decisions": [
+      "D-101"
+    ]
+  },
+  "input": {
+    "kind": "fixture",
+    "fixture_ref": "fixture: {setup: \"A#m enters and pauses before returning :old\", schedule: [\"enter value.m()\", \"commit replacement A#m returning :new\", \"resume entered frame\", \"call value.m() again\"]}"
+  },
+  "applicability": {
+    "interpreter": "required",
+    "jit": "required",
+    "native": "not_applicable",
+    "reason": "Deterministic Method-frame scheduler fixture has no native boundary."
+  },
+  "expect": {
+    "value": "[:old, :new]; the entered frame keeps its selected body and the later send selects the replacement."
+  },
+  "tags": [
+    "bucket:no-fixture"
+  ]
+}
