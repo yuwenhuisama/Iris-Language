@@ -396,6 +396,14 @@ impl Analyzer {
         let (name, body) = match declaration {
             iris_syntax::Declaration::Class(value) => {
                 self.check_declared_conformance(value);
+                self.check_generic_constraints(&value.parameters, &value.constraints);
+                // C063: `open class Box<String>` is an error in v1. A generic
+                // parameter list declares NAMES, so an entry that names an
+                // already-declared Type is a closed construction rather than a
+                // parameter, and reopening one is forbidden.
+                if value.reopen && self.has_closed_generic_argument(&value.parameters) {
+                    self.report("CLOSED_GENERIC_OPEN_FORBIDDEN");
+                }
                 (&value.name, Some(&value.body))
             }
             iris_syntax::Declaration::Module(value) => {
@@ -447,6 +455,65 @@ impl Analyzer {
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
         self.scoped_body(body, Control::top_level());
+    }
+
+    /// Reports whether a generic parameter list names a closed construction.
+    ///
+    /// A generic parameter DECLARES a fresh name, so an entry naming a Type
+    /// that already exists is a closed generic argument such as the `String` in
+    /// `Box<String>`. `IRIS-V1-TYPES-C063` forbids reopening one.
+    fn has_closed_generic_argument(&self, parameters: &[String]) -> bool {
+        const BUILTIN_TYPES: [&str; 9] = [
+            "Object", "Nil", "Bool", "Integer", "Float32", "Float64", "String", "Symbol", "Never",
+        ];
+        parameters.iter().any(|parameter| {
+            BUILTIN_TYPES.contains(&parameter.as_str())
+                || self
+                    .qualified_namespace
+                    .iter()
+                    .any(|name| name == parameter)
+        })
+    }
+
+    /// Rejects a `where` clause whose parameter bounds form a cycle.
+    ///
+    /// `IRIS-V1-TYPES-V243` observes `GENERIC_CONSTRAINT_CYCLE` for
+    /// `where T: U, U: T`: neither parameter can be resolved before the other,
+    /// so no argument can ever satisfy the pair. A bound naming a Type OUTSIDE
+    /// the parameter list is ordinary and forms no cycle, and `C058` keeps an
+    /// F-bounded constraint such as `where T: Comparable<T>` legal, so only a
+    /// bound that is a BARE parameter name contributes an edge.
+    fn check_generic_constraints(
+        &mut self,
+        parameters: &[String],
+        constraints: &[iris_syntax::Constraint],
+    ) {
+        let edges: Vec<(&String, &String)> = constraints
+            .iter()
+            .filter_map(|constraint| match &constraint.bound {
+                iris_syntax::TypeExpression::Name(bound) if parameters.contains(bound) => {
+                    Some((&constraint.parameter, bound))
+                }
+                _ => None,
+            })
+            .collect();
+        let cyclic = parameters.iter().any(|start| {
+            let mut seen = vec![start];
+            let mut cursor = start;
+            loop {
+                let Some((_, next)) = edges.iter().find(|(from, _)| *from == cursor) else {
+                    break false;
+                };
+                if seen.contains(next) {
+                    break true;
+                }
+                seen.push(next);
+                cursor = next;
+            }
+        });
+        if cyclic {
+            self.report("GENERIC_CONSTRAINT_CYCLE");
+        }
     }
 
     /// Checks that a Class satisfying a declared Contract requirement marks the
@@ -1015,6 +1082,33 @@ mod tests {
         assert_eq!(codes(marked), Vec::<&str>::new());
         assert_eq!(codes(unrelated), Vec::<&str>::new());
         assert_eq!(codes(no_conformance), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c063_and_d216_reject_reopened_and_cyclic_generics() {
+        // C063 makes `open class Box<String>` an error in v1: a generic
+        // parameter DECLARES a fresh name, so an entry naming an existing Type
+        // is a closed construction rather than a parameter.
+        let reopen_closed = "open class Box<String> { fun m() -> Nil {} }";
+        let reopen_parameter = "open class Box<T> { fun m() -> Nil {} }";
+        let closed_without_open = "class Box<String> {}";
+        // D-216: `where T: U, U: T` resolves neither parameter before the
+        // other, so no argument can ever satisfy the pair.
+        let cycle = "class Bad<T,U> where T: U, U: T {}";
+        let self_cycle = "class Bad<T> where T: T {}";
+        let acyclic = "class Pair<T,U> where U: T {}";
+        // C058 keeps a restricted F-bounded constraint legal, so a bound that
+        // MENTIONS its parameter inside a generic argument is not an edge.
+        let f_bounded = "contract Comparable<T> {} class Box<T> where T: Comparable<T> {}";
+
+        // When / Then
+        assert_eq!(codes(reopen_closed), vec!["CLOSED_GENERIC_OPEN_FORBIDDEN"]);
+        assert_eq!(codes(reopen_parameter), Vec::<&str>::new());
+        assert_eq!(codes(closed_without_open), Vec::<&str>::new());
+        assert_eq!(codes(cycle), vec!["GENERIC_CONSTRAINT_CYCLE"]);
+        assert_eq!(codes(self_cycle), vec!["GENERIC_CONSTRAINT_CYCLE"]);
+        assert_eq!(codes(acyclic), Vec::<&str>::new());
+        assert_eq!(codes(f_bounded), Vec::<&str>::new());
     }
 }
 
