@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 109 are
-committed here; the remaining 25 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 110 are
+committed here; the remaining 24 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -147,7 +147,7 @@ blocked. Grouped by the capability each one actually waits on.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Static Type reflection | `V302`, `V330` | `V302` asserts Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, which need the ExceptionContext reflection surface. `V330` asserts a NORMALIZED OPERAND-UNION Type, which needs union Types to be inferred rather than only written. |
+| Static Type reflection | `V302` | Asserts Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, which need the ExceptionContext reflection surface rather than local Type inference. |
 | Diagnostic exists but the frozen text names no code | `V345` | Fixed-local-Type checking now WORKS: `mut value = 1; value = "text"` is rejected, and an explicit `String \| Integer` or `Dynamic<Object>` annotation correctly escapes it. But the row says only "Fixed-local-Type diagnostic", so the expectation would assert an implementation-invented code. Behaviour is locked by unit tests instead. |
 | Top-level `fun` and Module declarations | `V333`, `V334`, `V335`, `V335A`, `V352` | A top-level `fun` is `UnsupportedConstruct`, and the rows additionally need Module bodies with private-member dispatch. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
@@ -161,3 +161,4 @@ blocked. Grouped by the capability each one actually waits on.
 | No-parentheses call forms | `V342A` | `f 1` and `obj.m 1` are rejected, which is the row's expectation, but it names no code. |
 | `V331` | positive | executable | Observed through a `typeof` annotation: the tested binding keeps its Type, so a Bool initializer is rejected. |
 | `V332` | positive | executable | Observed through a `typeof` annotation: `!x` is Bool, so an Integer initializer is rejected. |
+| `V330` | positive | executable | Observed through a `typeof` annotation: `left \|\| fallback` types as the normalized operand union, so a Bool initializer is rejected. |

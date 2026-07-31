@@ -32,13 +32,9 @@ struct Local {
     fixed_type: Option<StaticType>,
 }
 
-/// The statically known Type of an expression, to the depth this pass tracks.
-///
-/// Only the literal forms are inferred. Anything else is `None` at the call
-/// site, which makes the fixed-type check SILENT rather than guessing: a
-/// wrong rejection is far worse than a missed one.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StaticType {
+/// One nominal member of a static Type.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum TypeMember {
     Bool,
     Integer,
     Float,
@@ -49,6 +45,40 @@ enum StaticType {
     Hash,
 }
 
+/// The statically known Type of an expression, to the depth this pass tracks.
+///
+/// Members are kept SORTED and deduplicated, which is what `D-359` means by a
+/// normalized union: `String | Nil` and `Nil | String` are one Type. Only the
+/// forms below are inferred; anything else is `None` at the call site, which
+/// makes the fixed-type check SILENT rather than guessing, since a wrong
+/// rejection is far worse than a missed one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StaticType(Vec<TypeMember>);
+
+impl StaticType {
+    fn single(member: TypeMember) -> Self {
+        Self(vec![member])
+    }
+
+    /// Builds the normalized union of two Types.
+    fn union(left: &Self, right: &Self) -> Self {
+        let mut members = left.0.clone();
+        members.extend(right.0.iter().copied());
+        members.sort_unstable();
+        members.dedup();
+        Self(members)
+    }
+
+    /// Reports whether a value of `other` satisfies this Type.
+    ///
+    /// A wider declared Type ACCEPTS a narrower value, which is what makes
+    /// `mut value: String | Integer = 1` legal under `C005` while
+    /// `mut value: Integer = 1; value = "text"` is not.
+    fn accepts(&self, other: &Self) -> bool {
+        other.0.iter().all(|member| self.0.contains(member))
+    }
+}
+
 impl StaticType {
     /// Maps a written nominal annotation to a tracked Type.
     ///
@@ -57,23 +87,24 @@ impl StaticType {
     /// `C005` explicitly points at `String | Integer` and `Dynamic<Object>` as
     /// the way to ask for a wider cell.
     fn from_nominal(name: &str) -> Option<Self> {
-        match name {
-            "Bool" => Some(Self::Bool),
-            "Integer" => Some(Self::Integer),
-            "Float32" | "Float64" => Some(Self::Float),
-            "String" => Some(Self::String),
-            "Symbol" => Some(Self::Symbol),
-            "Nil" => Some(Self::Nil),
-            _ => None,
-        }
+        let member = match name {
+            "Bool" => TypeMember::Bool,
+            "Integer" => TypeMember::Integer,
+            "Float32" | "Float64" => TypeMember::Float,
+            "String" => TypeMember::String,
+            "Symbol" => TypeMember::Symbol,
+            "Nil" => TypeMember::Nil,
+            _ => return None,
+        };
+        Some(Self::single(member))
     }
 
     /// Infers the Type of an expression, or `None` when it is not known here.
     fn of(expression: &Expression) -> Option<Self> {
         match expression {
-            Expression::Symbol(_) => Some(Self::Symbol),
-            Expression::Array(_) => Some(Self::Array),
-            Expression::Hash(_) => Some(Self::Hash),
+            Expression::Symbol(_) => Some(Self::single(TypeMember::Symbol)),
+            Expression::Array(_) => Some(Self::single(TypeMember::Array)),
+            Expression::Hash(_) => Some(Self::single(TypeMember::Hash)),
             Expression::Grouped(inner) => Self::of(inner),
             Expression::Literal(text) => Self::of_literal(text),
             _ => None,
@@ -82,13 +113,13 @@ impl StaticType {
 
     fn of_literal(text: &str) -> Option<Self> {
         match text {
-            "nil" => return Some(Self::Nil),
-            "true" | "false" => return Some(Self::Bool),
+            "nil" => return Some(Self::single(TypeMember::Nil)),
+            "true" | "false" => return Some(Self::single(TypeMember::Bool)),
             _ => {}
         }
         let first = text.chars().next()?;
         if first == '"' || first == '\'' {
-            return Some(Self::String);
+            return Some(Self::single(TypeMember::String));
         }
         if !first.is_ascii_digit() {
             return None;
@@ -96,9 +127,9 @@ impl StaticType {
         // A float literal is distinguished by its point or exponent, which the
         // lexer has already validated by this point.
         if text.contains('.') || text.contains('e') || text.contains('E') {
-            return Some(Self::Float);
+            return Some(Self::single(TypeMember::Float));
         }
-        Some(Self::Integer)
+        Some(Self::single(TypeMember::Integer))
     }
 }
 
@@ -209,6 +240,20 @@ impl Analyzer {
         match annotation {
             iris_syntax::TypeExpression::Name(name) => StaticType::from_nominal(name),
             iris_syntax::TypeExpression::Typeof(operand) => self.expression_type(operand),
+            // `C005` names `String | Integer` as the way to declare a wider
+            // cell, so a written union is the union of its members. One
+            // unknown member makes the whole annotation unknown rather than
+            // narrower than written, which would cause a WRONG rejection.
+            iris_syntax::TypeExpression::Union(members) => members
+                .iter()
+                .try_fold(None, |accumulated, member| {
+                    let member = self.annotation_type(member)?;
+                    Some(Some(match accumulated {
+                        Some(accumulated) => StaticType::union(&accumulated, &member),
+                        None => member,
+                    }))
+                })
+                .flatten(),
             _ => None,
         }
     }
@@ -219,17 +264,32 @@ impl Analyzer {
             // `nil`, `true` and `false` reach the parser as NAMES rather than
             // literals, so they are resolved here before an ordinary binding
             // lookup, which would otherwise find nothing and report no Type.
-            Expression::Name(name) if name == "nil" => Some(StaticType::Nil),
-            Expression::Name(name) if name == "true" || name == "false" => Some(StaticType::Bool),
+            Expression::Name(name) if name == "nil" => Some(StaticType::single(TypeMember::Nil)),
+            Expression::Name(name) if name == "true" || name == "false" => {
+                Some(StaticType::single(TypeMember::Bool))
+            }
             // Any other name carries the fixed Type its binding was declared
             // with.
-            Expression::Name(name) => self.lookup(name).and_then(|local| local.fixed_type),
+            Expression::Name(name) => self.lookup(name).and_then(|local| local.fixed_type.clone()),
             // `D-361`: `!x` and `!!x` ALWAYS have static Type Bool, whatever the
             // operand's Type is.
             Expression::Unary {
                 operator: iris_syntax::UnaryOperator::Not,
                 ..
-            } => Some(StaticType::Bool),
+            } => Some(StaticType::single(TypeMember::Bool)),
+            // `D-359`: `to_bool` decides only WHICH operand value is returned,
+            // so the static result Type is the normalized union of the
+            // reachable operand Types rather than `Bool`.
+            Expression::Binary {
+                left,
+                operator:
+                    iris_syntax::BinaryOperator::LogicalAnd | iris_syntax::BinaryOperator::LogicalOr,
+                right,
+            } => {
+                let left = self.expression_type(left)?;
+                let right = self.expression_type(right)?;
+                Some(StaticType::union(&left, &right))
+            }
             _ => StaticType::of(expression),
         }
     }
@@ -286,12 +346,13 @@ impl Analyzer {
                 let fixed_type = match annotation {
                     Some(annotation) => {
                         let declared = self.annotation_type(annotation);
+                        let contract = declared.clone();
                         // C005 makes the annotation a CONTRACT for the cell, so
                         // the initializer must satisfy it at the declaration
                         // just as later assignments must.
-                        if let (Some(declared), Some(initial)) =
-                            (declared, self.expression_type(value))
-                            && declared != initial
+                        if let (Some(contract), Some(initial)) =
+                            (contract, self.expression_type(value))
+                            && !contract.accepts(&initial)
                         {
                             self.report("BINDING_FIXED_LOCAL_TYPE");
                         }
@@ -453,8 +514,9 @@ impl Analyzer {
                         // guessed at.
                         Some(local) => {
                             let assigned = self.expression_type(right);
-                            if let (Some(fixed), Some(assigned)) = (local.fixed_type, assigned)
-                                && fixed != assigned
+                            let fixed = local.fixed_type.clone();
+                            if let (Some(fixed), Some(assigned)) = (fixed, assigned)
+                                && !fixed.accepts(&assigned)
                             {
                                 self.report("BINDING_FIXED_LOCAL_TYPE");
                             }
@@ -813,5 +875,52 @@ mod static_type_observation_tests {
             ["BINDING_FIXED_LOCAL_TYPE"]
         );
         assert!(codes("let x = 1; let negated = !x; let probe: typeof(negated) = true").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod operand_union_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn d359_types_a_logical_operator_as_the_normalized_operand_union() {
+        // D-359: `to_bool` decides only WHICH operand value is returned, so the
+        // static result Type is the union of the reachable operands rather than
+        // Bool. Both members must be accepted and Bool must not be.
+        let prefix = "let left: String | Nil = nil; let r = left || \"fallback\"; ";
+        assert!(codes(&format!("{prefix}let probe: typeof(r) = \"s\"")).is_empty());
+        assert!(codes(&format!("{prefix}let probe: typeof(r) = nil")).is_empty());
+        assert_eq!(
+            codes(&format!("{prefix}let probe: typeof(r) = true")),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+        // A Type outside the union is rejected too, so the union is not simply
+        // accepting everything.
+        assert_eq!(
+            codes(&format!("{prefix}let probe: typeof(r) = 1")),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+    }
+
+    #[test]
+    fn c005_lets_a_written_union_widen_the_declared_cell() {
+        // A wider declared Type accepts a narrower value, in either order, and
+        // normalization makes the member order irrelevant.
+        assert!(codes("let mut v: String | Integer = 1; v = \"text\"").is_empty());
+        assert!(codes("let mut v: Integer | String = \"text\"; v = 1").is_empty());
+        // A Type outside the written union is still rejected.
+        assert_eq!(
+            codes("let mut v: String | Integer = 1; v = :sym"),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
     }
 }
