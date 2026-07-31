@@ -147,7 +147,8 @@ blocked. Grouped by the capability each one actually waits on.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Static Type reflection | `V302`, `V330`, `V331`, `V332`, `V345` | The rows assert static Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, or a fixed inferred local Type. `.type` reports a missing message and no local Type inference exists. |
+| Static Type reflection | `V302`, `V330`, `V331`, `V332` | The rows assert static Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, or a normalized operand-union Type. `.type` reports a missing message, and no Type is observable from source at all. |
+| Diagnostic exists but the frozen text names no code | `V345` | Fixed-local-Type checking now WORKS: `mut value = 1; value = "text"` is rejected, and an explicit `String \| Integer` or `Dynamic<Object>` annotation correctly escapes it. But the row says only "Fixed-local-Type diagnostic", so the expectation would assert an implementation-invented code. Behaviour is locked by unit tests instead. |
 | Top-level `fun` and Module declarations | `V333`, `V334`, `V335`, `V335A`, `V352` | A top-level `fun` is `UnsupportedConstruct`, and the rows additionally need Module bodies with private-member dispatch. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
 | No stable diagnostic code in the frozen text | `V288A`, `V289A`, `V355B`, `V357A` | Each asserts a legacy form is "rejected during parsing" without naming a code. `switch`/`when` are deliberately IDENTIFIERS under `IRIS-V1-GRAMMAR-V010`, so they parse as ordinary names. Transcribing these against invented codes would test the implementation against itself. |

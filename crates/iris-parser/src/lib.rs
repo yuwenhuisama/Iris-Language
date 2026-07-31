@@ -581,16 +581,17 @@ impl Parser {
                 return None;
             }
             let binding = self.binding_name()?;
-            let annotated = if self.consume(":") {
-                self.type_expression()?;
-                true
+            let annotation = if self.consume(":") {
+                Some(self.type_expression()?)
             } else {
-                false
+                None
             };
+            let annotated = annotation.is_some();
             if self.consume("=") {
                 return self.expression(0).map(|value| Statement::Binding {
                     mutable,
                     name: binding,
+                    annotation,
                     value,
                 });
             }
@@ -1039,7 +1040,26 @@ impl Parser {
         })
     }
 
+    /// Parses `type_expr ::= type_union`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C013`'s grammar gives `type_union ::= type_intersection
+    /// ("|" type_intersection)*`, and `IRIS-V1-CONTROL-C005` points at
+    /// `String | Integer` as the way to declare a wider binding cell, so the
+    /// union level is required rather than optional.
     fn type_expression(&mut self) -> Option<TypeExpression> {
+        let first = self.type_intersection()?;
+        let mut values = vec![first];
+        while self.consume("|") {
+            values.push(self.type_intersection()?);
+        }
+        if values.len() == 1 {
+            values.pop()
+        } else {
+            Some(TypeExpression::Union(values))
+        }
+    }
+
+    fn type_intersection(&mut self) -> Option<TypeExpression> {
         // IRIS-V1-TYPES-C094 makes the bare signature NOT a Type on its own:
         // `callable_type ::= ("Closure"|"BoundMethod"|"Block") "<" function_type ">"`.
         // The inner `(` form is parsed only as that generic argument.

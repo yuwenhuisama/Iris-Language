@@ -706,6 +706,7 @@ impl SourceEvaluator {
                 mutable,
                 name,
                 value,
+                ..
             } => {
                 let value = self.expression(value, locals, receiver)?;
                 self.names
@@ -1086,6 +1087,7 @@ impl SourceEvaluator {
                     mutable,
                     name,
                     value,
+                    ..
                 } => {
                     let value = self.expression(value, &locals, receiver.clone())?;
                     if *mutable {

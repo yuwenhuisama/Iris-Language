@@ -108,6 +108,12 @@ pub enum Statement {
     Binding {
         mutable: bool,
         name: String,
+        /// The declared Type, when the source wrote one.
+        ///
+        /// `IRIS-V1-CONTROL-C005` makes an annotation a static contract for the
+        /// binding cell, and `C004` fixes the binding's Type either way, so the
+        /// annotation is retained rather than parsed and discarded.
+        annotation: Option<TypeExpression>,
         value: Expression,
     },
     /// A binding declared WITHOUT an initializer.

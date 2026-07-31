@@ -23,6 +23,86 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
 struct Local {
     name: String,
     mutable: bool,
+    /// The binding's fixed local Type, when it can be determined statically.
+    ///
+    /// `IRIS-V1-CONTROL-C005` makes an untyped initializer's precise static
+    /// Type the binding's FIXED local Type, and `C004` requires later
+    /// assignments to satisfy it without widening. `None` means the Type is not
+    /// statically known, so no assignment can be rejected against it.
+    fixed_type: Option<StaticType>,
+}
+
+/// The statically known Type of an expression, to the depth this pass tracks.
+///
+/// Only the literal forms are inferred. Anything else is `None` at the call
+/// site, which makes the fixed-type check SILENT rather than guessing: a
+/// wrong rejection is far worse than a missed one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StaticType {
+    Bool,
+    Integer,
+    Float,
+    String,
+    Symbol,
+    Nil,
+    Array,
+    Hash,
+}
+
+impl StaticType {
+    /// Maps a written annotation to a tracked Type.
+    ///
+    /// A union, intersection, generic, or `typeof` annotation deliberately
+    /// yields `None`: those widen the cell in ways this pass does not model,
+    /// and `C005` explicitly points at `String | Integer` and `Dynamic<Object>`
+    /// as the way to ask for a wider cell.
+    fn from_annotation(annotation: &iris_syntax::TypeExpression) -> Option<Self> {
+        let iris_syntax::TypeExpression::Name(name) = annotation else {
+            return None;
+        };
+        match name.as_str() {
+            "Bool" => Some(Self::Bool),
+            "Integer" => Some(Self::Integer),
+            "Float32" | "Float64" => Some(Self::Float),
+            "String" => Some(Self::String),
+            "Symbol" => Some(Self::Symbol),
+            "Nil" => Some(Self::Nil),
+            _ => None,
+        }
+    }
+
+    /// Infers the Type of an expression, or `None` when it is not known here.
+    fn of(expression: &Expression) -> Option<Self> {
+        match expression {
+            Expression::Symbol(_) => Some(Self::Symbol),
+            Expression::Array(_) => Some(Self::Array),
+            Expression::Hash(_) => Some(Self::Hash),
+            Expression::Grouped(inner) => Self::of(inner),
+            Expression::Literal(text) => Self::of_literal(text),
+            _ => None,
+        }
+    }
+
+    fn of_literal(text: &str) -> Option<Self> {
+        match text {
+            "nil" => return Some(Self::Nil),
+            "true" | "false" => return Some(Self::Bool),
+            _ => {}
+        }
+        let first = text.chars().next()?;
+        if first == '"' || first == '\'' {
+            return Some(Self::String);
+        }
+        if !first.is_ascii_digit() {
+            return None;
+        }
+        // A float literal is distinguished by its point or exponent, which the
+        // lexer has already validated by this point.
+        if text.contains('.') || text.contains('e') || text.contains('E') {
+            return Some(Self::Float);
+        }
+        Some(Self::Integer)
+    }
 }
 
 /// The control context a statement appears in.
@@ -110,10 +190,15 @@ impl Analyzer {
     }
 
     fn declare(&mut self, name: &str, mutable: bool) {
+        self.declare_typed(name, mutable, None);
+    }
+
+    fn declare_typed(&mut self, name: &str, mutable: bool, fixed_type: Option<StaticType>) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.push(Local {
                 name: name.to_owned(),
                 mutable,
+                fixed_type,
             });
         }
     }
@@ -161,10 +246,17 @@ impl Analyzer {
             Statement::Binding {
                 mutable,
                 name,
+                annotation,
                 value,
             } => {
                 self.expression(value, control);
-                self.declare(name, *mutable);
+                // C005: an annotation is the contract when written, otherwise
+                // the initializer's precise static Type becomes the fixed one.
+                let fixed_type = match annotation {
+                    Some(annotation) => StaticType::from_annotation(annotation),
+                    None => StaticType::of(value),
+                };
+                self.declare_typed(name, *mutable, fixed_type);
             }
             // `IRIS-V1-CONTROL-D-427`: `let` MUST be initialized, and a deferred
             // `mut` is legal only with an explicit type.
@@ -311,7 +403,19 @@ impl Analyzer {
                         Some(local) if !local.mutable => {
                             self.report("BINDING_ASSIGN_TO_IMMUTABLE");
                         }
-                        Some(_) => {}
+                        // C004: a later assignment MUST satisfy the fixed local
+                        // Type and MUST NOT widen it implicitly. Both Types must
+                        // be known, so an unknown initializer or a union
+                        // annotation leaves the binding unchecked rather than
+                        // guessed at.
+                        Some(local) => {
+                            if let (Some(fixed), Some(assigned)) =
+                                (local.fixed_type, StaticType::of(right))
+                                && fixed != assigned
+                            {
+                                self.report("BINDING_FIXED_LOCAL_TYPE");
+                            }
+                        }
                     }
                 } else {
                     self.expression(left, control);
@@ -578,5 +682,48 @@ mod immutable_binding_tests {
         // Reading any of them stays legal.
         assert!(codes("class C { public fun m(p) { p } }").is_empty());
         assert!(codes("try { raise :x } catch error: Symbol, c { error }").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod fixed_local_type_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c004_fixes_a_local_type_and_rejects_implicit_widening() {
+        // C005 makes an untyped initializer's precise static Type the fixed
+        // local Type, and C004 forbids a later assignment from widening it.
+        assert_eq!(
+            codes("let mut value = 1; value = \"text\""),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+        assert_eq!(
+            codes("let mut value: Integer = 1; value = :sym"),
+            ["BINDING_FIXED_LOCAL_TYPE"]
+        );
+
+        // Assigning the SAME Type is the ordinary case.
+        assert!(codes("let mut value = 1; value = 2").is_empty());
+        assert!(codes("let mut value: Integer = 1; value = 2").is_empty());
+
+        // C005 names an explicit union as the way to ask for a wider cell, so
+        // the check must not fire there. This is the escape hatch: without it
+        // the diagnostic would be inescapable rather than a contract.
+        assert!(codes("let mut value: String | Integer = 1; value = \"text\"").is_empty());
+        assert!(codes("let mut value: Dynamic<Object> = 1; value = \"text\"").is_empty());
+
+        // An initializer whose Type this pass cannot infer leaves the binding
+        // UNCHECKED rather than guessed at, since a wrong rejection is worse
+        // than a missed one.
+        assert!(codes("class C {} let mut value = C.new(); value = 1").is_empty());
     }
 }
