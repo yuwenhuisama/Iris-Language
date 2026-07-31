@@ -89,6 +89,7 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::ClosedGeneric { name, arguments } => {
             (format!("{name}<{} arguments>", arguments.len()), 17)
         }
+        Expression::ReifiedType(_) => ("(type)".into(), 17),
         Expression::Hash(entries) => (format!("%{{{} entries}}", entries.len()), 17),
         Expression::Closure { parameters, .. } => {
             (format!("{{|{}| ...}}", parameters.join(", ")), 17)
@@ -185,6 +186,7 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::ClosedGeneric { name, arguments } => {
             format!("closed_generic({name}, {})", arguments.len())
         }
+        Expression::ReifiedType(_) => "reified_type".into(),
         Expression::Closure { parameters, .. } => format!("closure({})", parameters.join(", ")),
         Expression::Hash(entries) => format!("hash({})", entries.len()),
         Expression::Symbol(value) => format!("symbol({value})"),

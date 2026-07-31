@@ -534,6 +534,7 @@ impl Kernel {
             | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(..)
+            | Value::ComposedType(_)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)

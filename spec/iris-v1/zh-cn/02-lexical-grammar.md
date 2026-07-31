@@ -429,8 +429,9 @@ index_suffix       ::= "[" call_argument_list? "]"
 property_suffix    ::= "." selector
 contract_view_suffix ::= ".." selector call_suffix?
 trailing_block     ::= closure_literal
-primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression | closed_generic_name
+primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression | closed_generic_name | reified_type_expr
 closed_generic_name ::= qualified_type_name generic_args
+reified_type_expr  ::= "(" type_expr ")" &"." "type"
 if_expression      ::= "if" expression block_body ("else" (if_expression | block_body))?
 grouped_or_tuple   ::= "(" expression ("," expression)* ","? ")"
 closure_literal    ::= "{" closure_header? closure_body "}"
@@ -573,6 +574,8 @@ IRIS-V1-GRAMMAR-C062：v1.16 勘误将 `method_decl` 中的 `block_body` 改为�
 IRIS-V1-GRAMMAR-C063：v1.17 勘误向 `primary_expr` 增加 `closed_generic_name ::= qualified_type_name generic_args`，因此**闭合**泛型构造 MAY 出现在表达式位置。这补上了 IRIS-V1-TYPES-C061 在要求普通构造必须命名闭合泛型类型时已经预设的语法，也是 `Box<String>.new()`、`Pair<String, Integer>.new()` 与 `Box<String>.type` 所需要的语法。IRIS-V1-GRAMMAR-C020 并未被削弱：名字之后的 `<` 仅在该名字是 `type_name`、且尖括号对以一个其后跟随 `postfix_part` 的 `>` 闭合时，才开始泛型实参。其余每一个 `<` 都保持其运算符分词，因此 `a < b` 仍是比较，`a >> b` 仍是右移。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。不带实参的裸泛型名字在 IRIS-V1-TYPES-C061 下仍是定义元数据，此处 NOT 接纳。
 
 IRIS-V1-GRAMMAR-C064：v1.18 勘误向 `property_decl` 增加 `"shared"? ("class" | "module")?`，因此属性 MAY 在类级或模块级声明，并 MAY 标记为 `shared`。这补上了 IRIS-V1-TYPES-C064 在区分「普通泛型类级存储（按闭合构造各自独立）」与「`shared class property`（属于未应用的泛型定义）」时已经预设的语法。其存储语义仍由 IRIS-V1-TYPES-C064 与 IRIS-V1-RUNTIME-C065 拥有；本条款仅补语法。`shared` 是 IRIS-V1-GRAMMAR-C059 已为 `shared_decl` 保留的关键字，因此不新增关键字；未标记的 `property` 保持其原有的实例级含义，完全不变。
+
+IRIS-V1-GRAMMAR-C065：v1.19 勘误向 `primary_expr` 增加 `reified_type_expr ::= "(" type_expr ")" &"." "type"`，因此带括号的类型表达式 MAY 被具体化为值。这补上了 IRIS-V1-TYPES-C016 与 IRIS-V1-TYPES-C076 在要求「可驻留、带标识的 Type 对象」时已经预设的语法，也是 `(String | Nil).type`、`(String & Object).type` 与 `(Object?).type` 所需要的语法。其中 `&"." "type"` 是**前瞻**而非被消费的输入：仅当右括号之后紧跟 `.type` 时，才取类型读法。其余一切位置上，`|`、`&`、`?` 均保持 IRIS-V1-GRAMMAR-C020 与表达式优先级表赋予它们的运算符分词，因此 `(a | b)` 仍是按位或，`(a & b) . 其他选择子` 仍是按位与。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。本条款不新增关键字、不新增词法单元：`type` 仍是普通选择子。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

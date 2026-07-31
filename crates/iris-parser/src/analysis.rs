@@ -1036,6 +1036,10 @@ impl Analyzer {
                 self.expression(receiver, control);
                 self.expression(index, control);
             }
+            // A reified Type expression names Types and holds no subexpression
+            // to analyse, but its generic arguments carry the same arity
+            // obligation a written annotation does.
+            Expression::ReifiedType(annotation) => self.check_generic_arity(annotation),
             // A closed generic construction names a Type, so it carries the
             // same arity obligation a written annotation does.
             Expression::ClosedGeneric { name, arguments } => {

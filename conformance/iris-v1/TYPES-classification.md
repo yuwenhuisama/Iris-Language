@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 16 are committed here;
-the remaining 64 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 27 are committed here;
+the remaining 53 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -31,6 +31,17 @@ correctly fails each.
 | `V237` | negative | executable | `IRIS-V1-TYPES-C064` gives a `shared class property` ONE slot on the unapplied definition, so it cannot name a parameter that differs per construction. The v1.18 errata (`IRIS-V1-GRAMMAR-C064`) added the syntax. |
 | `V233` | positive | executable | `D-206` interns a closed Type by definition AND normalized arguments, so `Box<String>` and `Box<Integer>` are different Types of one definition. |
 | `V259` | diagnostic | executable | `IRIS-V1-TYPES-C004` requires a PROVABLE violation to be diagnosed BEFORE execution; `D-458` makes `Never` uninhabited, so any normal return violates it. |
+| `V001` | positive | executable | Union is commutative: members are sorted when the normal form is built. |
+| `V003` | positive | executable | Union is idempotent: members are deduplicated. |
+| `V004` | positive | executable | Intersection is idempotent. |
+| `V007` | positive | executable | `IRIS-V1-TYPES-C023` makes `Never` the union identity. |
+| `V008` | positive | executable | `C023` makes `Never` an intersection annihilator. |
+| `V009` | positive | executable | `C009` keeps `Object` the top, so it is the intersection identity. |
+| `V010` | positive | executable | `Object` absorbs a union. |
+| `V011` | positive | executable | `C011` makes `T?` sugar for `T | Nil`. |
+| `V012` | positive | executable | An optional `Object` collapses to `Object`. |
+| `V013` | positive | executable | An optional `Never` collapses to `Nil`. |
+| `V015` | positive | executable | `Nil & NonNil` is uninhabited. |
 
 ## Remaining rows and their blockers
 
@@ -41,7 +52,7 @@ and are now transcribed, and the groups below record why the rest did not.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Type-normalization law tables | `V001`-`V016` | These are not vector rows with a source and an observable. They are algebraic laws stated as a table, such as `String \| Never` normalizing to `String`. Asserting them needs Types to be constructible and comparable as VALUES, which needs the Type-expression surface below. |
+| Type-normalization law tables | `V002`, `V005`, `V006`, `V014`, `V016` | The v1.19 errata (`IRIS-V1-GRAMMAR-C065`) reified Type expressions, which closed eleven of these laws. The five left need a user-declared subtype pair, a Contract Type, or the explicit NON-distribution law. Asserting them needs Types to be constructible and comparable as VALUES, which needs the Type-expression surface below. |
 | Generic Types in expression position | `V219`, `V226`, `V229`, `V238`, `V244`, `V246`, `V247`, `V254`, `V256`, `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: interned Type identities, generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
 | String plus another missing capability | `V018`, `V205`, `V222`, `V224`, `V225`, `V227`, `V228`, `V230`, `V231`, `V236`, `V249`, `V250` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |

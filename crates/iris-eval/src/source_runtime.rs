@@ -1595,6 +1595,11 @@ impl SourceEvaluator {
             // IRIS-V1-CONTROL-C026 evaluates a keyword argument in place with
             // the positionals, so the value is produced here and the name is
             // carried to the binding step.
+            // C065 reifies a parenthesized Type expression. C016 interns Type
+            // objects by identity, and the normalization law table requires
+            // `String | Integer` and `Integer | String` to be ONE Type, so the
+            // written form is reduced to a canonical one here.
+            Expression::ReifiedType(annotation) => self.reify_type(annotation),
             // C061 makes a closed generic construction name an ordinary Class
             // for construction and reflection. v1 interns one Class per generic
             // definition, so the arguments select no distinct runtime Class and
@@ -2385,6 +2390,9 @@ impl SourceEvaluator {
             // A bare Class name carries no generic arguments, so its Type is
             // the unapplied definition's.
             Value::Class(class) if selector == "type" => Ok(Value::Type(class, Vec::new())),
+            // C065's lookahead does not consume the `.type`, so a reified Type
+            // arrives here already normalized and answers `.type` as itself.
+            value @ (Value::Type(..) | Value::ComposedType(_)) if selector == "type" => Ok(value),
             Value::Type(left, _) if selector == "subtype?" => {
                 let [Value::Type(right, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -2756,6 +2764,201 @@ impl SourceEvaluator {
         ))
     }
 
+    /// Reduces a written Type expression to the interned normal form.
+    ///
+    /// `IRIS-V1-TYPES-C016` interns Type objects by identity, so two spellings
+    /// of one Type MUST reify to equal values. Members are sorted and
+    /// deduplicated, which makes commutativity and idempotence hold by
+    /// construction rather than by a separate comparison rule.
+    fn reify_type(
+        &mut self,
+        annotation: &iris_syntax::TypeExpression,
+    ) -> Result<Value, EvaluationError> {
+        let form = self.normalize_type(annotation)?;
+        Ok(match form {
+            // A single nominal atom is the ordinary nominal Type, which keeps
+            // `(String).type` equal to `String.type`.
+            iris_runtime::ComposedType::Union(members)
+            | iris_runtime::ComposedType::Intersection(members)
+                if members.len() == 1 =>
+            {
+                match &members[0] {
+                    iris_runtime::TypeAtom::Nominal(class, arguments) => {
+                        Value::Type(*class, arguments.clone())
+                    }
+                    iris_runtime::TypeAtom::NonNil => {
+                        Value::ComposedType(iris_runtime::ComposedType::Intersection(members))
+                    }
+                }
+            }
+            form => Value::ComposedType(form),
+        })
+    }
+
+    /// Builds the normal form of a written Type expression.
+    fn normalize_type(
+        &mut self,
+        annotation: &iris_syntax::TypeExpression,
+    ) -> Result<iris_runtime::ComposedType, EvaluationError> {
+        use iris_runtime::{ComposedType, TypeAtom};
+        match annotation {
+            // C023 makes `Never` uninhabited: it is the identity of a union and
+            // absorbing in an intersection, which the combinators below apply.
+            iris_syntax::TypeExpression::Name(name) if name == "Never" => Ok(ComposedType::Never),
+            iris_syntax::TypeExpression::Name(name) if name == "NonNil" => {
+                Ok(ComposedType::Intersection(vec![TypeAtom::NonNil]))
+            }
+            iris_syntax::TypeExpression::Name(name) => {
+                let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
+                Ok(ComposedType::Union(vec![TypeAtom::Nominal(
+                    class,
+                    Vec::new(),
+                )]))
+            }
+            iris_syntax::TypeExpression::Generic { name, arguments } => {
+                let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
+                let mut normalized = Vec::new();
+                for argument in arguments {
+                    let iris_syntax::TypeExpression::Name(argument) = argument else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    normalized.push(
+                        self.class_name(argument)?
+                            .ok_or(EvaluationError::NameError)?,
+                    );
+                }
+                Ok(ComposedType::Union(vec![TypeAtom::Nominal(
+                    class, normalized,
+                )]))
+            }
+            iris_syntax::TypeExpression::Union(members) => {
+                let mut atoms = Vec::new();
+                for member in members {
+                    match self.normalize_type(member)? {
+                        // `T | Never` is `T`, so an uninhabited member adds
+                        // nothing.
+                        ComposedType::Never => {}
+                        ComposedType::Union(members) | ComposedType::Intersection(members) => {
+                            atoms.extend(members)
+                        }
+                    }
+                }
+                let atoms = self.absorb(atoms, true)?;
+                Ok(Self::canonical(ComposedType::Union, atoms))
+            }
+            iris_syntax::TypeExpression::Intersection(members) => {
+                let mut atoms = Vec::new();
+                for member in members {
+                    match self.normalize_type(member)? {
+                        // `T & Never` is `Never`, which absorbs the whole form.
+                        ComposedType::Never => return Ok(ComposedType::Never),
+                        ComposedType::Union(members) | ComposedType::Intersection(members) => {
+                            atoms.extend(members)
+                        }
+                    }
+                }
+                let atoms = self.absorb(atoms, false)?;
+                if atoms.is_empty() {
+                    // V015: `Nil & NonNil` has no inhabitant at all.
+                    return Ok(ComposedType::Never);
+                }
+                Ok(Self::canonical(ComposedType::Intersection, atoms))
+            }
+            iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Function { .. } => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
+        }
+    }
+
+    /// Applies the absorption laws to a member list.
+    ///
+    /// `IRIS-V1-TYPES-V005` reduces `Dog | Animal` to `Animal` and `V006`
+    /// reduces `Dog & Animal` to `Dog` where `Dog <: Animal`, so a union keeps
+    /// the WIDER member and an intersection the NARROWER one. `V009` and `V010`
+    /// are the same law with `Object` as the top. `V014` and `V015` apply
+    /// `NonNil`, which removes `Nil` from an intersection and leaves nothing
+    /// when `Nil` was the only other member.
+    fn absorb(
+        &mut self,
+        atoms: Vec<iris_runtime::TypeAtom>,
+        union: bool,
+    ) -> Result<Vec<iris_runtime::TypeAtom>, EvaluationError> {
+        use iris_runtime::TypeAtom;
+        let mut atoms = atoms;
+        if !union && atoms.contains(&TypeAtom::NonNil) {
+            let nil = self
+                .kernel
+                .class(iris_runtime::BuiltinClass::Nil)
+                .map_err(EvaluationError::Runtime)?;
+            // A bare `NonNil` with nothing to constrain stays itself; it is a
+            // Type in its own right under C011.
+            if atoms.len() == 1 {
+                return Ok(atoms);
+            }
+            // V014 removes `Nil` from the intersection. V015 makes
+            // `Nil & NonNil` uninhabited, so when `Nil` was the ONLY other
+            // member nothing survives and the caller yields `Never`.
+            let had_other = atoms
+                .iter()
+                .any(|atom| matches!(atom, TypeAtom::Nominal(class, _) if *class != nil));
+            atoms.retain(|atom| !matches!(atom, TypeAtom::Nominal(class, _) if *class == nil));
+            atoms.retain(|atom| *atom != TypeAtom::NonNil);
+            if !had_other {
+                return Ok(Vec::new());
+            }
+        }
+        let mut kept: Vec<TypeAtom> = Vec::new();
+        for atom in atoms {
+            let mut absorbed = false;
+            let mut survivors = Vec::new();
+            for existing in kept {
+                match (&atom, &existing) {
+                    (TypeAtom::Nominal(left, la), TypeAtom::Nominal(right, ra))
+                        if la.is_empty() && ra.is_empty() =>
+                    {
+                        // A union keeps the WIDER of a related pair; an
+                        // intersection keeps the NARROWER.
+                        let atom_wider = self.subtype(*right, *left)? == Value::Bool(true);
+                        let existing_wider = self.subtype(*left, *right)? == Value::Bool(true);
+                        if union && atom_wider {
+                            continue;
+                        }
+                        if union && existing_wider {
+                            absorbed = true;
+                        }
+                        if !union && existing_wider {
+                            continue;
+                        }
+                        if !union && atom_wider {
+                            absorbed = true;
+                        }
+                        survivors.push(existing);
+                    }
+                    _ => survivors.push(existing),
+                }
+            }
+            kept = survivors;
+            if !absorbed {
+                kept.push(atom);
+            }
+        }
+        Ok(kept)
+    }
+
+    /// Sorts and deduplicates members so one Type has ONE spelling.
+    fn canonical(
+        build: fn(Vec<iris_runtime::TypeAtom>) -> iris_runtime::ComposedType,
+        mut atoms: Vec<iris_runtime::TypeAtom>,
+    ) -> iris_runtime::ComposedType {
+        atoms.sort();
+        atoms.dedup();
+        if atoms.is_empty() {
+            return iris_runtime::ComposedType::Never;
+        }
+        build(atoms)
+    }
+
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
         match self.names.get(name) {
             Some(Binding {
@@ -3030,6 +3233,7 @@ impl SourceEvaluator {
                         | Value::Symbol(_)
                         | Value::Class(_)
                         | Value::Type(..)
+                        | Value::ComposedType(_)
                         | Value::Contract(_)
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
@@ -3074,6 +3278,7 @@ impl SourceEvaluator {
             | Value::Symbol(_)
             | Value::Class(_)
             | Value::Type(..)
+            | Value::ComposedType(_)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
@@ -3310,6 +3515,7 @@ impl SourceEvaluator {
             | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(..)
+            | Value::ComposedType(_)
             | Value::Contract(_)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
@@ -3918,6 +4124,7 @@ fn meta_capabilities(names: &[String]) -> Result<MetaCapabilities, EvaluationErr
 
 fn receiver_class_name(value: &Value) -> &'static str {
     match value {
+        Value::ComposedType(_) => "Type",
         Value::Nil => "Nil",
         Value::Bool(_) => "Bool",
         Value::Integer(_) => "Integer",

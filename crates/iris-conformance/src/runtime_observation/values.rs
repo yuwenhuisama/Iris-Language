@@ -172,6 +172,7 @@ fn render_value(value: &RuntimeValue) -> String {
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
         RuntimeValue::Class(_)
         | RuntimeValue::Type(..)
+        | RuntimeValue::ComposedType(_)
         | RuntimeValue::Contract(_)
         | RuntimeValue::Closure(_)
         | RuntimeValue::KeywordArgument(_, _)
@@ -205,7 +206,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
-        RuntimeValue::Type(..) => "Type",
+        RuntimeValue::Type(..) | RuntimeValue::ComposedType(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",

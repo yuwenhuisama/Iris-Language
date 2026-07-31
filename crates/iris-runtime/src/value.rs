@@ -242,4 +242,35 @@ pub enum Value {
     /// ClassId; dropping them made every construction of a definition one
     /// interned Type.
     Type(ClassId, Vec<ClassId>),
+    /// An interned COMPOSED Type: a union or intersection reduced to its
+    /// normal form.
+    ///
+    /// `IRIS-V1-TYPES-C016` interns Type objects by identity, and the chapter's
+    /// normalization law table requires `String | Integer` and
+    /// `Integer | String` to be ONE interned Type. A composed Type therefore
+    /// carries a canonical member list rather than the written order, so
+    /// commutativity, idempotence, and absorption hold by construction.
+    ComposedType(ComposedType),
+}
+
+/// The normal form of a union or intersection Type.
+///
+/// Members are sorted and deduplicated when the form is built, so two
+/// spellings of one Type compare equal without a separate normalization pass.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ComposedType {
+    /// The uninhabited Type. `IRIS-V1-TYPES-C023` makes it absorbing in an
+    /// intersection and an identity in a union.
+    Never,
+    Union(Vec<TypeAtom>),
+    Intersection(Vec<TypeAtom>),
+}
+
+/// One irreducible constituent of a composed Type.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TypeAtom {
+    /// A nominal Class, with the generic arguments D-206 interns it by.
+    Nominal(ClassId, Vec<ClassId>),
+    /// `NonNil`, which C011 makes a Type rather than a declared Class.
+    NonNil,
 }

@@ -1910,3 +1910,53 @@ let a = A.new(); a.m(nil)";
     assert_eq!(rendered(inherited_satisfied), "Integer(IntegerValue(3))");
     assert_eq!(rendered(undeclared), "Nil");
 }
+
+#[test]
+fn c016_interns_a_composed_type_in_its_normal_form() {
+    // C016 interns Type objects by identity, so two spellings of ONE Type must
+    // reify to equal values. Members are sorted and deduplicated when the form
+    // is built, which makes commutativity and idempotence hold by construction
+    // rather than by a separate comparison rule.
+    let commutative = "(String | Integer).type same? (Integer | String).type";
+    let idempotent_union = "(String | String).type same? String.type";
+    let idempotent_intersection = "(String & String).type same? String.type";
+    // C023 makes `Never` the union identity and an intersection annihilator.
+    let union_identity = "(String | Never).type same? String.type";
+    let intersection_annihilator = "(String & Never).type same? (Never).type";
+    // C009 keeps `Object` the top, so it is the intersection identity and the
+    // union absorber.
+    let intersection_identity = "(String & Object).type same? String.type";
+    let union_absorber = "(String | Object).type same? Object.type";
+    // C011 makes `T?` sugar for `T | Nil`, so the sugar normalizes alike.
+    let nilable = "(String?).type same? (String | Nil).type";
+    let object_optional = "(Object?).type same? Object.type";
+    let never_optional = "(Never?).type same? Nil.type";
+    // `NonNil` removes `Nil`, and removing the only other member leaves an
+    // uninhabited Type.
+    let non_nil_removal = "((String | Nil) & NonNil).type same? String.type";
+    let non_nil_impossible = "(Nil & NonNil).type same? (Never).type";
+    // C065 confines the Type reading to a `.type` lookahead, so a parenthesized
+    // expression NOT followed by `.type` keeps the OPERATOR reading. Bitwise or
+    // on Integer is not implemented, so reaching its dispatch at all proves the
+    // Type reading was not taken.
+    let operator_reading = "let a = 6; let b = 3; (a | b)";
+
+    // When / Then
+    for source in [
+        commutative,
+        idempotent_union,
+        idempotent_intersection,
+        union_identity,
+        intersection_annihilator,
+        intersection_identity,
+        union_absorber,
+        nilable,
+        object_optional,
+        never_optional,
+        non_nil_removal,
+        non_nil_impossible,
+    ] {
+        assert_eq!(rendered(source), "Bool(true)", "law failed: {source}");
+    }
+    assert!(rendered(operator_reading).contains("selector: \"|\""));
+}

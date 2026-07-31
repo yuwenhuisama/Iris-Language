@@ -166,6 +166,33 @@ impl Parser {
         self.diagnostics.truncate(diagnostics);
     }
 
+    /// Parses `reified_type_expr`, or rewinds entirely.
+    ///
+    /// `IRIS-V1-GRAMMAR-C065` takes the Type reading ONLY when the closing
+    /// parenthesis is immediately followed by `.type`. The `&"." "type"` is a
+    /// LOOKAHEAD rather than consumed input, so the caller still parses the
+    /// `.type` member access itself. Where both readings would be well formed
+    /// the OPERATOR reading wins, which is why this speculates and restores
+    /// diagnostics as well as the cursor.
+    fn reified_type_expression(&mut self) -> Option<iris_syntax::TypeExpression> {
+        let start = self.cursor;
+        let diagnostics = self.diagnostics.len();
+        self.advance();
+        let Some(annotation) = self.type_expression() else {
+            self.rewind(start, diagnostics);
+            return None;
+        };
+        if !self.consume(")") {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        if !(self.check(".") && self.peek_next() == Some("type")) {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        Some(annotation)
+    }
+
     fn primary(&mut self) -> Option<Expression> {
         if self.consume("@@") {
             return self.name().map(Expression::ClassVar);
@@ -173,7 +200,15 @@ impl Parser {
         if self.consume("@") {
             return self.name().map(Expression::RawIvar);
         }
-        if self.consume("(") {
+        if self.check("(") {
+            // C065 reifies a parenthesized Type expression, but ONLY when the
+            // closing parenthesis is immediately followed by `.type`. That
+            // lookahead is what keeps `(a | b)` a bitwise or, so the Type
+            // reading is speculated first and rewound when it does not apply.
+            if let Some(annotation) = self.reified_type_expression() {
+                return Some(Expression::ReifiedType(annotation));
+            }
+            self.advance();
             let value = self.expression(0)?;
             self.expect(")")?;
             return Some(Expression::Grouped(Box::new(value)));

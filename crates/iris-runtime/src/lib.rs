@@ -37,4 +37,4 @@ pub use protocol::{
 };
 pub use runtime::{ConstructionError, ExecutionError, Runtime};
 pub use stable_hash::{StableHashError, numeric_hash, numeric_public_hash, public_hash};
-pub use value::{IntegerValue, Value};
+pub use value::{ComposedType, IntegerValue, TypeAtom, Value};

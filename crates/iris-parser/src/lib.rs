@@ -1208,6 +1208,15 @@ impl Parser {
             let expression = self.expression(0)?;
             self.expect(")")?;
             TypeExpression::Typeof(Box::new(expression))
+        } else if self.check("(") {
+            // `type_primary ::= ... | "(" type_expr ")"`. A grouped Type was
+            // never parsed, so `(String | Nil) & NonNil` could not be written.
+            self.advance();
+            let outer = std::mem::replace(&mut self.no_type_union, false);
+            let grouped = self.type_expression();
+            self.no_type_union = outer;
+            self.expect(")")?;
+            grouped?
         } else {
             let name = self.qualified_name()?;
             // `type_primary ::= ... | qualified_type_name generic_args? | ...`
@@ -1233,9 +1242,18 @@ impl Parser {
                 TypeExpression::Name(name)
             }
         };
+        // `type_postfix ::= type_primary "?"?`. C011 makes `T?` sugar for
+        // `T | Nil`, which V011 states as a normalization law, so the sugar is
+        // expanded here rather than carried as a distinct Type form.
+        let first = if self.consume("?") {
+            TypeExpression::Union(vec![first, TypeExpression::Name("Nil".into())])
+        } else {
+            first
+        };
         let mut values = vec![first];
         while self.consume("&") {
-            values.push(TypeExpression::Name(self.name()?));
+            let member = self.type_intersection()?;
+            values.push(member);
         }
         if values.len() == 1 {
             values.pop()

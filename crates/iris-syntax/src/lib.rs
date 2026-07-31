@@ -329,6 +329,12 @@ pub enum Pattern {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expression {
+    /// A parenthesized Type expression reified as a value, as in
+    /// `(String | Nil).type`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C065` admits this only when `.type` follows, which is
+    /// what keeps `(a | b)` an ordinary bitwise or.
+    ReifiedType(TypeExpression),
     /// A closed generic construction used as a value, as in `Box<String>.new()`.
     ///
     /// `IRIS-V1-GRAMMAR-C063` admits this in `primary_expr`; a BARE generic

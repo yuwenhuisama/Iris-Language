@@ -199,9 +199,10 @@ impl Evaluator {
             Expression::KeywordArgument { .. }
             | Expression::Index { .. }
             | Expression::Try { .. }
-            // A closed generic construction needs the Class registry the
-            // literal evaluator does not have.
+            // A closed generic construction and a reified Type both need the
+            // Class registry the literal evaluator does not have.
             | Expression::ClosedGeneric { .. }
+            | Expression::ReifiedType(_)
             | Expression::While { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Name(name) => self.name(name),
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
@@ -460,6 +461,7 @@ impl Evaluator {
             | RuntimeValue::Symbol(_)
             | RuntimeValue::Class(_)
             | RuntimeValue::Type(..)
+            | RuntimeValue::ComposedType(_)
             | RuntimeValue::Contract(_)
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
@@ -510,7 +512,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
         RuntimeValue::Class(_) => "Class",
-        RuntimeValue::Type(..) => "Type",
+        RuntimeValue::Type(..) | RuntimeValue::ComposedType(_) => "Type",
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
@@ -583,6 +585,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::Index { .. }
         | Expression::Try { .. }
         | Expression::ClosedGeneric { .. }
+        | Expression::ReifiedType(_)
         | Expression::While { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }
