@@ -57,6 +57,13 @@ pub(super) struct SourceEvaluator {
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
+    /// The declared Type of each stored-property slot, keyed by Class and slot.
+    ///
+    /// `IRIS-V1-RUNTIME-C065` makes stored-property storage TYPED, and `C161`
+    /// makes `@name` that exact slot, so a raw write must meet the same C004
+    /// contract the generated setter enforces. Without this, a Method body
+    /// writing `@n` bypassed the property guard entirely.
+    property_types: HashMap<(ClassId, Selector), iris_syntax::TypeExpression>,
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
@@ -145,6 +152,7 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
+            property_types: HashMap::new(),
             closures: HashMap::new(),
             next_closure: 900_000,
             contract_names: HashMap::new(),
@@ -353,10 +361,18 @@ impl SourceEvaluator {
                 Statement::StoredProperty {
                     decorators,
                     name,
+                    annotation,
                     initializer,
                     ..
                 } => {
-                    self.stored_property(class, builtin, decorators, name, initializer.clone())?;
+                    self.stored_property(
+                        class,
+                        builtin,
+                        decorators,
+                        name,
+                        annotation,
+                        initializer.clone(),
+                    )?;
                 }
                 Statement::SharedBinding {
                     mutable,
@@ -532,12 +548,42 @@ impl SourceEvaluator {
         }
     }
 
+    /// The declared Type of a stored-property slot on a receiver, if any.
+    ///
+    /// `IRIS-V1-RUNTIME-C066` makes slot identity `(receiver, name)` rather
+    /// than the declaring Class, so a subclass Method writing an inherited
+    /// slot targets the SAME slot and meets the same contract. The ancestry is
+    /// therefore searched rather than the receiver's own Class alone.
+    fn property_type(
+        &self,
+        object: iris_runtime::ObjectId,
+        slot: Selector,
+    ) -> Option<iris_syntax::TypeExpression> {
+        let class = self.runtime.class_of(object).ok()?;
+        if let Some(annotation) = self.property_types.get(&(class, slot)) {
+            return Some(annotation.clone());
+        }
+        self.runtime
+            .registry()
+            .active(class)
+            .ok()?
+            .mro()
+            .iter()
+            .find_map(|entry| match entry {
+                iris_runtime::MroEntry::Class(entry) => {
+                    self.property_types.get(&(*entry, slot)).cloned()
+                }
+                iris_runtime::MroEntry::Module(_) => None,
+            })
+    }
+
     fn stored_property(
         &mut self,
         class: ClassId,
         builtin: bool,
         decorators: &[iris_syntax::Decorator],
         name: &str,
+        annotation: &iris_syntax::TypeExpression,
         initializer: Expression,
     ) -> Result<(), EvaluationError> {
         let getter = MethodDeclaration {
@@ -563,9 +609,12 @@ impl SourceEvaluator {
             parameters: vec![iris_syntax::Parameter {
                 name: "value".into(),
                 category: iris_syntax::ParameterCategory::Positional,
-                // A synthesized accessor writes no annotation, so it carries no
-                // C004 boundary guard of its own.
-                annotation: None,
+                // C004 guards a PROPERTY boundary, and every write to a stored
+                // property goes through this synthesized setter. Carrying the
+                // declared Type onto its parameter makes the existing parameter
+                // guard enforce the property, so a violating value written from
+                // a Method body is rejected instead of stored silently.
+                annotation: Some(annotation.clone()),
                 default: None,
             }],
             visibility: iris_syntax::Visibility::Public,
@@ -594,6 +643,13 @@ impl SourceEvaluator {
         self.class_method(class, builtin, false, &setter)?;
         let body = self.register_body(initializer);
         let property = self.selector(&format!("@{name}"));
+        // C065 makes the storage TYPED and C161 makes `@name` that exact slot,
+        // so the declared Type is recorded against the slot a raw write targets.
+        // Source `@n` parses to the RawIvar text `n` WITHOUT the sigil, so the
+        // key uses that spelling rather than the `@n` the registry publishes.
+        let raw_slot = self.selector(name);
+        self.property_types
+            .insert((class, raw_slot), annotation.clone());
         let decorators = self.decorator_transforms(decorators);
         self.runtime
             .registry_mut()
@@ -2017,6 +2073,14 @@ impl SourceEvaluator {
                         Value::Object(object) => {
                             let value =
                                 self.expression(right, locals, Some(Value::Object(object)))?;
+                            // C065 keeps stored-property storage TYPED, so a raw
+                            // write to a declared slot meets the SAME C004
+                            // contract the generated setter enforces. An
+                            // undeclared slot has static type `Dynamic<Object>`
+                            // under C068 and is unguarded.
+                            if let Some(annotation) = self.property_type(object, selector) {
+                                self.check_binding_annotation(&value, &annotation)?;
+                            }
                             self.runtime
                                 .assign_raw_ivar(object, selector, value)
                                 .map_err(EvaluationError::Construction)

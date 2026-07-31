@@ -1873,3 +1873,40 @@ fn d206_interns_a_closed_type_by_definition_and_arguments() {
     assert_eq!(rendered(unapplied), "Bool(true)");
     assert_eq!(rendered(type_is_not_class), "Bool(false)");
 }
+
+#[test]
+fn c065_guards_a_stored_property_slot_against_a_raw_write() {
+    // C065 makes stored-property storage TYPED and C161 makes `@name` that
+    // exact slot, so a raw write meets the SAME C004 contract the generated
+    // setter enforces. A Method body writing `@n` bypassed the guard entirely.
+    let raw_violation = "class A { property n: Integer = 0
+  public fun bad(x) { @n = x } }
+let a = A.new(); a.bad(nil)";
+    let raw_satisfied = "class A { property n: Integer = 0
+  public fun ok(x) { @n = x } }
+let a = A.new(); a.ok(7); a.n";
+    // The generated setter guards the same slot from outside.
+    let setter_violation = "class A { property n: Integer = 0 }
+let a = A.new(); a.n = nil";
+    // C066 makes slot identity `(receiver, name)` rather than the declaring
+    // Class, so a subclass Method writing an inherited slot meets the SAME
+    // contract.
+    let inherited_violation = "class A { property n: Integer = 0 }
+class B extends A { public fun bad(x) { @n = x } }
+B.new().bad(nil)";
+    let inherited_satisfied = "class A { property n: Integer = 0 }
+class B extends A { public fun ok(x) { @n = x } }
+B.new().ok(3)";
+    // C068 gives an UNDECLARED raw ivar static type `Dynamic<Object>`, so it
+    // carries no contract and stays unguarded.
+    let undeclared = "class A { public fun m(x) { @free = x } }
+let a = A.new(); a.m(nil)";
+
+    // When / Then
+    assert_eq!(rendered(raw_violation), "TypeContractError");
+    assert!(rendered(raw_satisfied).contains("Integer(IntegerValue(7))"));
+    assert_eq!(rendered(setter_violation), "TypeContractError");
+    assert_eq!(rendered(inherited_violation), "TypeContractError");
+    assert_eq!(rendered(inherited_satisfied), "Integer(IntegerValue(3))");
+    assert_eq!(rendered(undeclared), "Nil");
+}
