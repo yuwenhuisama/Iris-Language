@@ -11,8 +11,11 @@ fn main() -> ExitCode {
         [flag, chapter] if flag == "--chapter" && chapter == "CONTROL" => {
             iris_conformance::Chapter::Control
         }
+        [flag, chapter] if flag == "--chapter" && chapter == "TYPES" => {
+            iris_conformance::Chapter::Types
+        }
         _ => {
-            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL");
+            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES");
             return ExitCode::from(2);
         }
     };
@@ -22,9 +25,11 @@ fn main() -> ExitCode {
             iris_conformance::Chapter::Grammar => iris_conformance::execute(&records),
             // CONTROL vectors observe values, errors and diagnostics exactly as
             // RUNTIME ones do, so they share the runtime execution path.
-            iris_conformance::Chapter::Runtime | iris_conformance::Chapter::Control => {
-                iris_conformance::execute_runtime(&records)
-            }
+            // TYPES vectors observe values, errors and diagnostics exactly as
+            // RUNTIME and CONTROL ones do, so they share the same path.
+            iris_conformance::Chapter::Runtime
+            | iris_conformance::Chapter::Control
+            | iris_conformance::Chapter::Types => iris_conformance::execute_runtime(&records),
         }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
@@ -37,7 +42,9 @@ fn main() -> ExitCode {
                     report.authored_expect,
                     report.unrunnable_source
                 ),
-                iris_conformance::Chapter::Runtime | iris_conformance::Chapter::Control => {
+                iris_conformance::Chapter::Runtime
+                | iris_conformance::Chapter::Control
+                | iris_conformance::Chapter::Types => {
                     println!(
                         "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
                         report.passed,

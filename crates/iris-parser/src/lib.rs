@@ -1160,6 +1160,12 @@ impl Parser {
                 }
                 self.expect(">")?;
                 TypeExpression::Generic { name, arguments }
+            } else if self.check("[") {
+                // `IRIS-V1-TYPES-V210` NAMES this code. Angle brackets are the
+                // accepted spelling under IRIS-V1-GRAMMAR-C020, so `Box[String]`
+                // is rejected here rather than derailing the whole annotation.
+                self.error("GENERIC_BRACKET_SYNTAX_FORBIDDEN");
+                return None;
             } else {
                 TypeExpression::Name(name)
             }

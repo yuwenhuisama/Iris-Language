@@ -22,6 +22,7 @@ pub enum Chapter {
     Grammar,
     Runtime,
     Control,
+    Types,
 }
 
 impl Chapter {
@@ -30,6 +31,7 @@ impl Chapter {
             Self::Grammar => "GRAMMAR",
             Self::Runtime => "RUNTIME",
             Self::Control => "CONTROL",
+            Self::Types => "TYPES",
         }
     }
 }

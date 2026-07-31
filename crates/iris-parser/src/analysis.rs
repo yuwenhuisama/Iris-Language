@@ -16,6 +16,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         scopes: vec![Vec::new()],
         declared_class_variables: Vec::new(),
         qualified_namespace: Vec::new(),
+        generic_classes: Vec::new(),
     };
     analyzer.program(program);
     analyzer.diagnostics
@@ -218,6 +219,12 @@ struct Analyzer {
     /// constants in a single namespace, so a kind or name collision between any
     /// two of them is an error rather than a shadowing.
     qualified_namespace: Vec<String>,
+    /// Generic Class names with their declared parameter arity.
+    ///
+    /// `IRIS-V1-TYPES-C061` makes a bare generic Class name definition
+    /// METADATA rather than an instance Type, so construction and instance
+    /// annotations need a closed `Box<Type>`.
+    generic_classes: Vec<(String, usize)>,
 }
 
 impl Analyzer {
@@ -250,6 +257,22 @@ impl Analyzer {
     /// `IRIS-V1-TYPES-C093` makes `typeof(expression)` denote the NORMALIZED
     /// STATIC Type of its operand at that program point, without evaluating it,
     /// so it resolves to whatever Type this pass already tracks there.
+    /// Rejects a bare generic Class name used as an instance annotation.
+    ///
+    /// `IRIS-V1-TYPES-C061` makes bare `Box` definition metadata, not an
+    /// instance Type nor shorthand for `Box<Object>`, so an instance annotation
+    /// requires a closed `Box<Type>`. `IRIS-V1-TYPES-V209` names the code.
+    fn check_raw_generic(&mut self, annotation: &iris_syntax::TypeExpression) {
+        if let iris_syntax::TypeExpression::Name(name) = annotation
+            && self
+                .generic_classes
+                .iter()
+                .any(|(declared, _)| declared == name)
+        {
+            self.report("RAW_GENERIC_TYPE_FORBIDDEN");
+        }
+    }
+
     fn annotation_type(&self, annotation: &iris_syntax::TypeExpression) -> Option<StaticType> {
         match annotation {
             iris_syntax::TypeExpression::Name(name) => StaticType::from_nominal(name),
@@ -357,6 +380,12 @@ impl Analyzer {
     }
 
     fn declaration(&mut self, declaration: &iris_syntax::Declaration) {
+        if let iris_syntax::Declaration::Class(value) = declaration
+            && !value.parameters.is_empty()
+        {
+            self.generic_classes
+                .push((value.name.clone(), value.parameters.len()));
+        }
         let (name, body) = match declaration {
             iris_syntax::Declaration::Class(value) => (&value.name, Some(&value.body)),
             iris_syntax::Declaration::Module(value) => (&value.name, Some(&value.body)),
@@ -397,6 +426,9 @@ impl Analyzer {
                 self.expression(value, control);
                 // C005: an annotation is the contract when written, otherwise
                 // the initializer's precise static Type becomes the fixed one.
+                if let Some(annotation) = annotation {
+                    self.check_raw_generic(annotation);
+                }
                 let fixed_type = match annotation {
                     Some(annotation) => {
                         let declared = self.annotation_type(annotation);
@@ -616,6 +648,19 @@ impl Analyzer {
                 self.scoped_body(body, control.entering_closure());
             }
             Expression::Call { callee, arguments } => {
+                // C061: ordinary construction requires a closed `Box<Type>`, so
+                // `Box.new()` on a generic Class supplies no arguments for its
+                // declared parameters. V232 names the code.
+                if let Expression::Member { receiver, selector } = callee.as_ref()
+                    && selector == "new"
+                    && let Expression::Name(name) = receiver.as_ref()
+                    && self
+                        .generic_classes
+                        .iter()
+                        .any(|(declared, _)| declared == name)
+                {
+                    self.report("GENERIC_ARGUMENT_ARITY");
+                }
                 self.expression(callee, control);
                 for argument in arguments {
                     self.expression(argument, control);
@@ -1196,5 +1241,56 @@ mod qualified_namespace_tests {
         // check would reject ordinary shadowing.
         assert!(codes("let Name = 1; class Name {}").is_empty());
         assert!(codes("const Name = 1; class Other {}").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod generic_type_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        parsed
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .chain(if parsed.program_accepted {
+                analyze(&parsed.program)
+                    .into_iter()
+                    .map(|diagnostic| diagnostic.code)
+                    .collect()
+            } else {
+                Vec::new()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn c061_requires_a_closed_generic_type_for_annotation_and_construction() {
+        // C061 makes a bare generic Class name definition METADATA: it is not
+        // an instance Type and not shorthand for `Box<Object>`.
+        assert_eq!(
+            codes("class Box<T> {} let raw: Box = Box.new()"),
+            ["GENERIC_ARGUMENT_ARITY", "RAW_GENERIC_TYPE_FORBIDDEN"]
+        );
+        assert!(codes("class Box<T> {} let ok: Box<String> = 1").is_empty());
+
+        // A NON-generic Class is unaffected, so the checks are specific to a
+        // declared parameter list rather than to construction generally.
+        assert!(codes("class Plain {} let p: Plain = Plain.new()").is_empty());
+    }
+
+    #[test]
+    fn c020_rejects_square_brackets_for_generic_arguments() {
+        // GRAMMAR-C020 makes angle brackets the accepted spelling, and V210
+        // names the code for the square-bracket form.
+        assert_eq!(
+            codes("class Box<T> {} let item: Box[String] = 1"),
+            ["GENERIC_BRACKET_SYNTAX_FORBIDDEN"]
+        );
+
+        // An ordinary index expression still uses square brackets, so the
+        // rejection is confined to Type position.
+        assert!(codes("let a = [1, 2]; a[0]").is_empty());
     }
 }
