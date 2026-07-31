@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 109 are
-committed here; the remaining 25 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 111 are
+committed here; the remaining 23 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -142,6 +142,8 @@ existing channel.
 | `V331` | positive | executable | Observed through a `typeof` annotation: the tested binding keeps its Type, so a Bool initializer is rejected. |
 | `V332` | positive | executable | Observed through a `typeof` annotation: `!x` is Bool, so an Integer initializer is rejected. |
 | `V330` | positive | executable | Observed through a `typeof` annotation: `left \|\| fallback` types as the normalized operand union, so a Bool initializer is rejected. |
+| `V298` | positive | executable | A bare re-raise continues the SAME context and appends one ordered re-raise site. |
+| `V300` | positive | executable | The context reports its own Class name alongside the raised value. |
 
 ## Remaining rows and their blockers
 
@@ -150,14 +152,13 @@ blocked. Grouped by the capability each one actually waits on.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Static Type reflection | `V302` | Asserts Types such as `ExceptionContext?` and `ReadonlyArray<StackFrame>`, which need the ExceptionContext reflection surface rather than local Type inference. |
 | Diagnostic exists but the frozen text names no code | `V345` | Fixed-local-Type checking now WORKS: `mut value = 1; value = "text"` is rejected, and an explicit `String \| Integer` or `Dynamic<Object>` annotation correctly escapes it. But the row says only "Fixed-local-Type diagnostic", so the expectation would assert an implementation-invented code. Behaviour is locked by unit tests instead. |
 | Top-level `fun` and Module declarations | `V333`, `V334`, `V335`, `V335A`, `V352` | A top-level `fun` is `UnsupportedConstruct`, and the rows additionally need Module bodies with private-member dispatch. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
 | No stable diagnostic code in the frozen text | `V288A`, `V289A`, `V355B`, `V357A` | Each asserts a legacy form is "rejected during parsing" without naming a code. `switch`/`when` are deliberately IDENTIFIERS under `IRIS-V1-GRAMMAR-V010`, so they parse as ordinary names. Transcribing these against invented codes would test the implementation against itself. |
 | Diagnostic exists but is not distinguishable | `V348`, `V358` | `V348`'s redeclaration IS rejected, but the runner renders every `ClassError` as a generic `RuntimeError`. `V358` produces no diagnostic for a repeated `const`. |
 | Missing-storage diagnostics | `V347A` | The local-binding fixture is diagnosed, but `$missing = 1` is a parse error rather than a missing-storage diagnostic and `@@missing = 1` produces none, so two of three fixtures cannot be asserted. |
-| `ExceptionContext` reflection surface | `V298`, `V300` | `re_raise_sites` and `class_name` both report a missing message. |
+| `ExceptionContext` reflection surface | `V302` | Needs `original_stack` and `raise_location`, and asserts their static Types `ReadonlyArray<StackFrame>` and `SourceLocation`, which need those record types to exist. |
 | Collection surface | `V285` | Needs `append`, `delete` and `length` on the suppressed `ReadonlyArray`; `length` reports a missing message. |
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
 | Parameter default diagnostics | `V337A` | Asserts static diagnostics for assigning a parameter and for a default referencing a later parameter; only the first is reported today. |

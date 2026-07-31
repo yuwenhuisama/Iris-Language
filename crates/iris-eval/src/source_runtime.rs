@@ -739,10 +739,26 @@ impl SourceEvaluator {
                         // CURRENT propagation, so it keeps the active context
                         // rather than creating a fresh one. Outside a catch
                         // extent there is nothing to continue.
-                        return Err(self.active_exception.clone().map_or(
-                            EvaluationError::NoActiveExceptionError,
-                            EvaluationError::Raised,
-                        ));
+                        let Some(active) = self.active_exception.clone() else {
+                            return Err(EvaluationError::NoActiveExceptionError);
+                        };
+                        // D-155: each bare `raise` APPENDS one re-raise site to
+                        // the continued context, in occurrence order, without
+                        // replacing the root stack or creating a fresh context.
+                        if let Some(Value::ExceptionContext(
+                            identity,
+                            value,
+                            cause,
+                            suppressed,
+                            mut sites,
+                        )) = self.active_context.take()
+                        {
+                            sites.push(Value::Symbol("re_raise".into()));
+                            self.active_context = Some(Value::ExceptionContext(
+                                identity, value, cause, suppressed, sites,
+                            ));
+                        }
+                        return Err(EvaluationError::Raised(active));
                     }
                 };
                 // IRIS-V1-CONTROL-C057: an explicit cause MUST be an
@@ -775,6 +791,7 @@ impl SourceEvaluator {
                     identity,
                     Box::new(value.clone()),
                     Box::new(cause),
+                    Vec::new(),
                     Vec::new(),
                 ));
                 Err(EvaluationError::Raised(value))
@@ -957,7 +974,7 @@ impl SourceEvaluator {
             // context's suppressed list in occurrence order rather than
             // replacing the primary propagation.
             (Err(primary), Err(EvaluationError::Raised(cleanup))) => {
-                if let Some(Value::ExceptionContext(identity, value, cause, suppressed)) =
+                if let Some(Value::ExceptionContext(identity, value, cause, suppressed, sites)) =
                     primary_context
                 {
                     let cleanup_identity = self.next_context_identity();
@@ -967,9 +984,11 @@ impl SourceEvaluator {
                         Box::new(cleanup),
                         Box::new(Value::Nil),
                         Vec::new(),
+                        Vec::new(),
                     ));
-                    self.active_context =
-                        Some(Value::ExceptionContext(identity, value, cause, suppressed));
+                    self.active_context = Some(Value::ExceptionContext(
+                        identity, value, cause, suppressed, sites,
+                    ));
                 }
                 Err(primary)
             }
@@ -1179,6 +1198,7 @@ impl SourceEvaluator {
                         Box::new(raised.clone()),
                         Box::new(cause),
                         Vec::new(),
+                        Vec::new(),
                     ));
                 }
             }
@@ -1194,7 +1214,7 @@ impl SourceEvaluator {
     fn context_reaches(context: &Value, value: &Value) -> bool {
         let mut current = context;
         loop {
-            let Value::ExceptionContext(_, carried, cause, _) = current else {
+            let Value::ExceptionContext(_, carried, cause, _, _) = current else {
                 return false;
             };
             if **carried == *value {
@@ -1233,6 +1253,7 @@ impl SourceEvaluator {
                         self.next_context_identity(),
                         Box::new(value.clone()),
                         Box::new(Value::Nil),
+                        Vec::new(),
                         Vec::new(),
                     ),
                 };
@@ -1639,7 +1660,7 @@ impl SourceEvaluator {
                     BinaryOperator::NotEqual => "!=",
                     BinaryOperator::NamedInfix { selector } => selector,
                     BinaryOperator::Identity => {
-                        return Ok(Value::Bool(left == right));
+                        return Ok(Value::Bool(same_identity(&left, &right)));
                     }
                     BinaryOperator::Is => {
                         return self.type_test(&left, &right);
@@ -2492,7 +2513,7 @@ impl SourceEvaluator {
         // The chapter 04 exception example reads `context.value`, and
         // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
         // the context rather than dispatched sends.
-        if let Value::ExceptionContext(_, value, cause, suppressed) = &receiver {
+        if let Value::ExceptionContext(_, value, cause, suppressed, sites) = &receiver {
             match selector {
                 // D-159 makes the context payload readable but never
                 // assignable, so the setter selectors are rejected rather than
@@ -2503,6 +2524,13 @@ impl SourceEvaluator {
                 "value" => return Ok((**value).clone()),
                 "cause" => return Ok((**cause).clone()),
                 "suppressed" => return Ok(Value::Array(suppressed.clone())),
+                // C065 lists `re_raise_sites` among the get-only properties,
+                // and D-155 makes it ordered by occurrence.
+                "re_raise_sites" => return Ok(Value::Array(sites.clone())),
+                // `IRIS-V1-CONTROL-V300` reads `class_name` on the context
+                // itself, which names the context's own Class rather than the
+                // Class of the value it carries.
+                "class_name" => return Ok(Value::Symbol("ExceptionContext".into())),
                 _ => {}
             }
         }
@@ -2576,7 +2604,7 @@ impl SourceEvaluator {
             let [other] = arguments else {
                 return Err(EvaluationError::UnsupportedConstruct);
             };
-            let equal = receiver == *other;
+            let equal = same_identity(&receiver, other);
             return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         let selector_id = iris_runtime::NativeSelector::from_source(selector)
@@ -3437,6 +3465,20 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",
+    }
+}
+
+/// Compares two values by IDENTITY rather than by payload.
+///
+/// `IRIS-V1-CONTROL-C067` makes `ExceptionContext` equality and hashing use
+/// identity by default, and `D-155` lets a bare `raise` APPEND a re-raise site
+/// to the context it continues. A structural comparison would therefore report
+/// a retained context as a different one the moment it gained a site, so the
+/// identity is compared alone.
+fn same_identity(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => left == right,
+        _ => left == right,
     }
 }
 

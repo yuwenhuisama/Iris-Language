@@ -185,7 +185,10 @@ pub enum Value {
     /// event DISTINCT, so re-raising the same value must produce a context that
     /// `same?` separates from the one being handled; comparing the payload
     /// structurally would wrongly make those two equal.
-    ExceptionContext(ObjectId, Box<Value>, Box<Value>, Vec<Value>),
+    /// The trailing `Vec` is `re_raise_sites`, which `IRIS-V1-CONTROL-D-155`
+    /// makes an ORDERED sequence appended to by each bare `raise` without
+    /// replacing the root stack, so multiple sites retain occurrence order.
+    ExceptionContext(ObjectId, Box<Value>, Box<Value>, Vec<Value>, Vec<Value>),
     /// An identity-bearing Closure object.
     ///
     /// `IRIS-V1-RUNTIME-C042` requires each evaluation of a Closure expression to

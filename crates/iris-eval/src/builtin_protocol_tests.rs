@@ -1091,7 +1091,7 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
         "unexpected payload: {payload}"
     );
     assert!(
-        payload.ends_with("Symbol(\"close\"), Nil, [])])])"),
+        payload.ends_with("Symbol(\"close\"), Nil, [], [])])])"),
         "unexpected payload: {payload}"
     );
     assert_eq!(
@@ -1513,4 +1513,43 @@ fn c088_lets_an_exception_context_serve_as_a_hash_key() {
         rendered(source),
         "Array([Bool(false), Bool(false), Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
     );
+}
+
+#[test]
+fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
+    // D-155 makes each bare `raise` APPEND one site to the context it
+    // continues, without replacing the root stack or creating a fresh context.
+    let one_site = "let mut captured = nil; \
+                    try { try { raise :x } catch _, c { captured = c; raise } } \
+                    catch _, o { [o same? captured, o.re_raise_sites] }";
+    let two_sites = "try { try { try { raise :x } catch _, c { raise } } \
+                     catch _, m { raise } } catch _, o { o.re_raise_sites }";
+    let no_site = "try { raise :x } catch _, c { c.re_raise_sites }";
+
+    // When / Then the continued context is the SAME one, which is why identity
+    // rather than payload decides `same?` under C067: appending a site would
+    // otherwise make a retained context compare as a different one.
+    assert_eq!(
+        rendered(one_site),
+        "Array([Bool(true), Array([Symbol(\"re_raise\")])])"
+    );
+    assert_eq!(
+        rendered(two_sites),
+        "Array([Symbol(\"re_raise\"), Symbol(\"re_raise\")])"
+    );
+    assert_eq!(rendered(no_site), "Array([])");
+}
+
+#[test]
+fn c067_keeps_distinct_events_unequal_under_identity_comparison() {
+    // Identity comparison must not collapse into "always equal": two events
+    // carrying the same raised object stay distinct, and a context is still
+    // `same?` itself.
+    let reraised_value = "try { raise :same } catch value, first { \
+                          try { raise value } catch _, second { second same? first } }";
+    let reflexive = "try { raise :x } catch _, c { c same? c }";
+
+    // When / Then
+    assert_eq!(rendered(reraised_value), "Bool(false)");
+    assert_eq!(rendered(reflexive), "Bool(true)");
 }
