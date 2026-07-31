@@ -599,12 +599,13 @@ impl Parser {
             });
         }
         if self.check("let") || self.check("mut") || self.check("const") {
+            let mut constant = false;
             let mutable = if self.consume("let") {
                 self.consume("mut")
             } else if self.consume("mut") {
                 true
             } else {
-                self.consume("const");
+                constant = self.consume("const");
                 false
             };
             if !decorators.is_empty() {
@@ -621,6 +622,7 @@ impl Parser {
             if self.consume("=") {
                 return self.expression(0).map(|value| Statement::Binding {
                     mutable,
+                    constant,
                     name: binding,
                     annotation,
                     value,

@@ -15,6 +15,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         diagnostics: Vec::new(),
         scopes: vec![Vec::new()],
         declared_class_variables: Vec::new(),
+        qualified_namespace: Vec::new(),
     };
     analyzer.program(program);
     analyzer.diagnostics
@@ -211,6 +212,12 @@ struct Analyzer {
     /// missing declared storage rather than creating it, so an assignment is
     /// checked against what was actually declared.
     declared_class_variables: Vec<String>,
+    /// Names published into the ONE qualified namespace.
+    ///
+    /// `IRIS-V1-CONTROL-D-432` puts Class, Module, Contract, Type aliases and
+    /// constants in a single namespace, so a kind or name collision between any
+    /// two of them is an error rather than a shadowing.
+    qualified_namespace: Vec<String>,
 }
 
 impl Analyzer {
@@ -318,6 +325,19 @@ impl Analyzer {
         }
     }
 
+    /// Publishes one name into the shared qualified namespace.
+    ///
+    /// `V351A` names the collision `QUALIFIED_NAMESPACE_COLLISION`, and D-432
+    /// requires the SECOND declaration not to publish, so the namespace keeps
+    /// only the first.
+    fn publish_qualified_name(&mut self, name: &str) {
+        if self.qualified_namespace.iter().any(|taken| taken == name) {
+            self.report("QUALIFIED_NAMESPACE_COLLISION");
+            return;
+        }
+        self.qualified_namespace.push(name.to_owned());
+    }
+
     fn lookup(&self, name: &str) -> Option<&Local> {
         self.scopes
             .iter()
@@ -337,10 +357,14 @@ impl Analyzer {
     }
 
     fn declaration(&mut self, declaration: &iris_syntax::Declaration) {
-        let body = match declaration {
-            iris_syntax::Declaration::Class(value) => &value.body,
-            iris_syntax::Declaration::Module(value) => &value.body,
-            iris_syntax::Declaration::Contract(_) => return,
+        let (name, body) = match declaration {
+            iris_syntax::Declaration::Class(value) => (&value.name, Some(&value.body)),
+            iris_syntax::Declaration::Module(value) => (&value.name, Some(&value.body)),
+            iris_syntax::Declaration::Contract(value) => (&value.name, None),
+        };
+        self.publish_qualified_name(name);
+        let Some(body) = body else {
+            return;
         };
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
@@ -360,10 +384,16 @@ impl Analyzer {
         match statement {
             Statement::Binding {
                 mutable,
+                constant,
                 name,
                 annotation,
                 value,
             } => {
+                // D-432: a `const` publishes into the shared qualified
+                // namespace alongside Class, Module, Contract and Type aliases.
+                if *constant {
+                    self.publish_qualified_name(name);
+                }
                 self.expression(value, control);
                 // C005: an annotation is the contract when written, otherwise
                 // the initializer's precise static Type becomes the fixed one.
@@ -1048,7 +1078,13 @@ mod errata_named_code_tests {
 
     #[test]
     fn c078_rejects_a_declaration_rebinding_the_same_scope() {
-        assert_eq!(codes("const N = 1; const N = 2"), ["DECLARATION_REBINDING"]);
+        // A repeated `const` violates BOTH rules: it rebinds the name in scope
+        // under C078, and it collides in the qualified namespace under D-432,
+        // which puts constants alongside Class, Module and Contract names.
+        assert_eq!(
+            codes("const N = 1; const N = 2"),
+            ["QUALIFIED_NAMESPACE_COLLISION", "DECLARATION_REBINDING"]
+        );
         assert_eq!(codes("let a = 1; let a = 2"), ["DECLARATION_REBINDING"]);
 
         // Shadowing in an INNER scope stays legal, so the check is scoped rather
@@ -1126,5 +1162,39 @@ mod call_parenthesis_tests {
         assert!(codes("let o = 1; o.to_bool()").is_empty());
         assert!(codes("let a = 1; let b = 2").is_empty());
         assert!(codes("class C { public fun m() { 1 } }").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod qualified_namespace_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn d432_puts_constants_and_declarations_in_one_qualified_namespace() {
+        // D-432 puts Class, Module, Contract, Type aliases and constants in ONE
+        // namespace, so a collision between any two of them is an error.
+        assert_eq!(
+            codes("const Name = 1; class Name {}"),
+            ["QUALIFIED_NAMESPACE_COLLISION"]
+        );
+        assert_eq!(
+            codes("class Name {} module Name { }"),
+            ["QUALIFIED_NAMESPACE_COLLISION"]
+        );
+
+        // An ordinary `let` is a lexical binding rather than a namespace entry,
+        // so it does not collide with a Class of the same name. Without this the
+        // check would reject ordinary shadowing.
+        assert!(codes("let Name = 1; class Name {}").is_empty());
+        assert!(codes("const Name = 1; class Other {}").is_empty());
     }
 }

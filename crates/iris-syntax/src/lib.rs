@@ -107,6 +107,12 @@ pub enum Statement {
     },
     Binding {
         mutable: bool,
+        /// Whether the source wrote `const`.
+        ///
+        /// `IRIS-V1-CONTROL-D-432` puts constants in the SAME qualified
+        /// namespace as Class, Module, Contract and Type aliases, so a `const`
+        /// must be distinguishable from an ordinary immutable `let`.
+        constant: bool,
         name: String,
         /// The declared Type, when the source wrote one.
         ///
