@@ -111,6 +111,11 @@ impl StaticType {
             Expression::Hash(_) => Some(Self::single(TypeMember::Hash)),
             Expression::Grouped(inner) => Self::of(inner),
             Expression::Literal(text) => Self::of_literal(text),
+            // `nil`, `true`, and `false` are keywords the expression grammar
+            // reaches through the NAME path, so a bare `nil` arrives here as a
+            // Name rather than a Literal. Typing only the Literal spelling left
+            // `fun m() -> Integer { nil }` unprovable and therefore unreported.
+            Expression::Name(text) => Self::of_literal(text),
             _ => None,
         }
     }
@@ -492,6 +497,57 @@ impl Analyzer {
         self.scoped_body(body, Control::top_level());
     }
 
+    /// Rejects a return whose Type is PROVABLY not the declared one.
+    ///
+    /// `IRIS-V1-TYPES-C004` makes a written annotation both a static Contract
+    /// and a runtime guard, and requires a PROVABLE violation to be diagnosed
+    /// BEFORE execution. A body whose result is a literal is exactly such a
+    /// proof, so `fun m() -> Integer { nil }` is rejected here rather than
+    /// waiting to raise when the Method is finally called.
+    ///
+    /// Only a provable case is reported. A result this pass cannot type is left
+    /// to the runtime guard, which is what keeps a not-proven boundary a
+    /// runtime check rather than a false rejection.
+    fn check_return_annotation(&mut self, declaration: &iris_syntax::MethodDeclaration) {
+        let Some(annotation) = &declaration.return_type else {
+            return;
+        };
+        // `Never` is uninhabited, so ANY normal return violates it. It has no
+        // nominal StaticType, which is why it is decided before the mapping.
+        if matches!(annotation, iris_syntax::TypeExpression::Name(name) if name == "Never")
+            && declaration
+                .body
+                .as_ref()
+                .is_some_and(|body| Self::result_expression(body).is_some())
+        {
+            self.report("RETURN_TYPE_CONTRACT_VIOLATION");
+            return;
+        }
+        let (Some(declared), Some(body)) = (self.annotation_type(annotation), &declaration.body)
+        else {
+            return;
+        };
+        let Some(result) = Self::result_expression(body) else {
+            return;
+        };
+        if let Some(actual) = StaticType::of(result)
+            && !declared.accepts(&actual)
+        {
+            self.report("RETURN_TYPE_CONTRACT_VIOLATION");
+        }
+    }
+
+    /// The expression a body evaluates to, when the body ends in one.
+    ///
+    /// A body ending in anything else has no statically known result, so it is
+    /// left to the runtime guard.
+    fn result_expression(body: &[Statement]) -> Option<&Expression> {
+        match body.last() {
+            Some(Statement::Expression(expression)) => Some(expression),
+            _ => None,
+        }
+    }
+
     /// Rejects a `shared class property` whose Type mentions a type parameter.
     ///
     /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the UNAPPLIED
@@ -853,6 +909,7 @@ impl Analyzer {
                 for statement in declaration.body.iter().flatten() {
                     self.statement(statement, Control::callable());
                 }
+                self.check_return_annotation(declaration);
                 self.scopes.pop();
             }
             Statement::StoredProperty { initializer, .. } => {
@@ -1259,6 +1316,31 @@ mod tests {
         assert_eq!(codes(concrete), Vec::<&str>::new());
         assert_eq!(codes(per_construction), Vec::<&str>::new());
         assert_eq!(codes(non_generic), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c004_diagnoses_a_provable_return_violation_before_execution() {
+        // C004 requires a PROVABLE violation to be diagnosed BEFORE execution,
+        // not merely guarded at runtime. A body whose result is a literal is
+        // exactly such a proof.
+        let provable = "class A { public fun m() -> Integer { nil } }";
+        let satisfied = "class A { public fun m() -> Integer { 1 } }";
+        // A `Nil` return ADMITS nil, so the proof must not fire on every nil.
+        let nil_return = "class A { public fun m() -> Nil { nil } }";
+        // D-458: `Never` is uninhabited, so ANY normal return violates it.
+        let never = "fun fail() -> Never { nil }";
+        // A result this pass cannot type is NOT proven wrong, so it is left to
+        // the runtime guard rather than rejected here.
+        let unprovable = "class A { public fun m(x) -> Integer { x } }";
+        let unannotated = "class A { public fun m() { nil } }";
+
+        // When / Then
+        assert_eq!(codes(provable), vec!["RETURN_TYPE_CONTRACT_VIOLATION"]);
+        assert_eq!(codes(satisfied), Vec::<&str>::new());
+        assert_eq!(codes(nil_return), Vec::<&str>::new());
+        assert_eq!(codes(never), vec!["RETURN_TYPE_CONTRACT_VIOLATION"]);
+        assert_eq!(codes(unprovable), Vec::<&str>::new());
+        assert_eq!(codes(unannotated), Vec::<&str>::new());
     }
 }
 

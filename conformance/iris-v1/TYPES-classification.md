@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 15 are committed here;
-the remaining 65 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 16 are committed here;
+the remaining 64 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -30,6 +30,7 @@ correctly fails each.
 | `V245` | diagnostic | executable | `D-218`: `Pair<String>` against `class Pair<T,U>` supplies no default `U`, in annotation and expression position alike. |
 | `V237` | negative | executable | `IRIS-V1-TYPES-C064` gives a `shared class property` ONE slot on the unapplied definition, so it cannot name a parameter that differs per construction. The v1.18 errata (`IRIS-V1-GRAMMAR-C064`) added the syntax. |
 | `V233` | positive | executable | `D-206` interns a closed Type by definition AND normalized arguments, so `Box<String>` and `Box<Integer>` are different Types of one definition. |
+| `V259` | diagnostic | executable | `IRIS-V1-TYPES-C004` requires a PROVABLE violation to be diagnosed BEFORE execution; `D-458` makes `Never` uninhabited, so any normal return violates it. |
 
 ## Remaining rows and their blockers
 
@@ -45,4 +46,4 @@ and are now transcribed, and the groups below record why the rest did not.
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
 | String plus another missing capability | `V018`, `V205`, `V222`, `V224`, `V225`, `V227`, `V228`, `V230`, `V231`, `V236`, `V249`, `V250` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |
 | Contract views | `V252` | The v1.16 errata plus the `open contract`, `impl` conformance, and `module for C` checks closed `V204`, `V248`, `V258`, and `V261`. `V252` still needs a Contract VIEW: `Integer(1) as NumericContract` compared by Contract identity. |
-| Type values and reflection | `V212`, `V213`, `V215`-`V218`, `V221`, `V223`, `V251`, `V253`, `V259` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |
+| Type values and reflection | `V212`, `V213`, `V215`-`V218`, `V221`, `V223`, `V251`, `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |
