@@ -1960,3 +1960,27 @@ fn c016_interns_a_composed_type_in_its_normal_form() {
     }
     assert!(rendered(operator_reading).contains("selector: \"|\""));
 }
+
+#[test]
+fn c016_absorbs_a_declared_subtype_without_distributing() {
+    // V005 and V006 state absorption over a DECLARED subtype pair, so the laws
+    // must consult the same nominal ancestry `is` does rather than a fixed
+    // builtin table.
+    let declared = "class Animal {} class Dog extends Animal {} ";
+    let union_keeps_wider = format!("{declared}(Dog | Animal).type same? Animal.type");
+    let intersection_keeps_narrower = format!("{declared}(Dog & Animal).type same? Dog.type");
+    // V016 states that an intersection over a union is deliberately NOT
+    // distributed: the compact form is kept, so it does NOT equal the expanded
+    // one. This is the one law whose expected answer is false.
+    let no_distribution = "class A {} class B {} class C {} \
+(A & (B | C)).type same? ((A & B) | (A & C)).type";
+    // Two unrelated Classes absorb nothing, so both survive and only order is
+    // normalized.
+    let unrelated_commutes = "class A {} class B {} (A & B).type same? (B & A).type";
+
+    // When / Then
+    assert_eq!(rendered(&union_keeps_wider), "Bool(true)");
+    assert_eq!(rendered(&intersection_keeps_narrower), "Bool(true)");
+    assert_eq!(rendered(no_distribution), "Bool(false)");
+    assert_eq!(rendered(unrelated_commutes), "Bool(true)");
+}

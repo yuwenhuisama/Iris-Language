@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 27 are committed here;
-the remaining 53 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 38 are committed here;
+the remaining 42 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -42,6 +42,17 @@ correctly fails each.
 | `V012` | positive | executable | An optional `Object` collapses to `Object`. |
 | `V013` | positive | executable | An optional `Never` collapses to `Nil`. |
 | `V015` | positive | executable | `Nil & NonNil` is uninhabited. |
+| `V005` | positive | executable | Union absorption keeps the WIDER member of a declared subtype pair. |
+| `V006` | positive | executable | Intersection absorption keeps the NARROWER member. |
+| `V014` | positive | executable | `NonNil` removes `Nil` from an intersection. |
+| `V016` | positive | executable | An intersection over a union is deliberately NOT distributed; the compact form is kept. |
+| `V212` | positive | executable | A nilable Type equals its union with `Nil`. |
+| `V213` | positive | executable | A union with a supertype absorbs the subtype. |
+| `V215` | positive | executable | `Nil & NonNil` reduces to `Never`. |
+| `V216` | positive | executable | `Never` is the union identity. |
+| `V217` | positive | executable | `Object` is the intersection identity. |
+| `V218` | positive | executable | An optional `Object` collapses to `Object`. |
+| `V221` | positive | executable | `NonNil` removes `Nil` from a union. |
 
 ## Remaining rows and their blockers
 
@@ -52,9 +63,9 @@ and are now transcribed, and the groups below record why the rest did not.
 
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
-| Type-normalization law tables | `V002`, `V005`, `V006`, `V014`, `V016` | The v1.19 errata (`IRIS-V1-GRAMMAR-C065`) reified Type expressions, which closed eleven of these laws. The five left need a user-declared subtype pair, a Contract Type, or the explicit NON-distribution law. Asserting them needs Types to be constructible and comparable as VALUES, which needs the Type-expression surface below. |
+| Type-normalization law tables | `V002` | The v1.19 errata (`IRIS-V1-GRAMMAR-C065`) reified Type expressions, which closed eleven of these laws. The one left needs a CONTRACT usable as a Type, which no Contract declaration yet reifies. Asserting them needs Types to be constructible and comparable as VALUES, which needs the Type-expression surface below. |
 | Generic Types in expression position | `V219`, `V226`, `V229`, `V238`, `V244`, `V246`, `V247`, `V254`, `V256`, `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: interned Type identities, generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
 | String plus another missing capability | `V018`, `V205`, `V222`, `V224`, `V225`, `V227`, `V228`, `V230`, `V231`, `V236`, `V249`, `V250` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |
 | Contract views | `V252` | The v1.16 errata plus the `open contract`, `impl` conformance, and `module for C` checks closed `V204`, `V248`, `V258`, and `V261`. `V252` still needs a Contract VIEW: `Integer(1) as NumericContract` compared by Contract identity. |
-| Type values and reflection | `V212`, `V213`, `V215`-`V218`, `V221`, `V223`, `V251`, `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |
+| Type values and reflection | `V223`, `V251`, `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |
