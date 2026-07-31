@@ -1796,3 +1796,34 @@ fn c030_makes_a_safe_cast_yield_the_same_value_or_nil() {
     assert_eq!(rendered(succeeded), "Integer(IntegerValue(1))");
     assert_eq!(rendered(combined), "Array([Bool(true), Nil])");
 }
+
+#[test]
+fn c004_enforces_a_written_binding_annotation_as_a_runtime_guard() {
+    // C004 makes a written annotation BOTH a static contract and a runtime
+    // boundary guard: a not-proven boundary MUST check before the value is
+    // published. Nothing checked before, so a violating value was stored
+    // silently.
+    let violated = "let value: Integer = nil; value";
+    let satisfied = "let value: Integer = 1; value";
+    // C011: `NonNil` admits every value except nil, and is a Type rather than a
+    // declared Class, so it never resolves through the Class registry.
+    let non_nil_violated = "let value: NonNil = nil; value";
+    let non_nil_satisfied = "let value: NonNil = 1; value";
+    // C023: `Never` is uninhabited, so NO value satisfies it.
+    let never = "let value: Never = 1; value";
+    // C020: a union admits a value satisfying ANY constituent.
+    let union_satisfied = "let value: String | Integer = \"iris\"; value";
+    let union_violated = "let value: String | Integer = nil; value";
+    // C009 keeps `Object` the top, so it admits everything.
+    let root = "let value: Object = \"iris\"; value";
+
+    // When / Then
+    assert_eq!(rendered(violated), "TypeContractError");
+    assert_eq!(rendered(satisfied), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(non_nil_violated), "TypeContractError");
+    assert_eq!(rendered(non_nil_satisfied), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(never), "TypeContractError");
+    assert_eq!(rendered(union_satisfied), "Text(\"iris\")");
+    assert_eq!(rendered(union_violated), "TypeContractError");
+    assert_eq!(rendered(root), "Text(\"iris\")");
+}

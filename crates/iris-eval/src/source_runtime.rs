@@ -788,10 +788,14 @@ impl SourceEvaluator {
             Statement::Binding {
                 mutable,
                 name,
+                annotation,
                 value,
                 ..
             } => {
                 let value = self.expression(value, locals, receiver)?;
+                if let Some(annotation) = annotation {
+                    self.check_binding_annotation(&value, annotation)?;
+                }
                 self.names
                     .insert(name.clone(), Binding::new(value.clone(), *mutable));
                 Ok(value)
@@ -1374,6 +1378,77 @@ impl SourceEvaluator {
             return result;
         }
         Err(EvaluationError::Raised(value))
+    }
+
+    /// Enforces a written binding annotation as a runtime boundary guard.
+    ///
+    /// `IRIS-V1-TYPES-C004` makes an annotation BOTH a static contract and a
+    /// runtime guard: a not-proven boundary MUST check before the value is
+    /// published. Nothing checked here before, so `let value: Integer = nil`
+    /// silently stored nil instead of raising, which is what `V220` observes
+    /// for `NonNil`.
+    ///
+    /// This deliberately guards only annotations it can fully resolve. An
+    /// unresolvable name is a static concern that `BINDING_FIXED_LOCAL_TYPE`
+    /// and the generic diagnostics already own, and reporting a runtime
+    /// TypeContractError for one would turn a static diagnostic into a raise.
+    fn check_binding_annotation(
+        &mut self,
+        value: &Value,
+        annotation: &iris_syntax::TypeExpression,
+    ) -> Result<(), EvaluationError> {
+        if self.annotation_admits(value, annotation)? {
+            return Ok(());
+        }
+        Err(EvaluationError::TypeContractError)
+    }
+
+    /// Reports whether a value satisfies an annotation, or `true` when the
+    /// annotation is not one this evaluator can decide.
+    fn annotation_admits(
+        &mut self,
+        value: &Value,
+        annotation: &iris_syntax::TypeExpression,
+    ) -> Result<bool, EvaluationError> {
+        match annotation {
+            // C011: `NonNil` admits every value EXCEPT nil. It is a Type, not a
+            // declared Class, so it never resolves through `class_name`.
+            iris_syntax::TypeExpression::Name(name) if name == "NonNil" => {
+                Ok(!matches!(value, Value::Nil))
+            }
+            // C023: `Never` is uninhabited, so no value satisfies it.
+            iris_syntax::TypeExpression::Name(name) if name == "Never" => Ok(false),
+            iris_syntax::TypeExpression::Name(name) => {
+                let Some(class) = self.class_name(name)? else {
+                    return Ok(true);
+                };
+                Ok(self.type_test(value, &Value::Class(class))? == Value::Bool(true))
+            }
+            // C020: a union admits a value that satisfies ANY constituent.
+            iris_syntax::TypeExpression::Union(members) => {
+                for member in members {
+                    if self.annotation_admits(value, member)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            // C022: an intersection admits a value that satisfies EVERY
+            // constituent.
+            iris_syntax::TypeExpression::Intersection(members) => {
+                for member in members {
+                    if !self.annotation_admits(value, member)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            // `typeof`, generic, and callable annotations are static concerns
+            // this evaluator does not decide, so they never raise here.
+            iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Generic { .. }
+            | iris_syntax::TypeExpression::Function { .. } => Ok(true),
+        }
     }
 
     fn catch_matches(&self, value: &Value, filter: &iris_syntax::TypeExpression) -> bool {
