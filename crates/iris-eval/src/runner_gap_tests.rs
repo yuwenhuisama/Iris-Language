@@ -328,7 +328,9 @@ fn nested_reflection_module_declarations_and_mixin_qualified_names_parse() {
 fn qualified_expression_sends_reach_reflection_and_nested_module_members() {
     // Given
     let reflection = "class A { }; Reflection::Object.list_ivars(A.new())";
-    let module = "module R::S { module fun f() -> Symbol { :f } }; R::S.f()";
+    // C077 defaults a Module Method to private, so the external send needs it
+    // declared public.
+    let module = "module R::S { public module fun f() -> Symbol { :f } }; R::S.f()";
 
     let reflection_parse = iris_parser::parse(reflection);
     let module_parse = iris_parser::parse(module);
@@ -1294,7 +1296,10 @@ fn source_typeof_annotation_accepts_the_operand_static_type() {
 #[test]
 fn source_module_fun_dispatches_on_the_module_object() {
     // Given
-    let source = "module M { module fun helper() -> Integer { 3 } }; M.helper()";
+    // IRIS-V1-RUNTIME-C077 defaults a Module Method to PRIVATE, so an external
+    // `M.helper()` send needs the Method declared public. Before the visibility
+    // check existed, this passed with the default private declaration.
+    let source = "module M { public module fun helper() -> Integer { 3 } }; M.helper()";
 
     // When
     let result = evaluate(source);

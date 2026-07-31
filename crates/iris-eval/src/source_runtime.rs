@@ -64,6 +64,8 @@ pub(super) struct SourceEvaluator {
     next_contract: u64,
     module_names: HashMap<String, ModuleId>,
     module_classes: HashMap<ModuleId, ClassId>,
+    /// The `main` receiver Class each executable Module owns.
+    module_mains: HashMap<ModuleId, ClassId>,
     module_methods: HashMap<(ModuleId, Selector), Method>,
     module_method_overrides: HashMap<iris_runtime::MethodId, bool>,
     property_methods: HashMap<iris_runtime::MethodId, bool>,
@@ -71,6 +73,12 @@ pub(super) struct SourceEvaluator {
     static_superclasses: HashMap<ClassId, Option<ClassId>>,
     lexical_class: Option<ClassId>,
     current_method: Option<Method>,
+    /// The `main` Class whose top-level body is currently executing.
+    ///
+    /// `IRIS-V1-CONTROL-C012` makes a top-level `f()` a PRIVILEGED implicit
+    /// send to `main`, so a private top-level helper is reachable from the
+    /// Module body while an importer is still denied.
+    module_body_main: Option<ClassId>,
     active_exception: Option<Value>,
     active_context: Option<Value>,
     next_selector: u64,
@@ -137,6 +145,7 @@ impl SourceEvaluator {
             next_contract: 0,
             module_names: HashMap::new(),
             module_classes: HashMap::new(),
+            module_mains: HashMap::new(),
             module_methods: HashMap::new(),
             module_method_overrides: HashMap::new(),
             property_methods: HashMap::new(),
@@ -144,6 +153,7 @@ impl SourceEvaluator {
             static_superclasses: HashMap::new(),
             lexical_class: None,
             current_method: None,
+            module_body_main: None,
             active_exception: None,
             active_context: None,
             next_selector: 1_000,
@@ -667,6 +677,10 @@ impl SourceEvaluator {
             .define_class(StaticSpine::new(1), None)
             .map_err(EvaluationError::Class)?;
         self.module_classes.insert(module, module_class);
+        // Declarations are published BEFORE any executable statement runs, so a
+        // top-level `f()` can call a helper declared later in the same body.
+        // A single ordered pass would evaluate the call against a `main` that
+        // did not yet have the Method.
         for statement in &declaration.body {
             match statement {
                 Statement::SharedBinding {
@@ -674,6 +688,8 @@ impl SourceEvaluator {
                     name,
                     value,
                 } => self.shared_binding(module_class, *mutable, name, value)?,
+                // Executable statements run in the second pass below.
+                Statement::Expression(_) => {}
                 Statement::Method(method) => {
                     if method.kind == MethodKind::Class || method.kind == MethodKind::Property {
                         return Err(EvaluationError::UnsupportedConstruct);
@@ -688,11 +704,65 @@ impl SourceEvaluator {
                     self.module_methods.insert((module, selector), defined);
                     self.module_method_overrides
                         .insert(defined.id(), method.is_override);
+                    // IRIS-V1-CONTROL-C012 and D-416: an unmodified `fun` in a
+                    // Module body is ALSO top-level executable code, installed
+                    // on that Module's `main` receiver and private by default,
+                    // which is what a top-level `f()` sends to. C074 keeps it a
+                    // Module instance Method as well, so this publishes a second
+                    // copy rather than diverting the first.
+                    if method.kind == MethodKind::Instance {
+                        let main = self.module_main(module)?;
+                        let declared = match method.visibility {
+                            iris_syntax::Visibility::Public => iris_runtime::Visibility::Public,
+                            _ => iris_runtime::Visibility::Private,
+                        };
+                        self.runtime
+                            .registry_mut()
+                            .publish_method(main, selector, body, declared)
+                            .map_err(EvaluationError::Class)?;
+                    }
                 }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
+        // IRIS-V1-CONTROL-C012: top-level executable code runs against the
+        // Module's `main`, and a top-level `f()` is a PRIVILEGED implicit send
+        // to it, which is what reaches a private top-level helper an importer
+        // could not call.
+        let executable: Vec<&Statement> = declaration
+            .body
+            .iter()
+            .filter(|statement| matches!(statement, Statement::Expression(_)))
+            .collect();
+        if !executable.is_empty() {
+            let main = self.module_main(module)?;
+            let receiver = self.construct(main, &[])?;
+            let previous = self.module_body_main.replace(main);
+            let result = executable.into_iter().try_for_each(|statement| {
+                self.statement(statement, &HashMap::new(), Some(Value::Object(receiver)))
+                    .map(|_| ())
+            });
+            self.module_body_main = previous;
+            result?;
+        }
         Ok(())
+    }
+
+    /// Returns the Class backing this Module's `main` receiver.
+    ///
+    /// `D-416` gives all source in one Module a SINGLE shared `main`, so this
+    /// allocates once and reuses it rather than creating one per declaration.
+    fn module_main(&mut self, module: ModuleId) -> Result<ClassId, EvaluationError> {
+        if let Some(main) = self.module_mains.get(&module) {
+            return Ok(*main);
+        }
+        let main = self
+            .runtime
+            .registry_mut()
+            .define_class(StaticSpine::new(1), None)
+            .map_err(EvaluationError::Class)?;
+        self.module_mains.insert(module, main);
+        Ok(main)
     }
 
     fn statement(
@@ -1580,6 +1650,18 @@ impl SourceEvaluator {
                                 receiver_class: "Module".into(),
                                 selector: selector_name,
                             })?;
+                        // An `M.name()` send from outside the Module is
+                        // EXTERNAL, so a private Method is denied. Reading the
+                        // method map directly bypassed visibility entirely,
+                        // which let a private top-level helper be called by an
+                        // importer against IRIS-V1-CONTROL-C012.
+                        if method.visibility() != iris_runtime::Visibility::Public {
+                            return Err(EvaluationError::Construction(
+                                iris_runtime::ConstructionError::Dispatch(
+                                    iris_runtime::DispatchError::VisibilityDenied { selector },
+                                ),
+                            ));
+                        }
                         self.invoke_method(method, Value::Symbol(name.clone()), &arguments)
                     }
                     Expression::Member {
@@ -3041,7 +3123,12 @@ impl SourceEvaluator {
                 DispatchContext::module_implementation(module, true)
             }
             Some(MethodOwner::Class(owner)) => DispatchContext::implementation(owner, true),
-            None => DispatchContext::external(),
+            // A Module body executes AS its `main`, so the send is privileged
+            // even though no Method frame is active.
+            None => match self.module_body_main {
+                Some(main) if main == class => DispatchContext::implementation(main, true),
+                _ => DispatchContext::external(),
+            },
         };
         match self
             .runtime
@@ -3629,7 +3716,9 @@ mod tests {
     fn module_shared_declaration_publishes_a_module_anchored_cell()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "module M { shared let @@version: Integer = 1 module fun read() -> Integer { @@version } }; M.read()";
+        // C077 defaults a Module Method to private, so the external `M.read()`
+        // send needs it declared public.
+        let source = "module M { shared let @@version: Integer = 1 public module fun read() -> Integer { @@version } }; M.read()";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When

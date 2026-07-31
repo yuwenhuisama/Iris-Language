@@ -1553,3 +1553,46 @@ fn c067_keeps_distinct_events_unequal_under_identity_comparison() {
     assert_eq!(rendered(reraised_value), "Bool(false)");
     assert_eq!(rendered(reflexive), "Bool(true)");
 }
+
+#[test]
+fn c012_makes_a_top_level_call_a_privileged_implicit_send_to_main() {
+    // Given a Module body declaring a top-level helper and calling it. C012
+    // installs the helper on the Module's `main`, private by default, and makes
+    // the bare call a PRIVILEGED send that reaches it.
+    //
+    // A Module body yields no value of its own, so the call's EFFECT is what is
+    // observed: a helper that never ran would leave the counter at 0.
+    let called = "let mut log = 0; \
+                  module M { fun helper() -> Integer { log = 1; 1 } helper() } log";
+    let not_called = "let mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } } log";
+    // D-433: a bare unresolved name is still a NameError rather than an
+    // implicit send, so the privilege does not make every name resolvable.
+    let unresolved = "module M { fun helper() -> Integer { 1 } helper_missing }";
+    // A helper declared LATER in the body is still callable, since declarations
+    // are published before any executable statement runs.
+    let forward = "let mut log = 0; \
+                   module M { later() fun later() -> Integer { log = 2; 1 } } log";
+
+    // When / Then
+    assert_eq!(rendered(called), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(not_called), "Integer(IntegerValue(0))");
+    assert_eq!(rendered(unresolved), "NameError");
+    assert_eq!(rendered(forward), "Integer(IntegerValue(2))");
+}
+
+#[test]
+fn c077_denies_an_external_send_to_a_private_module_method() {
+    // C077 defaults a Module Method to PRIVATE. The `M.name()` path read the
+    // method map directly and never checked visibility, so an importer could
+    // call a private top-level helper against C012.
+    let private_helper = "module M { fun hidden() -> Integer { 1 } } M.hidden()";
+    let explicitly_private = "module M { private module fun h() -> Integer { 1 } } M.h()";
+    let public_helper = "module M { public module fun shown() -> Integer { 1 } } M.shown()";
+
+    // When / Then. `rendered` shows the raw error; the conformance runner maps
+    // this to `MethodVisibilityError`, which is what the vector asserts.
+    let denied = "Construction(Dispatch(VisibilityDenied";
+    assert!(rendered(private_helper).starts_with(denied));
+    assert!(rendered(explicitly_private).starts_with(denied));
+    assert_eq!(rendered(public_helper), "Integer(IntegerValue(1))");
+}

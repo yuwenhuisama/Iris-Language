@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 113 are
-committed here; the remaining 21 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 115 are
+committed here; the remaining 19 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -146,6 +146,8 @@ existing channel.
 | `V300` | positive | executable | The context reports its own Class name alongside the raised value. |
 | `V335` | positive | executable | A canonical one-argument Method and annotated Closure both execute. |
 | `V335A` | diagnostic | executable | Both malformed headers are rejected during parsing and publish no callable. |
+| `V334` | positive | executable | A top-level helper is private to its Module, so an external send is denied. |
+| `V352` | positive | executable | A top-level call is a privileged implicit send to `main`, observed through its effect. |
 
 ## Remaining rows and their blockers
 
@@ -155,7 +157,6 @@ blocked. Grouped by the capability each one actually waits on.
 | Blocker | Rows | What the probe showed |
 | --- | --- | --- |
 | Diagnostic exists but the frozen text names no code | `V345` | Fixed-local-Type checking now WORKS: `mut value = 1; value = "text"` is rejected, and an explicit `String \| Integer` or `Dynamic<Object>` annotation correctly escapes it. But the row says only "Fixed-local-Type diagnostic", so the expectation would assert an implementation-invented code. Behaviour is locked by unit tests instead. |
-| Top-level `fun` and Module declarations | `V334`, `V352` | A top-level `fun` is `UnsupportedConstruct`, and both rows need a Module body with private-member dispatch. |
 | Callable-kind reflection | `V333` | Needs a reflective read of a callable's KIND. `class_name` reports a missing message on a BoundMethod and a Closure. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
 | No stable diagnostic code in the frozen text | `V288A`, `V289A`, `V355B`, `V357A` | Each asserts a legacy form is "rejected during parsing" without naming a code. `switch`/`when` are deliberately IDENTIFIERS under `IRIS-V1-GRAMMAR-V010`, so they parse as ordinary names. Transcribing these against invented codes would test the implementation against itself. |

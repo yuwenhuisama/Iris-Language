@@ -73,7 +73,8 @@ impl Method {
         self.body
     }
 
-    pub(crate) const fn visibility(&self) -> Visibility {
+    /// The declared visibility of this Method.
+    pub const fn visibility(&self) -> Visibility {
         self.visibility
     }
 }
