@@ -85,6 +85,7 @@ pub fn parse(source: &str) -> ParseResult {
         cursor: 0,
         diagnostics: Vec::new(),
         no_trailing_block: false,
+        no_type_union: false,
     };
     let program = parser.program();
     let program_accepted = parser.diagnostics.is_empty() && parser.at_end();
@@ -239,6 +240,12 @@ struct Parser {
     /// grammar resolves this by position, and this flag carries that position
     /// down through the expression parser.
     pub(crate) no_trailing_block: bool,
+    /// Suppresses the `type_union` level while parsing a closure header.
+    ///
+    /// `|` both separates union members and CLOSES a closure parameter list, so
+    /// inside `{ |x: Integer| ... }` the closing bar must not be read as a
+    /// union operator.
+    no_type_union: bool,
 }
 
 impl Parser {
@@ -490,15 +497,24 @@ impl Parser {
         self.expect("{")?;
         let mut parameters = Vec::new();
         if self.consume("|") {
+            let outer = std::mem::replace(&mut self.no_type_union, true);
             while !self.check("|") && !self.at_end() {
-                parameters.push(self.binding_name()?);
-                if self.consume(":") {
-                    self.type_expression()?;
+                let Some(parameter) = self.binding_name() else {
+                    self.no_type_union = outer;
+                    return None;
+                };
+                parameters.push(parameter);
+                if self.consume(":") && self.type_expression().is_none() {
+                    self.no_type_union = outer;
+                    return None;
                 }
                 if !self.consume(",") {
                     break;
                 }
             }
+            // The union level is restored BEFORE the return annotation, which
+            // sits outside the parameter list and may legitimately be a union.
+            self.no_type_union = outer;
             self.expect("|")?;
             if self.consume("-") {
                 self.expect(">")?;
@@ -1048,6 +1064,9 @@ impl Parser {
     /// union level is required rather than optional.
     fn type_expression(&mut self) -> Option<TypeExpression> {
         let first = self.type_intersection()?;
+        if self.no_type_union {
+            return Some(first);
+        }
         let mut values = vec![first];
         while self.consume("|") {
             values.push(self.type_intersection()?);

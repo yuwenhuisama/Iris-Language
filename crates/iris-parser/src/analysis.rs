@@ -924,3 +924,25 @@ mod operand_union_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod closure_header_tests {
+    use crate::parse;
+
+    #[test]
+    fn a_closure_parameter_may_carry_a_type_annotation() {
+        // `|` both separates union members and CLOSES a closure parameter list.
+        // Adding the union level made `{ |x: Integer| 2 }` read the closing bar
+        // as a union operator and consume it, so the header never terminated.
+        assert!(parse("let cl = { |x: Integer| 2 }").program_accepted);
+        assert!(parse("let cl = { |x| 2 }").program_accepted);
+        assert!(parse("let cl = { |x: Integer, y: Bool| 2 }").program_accepted);
+
+        // The RETURN annotation sits outside the parameter list, so a union is
+        // legitimate there and must still parse.
+        assert!(parse("let cl = { |x: Integer| -> Integer | Nil 2 }").program_accepted);
+
+        // A binding annotation is unaffected by the suppression.
+        assert!(parse("let mut v: String | Integer = 1").program_accepted);
+    }
+}
