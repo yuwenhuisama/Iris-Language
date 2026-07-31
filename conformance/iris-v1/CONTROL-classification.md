@@ -3,8 +3,8 @@
 This document classifies the committed `IRIS-V1-CONTROL` vectors from the
 normative table in `spec/iris-v1/04-bindings-callables-control-flow.md`.
 
-**Coverage is partial.** The normative table contains 134 vector rows. 122 are
-committed here; the remaining 12 are NOT yet transcribed and are therefore not
+**Coverage is partial.** The normative table contains 134 vector rows. 124 are
+committed here; the remaining 10 are NOT yet transcribed and are therefore not
 covered by any evidence in this repository. An assessment of those rows found
 they are blocked on capabilities that do not exist yet, chiefly static type
 reflection, top-level `fun` declarations, class variables and globals, subclass
@@ -135,7 +135,6 @@ existing channel.
 | `V325` | positive | executable | Transcribed after probing; catch-binding immutability and logical-assignment short-circuit verified against the frozen row. |
 | `V301` | diagnostic | executable | The frozen row NAMES `DISCARD_BINDING_READ`, so the expectation is spec-derived. |
 | `V344A` | diagnostic | executable | Three independent fixtures, each asserting a spec-named binding diagnostic. |
-| `V347A` | diagnostic | needs-subsystem | The local-binding fixture is diagnosed, but `$missing = 1` is a parse error rather than a missing-storage diagnostic and `@@missing = 1` produces none, so two of the three fixtures cannot yet be asserted. |
 | `V305` | positive | executable | Transcribed after probing; two contexts from separate raises are distinct Hash keys. |
 | `V294` | diagnostic | executable | Transcribed after probing; a write to a catch binding reports the spec-named immutable-binding code. |
 | `V284` | positive | executable | Transcribed after probing; nested cleanup failures suppress in occurrence order with the body failure primary. |
@@ -155,6 +154,8 @@ existing channel.
 | `V355B` | diagnostic | executable | Same `PARSE_LEGACY_FORM` code, for the legacy `repeat` form. |
 | `V357A` | diagnostic | executable | Same `PARSE_LEGACY_FORM` code, for the legacy `switch`/`when` form. |
 | `V358` | diagnostic | executable | The errata names `DECLARATION_REBINDING`. |
+| `V337A` | diagnostic | executable | Both diagnostics are reported: the immutable parameter write and the forward-referencing default. |
+| `V347A` | diagnostic | executable | Assignment to absent `@@` storage and to an undeclared local are each diagnosed. |
 
 ## Remaining rows and their blockers
 
@@ -165,10 +166,8 @@ blocked. Grouped by the capability each one actually waits on.
 | --- | --- | --- |
 | Callable-kind reflection | `V333` | Needs a reflective read of a callable's KIND. `class_name` reports a missing message on a BoundMethod and a Closure. |
 | Name resolution across Modules and packages | `V350`, `V351`, `V351A` | `global mut $name` is a parse error, and the rows compare lexical, Module, and import resolution orders that do not exist yet. |
-| Missing-storage diagnostics | `V347A` | The local-binding fixture is diagnosed, but `$missing = 1` is a parse error rather than a missing-storage diagnostic and `@@missing = 1` produces none, so two of three fixtures cannot be asserted. |
 | `ExceptionContext` reflection surface | `V302` | Blocked on the SPECIFICATION, not on implementation effort. The row asserts the static Types of `original_stack`, `re_raise_sites` and `raise_location`, but `StackFrame`, `RaiseSite` and `SourceLocation` appear ONLY inside `IRIS-V1-CONTROL-C065`, `V302` and `D-473`: nothing anywhere in the frozen text defines their members. Implementing them would mean inventing a record shape and then asserting the implementation against itself. This is an errata candidate under `IRIS-V1-TRACE-C019`. |
 | Collection surface | `V285` | Needs `append`, `delete` and `length` on the suppressed `ReadonlyArray`; `length` reports a missing message. |
 | Runtime metaprogramming | `V286`, `V292`, `V362` | `V286` replaces a public getter at runtime and `V292` commits a Class revision mid-program. `V362` is recorded separately: probing it produced a FALSE POSITIVE, since the expected `:then` arrives from default truthiness while `method_missing` runs zero times. |
-| Parameter default diagnostics | `V337A` | Asserts static diagnostics for assigning a parameter and for a default referencing a later parameter; only the first is reported today. |
 | No-parentheses call forms | `V342A` | `f 1` and `obj.m 1` are rejected, which is the row's expectation, but it names no code. |
 

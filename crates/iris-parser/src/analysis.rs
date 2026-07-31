@@ -14,6 +14,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
     let mut analyzer = Analyzer {
         diagnostics: Vec::new(),
         scopes: vec![Vec::new()],
+        declared_class_variables: Vec::new(),
     };
     analyzer.program(program);
     analyzer.diagnostics
@@ -204,6 +205,12 @@ impl Control {
 struct Analyzer {
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<Vec<Local>>,
+    /// Class-variable names a `shared` declaration published.
+    ///
+    /// `IRIS-V1-CONTROL-C009` makes assignment to absent `@@name` fail as
+    /// missing declared storage rather than creating it, so an assignment is
+    /// checked against what was actually declared.
+    declared_class_variables: Vec<String>,
 }
 
 impl Analyzer {
@@ -291,6 +298,23 @@ impl Analyzer {
                 Some(StaticType::union(&left, &right))
             }
             _ => StaticType::of(expression),
+        }
+    }
+
+    /// Reports a parameter default that references a later parameter.
+    fn check_default_forward_reference(
+        &mut self,
+        default: &Expression,
+        parameters: &[iris_syntax::Parameter],
+    ) {
+        let Expression::Name(name) = default else {
+            return;
+        };
+        // Already-declared parameters are in scope, so a name that matches a
+        // parameter yet resolves to nothing must be one declared later.
+        if self.lookup(name).is_none() && parameters.iter().any(|parameter| parameter.name == *name)
+        {
+            self.report("PARAMETER_DEFAULT_FORWARD_REFERENCE");
         }
     }
 
@@ -388,7 +412,10 @@ impl Analyzer {
                 }
                 self.declare(name, *mutable);
             }
-            Statement::SharedBinding { name, mutable, .. } => self.declare(name, *mutable),
+            Statement::SharedBinding { name, mutable, .. } => {
+                self.declared_class_variables.push(name.clone());
+                self.declare(name, *mutable);
+            }
             Statement::Expression(expression) => self.expression(expression, control),
             Statement::If {
                 condition,
@@ -491,6 +518,13 @@ impl Analyzer {
                 // than as an unresolved target.
                 self.scopes.push(Vec::new());
                 for parameter in &declaration.parameters {
+                    // C078: a default referencing a parameter declared LATER is
+                    // a forward reference. Each parameter is declared before the
+                    // next default is checked, so an earlier parameter resolves
+                    // and a later one does not.
+                    if let Some(default) = &parameter.default {
+                        self.check_default_forward_reference(default, &declaration.parameters);
+                    }
                     self.declare(&parameter.name, false);
                 }
                 for statement in &declaration.body {
@@ -511,6 +545,16 @@ impl Analyzer {
                 // `D-426`: a bare `name = expr` only ASSIGNS an existing mutable
                 // binding. It never implicitly declares, which is what prevents
                 // a typo from creating a local.
+                // C009 and C078: assignment to absent `@@name` storage is
+                // `MISSING_DECLARED_STORAGE` and creates nothing. A `shared`
+                // declaration is what publishes that storage.
+                if let Expression::ClassVar(name) = left.as_ref()
+                    && !self.declared_class_variables.iter().any(|declared| {
+                        declared == name || declared.trim_start_matches('@') == name
+                    })
+                {
+                    self.report("MISSING_DECLARED_STORAGE");
+                }
                 if let Expression::Name(name) = left.as_ref() {
                     match self.lookup(name) {
                         None => self.report("BINDING_UNRESOLVED_ASSIGNMENT_TARGET"),
@@ -1011,5 +1055,46 @@ mod errata_named_code_tests {
         // than a blanket ban on repeating a name.
         assert!(codes("let a = 1; if true { let a = 2; a } else { nil }").is_empty());
         assert!(codes("const N = 1; const M = 2").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod errata_storage_and_default_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c078_rejects_a_parameter_default_referencing_a_later_parameter() {
+        assert_eq!(
+            codes("class C { public fun m(a = later, later = 1) { a } }"),
+            ["PARAMETER_DEFAULT_FORWARD_REFERENCE"]
+        );
+
+        // A default referencing an EARLIER parameter is the legal form V337
+        // already covers, so the check is directional rather than a ban on
+        // parameter references in defaults.
+        assert!(codes("class C { public fun m(a, b = a) { b } }").is_empty());
+        assert!(codes("class C { public fun m(a, b = 2) { b } }").is_empty());
+    }
+
+    #[test]
+    fn c078_rejects_assignment_to_absent_class_variable_storage() {
+        assert_eq!(
+            codes("class C { public fun m() { @@missing = 1 } }"),
+            ["MISSING_DECLARED_STORAGE"]
+        );
+
+        // A `shared` declaration publishes the storage, and reading is never a
+        // missing-storage error.
+        assert!(codes("class C { shared mut @@x = 0 public fun m() { @@x = 1 } }").is_empty());
+        assert!(codes("class C { shared mut @@x = 0 public fun m() { @@x } }").is_empty());
     }
 }
