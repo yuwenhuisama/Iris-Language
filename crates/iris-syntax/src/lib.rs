@@ -47,6 +47,12 @@ pub struct ClassDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleDeclaration {
     pub decorators: Vec<Decorator>,
+    /// Whether the source wrote a `for` clause on this Module.
+    ///
+    /// `module_decl` admits no `class_for`, but `IRIS-V1-TYPES-V261` expects a
+    /// STATIC `CONTRACT_FOR_CLASS_ONLY` rather than a parse error, so the
+    /// clause is accepted here and rejected in analysis.
+    pub contract_for: Vec<TypeExpression>,
     pub name: String,
     pub parameters: Vec<String>,
     pub mixins: Vec<MixinEntry>,
@@ -58,6 +64,12 @@ pub struct ModuleDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractDeclaration {
     pub decorators: Vec<Decorator>,
+    /// Whether the source wrote `open` before `contract`.
+    ///
+    /// `IRIS-V1-TYPES-V204` expects a STATIC `OPEN_CONTRACT_FORBIDDEN` rather
+    /// than a parse error, so the word is accepted here and rejected in
+    /// analysis. `contract_decl` itself admits no `open`.
+    pub open: bool,
     pub name: String,
     pub parameters: Vec<String>,
     pub parents: Vec<TypeExpression>,
@@ -530,6 +542,7 @@ mod tests {
         let program = Program {
             declarations: vec![Declaration::Contract(ContractDeclaration {
                 decorators: Vec::new(),
+                open: false,
                 name: "Child".into(),
                 parameters: Vec::new(),
                 parents: vec![

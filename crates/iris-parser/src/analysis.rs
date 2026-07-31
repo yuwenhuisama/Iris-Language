@@ -17,6 +17,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         declared_class_variables: Vec::new(),
         qualified_namespace: Vec::new(),
         generic_classes: Vec::new(),
+        contract_requirements: Vec::new(),
     };
     analyzer.program(program);
     analyzer.diagnostics
@@ -213,6 +214,12 @@ struct Analyzer {
     /// missing declared storage rather than creating it, so an assignment is
     /// checked against what was actually declared.
     declared_class_variables: Vec<String>,
+    /// Each declared Contract paired with the selectors it REQUIRES.
+    ///
+    /// `IRIS-V1-TYPES-C046` makes a member satisfying a declared requirement
+    /// write `impl`, so a Class listing `for C` is checked against what `C`
+    /// actually requires rather than against every member it happens to hold.
+    contract_requirements: Vec<(String, Vec<String>)>,
     /// Names published into the ONE qualified namespace.
     ///
     /// `IRIS-V1-CONTROL-D-432` puts Class, Module, Contract, Type aliases and
@@ -387,10 +394,39 @@ impl Analyzer {
                 .push((value.name.clone(), value.parameters.len()));
         }
         let (name, body) = match declaration {
-            iris_syntax::Declaration::Class(value) => (&value.name, Some(&value.body)),
-            iris_syntax::Declaration::Module(value) => (&value.name, Some(&value.body)),
+            iris_syntax::Declaration::Class(value) => {
+                self.check_declared_conformance(value);
+                (&value.name, Some(&value.body))
+            }
+            iris_syntax::Declaration::Module(value) => {
+                // D-279: `for` declares Contract conformance, which is a Class
+                // fact. A Module has no instances to conform, so the clause is
+                // parsed and rejected here rather than at parse time.
+                if !value.contract_for.is_empty() {
+                    self.report("CONTRACT_FOR_CLASS_ONLY");
+                }
+                (&value.name, Some(&value.body))
+            }
             iris_syntax::Declaration::Contract(value) => {
+                // D-177: a Contract has no revision to reopen, so `open` is
+                // rejected here rather than at parse time. V204 observes a
+                // STATIC diagnostic and no published Contract revision.
+                if value.open {
+                    self.report("OPEN_CONTRACT_FORBIDDEN");
+                }
                 self.check_contract_body(&value.body);
+                let requirements = value
+                    .body
+                    .iter()
+                    .filter_map(|statement| match statement {
+                        Statement::Method(method) if method.body.is_none() => {
+                            Some(method.selector.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                self.contract_requirements
+                    .push((value.name.clone(), requirements));
                 (&value.name, None)
             }
         };
@@ -411,6 +447,42 @@ impl Analyzer {
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
         self.scoped_body(body, Control::top_level());
+    }
+
+    /// Checks that a Class satisfying a declared Contract requirement marks the
+    /// member with `impl`.
+    ///
+    /// `IRIS-V1-TYPES-C046` rejects an unmarked Class-provided implementation
+    /// where an explicit one is required, which is what `IRIS-V1-TYPES-V248`
+    /// observes. A member whose selector no listed Contract requires is an
+    /// ordinary Method and is left alone.
+    fn check_declared_conformance(&mut self, declaration: &iris_syntax::ClassDeclaration) {
+        let listed: Vec<&String> = declaration
+            .implements
+            .iter()
+            .filter_map(|target| match target {
+                iris_syntax::TypeExpression::Name(name) => Some(name),
+                _ => None,
+            })
+            .collect();
+        let required: Vec<String> = self
+            .contract_requirements
+            .iter()
+            .filter(|(contract, _)| listed.contains(&contract))
+            .flat_map(|(_, selectors)| selectors.iter().cloned())
+            .collect();
+        if required.is_empty() {
+            return;
+        }
+        for statement in &declaration.body {
+            if let Statement::Method(method) = statement
+                && method.body.is_some()
+                && method.impl_contract.is_none()
+                && required.contains(&method.selector)
+            {
+                self.report("CONTRACT_IMPLEMENTATION_REQUIRES_IMPL");
+            }
+        }
     }
 
     /// Checks the members a Contract body may hold.
@@ -884,6 +956,65 @@ mod tests {
             vec!["CONTRACT_BODY_MEMBER_FORBIDDEN"]
         );
         assert_eq!(codes(ordinary), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d177_rejects_an_open_contract_statically() {
+        // D-177: a Contract has no revision to reopen. V204 expects a STATIC
+        // `OPEN_CONTRACT_FORBIDDEN` and no published Contract revision, so
+        // `open` is CONSUMED by the parser and rejected here. Failing at parse
+        // time instead would report a parse error the vector does not name.
+        let open_contract = "open contract C { fun m() -> Nil }";
+        let plain_contract = "contract C { fun m() -> Nil }";
+        // `open` keeps its ordinary meaning on a Class, which is a reopen.
+        let open_class = "open class A {}";
+
+        // When / Then
+        assert_eq!(codes(open_contract), vec!["OPEN_CONTRACT_FORBIDDEN"]);
+        assert_eq!(codes(plain_contract), Vec::<&str>::new());
+        assert_eq!(codes(open_class), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d279_keeps_contract_conformance_a_class_fact() {
+        // D-279: `for` declares Contract conformance, which is a Class fact. A
+        // Module has no instances to conform. V261 expects a STATIC
+        // `CONTRACT_FOR_CLASS_ONLY`, so the clause `module_decl` does not admit
+        // is parsed and rejected here rather than failing as a header-order
+        // parse error.
+        let module_for = "contract C { fun m() -> Nil } module M for C {}";
+        let plain_module = "module M {}";
+        // The same clause on a Class is ordinary conformance and is accepted.
+        let class_for =
+            "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil { nil } }";
+
+        // When / Then
+        assert_eq!(codes(module_for), vec!["CONTRACT_FOR_CLASS_ONLY"]);
+        assert_eq!(codes(plain_module), Vec::<&str>::new());
+        assert_eq!(codes(class_for), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d233_requires_impl_on_a_member_satisfying_a_requirement() {
+        // C046 rejects an unmarked Class-provided implementation where an
+        // explicit one is required, which is what V248 observes.
+        let unmarked = "contract C { fun m() -> Nil } class A for C { fun m() -> Nil {} }";
+        let marked = "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil {} }";
+        // A member whose selector NO listed Contract requires is an ordinary
+        // Method, so it is left alone rather than swept up by the check.
+        let unrelated =
+            "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil {} fun other() {} }";
+        // Without `for C` the Class declares no conformance at all.
+        let no_conformance = "contract C { fun m() -> Nil } class A { fun m() -> Nil {} }";
+
+        // When / Then
+        assert_eq!(
+            codes(unmarked),
+            vec!["CONTRACT_IMPLEMENTATION_REQUIRES_IMPL"]
+        );
+        assert_eq!(codes(marked), Vec::<&str>::new());
+        assert_eq!(codes(unrelated), Vec::<&str>::new());
+        assert_eq!(codes(no_conformance), Vec::<&str>::new());
     }
 }
 

@@ -289,6 +289,13 @@ impl Parser {
             }
             let decorators = self.decorators();
             match self.peek() {
+                Some("open") if self.peek_next() == Some("contract") => {
+                    self.contract_declaration(decorators).map(|value| {
+                        let declaration = Declaration::Contract(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
+                }
                 Some("open") if self.peek_next() == Some("class") => {
                     self.class_declaration(decorators).map(|value| {
                         let declaration = Declaration::Class(value);
@@ -396,6 +403,14 @@ impl Parser {
         self.expect("module")?;
         let name = self.qualified_name()?;
         let parameters = self.generic_parameters();
+        // V261 expects `module M for C` to report a STATIC diagnostic, so the
+        // clause `module_decl` does not admit is consumed here and rejected in
+        // analysis rather than failing as a header-order parse error.
+        let contract_for = if self.consume("for") {
+            self.type_list()
+        } else {
+            Vec::new()
+        };
         let mut mixins = Vec::new();
         let mut constraints = Vec::new();
         let mut meta_deny = Vec::new();
@@ -433,6 +448,7 @@ impl Parser {
         }
         Some(ModuleDeclaration {
             decorators,
+            contract_for,
             name,
             parameters,
             mixins,
@@ -443,6 +459,9 @@ impl Parser {
     }
 
     fn contract_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ContractDeclaration> {
+        // V204 expects a STATIC diagnostic, so `open` is consumed here and
+        // reported by analysis rather than failing as a parse error.
+        let open = self.consume("open");
         self.expect("contract")?;
         let name = self.name()?;
         let parameters = self.generic_parameters();
@@ -483,6 +502,7 @@ impl Parser {
         }
         Some(ContractDeclaration {
             decorators,
+            open,
             name,
             parameters,
             parents,
