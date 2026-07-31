@@ -1194,7 +1194,7 @@ impl Parser {
                         break;
                     }
                 }
-                self.expect(">")?;
+                self.expect_generic_close()?;
                 TypeExpression::Generic { name, arguments }
             } else if self.check("[") {
                 // `IRIS-V1-TYPES-V210` NAMES this code. Angle brackets are the
@@ -1438,6 +1438,28 @@ impl Parser {
             self.error("PARSE_UNEXPECTED_TOKEN");
             None
         }
+    }
+    /// Closes ONE generic argument list, splitting a `>>` token when needed.
+    ///
+    /// `IRIS-V1-GRAMMAR-C020` requires Type grammar to let `>>` close two
+    /// nested generic argument lists WITHOUT changing expression right-shift
+    /// tokenization. One token stream serves both grammars here, so the shared
+    /// `>>` is split in place: the inner list consumes the first `>` and leaves
+    /// a `>` for its enclosing list. Rewriting the token rather than consuming
+    /// it keeps `a >> b` an ordinary right shift everywhere else.
+    fn expect_generic_close(&mut self) -> Option<()> {
+        if self.consume(">") {
+            return Some(());
+        }
+        if self.check(">>")
+            && let Some(token) = self.tokens.get_mut(self.cursor)
+        {
+            token.text = ">".into();
+            token.offset += 1;
+            return Some(());
+        }
+        self.error("PARSE_UNEXPECTED_TOKEN");
+        None
     }
     fn expect_arrow(&mut self) -> Option<()> {
         if self.consume("=>") || (self.consume("=") && self.consume(">")) {

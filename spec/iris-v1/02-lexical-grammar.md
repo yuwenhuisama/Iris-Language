@@ -429,7 +429,8 @@ index_suffix       ::= "[" call_argument_list? "]"
 property_suffix    ::= "." selector
 contract_view_suffix ::= ".." selector call_suffix?
 trailing_block     ::= closure_literal
-primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression
+primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression | closed_generic_name
+closed_generic_name ::= qualified_type_name generic_args
 if_expression      ::= "if" expression block_body ("else" (if_expression | block_body))?
 grouped_or_tuple   ::= "(" expression ("," expression)* ","? ")"
 closure_literal    ::= "{" closure_header? closure_body "}"
@@ -568,6 +569,8 @@ IRIS-V1-GRAMMAR-C060: The v1.3 errata admits `if_expression` in expression posit
 IRIS-V1-GRAMMAR-C061: The v1.4 errata replaces `class_mixin` and `module_mixin` with `mixin_entry_list`; each `mixin_entry` MAY carry `private` to record private authorization at that static composition edge. The authorization, its scope, and its revocation remain exclusively owned by IRIS-V1-RUNTIME-C050, IRIS-V1-META-C056, and IRIS-V1-META-C060. Raw current-receiver `@x` access is independent of this option and remains exclusively owned by IRIS-V1-RUNTIME-C051 and IRIS-V1-META-C058.
 
 IRIS-V1-GRAMMAR-C062: The v1.16 errata makes `block_body` optional in `method_decl`, so a Method declaration MAY state a signature with no body. This supplies the requirement syntax that IRIS-V1-TYPES-C042 already presupposes when it permits a Contract body to declare instance, Class-object, property, and generic Method requirements, and which no prior production could express. A bodyless `method_decl` is a REQUIREMENT: it declares an obligation and provides no implementation. It is well-formed only inside `contract_decl`; a bodyless `method_decl` in a `class_decl` or `module_decl` body is rejected. The converse case remains owned by IRIS-V1-TYPES-C042, which forbids a Method body in a Contract: that body now PARSES and is rejected as the static `CONTRACT_METHOD_BODY_FORBIDDEN` that IRIS-V1-TYPES-V258 observes, rather than failing as a parse error. This errata adds no new keyword, no new token, and no new declaration form, and it does not alter the meaning of any Method that writes a body.
+
+IRIS-V1-GRAMMAR-C063: The v1.17 errata adds `closed_generic_name ::= qualified_type_name generic_args` to `primary_expr`, so a CLOSED generic construction may appear in expression position. This supplies the syntax that IRIS-V1-TYPES-C061 already presupposes when it requires ordinary construction to name a closed generic Type, and which `Box<String>.new()`, `Pair<String, Integer>.new()`, and `Box<String>.type` need. IRIS-V1-GRAMMAR-C020 is NOT weakened: a `<` after a name begins generic arguments only where the name is a `type_name` and the bracket pair closes with a `>` that is followed by a `postfix_part`. Every other `<` keeps its operator tokenization, so `a < b` remains a comparison and `a >> b` remains a right shift. Where both readings would otherwise be well formed, the OPERATOR reading wins, which preserves the meaning of every program that parsed before this errata. A bare generic name without arguments remains definition metadata under IRIS-V1-TYPES-C061 and is NOT admitted here.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

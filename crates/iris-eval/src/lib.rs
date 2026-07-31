@@ -199,6 +199,9 @@ impl Evaluator {
             Expression::KeywordArgument { .. }
             | Expression::Index { .. }
             | Expression::Try { .. }
+            // A closed generic construction needs the Class registry the
+            // literal evaluator does not have.
+            | Expression::ClosedGeneric { .. }
             | Expression::While { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Name(name) => self.name(name),
             Expression::Literal(source) => self.literal(source).map(Evaluated::Value),
@@ -579,6 +582,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::KeywordArgument { .. }
         | Expression::Index { .. }
         | Expression::Try { .. }
+        | Expression::ClosedGeneric { .. }
         | Expression::While { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }

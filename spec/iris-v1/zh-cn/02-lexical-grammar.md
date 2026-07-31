@@ -429,7 +429,8 @@ index_suffix       ::= "[" call_argument_list? "]"
 property_suffix    ::= "." selector
 contract_view_suffix ::= ".." selector call_suffix?
 trailing_block     ::= closure_literal
-primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression
+primary_expr       ::= literal | ordinary_name | ivar_name | shared_name | global_name | "self" | "super" | "nil" | "true" | "false" | grouped_or_tuple | array_literal | hash_literal | closure_literal | if_expression | closed_generic_name
+closed_generic_name ::= qualified_type_name generic_args
 if_expression      ::= "if" expression block_body ("else" (if_expression | block_body))?
 grouped_or_tuple   ::= "(" expression ("," expression)* ","? ")"
 closure_literal    ::= "{" closure_header? closure_body "}"
@@ -568,6 +569,8 @@ IRIS-V1-GRAMMAR-C060：v1.3 勘误允许 `if_expression` 出现在表达式位�
 IRIS-V1-GRAMMAR-C061：v1.4 勘误将 `class_mixin` 和 `module_mixin` 替换为 `mixin_entry_list`；每个 `mixin_entry` MAY 携带 `private`，以在该静态组合边缘记录 private authorization。该授权、其作用域和撤销仍完全由 IRIS-V1-RUNTIME-C050、IRIS-V1-META-C056 和 IRIS-V1-META-C060 拥有。原始 current-receiver `@x` 访问独立于该选项，仍完全由 IRIS-V1-RUNTIME-C051 和 IRIS-V1-META-C058 拥有。
 
 IRIS-V1-GRAMMAR-C062：v1.16 勘误将 `method_decl` 中的 `block_body` 改为可选，因此方法声明 MAY 只给出签名而不带方法体。这补上了 IRIS-V1-TYPES-C042 在允许 Contract 体声明实例、类对象、属性与泛型方法要求时已经预设、但此前没有任何产生式能够表达的要求语法。无方法体的 `method_decl` 是一条**要求**：它声明义务而不提供实现。它仅在 `contract_decl` 内部是良构的；出现在 `class_decl` 或 `module_decl` 体内的无体 `method_decl` 会被拒绝。相反的情形仍由 IRIS-V1-TYPES-C042 拥有，该条款禁止 Contract 内出现方法体：该方法体现在能够**解析**，并按 IRIS-V1-TYPES-V258 所观察的那样，作为静态诊断 `CONTRACT_METHOD_BODY_FORBIDDEN` 被拒绝，而不再表现为解析错误。本勘误不新增关键字、不新增词法单元、不新增声明形式，也不改变任何书写了方法体的方法的含义。
+
+IRIS-V1-GRAMMAR-C063：v1.17 勘误向 `primary_expr` 增加 `closed_generic_name ::= qualified_type_name generic_args`，因此**闭合**泛型构造 MAY 出现在表达式位置。这补上了 IRIS-V1-TYPES-C061 在要求普通构造必须命名闭合泛型类型时已经预设的语法，也是 `Box<String>.new()`、`Pair<String, Integer>.new()` 与 `Box<String>.type` 所需要的语法。IRIS-V1-GRAMMAR-C020 并未被削弱：名字之后的 `<` 仅在该名字是 `type_name`、且尖括号对以一个其后跟随 `postfix_part` 的 `>` 闭合时，才开始泛型实参。其余每一个 `<` 都保持其运算符分词，因此 `a < b` 仍是比较，`a >> b` 仍是右移。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。不带实参的裸泛型名字在 IRIS-V1-TYPES-C061 下仍是定义元数据，此处 NOT 接纳。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

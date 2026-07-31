@@ -84,6 +84,11 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             (value.clone(), 17)
         }
         Expression::ClassVar(value) => (format!("@@{value}"), 17),
+        // A closed generic construction renders as its written source shape, so
+        // `Box<String>.new()` is distinguishable from a bare `Box`.
+        Expression::ClosedGeneric { name, arguments } => {
+            (format!("{name}<{} arguments>", arguments.len()), 17)
+        }
         Expression::Hash(entries) => (format!("%{{{} entries}}", entries.len()), 17),
         Expression::Closure { parameters, .. } => {
             (format!("{{|{}| ...}}", parameters.join(", ")), 17)
@@ -177,6 +182,9 @@ fn structural_shape(expression: &Expression) -> String {
             primary_shape(value)
         }
         Expression::ClassVar(value) => primary_shape(&format!("@@{value}")),
+        Expression::ClosedGeneric { name, arguments } => {
+            format!("closed_generic({name}, {})", arguments.len())
+        }
         Expression::Closure { parameters, .. } => format!("closure({})", parameters.join(", ")),
         Expression::Hash(entries) => format!("hash({})", entries.len()),
         Expression::Symbol(value) => format!("symbol({value})"),

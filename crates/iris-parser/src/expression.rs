@@ -121,6 +121,51 @@ impl Parser {
         }
     }
 
+    /// Parses `generic_args` in expression position, or rewinds entirely.
+    ///
+    /// `IRIS-V1-GRAMMAR-C063` takes the generic reading only when the bracket
+    /// pair closes with a `>` that is followed by a `postfix_part`, so
+    /// `a < b` and `Box < C` keep the comparison meaning C020 gives them. Any
+    /// other shape restores the cursor and yields `None`.
+    fn closed_generic_arguments(&mut self) -> Option<Vec<iris_syntax::TypeExpression>> {
+        let start = self.cursor;
+        // Speculation must leave NO trace when it rewinds. The Type grammar
+        // reports its own failures, so a rejected generic reading would
+        // otherwise leave a diagnostic behind and turn the operator reading
+        // C063 requires -- `A < B` -- into a parse error.
+        let diagnostics = self.diagnostics.len();
+        self.advance();
+        let mut arguments = Vec::new();
+        loop {
+            let Some(argument) = self.type_expression() else {
+                self.rewind(start, diagnostics);
+                return None;
+            };
+            arguments.push(argument);
+            if !self.consume(",") {
+                break;
+            }
+        }
+        if self.expect_generic_close().is_none() {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        // A closed generic name is only an expression when something USES it,
+        // which is the `postfix_part` that follows. A bare `Box<String>` is a
+        // Type, not a value, so it is left to the operator reading.
+        if !self.check(".") && !self.check("(") && !self.check("..") {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        Some(arguments)
+    }
+
+    /// Undoes a speculative parse, restoring cursor AND diagnostics.
+    fn rewind(&mut self, cursor: usize, diagnostics: usize) {
+        self.cursor = cursor;
+        self.diagnostics.truncate(diagnostics);
+    }
+
     fn primary(&mut self) -> Option<Expression> {
         if self.consume("@@") {
             return self.name().map(Expression::ClassVar);
@@ -188,7 +233,24 @@ impl Parser {
             });
         }
         if self.is_name() {
-            return self.qualified_name().map(Expression::Name);
+            let name = self.qualified_name()?;
+            // C063 admits a CLOSED generic construction in expression position.
+            // C020 is not weakened, so the generic reading is taken only when
+            // the name is a Type name AND the bracket pair closes with a `>`
+            // followed by a postfix part. Where both readings would be well
+            // formed the OPERATOR reading wins, which is why this speculates
+            // and rewinds instead of committing on the opening `<`.
+            if self.check("<")
+                && name
+                    .rsplit("::")
+                    .next()
+                    .and_then(|segment| segment.chars().next())
+                    .is_some_and(char::is_uppercase)
+                && let Some(arguments) = self.closed_generic_arguments()
+            {
+                return Some(Expression::ClosedGeneric { name, arguments });
+            }
+            return Some(Expression::Name(name));
         }
         let Some(value) = self.advance().map(|token| token.text) else {
             self.error("PARSE_UNEXPECTED_TOKEN");

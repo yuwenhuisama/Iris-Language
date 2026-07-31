@@ -278,6 +278,40 @@ impl Analyzer {
         {
             self.report("RAW_GENERIC_TYPE_FORBIDDEN");
         }
+        self.check_generic_arity(annotation);
+    }
+
+    /// Rejects a closed generic Type whose argument count does not match the
+    /// declared parameter list.
+    ///
+    /// `IRIS-V1-TYPES-V245` observes `GENERIC_ARGUMENT_ARITY` for `Pair<String>`
+    /// against `class Pair<T,U>`: no default `U` is supplied. A Class this pass
+    /// has not seen declared is left alone, since its arity is unknown rather
+    /// than wrong.
+    fn check_generic_arity(&mut self, annotation: &iris_syntax::TypeExpression) {
+        match annotation {
+            iris_syntax::TypeExpression::Generic { name, arguments } => {
+                if self
+                    .generic_classes
+                    .iter()
+                    .any(|(declared, arity)| declared == name && *arity != arguments.len())
+                {
+                    self.report("GENERIC_ARGUMENT_ARITY");
+                }
+                for argument in arguments {
+                    self.check_generic_arity(argument);
+                }
+            }
+            iris_syntax::TypeExpression::Union(members)
+            | iris_syntax::TypeExpression::Intersection(members) => {
+                for member in members {
+                    self.check_generic_arity(member);
+                }
+            }
+            iris_syntax::TypeExpression::Name(_)
+            | iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Function { .. } => {}
+        }
     }
 
     fn annotation_type(&self, annotation: &iris_syntax::TypeExpression) -> Option<StaticType> {
@@ -846,6 +880,14 @@ impl Analyzer {
                 self.expression(receiver, control);
                 self.expression(index, control);
             }
+            // A closed generic construction names a Type, so it carries the
+            // same arity obligation a written annotation does.
+            Expression::ClosedGeneric { name, arguments } => {
+                self.check_generic_arity(&iris_syntax::TypeExpression::Generic {
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                });
+            }
             Expression::Binary { left, right, .. } => {
                 self.expression(left, control);
                 self.expression(right, control);
@@ -1109,6 +1151,34 @@ mod tests {
         assert_eq!(codes(self_cycle), vec!["GENERIC_CONSTRAINT_CYCLE"]);
         assert_eq!(codes(acyclic), Vec::<&str>::new());
         assert_eq!(codes(f_bounded), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c063_admits_a_closed_generic_in_expression_position() {
+        // C063 adds `closed_generic_name` to `primary_expr`, so a CLOSED
+        // generic construction may be used as a value.
+        let construction = "class Box<T> {} let item: Box<Nil> = Box<Nil>.new()";
+        // C020 is NOT weakened: where both readings are well formed the
+        // OPERATOR reading wins, so a comparison between two Class names still
+        // parses as a comparison rather than as a failed generic.
+        let comparison = "class Box<T> {} class C {} Box < C";
+        let plain_comparison = "class A {} class B {} A < B";
+        // D-218: `Pair<String>` against `class Pair<T,U>` supplies no default
+        // `U`, and the same obligation applies in expression position.
+        let short_arity = "class Pair<T,U> {} let p: Pair<String> = Pair<String, Integer>.new()";
+        let exact_arity =
+            "class Pair<T,U> {} let p: Pair<String,Integer> = Pair<String,Integer>.new()";
+        // A Class this pass never saw declared has unknown arity, not wrong
+        // arity, so it is left alone.
+        let undeclared = "let x: Unknown<String> = 1";
+
+        // When / Then
+        assert_eq!(codes(construction), Vec::<&str>::new());
+        assert_eq!(codes(comparison), Vec::<&str>::new());
+        assert_eq!(codes(plain_comparison), Vec::<&str>::new());
+        assert_eq!(codes(short_arity), vec!["GENERIC_ARGUMENT_ARITY"]);
+        assert_eq!(codes(exact_arity), Vec::<&str>::new());
+        assert_eq!(codes(undeclared), Vec::<&str>::new());
     }
 }
 

@@ -299,6 +299,15 @@ pub enum Pattern {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expression {
+    /// A closed generic construction used as a value, as in `Box<String>.new()`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C063` admits this in `primary_expr`; a BARE generic
+    /// name without arguments stays definition metadata under
+    /// `IRIS-V1-TYPES-C061` and never becomes one of these.
+    ClosedGeneric {
+        name: String,
+        arguments: Vec<TypeExpression>,
+    },
     Name(String),
     Literal(String),
     Symbol(String),

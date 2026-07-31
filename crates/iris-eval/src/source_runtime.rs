@@ -1529,6 +1529,14 @@ impl SourceEvaluator {
             // IRIS-V1-CONTROL-C026 evaluates a keyword argument in place with
             // the positionals, so the value is produced here and the name is
             // carried to the binding step.
+            // C061 makes a closed generic construction name an ordinary Class
+            // for construction and reflection. v1 interns one Class per generic
+            // definition, so the arguments select no distinct runtime Class and
+            // the construction resolves to the declared Class itself.
+            Expression::ClosedGeneric { name, .. } => self
+                .class_name(name)?
+                .map(Value::Class)
+                .ok_or(EvaluationError::NameError),
             Expression::KeywordArgument { name, value } => {
                 let value = self.expression(value, locals, receiver)?;
                 Ok(Value::KeywordArgument(name.clone(), Box::new(value)))

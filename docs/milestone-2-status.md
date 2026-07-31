@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.16 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.17 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -9,7 +9,7 @@
 ```
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 126, failed: 0, needs_subsystem: 5                                  (131 records, buckets sum 131)
-TYPES    passed: 12, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (12 records, buckets sum 12)
+TYPES    passed: 13, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (13 records, buckets sum 13)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
