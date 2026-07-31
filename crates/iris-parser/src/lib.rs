@@ -602,7 +602,14 @@ impl Parser {
 
     fn statement(&mut self) -> Option<Statement> {
         let decorators = self.decorators();
-        if self.consume("shared") {
+        // C059's `shared_decl` and C064's `shared` property marker share the
+        // keyword, so `shared_decl` claims it only when `let` or `mut` follows.
+        // Consuming it unconditionally made `shared class property` fail before
+        // the property form was ever reached.
+        if self.check("shared")
+            && matches!(self.peek_next(), Some("let") | Some("mut"))
+            && self.consume("shared")
+        {
             if !decorators.is_empty() {
                 self.error("PARSE_UNEXPECTED_TOKEN");
                 return None;
@@ -674,14 +681,22 @@ impl Parser {
         } else {
             None
         };
-        let kind = if self.consume("class") {
-            MethodKind::Class
+        // C064 admits `shared? ("class"|"module")? property`, so a Class-level
+        // marker may precede `property` as well as `fun`. Consuming `class`
+        // unconditionally would swallow the marker and then fail to see the
+        // `property` that follows it.
+        let shared = self.consume("shared");
+        let level = if self.consume("class") {
+            Some(MethodKind::Class)
         } else if self.consume("module") {
-            MethodKind::Module
-        } else if self.consume("property") {
+            Some(MethodKind::Module)
+        } else {
+            None
+        };
+        let kind = if self.consume("property") {
             MethodKind::Property
         } else {
-            MethodKind::Instance
+            level.unwrap_or(MethodKind::Instance)
         };
         let visibility = visibility.unwrap_or(match kind {
             MethodKind::Property => Visibility::Public,
@@ -733,7 +748,7 @@ impl Parser {
         if kind == MethodKind::Property {
             let name = self.name()?;
             self.expect(":")?;
-            self.type_expression()?;
+            let annotation = self.type_expression()?;
             let initializer = if self.consume("=") {
                 self.expression(0)?
             } else {
@@ -741,7 +756,10 @@ impl Parser {
             };
             return Some(Statement::StoredProperty {
                 decorators,
+                shared,
+                class_level: level.is_some(),
                 name,
+                annotation,
                 initializer,
             });
         }

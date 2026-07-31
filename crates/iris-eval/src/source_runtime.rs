@@ -353,6 +353,7 @@ impl SourceEvaluator {
                     decorators,
                     name,
                     initializer,
+                    ..
                 } => {
                     self.stored_property(class, builtin, decorators, name, initializer.clone())?;
                 }

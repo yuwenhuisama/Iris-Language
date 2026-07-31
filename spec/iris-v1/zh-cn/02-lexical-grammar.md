@@ -355,7 +355,7 @@ meta_capability    ::= ordinary_name
 declaration_body   ::= "{" terminator* declaration_or_statement* "}"
 
 method_decl        ::= visibility? "override"? "impl"? "async"? ("class" | "module")? "fun" selector generic_params? parameter_list return_type? where_clause? block_body?
-property_decl      ::= visibility? "override"? "impl"? "property" (stored_property_decl | property_accessor_decl)
+property_decl      ::= visibility? "override"? "impl"? "shared"? ("class" | "module")? "property" (stored_property_decl | property_accessor_decl)
 stored_property_decl ::= ordinary_name ":" type_expr ("=" expression)? property_accessor_block?
 property_accessor_block ::= "{" property_accessor_member* "}"
 property_accessor_member ::= visibility? "get" ";" | visibility? "set" ";"
@@ -571,6 +571,8 @@ IRIS-V1-GRAMMAR-C061：v1.4 勘误将 `class_mixin` 和 `module_mixin` 替换为
 IRIS-V1-GRAMMAR-C062：v1.16 勘误将 `method_decl` 中的 `block_body` 改为可选，因此方法声明 MAY 只给出签名而不带方法体。这补上了 IRIS-V1-TYPES-C042 在允许 Contract 体声明实例、类对象、属性与泛型方法要求时已经预设、但此前没有任何产生式能够表达的要求语法。无方法体的 `method_decl` 是一条**要求**：它声明义务而不提供实现。它仅在 `contract_decl` 内部是良构的；出现在 `class_decl` 或 `module_decl` 体内的无体 `method_decl` 会被拒绝。相反的情形仍由 IRIS-V1-TYPES-C042 拥有，该条款禁止 Contract 内出现方法体：该方法体现在能够**解析**，并按 IRIS-V1-TYPES-V258 所观察的那样，作为静态诊断 `CONTRACT_METHOD_BODY_FORBIDDEN` 被拒绝，而不再表现为解析错误。本勘误不新增关键字、不新增词法单元、不新增声明形式，也不改变任何书写了方法体的方法的含义。
 
 IRIS-V1-GRAMMAR-C063：v1.17 勘误向 `primary_expr` 增加 `closed_generic_name ::= qualified_type_name generic_args`，因此**闭合**泛型构造 MAY 出现在表达式位置。这补上了 IRIS-V1-TYPES-C061 在要求普通构造必须命名闭合泛型类型时已经预设的语法，也是 `Box<String>.new()`、`Pair<String, Integer>.new()` 与 `Box<String>.type` 所需要的语法。IRIS-V1-GRAMMAR-C020 并未被削弱：名字之后的 `<` 仅在该名字是 `type_name`、且尖括号对以一个其后跟随 `postfix_part` 的 `>` 闭合时，才开始泛型实参。其余每一个 `<` 都保持其运算符分词，因此 `a < b` 仍是比较，`a >> b` 仍是右移。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。不带实参的裸泛型名字在 IRIS-V1-TYPES-C061 下仍是定义元数据，此处 NOT 接纳。
+
+IRIS-V1-GRAMMAR-C064：v1.18 勘误向 `property_decl` 增加 `"shared"? ("class" | "module")?`，因此属性 MAY 在类级或模块级声明，并 MAY 标记为 `shared`。这补上了 IRIS-V1-TYPES-C064 在区分「普通泛型类级存储（按闭合构造各自独立）」与「`shared class property`（属于未应用的泛型定义）」时已经预设的语法。其存储语义仍由 IRIS-V1-TYPES-C064 与 IRIS-V1-RUNTIME-C065 拥有；本条款仅补语法。`shared` 是 IRIS-V1-GRAMMAR-C059 已为 `shared_decl` 保留的关键字，因此不新增关键字；未标记的 `property` 保持其原有的实例级含义，完全不变。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

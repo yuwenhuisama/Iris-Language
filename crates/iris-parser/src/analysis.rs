@@ -431,6 +431,7 @@ impl Analyzer {
             iris_syntax::Declaration::Class(value) => {
                 self.check_declared_conformance(value);
                 self.check_generic_constraints(&value.parameters, &value.constraints);
+                self.check_shared_properties(&value.parameters, &value.body);
                 // C063: `open class Box<String>` is an error in v1. A generic
                 // parameter list declares NAMES, so an entry that names an
                 // already-declared Type is a closed construction rather than a
@@ -489,6 +490,56 @@ impl Analyzer {
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
         self.scoped_body(body, Control::top_level());
+    }
+
+    /// Rejects a `shared class property` whose Type mentions a type parameter.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the UNAPPLIED
+    /// generic definition, so it has one slot for every closed construction and
+    /// MUST NOT reference the definition's type parameters directly or
+    /// indirectly. `IRIS-V1-TYPES-V237` names the code. An ordinary class-level
+    /// property is per closed construction and may name a parameter freely.
+    fn check_shared_properties(&mut self, parameters: &[String], body: &[Statement]) {
+        if parameters.is_empty() {
+            return;
+        }
+        for statement in body {
+            if let Statement::StoredProperty {
+                shared, annotation, ..
+            } = statement
+                && *shared
+                && Self::mentions_parameter(annotation, parameters)
+            {
+                self.report("GENERIC_SHARED_PROPERTY_REFERENCES_TYPE_PARAMETER");
+            }
+        }
+    }
+
+    /// Reports whether a written Type names one of the given parameters, at any
+    /// depth, so an INDIRECT reference such as `Array<T>` is caught too.
+    fn mentions_parameter(annotation: &iris_syntax::TypeExpression, parameters: &[String]) -> bool {
+        match annotation {
+            iris_syntax::TypeExpression::Name(name) => parameters.contains(name),
+            iris_syntax::TypeExpression::Generic { name, arguments } => {
+                parameters.contains(name)
+                    || arguments
+                        .iter()
+                        .any(|argument| Self::mentions_parameter(argument, parameters))
+            }
+            iris_syntax::TypeExpression::Union(members)
+            | iris_syntax::TypeExpression::Intersection(members) => members
+                .iter()
+                .any(|member| Self::mentions_parameter(member, parameters)),
+            iris_syntax::TypeExpression::Function {
+                parameters: p,
+                result,
+            } => {
+                p.iter()
+                    .any(|entry| Self::mentions_parameter(entry, parameters))
+                    || Self::mentions_parameter(result, parameters)
+            }
+            iris_syntax::TypeExpression::Typeof(_) => false,
+        }
     }
 
     /// Reports whether a generic parameter list names a closed construction.
@@ -1179,6 +1230,35 @@ mod tests {
         assert_eq!(codes(short_arity), vec!["GENERIC_ARGUMENT_ARITY"]);
         assert_eq!(codes(exact_arity), Vec::<&str>::new());
         assert_eq!(codes(undeclared), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c064_keeps_a_shared_property_off_the_type_parameters() {
+        // C064 puts a `shared class property` on the UNAPPLIED generic
+        // definition, so it has ONE slot across every closed construction and
+        // cannot reference a parameter that differs per construction.
+        let direct = "class Cache<T> { shared class property bad: T }";
+        // The reference may be INDIRECT, so nesting must be searched too.
+        let indirect = "class Cache<T> { shared class property bad: Array<T> }";
+        let concrete = "class Cache<T> { shared class property n: Integer = 0 }";
+        // Ordinary class-level storage IS per closed construction, so naming a
+        // parameter there is exactly what C064 permits.
+        let per_construction = "class Cache<T> { class property ok: T }";
+        // A non-generic Class has no parameters to reference.
+        let non_generic = "class A { property n: Integer = 0 }";
+
+        // When / Then
+        assert_eq!(
+            codes(direct),
+            vec!["GENERIC_SHARED_PROPERTY_REFERENCES_TYPE_PARAMETER"]
+        );
+        assert_eq!(
+            codes(indirect),
+            vec!["GENERIC_SHARED_PROPERTY_REFERENCES_TYPE_PARAMETER"]
+        );
+        assert_eq!(codes(concrete), Vec::<&str>::new());
+        assert_eq!(codes(per_construction), Vec::<&str>::new());
+        assert_eq!(codes(non_generic), Vec::<&str>::new());
     }
 }
 

@@ -146,7 +146,20 @@ pub enum Statement {
     },
     StoredProperty {
         decorators: Vec<Decorator>,
+        /// Whether the source wrote `shared` before `property`.
+        ///
+        /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the
+        /// UNAPPLIED generic definition rather than per closed construction,
+        /// so the marker is retained rather than parsed and discarded.
+        shared: bool,
+        /// Whether the property is declared at Class or Module level.
+        class_level: bool,
         name: String,
+        /// The written Type of the stored slot.
+        ///
+        /// `C064` forbids a `shared` property from referencing the definition's
+        /// type parameters, which can only be checked against what was written.
+        annotation: TypeExpression,
         initializer: Expression,
     },
     Method(MethodDeclaration),
