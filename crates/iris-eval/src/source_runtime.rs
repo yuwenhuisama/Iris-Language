@@ -1772,6 +1772,24 @@ impl SourceEvaluator {
                 }
                 Ok(Value::Type(class, normalized))
             }
+            // C064 gives ordinary generic class-level storage INDEPENDENT
+            // storage per closed construction. v1 interns one Class per generic
+            // definition, so the construction alone cannot distinguish them and
+            // the closed arguments qualify the slot name instead.
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::ClosedGeneric { .. }) => {
+                let qualified = self.closed_construction_slot(target, selector)?;
+                let target = self.expression(target, locals, receiver)?;
+                let Value::Class(class) = target else {
+                    return self.member_read(target, selector);
+                };
+                let slot = self.selector(&qualified);
+                self.runtime
+                    .class_raw_ivar(class, slot)
+                    .map_err(EvaluationError::Construction)
+            }
             Expression::Member {
                 receiver: target,
                 selector,
@@ -2151,6 +2169,21 @@ impl SourceEvaluator {
                 else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                // C064 stores a closed construction's class-level property in
+                // its OWN bucket, so a write lands in the same qualified slot
+                // the matching read consults.
+                if matches!(target.as_ref(), Expression::ClosedGeneric { .. }) {
+                    let qualified = self.closed_construction_slot(target, selector)?;
+                    let class_target = self.expression(target, locals, receiver.clone())?;
+                    if let Value::Class(class) = class_target {
+                        let value = self.expression(right, locals, receiver)?;
+                        let slot = self.selector(&qualified);
+                        return self
+                            .runtime
+                            .assign_class_raw_ivar(class, slot, value)
+                            .map_err(EvaluationError::Construction);
+                    }
+                }
                 // C036 evaluates the target location ONCE, so the receiver is
                 // evaluated a single time and reused for both the read and the
                 // write rather than being re-evaluated per side.
@@ -2509,6 +2542,34 @@ impl SourceEvaluator {
             }
             value => self.value_send(value, selector, arguments),
         }
+    }
+
+    /// Builds the storage slot name for a member of a CLOSED construction.
+    ///
+    /// `IRIS-V1-TYPES-C064` makes ordinary generic class-level storage
+    /// independent per closed construction, but v1 interns one Class per
+    /// generic definition, so `Cache<String>` and `Cache<Integer>` reach the
+    /// same ClassId. The normalized arguments therefore qualify the slot name,
+    /// which keeps one bucket per construction without a second Class.
+    fn closed_construction_slot(
+        &mut self,
+        target: &Expression,
+        selector: &str,
+    ) -> Result<String, EvaluationError> {
+        let Expression::ClosedGeneric { arguments, .. } = target else {
+            return Ok(selector.to_owned());
+        };
+        let mut qualified = String::from(selector);
+        for argument in arguments {
+            let iris_syntax::TypeExpression::Name(argument) = argument else {
+                return Err(EvaluationError::UnsupportedConstruct);
+            };
+            let class = self
+                .class_name(argument)?
+                .ok_or(EvaluationError::NameError)?;
+            qualified.push_str(&format!("<{}>", class.raw()));
+        }
+        Ok(qualified)
     }
 
     fn member_read(&mut self, receiver: Value, selector: &str) -> Result<Value, EvaluationError> {

@@ -1984,3 +1984,26 @@ fn c016_absorbs_a_declared_subtype_without_distributing() {
     assert_eq!(rendered(no_distribution), "Bool(false)");
     assert_eq!(rendered(unrelated_commutes), "Bool(true)");
 }
+
+#[test]
+fn c064_keeps_generic_class_storage_per_closed_construction() {
+    // C064 gives ordinary generic class-level storage INDEPENDENT storage per
+    // closed construction. v1 interns one Class per generic definition, so
+    // `Cache<String>` and `Cache<Integer>` reach the same ClassId and shared
+    // one bucket: a read answered the other construction's last write.
+    let independent = "class Cache<T> { class property value: T } \
+Cache<String>.value = \"s\"; Cache<Integer>.value = 1; \
+[Cache<String>.value, Cache<Integer>.value]";
+    // The SAME construction keeps one bucket, so a second write is visible to
+    // its own read rather than creating a third slot.
+    let same_construction = "class Cache<T> { class property value: T } \
+Cache<String>.value = \"s\"; Cache<String>.value = \"t\"; Cache<String>.value";
+    // A non-generic Class is unaffected: it has no arguments to qualify with.
+    let non_generic = "class Cache { class property value: Object } \
+Cache.value = \"s\"; Cache.value";
+
+    // When / Then
+    assert!(rendered(independent).ends_with("Array([Text(\"s\"), Integer(IntegerValue(1))])])"));
+    assert!(rendered(same_construction).ends_with("Text(\"t\")])"));
+    assert!(rendered(non_generic).ends_with("Text(\"s\")])"));
+}
