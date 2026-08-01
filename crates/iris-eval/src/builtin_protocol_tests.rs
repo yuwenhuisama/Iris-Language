@@ -2031,3 +2031,23 @@ fn c064_puts_a_shared_class_property_on_the_unapplied_definition() {
     assert!(rendered(per_construction).ends_with("Integer(IntegerValue(3))])"));
     assert_eq!(rendered(instance), "Integer(IntegerValue(5))");
 }
+
+#[test]
+fn c014_checks_the_value_when_entering_a_bounded_dynamic() {
+    // C014 makes `Dynamic<T>` BOUNDED dynamic sending: entering it checks that
+    // the value satisfies the reified `T`. The boundary only lifts static
+    // member validation INSIDE it, so the entry itself is guarded like any
+    // other annotation. Nothing checked, so a violating value entered silently.
+    let violated = "let value: Dynamic<String> = 1; value";
+    let satisfied = "let value: Dynamic<String> = \"s\"; value";
+    // Bare `Dynamic` normalizes to `Dynamic<Object>`, which admits everything,
+    // so the check must not fire on an unbounded Dynamic.
+    let unbounded = "let value: Dynamic = 1; value";
+    let explicit_object = "let value: Dynamic<Object> = 1; value";
+
+    // When / Then
+    assert_eq!(rendered(violated), "TypeContractError");
+    assert_eq!(rendered(satisfied), "Text(\"s\")");
+    assert_eq!(rendered(unbounded), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(explicit_object), "Integer(IntegerValue(1))");
+}

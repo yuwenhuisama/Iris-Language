@@ -1574,8 +1574,19 @@ impl SourceEvaluator {
                 }
                 Ok(true)
             }
-            // `typeof`, generic, and callable annotations are static concerns
-            // this evaluator does not decide, so they never raise here.
+            // C014: entering `Dynamic<T>` CHECKS that the value satisfies the
+            // reified `T`. The boundary only lifts static member validation
+            // INSIDE it, so the entry itself is guarded like any annotation.
+            iris_syntax::TypeExpression::Generic { name, arguments } if name == "Dynamic" => {
+                match arguments.as_slice() {
+                    [argument] => self.annotation_admits(value, argument),
+                    // Bare `Dynamic` normalizes to `Dynamic<Object>`, which
+                    // admits everything.
+                    _ => Ok(true),
+                }
+            }
+            // `typeof`, other generic, and callable annotations are static
+            // concerns this evaluator does not decide, so they never raise here.
             iris_syntax::TypeExpression::Typeof(_)
             | iris_syntax::TypeExpression::Generic { .. }
             | iris_syntax::TypeExpression::Function { .. } => Ok(true),
