@@ -600,6 +600,20 @@ impl Parser {
         Some(body)
     }
 
+    /// Consumes an optional `visibility`, which `method_decl` and
+    /// `property_decl` share.
+    fn method_visibility(&mut self) -> Option<Visibility> {
+        if self.consume("public") {
+            Some(Visibility::Public)
+        } else if self.consume("protected") {
+            Some(Visibility::Protected)
+        } else if self.consume("private") {
+            Some(Visibility::Private)
+        } else {
+            None
+        }
+    }
+
     fn statement(&mut self) -> Option<Statement> {
         let decorators = self.decorators();
         // C059's `shared_decl` and C064's `shared` property marker share the
@@ -673,17 +687,20 @@ impl Parser {
                 name: binding,
             });
         }
+        // `method_decl ::= visibility? "override"? "impl"? ...` puts visibility
+        // FIRST, but the committed corpus also spells `override public fun`.
+        // Both orders are accepted: reading visibility only after the modifiers
+        // made `public impl fun` a parse error, and reading it only before
+        // would reject every `override public` fixture already in the corpus.
+        let mut visibility = self.method_visibility();
         let is_override = self.consume("override");
+        if visibility.is_none() {
+            visibility = self.method_visibility();
+        }
         let is_impl = self.consume("impl");
-        let visibility = if self.consume("public") {
-            Some(Visibility::Public)
-        } else if self.consume("protected") {
-            Some(Visibility::Protected)
-        } else if self.consume("private") {
-            Some(Visibility::Private)
-        } else {
-            None
-        };
+        if visibility.is_none() {
+            visibility = self.method_visibility();
+        }
         // C064 admits `shared? ("class"|"module")? property`, so a Class-level
         // marker may precede `property` as well as `fun`. Consuming `class`
         // unconditionally would swallow the marker and then fail to see the

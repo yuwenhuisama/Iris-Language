@@ -229,6 +229,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::UnsupportedConstruct => "UnsupportedConstruct".into(),
         EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
         EvaluationError::TypeContractError => "TypeContractError".into(),
+        EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
         EvaluationError::PatternMatchError => "PatternMatchError".into(),

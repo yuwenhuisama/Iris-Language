@@ -70,6 +70,12 @@ pub enum EvaluationError {
     Symbol(String),
     /// A truthiness `to_bool` Method returned a value other than Bool.
     TypeContractError,
+    /// `same?` was applied to a Contract view.
+    ///
+    /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
+    /// capability values, so an identity question about one has no answer to
+    /// give and must raise rather than compare the underlying receiver.
+    IdentityError,
     /// A `<=>` Method returned a value outside `Integer(-1|0|1)` and `nil`.
     ComparisonContractError,
     /// A send supplied the wrong number of arguments for the selected Method.

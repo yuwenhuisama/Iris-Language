@@ -81,6 +81,13 @@ pub(super) struct SourceEvaluator {
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
+    /// The selectors each declared Contract REQUIRES.
+    ///
+    /// `IRIS-V1-TYPES-C047` lets one unqualified `impl` member satisfy every
+    /// declared same-name requirement, so a view send needs to know what the
+    /// Contract actually requires rather than treating any same-name Method as
+    /// an accidental implementation.
+    contract_requirements: HashMap<iris_runtime::ContractId, Vec<String>>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
     qualified_methods: HashMap<(ClassId, iris_runtime::ContractId, Selector), Method>,
     contract_parents: HashMap<iris_runtime::ContractId, Vec<iris_runtime::ContractId>>,
@@ -172,6 +179,7 @@ impl SourceEvaluator {
             closures: HashMap::new(),
             next_closure: 900_000,
             contract_names: HashMap::new(),
+            contract_requirements: HashMap::new(),
             class_contracts: HashMap::new(),
             qualified_methods: HashMap::new(),
             contract_parents: HashMap::new(),
@@ -786,6 +794,17 @@ impl SourceEvaluator {
         self.contract_names
             .insert(declaration.name.clone(), contract);
         self.contract_parents.insert(contract, parents);
+        // C062 makes a bodyless Method declaration the requirement form, so the
+        // requirement names are exactly those members without a body.
+        let requirements = declaration
+            .body
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Method(method) if method.body.is_none() => Some(method.selector.clone()),
+                _ => None,
+            })
+            .collect();
+        self.contract_requirements.insert(contract, requirements);
         self.names.insert(
             declaration.name.clone(),
             Binding::immutable(Value::Contract(contract)),
@@ -2080,6 +2099,14 @@ impl SourceEvaluator {
                     BinaryOperator::NotEqual => "!=",
                     BinaryOperator::NamedInfix { selector } => selector,
                     BinaryOperator::Identity => {
+                        // C050 makes a Contract view an identity-LESS capability
+                        // value, so an identity question about one raises rather
+                        // than silently comparing the underlying receiver.
+                        if matches!(left, Value::ContractView(..))
+                            || matches!(right, Value::ContractView(..))
+                        {
+                            return Err(EvaluationError::IdentityError);
+                        }
                         return Ok(Value::Bool(same_identity(&left, &right)));
                     }
                     BinaryOperator::Is => {
@@ -2511,6 +2538,11 @@ impl SourceEvaluator {
             // A bare Class name carries no generic arguments, so its Type is
             // the unapplied definition's.
             Value::Class(class) if selector == "type" => Ok(Value::Type(class, Vec::new())),
+            // C032: an ordinary `view.member()` is an UNQUALIFIED message
+            // FORWARDED to the receiver. Only `..member()` selects the
+            // Contract-qualified slot, so this must not report a missing
+            // message on the view itself.
+            Value::ContractView(receiver, _) => self.send(*receiver, selector, arguments),
             // C065's lookahead does not consume the `.type`, so a reified Type
             // arrives here already normalized and answers `.type` as itself.
             value @ (Value::Type(..) | Value::ComposedType(_)) if selector == "type" => Ok(value),
@@ -3794,21 +3826,52 @@ impl SourceEvaluator {
             .class_of(object)
             .map_err(EvaluationError::Construction)?;
         let selector_id = self.selector(selector);
-        let method = *self
-            .qualified_methods
-            .get(&(class, contract, selector_id))
+        let method = match self.qualified_methods.get(&(class, contract, selector_id)) {
+            Some(method) => *method,
+            // C047: ONE unqualified `impl` member automatically satisfies every
+            // declared same-name Contract requirement. Only a qualified slot
+            // was consulted, so a Class whose `impl fun m` is unqualified could
+            // never be reached through its own Contract view.
+            None if self.satisfies_unqualified(class, contract, selector) => {
+                self.resolve_instance_method(object, selector_id)?
+            }
             // A missing qualified slot is a Contract dispatch failure, NOT a
             // missing message: IRIS-V1-TYPES-C049 keeps the qualified namespace
             // separate, so `method_missing` must not be reached from here.
-            .ok_or(EvaluationError::Construction(
-                iris_runtime::ConstructionError::Dispatch(
-                    iris_runtime::DispatchError::ContractDispatch {
-                        contract: iris_runtime::ModuleId::new(contract.raw()),
-                        selector: selector_id,
-                    },
-                ),
-            ))?;
+            None => {
+                return Err(EvaluationError::Construction(
+                    iris_runtime::ConstructionError::Dispatch(
+                        iris_runtime::DispatchError::ContractDispatch {
+                            contract: iris_runtime::ModuleId::new(contract.raw()),
+                            selector: selector_id,
+                        },
+                    ),
+                ));
+            }
+        };
         self.invoke_method(method, Value::Object(object), arguments)
+    }
+
+    /// Reports whether an unqualified `impl` member satisfies a Contract slot.
+    ///
+    /// `IRIS-V1-TYPES-C047` lets ONE `impl` member satisfy every declared
+    /// same-name requirement without listing targets, so a view send resolves
+    /// to it when no qualified slot exists. The Class must actually DECLARE the
+    /// Contract, which keeps this from turning an unrelated same-name Method
+    /// into an accidental implementation.
+    fn satisfies_unqualified(
+        &self,
+        class: ClassId,
+        contract: iris_runtime::ContractId,
+        selector: &str,
+    ) -> bool {
+        self.class_contracts
+            .get(&class)
+            .is_some_and(|declared| declared.contains(&contract))
+            && self
+                .contract_requirements
+                .get(&contract)
+                .is_some_and(|names| names.iter().any(|name| name == selector))
     }
 
     /// Invokes a Closure with its captured environment restored.

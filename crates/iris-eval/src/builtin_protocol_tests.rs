@@ -2051,3 +2051,32 @@ fn c014_checks_the_value_when_entering_a_bounded_dynamic() {
     assert_eq!(rendered(unbounded), "Integer(IntegerValue(1))");
     assert_eq!(rendered(explicit_object), "Integer(IntegerValue(1))");
 }
+
+#[test]
+fn c047_and_c050_govern_contract_view_dispatch_and_identity() {
+    // C047 lets ONE unqualified `impl` member satisfy every declared same-name
+    // Contract requirement. Only a QUALIFIED slot was consulted, so a Class
+    // whose `impl fun m` is unqualified could never be reached through its own
+    // Contract view.
+    let declared = "contract C { fun m() -> String } \
+class X for C { public impl fun m() -> String { \"c\" } } ";
+    let qualified_send = format!("{declared}let view = X.new() as C; view..m()");
+    // C032 keeps an ordinary `view.member()` an unqualified message forwarded
+    // to the receiver, so both spellings reach the one implementation.
+    let ordinary_send = format!("{declared}let view = X.new() as C; view.m()");
+    // The Class must actually DECLARE the Contract, which keeps an unrelated
+    // same-name Method from becoming an accidental implementation.
+    let undeclared = "contract C { fun m() -> String } \
+class Y { public fun m() -> String { \"y\" } } let v = Y.new() as C; v..m()";
+    // C050 makes a Contract view an identity-LESS capability value, so `same?`
+    // raises rather than comparing the underlying receiver.
+    let view_identity = format!("{declared}let a = X.new() as C; a same? a");
+    let object_identity = "class A {} let a = A.new(); a same? a";
+
+    // When / Then
+    assert_eq!(rendered(&qualified_send), "Text(\"c\")");
+    assert_eq!(rendered(&ordinary_send), "Text(\"c\")");
+    assert_ne!(rendered(undeclared), "Text(\"y\")");
+    assert_eq!(rendered(&view_identity), "IdentityError");
+    assert_eq!(rendered(object_identity), "Bool(true)");
+}
