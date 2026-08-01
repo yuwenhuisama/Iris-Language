@@ -296,6 +296,25 @@ impl Analyzer {
         self.check_generic_arity(annotation);
     }
 
+    /// Rejects a generic Module mixin whose arguments are left to inference.
+    ///
+    /// `IRIS-V1-TYPES-V247` requires a closed generic Module composition to
+    /// state its arguments EXPLICITLY: host inference is not used, so the `_`
+    /// placeholder that construction accepts is not admitted here.
+    fn check_mixin_arguments(&mut self, mixins: &[iris_syntax::MixinEntry]) {
+        for mixin in mixins {
+            let iris_syntax::TypeExpression::Generic { arguments, .. } = &mixin.target else {
+                continue;
+            };
+            if arguments
+                .iter()
+                .any(|argument| matches!(argument, iris_syntax::TypeExpression::Name(name) if name == "_"))
+            {
+                self.report("GENERIC_MODULE_ARGUMENTS_EXPLICIT");
+            }
+        }
+    }
+
     /// Rejects a construction whose closed generic Type is not the annotated one.
     ///
     /// `IRIS-V1-TYPES-V226` makes generic arguments INVARIANT: `Box<String>` is
@@ -498,6 +517,7 @@ impl Analyzer {
                         value.constraints.clone(),
                     ));
                 }
+                self.check_mixin_arguments(&value.mixins);
                 self.declared_conformance.push((
                     value.name.clone(),
                     value
@@ -1434,6 +1454,24 @@ mod tests {
         assert_eq!(codes(exact), Vec::<&str>::new());
         assert_eq!(codes(non_generic), Vec::<&str>::new());
         assert_eq!(codes(wrong_arity), vec!["GENERIC_ARGUMENT_ARITY"]);
+    }
+
+    #[test]
+    fn d220_requires_explicit_generic_module_mixin_arguments() {
+        // D-220: a closed generic Module composition states its arguments
+        // EXPLICITLY. Host inference is not used, so the `_` placeholder that
+        // construction accepts is not admitted on a mixin.
+        let placeholder = "module Helpers<T> where Self: T {} class Host mixin Helpers<_> {}";
+        let explicit = "module Helpers<T> where Self: T {} class Host mixin Helpers<String> {}";
+        let non_generic = "module Helpers {} class Host mixin Helpers {}";
+
+        // When / Then
+        assert_eq!(
+            codes(placeholder),
+            vec!["GENERIC_MODULE_ARGUMENTS_EXPLICIT"]
+        );
+        assert_eq!(codes(explicit), Vec::<&str>::new());
+        assert_eq!(codes(non_generic), Vec::<&str>::new());
     }
 
     #[test]

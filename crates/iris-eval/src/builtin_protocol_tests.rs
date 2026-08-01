@@ -2125,3 +2125,19 @@ class Box<T> where T: Comparable<T> {} Box<Ok>.new()";
     assert!(rendered(satisfied).starts_with("Object("));
     assert!(rendered(unconstrained).starts_with("Object("));
 }
+
+#[test]
+fn d219_composes_a_closed_generic_module_as_a_mixin() {
+    // D-219 reifies and interns a CLOSED Module Type such as `Helpers<String>`.
+    // A mixin target accepted only a bare name, so a closed construction was
+    // rejected outright. v1 interns one Module per generic definition, so the
+    // closed form composes that definition rather than a second Module.
+    let closed = "module Helpers<T> { public fun h() -> Integer { 7 } } \
+class Host mixin Helpers<String> {} Host.new().h()";
+    let plain = "module Helpers { public fun h() -> Integer { 7 } } \
+class Host mixin Helpers {} Host.new().h()";
+
+    // When / Then
+    assert_eq!(rendered(closed), "Integer(IntegerValue(7))");
+    assert_eq!(rendered(plain), "Integer(IntegerValue(7))");
+}

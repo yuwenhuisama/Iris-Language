@@ -261,6 +261,17 @@ impl SourceEvaluator {
                         class_mixins.push(class);
                     }
                 }
+                // D-219 reifies and interns a CLOSED Module Type such as
+                // `Helpers<String>`. v1 interns one Module per generic
+                // definition, so the closed construction composes that
+                // definition rather than a second Module.
+                iris_syntax::TypeExpression::Generic { name, .. } => {
+                    let module = *self
+                        .module_names
+                        .get(name)
+                        .ok_or(EvaluationError::UnsupportedConstruct)?;
+                    mixins.push(CompositionEdge::new(module, mixin.private_access));
+                }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
