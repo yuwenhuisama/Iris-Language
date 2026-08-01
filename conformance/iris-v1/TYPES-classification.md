@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 45 are committed here;
-the remaining 35 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 46 are committed here;
+the remaining 34 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -60,6 +60,7 @@ correctly fails each.
 | `V018` | positive | executable | `IRIS-V1-TYPES-C032` constructs a checked view and `C049` makes `..name()` select the Contract slot. |
 | `V250` | positive | executable | `IRIS-V1-TYPES-C047` lets ONE unqualified `impl` member satisfy the requirement, so the view reaches it. |
 | `V251` | negative | executable | `IRIS-V1-TYPES-C050` makes a Contract view identity-LESS, so `same?` raises rather than comparing the receiver. |
+| `V252` | positive | executable | `IRIS-V1-TYPES-C050` compares views by receiver equality plus Contract identity; a view is never equal to a non-view. |
 
 ## Remaining rows and their blockers
 
@@ -74,5 +75,4 @@ and are now transcribed, and the groups below record why the rest did not.
 | Generic Types in expression position | `V219`, `V229`, `V244`, `V246`, `V247`, `V256`, `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
 | String plus another missing capability | `V205`, `V222`, `V224`, `V225`, `V227`, `V228`, `V230`, `V231`, `V249` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |
-| Contract views | `V252` | The v1.16 errata plus the `open contract`, `impl` conformance, and `module for C` checks closed `V204`, `V248`, `V258`, and `V261`. `V252` still needs a Contract VIEW: `Integer(1) as NumericContract` compared by Contract identity. |
 | Type values and reflection | `V223`, `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |

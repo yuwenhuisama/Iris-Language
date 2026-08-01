@@ -305,6 +305,22 @@ impl SourceEvaluator {
                     reason: "open declarations cannot change MetaCapabilities policy",
                 }));
             }
+            // C044 records instance Contract conformance from the `for` list.
+            // A reopen skipped it entirely, so `open class Integer for N` never
+            // declared the Contract and no view over it could be constructed.
+            for target in &declaration.implements {
+                let iris_syntax::TypeExpression::Name(name) = target else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let contract = *self
+                    .contract_names
+                    .get(name)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                self.class_contracts
+                    .entry(class)
+                    .or_default()
+                    .push(contract);
+            }
             class
         } else {
             let capabilities = meta_capabilities(&declaration.meta_deny)?;
@@ -2095,6 +2111,30 @@ impl SourceEvaluator {
                     BinaryOperator::Greater => ">",
                     BinaryOperator::GreaterEqual => ">=",
                     BinaryOperator::Compare => "<=>",
+                    // C050 defines built-in view equality: the SAME Contract
+                    // identity plus receiver identity for an identity-bearing
+                    // receiver, or receiver equality under current equality for
+                    // an identity-LESS one. Forwarding to the receiver's `==`
+                    // would have ignored the Contract identity entirely.
+                    BinaryOperator::Equal | BinaryOperator::NotEqual
+                        if matches!(left, Value::ContractView(..))
+                            || matches!(right, Value::ContractView(..)) =>
+                    {
+                        let equal = match (&left, &right) {
+                            (
+                                Value::ContractView(left, left_contract),
+                                Value::ContractView(right, right_contract),
+                            ) if left_contract == right_contract => {
+                                self.view_receivers_equal(left, right)?
+                            }
+                            // A view is never equal to a non-view, and two views
+                            // of DIFFERENT Contracts are never equal.
+                            _ => false,
+                        };
+                        return Ok(Value::Bool(
+                            equal == matches!(operator, BinaryOperator::Equal),
+                        ));
+                    }
                     BinaryOperator::Equal => "==",
                     BinaryOperator::NotEqual => "!=",
                     BinaryOperator::NamedInfix { selector } => selector,
@@ -3779,17 +3819,59 @@ impl SourceEvaluator {
     /// `IRIS-V1-TYPES-C049` requires the `as ContractType` part to prove or check
     /// the nominal Contract view, so a receiver whose Class never declared that
     /// Contract with `for` is rejected rather than silently viewed.
+    /// Compares two Contract-view receivers under `IRIS-V1-TYPES-C050`.
+    ///
+    /// An identity-bearing receiver requires the same IDENTITY; an
+    /// identity-less one requires equality under current equality, which is the
+    /// ordinary `==` send rather than a structural comparison.
+    fn view_receivers_equal(
+        &mut self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<bool, EvaluationError> {
+        if let (Value::Object(left), Value::Object(right)) = (left, right) {
+            return Ok(left == right);
+        }
+        match self.send(left.clone(), "==", std::slice::from_ref(right))? {
+            Value::Bool(equal) => Ok(equal),
+            _ => Err(EvaluationError::ComparisonContractError),
+        }
+    }
+
+    /// The Class of a value that may carry a Contract view.
+    ///
+    /// `IRIS-V1-TYPES-C050` defines view equality over IDENTITY-LESS receivers
+    /// as well as identity-bearing ones, so a value Class may be viewed. A
+    /// value with no viewable Class is not an error here; it simply cannot
+    /// declare a Contract, which the caller reports.
+    fn class_of_value(&mut self, value: &Value) -> Result<ClassId, EvaluationError> {
+        use iris_runtime::BuiltinClass;
+        let builtin = match value {
+            Value::Object(object) => {
+                return self
+                    .runtime
+                    .class_of(*object)
+                    .map_err(EvaluationError::Construction);
+            }
+            Value::Nil => BuiltinClass::Nil,
+            Value::Bool(_) => BuiltinClass::Bool,
+            Value::Integer(_) => BuiltinClass::Integer,
+            Value::Float32(_) => BuiltinClass::Float32,
+            Value::Float64(_) => BuiltinClass::Float64,
+            Value::Text(_) => BuiltinClass::String,
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        };
+        self.kernel.class(builtin).map_err(EvaluationError::Runtime)
+    }
+
     fn contract_view(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
         let Value::Contract(contract) = target else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
-        let Value::Object(object) = value else {
-            return Err(EvaluationError::UnsupportedConstruct);
-        };
-        let class = self
-            .runtime
-            .class_of(object)
-            .map_err(EvaluationError::Construction)?;
+        // C050 defines view equality over IDENTITY-LESS receivers too, so a
+        // value Class may be viewed as well as an identity-bearing object.
+        // Restricting this to `Value::Object` made `1 as N` unconstructible.
+        let class = self.class_of_value(&value)?;
         if !self
             .class_contracts
             .get(&class)
@@ -3797,10 +3879,7 @@ impl SourceEvaluator {
         {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         }
-        Ok(Value::ContractView(
-            Box::new(Value::Object(object)),
-            *contract,
-        ))
+        Ok(Value::ContractView(Box::new(value), *contract))
     }
 
     /// Sends `view..member(args)` to the Contract-qualified slot.

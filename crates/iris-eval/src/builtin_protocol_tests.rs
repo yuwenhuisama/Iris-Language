@@ -2080,3 +2080,28 @@ class Y { public fun m() -> String { \"y\" } } let v = Y.new() as C; v..m()";
     assert_eq!(rendered(&view_identity), "IdentityError");
     assert_eq!(rendered(object_identity), "Bool(true)");
 }
+
+#[test]
+fn c050_compares_contract_views_by_receiver_and_contract() {
+    // C050 defines built-in view equality as the SAME Contract identity plus
+    // receiver identity for an identity-bearing receiver, or receiver equality
+    // under current equality for an identity-LESS one. Forwarding `==` to the
+    // receiver would have ignored the Contract identity entirely.
+    let declared = "contract N { fun m() -> Integer } \
+open class Integer for N { public impl fun m() -> Integer { 1 } } ";
+    let same_receiver = format!("{declared}(1 as N) == (1 as N)");
+    let different_receiver = format!("{declared}(1 as N) == (2 as N)");
+    let negated = format!("{declared}(1 as N) != (2 as N)");
+    // A view is never equal to a NON-view, so the wrapper is not transparent.
+    let view_versus_value = format!("{declared}(1 as N) == 1");
+    // C050 also defines equality over identity-LESS receivers, which is why a
+    // value Class may be viewed at all.
+    let value_view = format!("{declared}1 as N");
+
+    // When / Then
+    assert_eq!(rendered(&same_receiver), "Bool(true)");
+    assert_eq!(rendered(&different_receiver), "Bool(false)");
+    assert_eq!(rendered(&negated), "Bool(true)");
+    assert_eq!(rendered(&view_versus_value), "Bool(false)");
+    assert!(rendered(&value_view).starts_with("ContractView(Integer"));
+}
