@@ -258,6 +258,12 @@ pub struct MethodDeclaration {
     pub impl_contract: Option<Option<String>>,
     pub kind: MethodKind,
     pub selector: String,
+    /// The Method's own generic parameters, from `method_decl`'s
+    /// `generic_params?`.
+    ///
+    /// `IRIS-V1-TYPES-C059` infers these from the call site, so the declared
+    /// names are retained rather than parsed and discarded.
+    pub type_parameters: Vec<String>,
     pub parameters: Vec<Parameter>,
     /// The written return Type, when the source declared one.
     ///

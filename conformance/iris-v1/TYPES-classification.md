@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 54 are committed here;
-the remaining 26 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 55 are committed here;
+the remaining 25 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -69,6 +69,7 @@ correctly fails each.
 | `V224` | diagnostic | executable | `IRIS-V1-TYPES-C047` forbids choosing between INCOMPATIBLE same-name requirements or forming an overload set. |
 | `V249` | positive | executable | `IRIS-V1-TYPES-C047` merges COMPATIBLE same-name requirements, so one `impl` member is reached through either Contract's view. |
 | `V225` | positive | executable | `IRIS-V1-TYPES-C037` makes a parameter CONTRAVARIANT and a return COVARIANT. The helper lives in a Module body per `IRIS-V1-CONTROL-C012`; the row's bare spellings are recorded as a defect. |
+| `V227` | positive | executable | `method_decl`'s `generic_params?` was never parsed. The inferred argument is observed through a `let` with a written Type, which is the boundary `C004` guards at RUNTIME. |
 
 ## Remaining rows and their blockers
 
@@ -82,5 +83,5 @@ and are now transcribed, and the groups below record why the rest did not.
 | Type-normalization law tables | `V002` | The v1.19 errata (`IRIS-V1-GRAMMAR-C065`) reified Type expressions, which closed eleven of these laws. The one left needs a CONTRACT usable as a Type, which no Contract declaration yet reifies. Asserting them needs Types to be constructible and comparable as VALUES, which needs the Type-expression surface below. |
 | Generic Types in expression position | `V229`, `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
-| String plus another missing capability | `V205`, `V222`, `V227`, `V228`, `V230`, `V231` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |
+| String plus another missing capability | `V205`, `V222`, `V228`, `V230`, `V231` | String IS now a runtime value, which closed `V211` and `V255`. Each row here needs a SECOND capability as well: a Contract declaration, a generic Method or Type in expression position, or an open-Class redeclaration. Re-probed individually rather than assumed. |
 | Type values and reflection | `V223`, `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |

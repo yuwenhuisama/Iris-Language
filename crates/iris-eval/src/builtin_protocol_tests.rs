@@ -2211,3 +2211,25 @@ module M { fun accept(x: String) -> String { \"ok\" } let f = accept; r = f(1) }
     assert_eq!(rendered(narrowed), "TypeContractError");
     assert_eq!(rendered(unresolved), "NameError");
 }
+
+#[test]
+fn c059_infers_a_method_type_argument_from_the_call_site() {
+    // `method_decl` spells `"fun" selector generic_params? parameter_list`, so
+    // a Method may declare its OWN type parameters. They were never read, which
+    // made `fun id<T>(x: T) -> T` a parse error rather than a generic Method.
+    let inferred = "let mut result: String = \"z\"; \
+module M { fun id<T>(x: T) -> T { x } let bound: String = id(\"iris\"); result = bound } result";
+    // The inferred argument must be OBSERVED, not merely returned. A `let` with
+    // a written Type is the boundary C004 guards AT RUNTIME, so a mismatched
+    // call raises there. A `mut` reassignment reports only statically, which
+    // would have let this pass for the wrong reason.
+    let mismatched = "let mut result: String = \"z\"; \
+module M { fun id<T>(x: T) -> T { x } let bound: String = id(1); result = bound } result";
+    // A non-generic Method with the same shape is unaffected.
+    let plain = "let mut result = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
+
+    // When / Then
+    assert_eq!(rendered(inferred), "Text(\"iris\")");
+    assert_eq!(rendered(mismatched), "TypeContractError");
+    assert_eq!(rendered(plain), "Text(\"iris\")");
+}

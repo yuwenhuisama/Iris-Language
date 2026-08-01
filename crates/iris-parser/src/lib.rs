@@ -762,6 +762,10 @@ impl Parser {
             if kind == MethodKind::Property && self.consume("=") {
                 selector.push('=');
             }
+            // `method_decl ::= ... "fun" selector generic_params? parameter_list`,
+            // so a Method may declare its OWN type parameters. They were never
+            // read, which made `fun id<T>(x: T) -> T` a parse error.
+            let type_parameters = self.generic_parameters();
             self.expect("(")?;
             let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
@@ -792,6 +796,7 @@ impl Parser {
                 impl_contract,
                 kind,
                 selector,
+                type_parameters,
                 parameters,
                 return_type,
                 visibility,
