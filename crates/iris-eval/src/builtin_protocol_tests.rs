@@ -2105,3 +2105,23 @@ open class Integer for N { public impl fun m() -> Integer { 1 } } ";
     assert_eq!(rendered(&view_versus_value), "Bool(false)");
     assert!(rendered(&value_view).starts_with("ContractView(Integer"));
 }
+
+#[test]
+fn c058_needs_explicit_conformance_for_an_f_bounded_constraint() {
+    // C058 permits restricted nominal F-bounded constraints such as
+    // `where T: Comparable<T>`, and a concrete argument satisfies one ONLY
+    // through explicit nominal conformance. Matching member SHAPE is
+    // insufficient, so the declared `for` list is consulted, not the members.
+    // C067 validates this at closed generic materialization and RAISES.
+    let unsatisfied =
+        "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()";
+    let satisfied = "contract Comparable<T> {} class Ok for Comparable {} \
+class Box<T> where T: Comparable<T> {} Box<Ok>.new()";
+    // A Class with no `where` clause has no bound to violate.
+    let unconstrained = "class Box<T> {} Box<String>.new()";
+
+    // When / Then
+    assert_eq!(rendered(unsatisfied), "TypeContractError");
+    assert!(rendered(satisfied).starts_with("Object("));
+    assert!(rendered(unconstrained).starts_with("Object("));
+}

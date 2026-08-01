@@ -17,6 +17,8 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         declared_class_variables: Vec::new(),
         qualified_namespace: Vec::new(),
         generic_classes: Vec::new(),
+        generic_constraints: Vec::new(),
+        declared_conformance: Vec::new(),
         contract_requirements: Vec::new(),
     };
     analyzer.program(program);
@@ -225,6 +227,14 @@ struct Analyzer {
     /// write `impl`, so a Class listing `for C` is checked against what `C`
     /// actually requires rather than against every member it happens to hold.
     contract_requirements: Vec<(String, Vec<String>)>,
+    /// Each generic Class paired with its declared `where` constraints.
+    ///
+    /// `IRIS-V1-TYPES-C058` lets a concrete argument satisfy an F-bounded
+    /// constraint ONLY through explicit nominal conformance, so a closed
+    /// construction is checked against what the declaration actually requires.
+    generic_constraints: Vec<(String, Vec<String>, Vec<iris_syntax::Constraint>)>,
+    /// Each Class paired with the Contract names it declares `for`.
+    declared_conformance: Vec<(String, Vec<String>)>,
     /// Names published into the ONE qualified namespace.
     ///
     /// `IRIS-V1-CONTROL-D-432` puts Class, Module, Contract, Type aliases and
@@ -481,6 +491,24 @@ impl Analyzer {
             iris_syntax::Declaration::Class(value) => {
                 self.check_declared_conformance(value);
                 self.check_generic_constraints(&value.parameters, &value.constraints);
+                if !value.constraints.is_empty() {
+                    self.generic_constraints.push((
+                        value.name.clone(),
+                        value.parameters.clone(),
+                        value.constraints.clone(),
+                    ));
+                }
+                self.declared_conformance.push((
+                    value.name.clone(),
+                    value
+                        .implements
+                        .iter()
+                        .filter_map(|target| match target {
+                            iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                ));
                 self.check_shared_properties(&value.parameters, &value.body);
                 // C063: `open class Box<String>` is an error in v1. A generic
                 // parameter list declares NAMES, so an entry that names an

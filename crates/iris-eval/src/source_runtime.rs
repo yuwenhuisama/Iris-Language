@@ -89,6 +89,12 @@ pub(super) struct SourceEvaluator {
     /// an accidental implementation.
     contract_requirements: HashMap<iris_runtime::ContractId, Vec<String>>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
+    /// Each generic Class name paired with its parameters and `where` bounds.
+    ///
+    /// `IRIS-V1-TYPES-C067` validates every normalized constraint at closed
+    /// generic MATERIALIZATION and raises `TypeContractError` on failure, so
+    /// the bounds must be reachable when a construction is evaluated.
+    generic_bounds: HashMap<String, (Vec<String>, Vec<iris_syntax::Constraint>)>,
     qualified_methods: HashMap<(ClassId, iris_runtime::ContractId, Selector), Method>,
     contract_parents: HashMap<iris_runtime::ContractId, Vec<iris_runtime::ContractId>>,
     next_contract: u64,
@@ -181,6 +187,7 @@ impl SourceEvaluator {
             contract_names: HashMap::new(),
             contract_requirements: HashMap::new(),
             class_contracts: HashMap::new(),
+            generic_bounds: HashMap::new(),
             qualified_methods: HashMap::new(),
             contract_parents: HashMap::new(),
             next_contract: 0,
@@ -375,6 +382,18 @@ impl SourceEvaluator {
                 );
             }
             self.class_contracts.insert(class, conformances);
+            // C067 validates every normalized `where` constraint at closed
+            // generic materialization, so the bounds are recorded against the
+            // declaration name the construction will use.
+            if !declaration.constraints.is_empty() {
+                self.generic_bounds.insert(
+                    declaration.name.clone(),
+                    (
+                        declaration.parameters.clone(),
+                        declaration.constraints.clone(),
+                    ),
+                );
+            }
             class
         };
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
@@ -1713,10 +1732,15 @@ impl SourceEvaluator {
             // for construction and reflection. v1 interns one Class per generic
             // definition, so the arguments select no distinct runtime Class and
             // the construction resolves to the declared Class itself.
-            Expression::ClosedGeneric { name, .. } => self
-                .class_name(name)?
-                .map(Value::Class)
-                .ok_or(EvaluationError::NameError),
+            Expression::ClosedGeneric { name, arguments } => {
+                // C067: materializing a closed generic validates every
+                // normalized constraint BEFORE interning or publishing, and a
+                // failure raises rather than being reported statically.
+                self.check_generic_bounds(name, arguments)?;
+                self.class_name(name)?
+                    .map(Value::Class)
+                    .ok_or(EvaluationError::NameError)
+            }
             Expression::KeywordArgument { name, value } => {
                 let value = self.expression(value, locals, receiver)?;
                 Ok(Value::KeywordArgument(name.clone(), Box::new(value)))
@@ -3819,6 +3843,48 @@ impl SourceEvaluator {
     /// `IRIS-V1-TYPES-C049` requires the `as ContractType` part to prove or check
     /// the nominal Contract view, so a receiver whose Class never declared that
     /// Contract with `for` is rejected rather than silently viewed.
+    /// Validates a closed construction's arguments against its declared bounds.
+    ///
+    /// `IRIS-V1-TYPES-C058` lets a concrete argument satisfy an F-bounded
+    /// constraint such as `where T: Comparable<T>` ONLY through explicit
+    /// nominal Class or Contract conformance; matching member shape is
+    /// insufficient, so the declared `for` list is consulted rather than the
+    /// argument's members. `C067` makes the failure raise.
+    fn check_generic_bounds(
+        &mut self,
+        name: &str,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<(), EvaluationError> {
+        let Some((parameters, constraints)) = self.generic_bounds.get(name).cloned() else {
+            return Ok(());
+        };
+        for constraint in &constraints {
+            let Some(position) = parameters.iter().position(|p| *p == constraint.parameter) else {
+                continue;
+            };
+            let Some(iris_syntax::TypeExpression::Name(argument)) = arguments.get(position) else {
+                continue;
+            };
+            // Only a NOMINAL bound asks a conformance question here.
+            let bound = match &constraint.bound {
+                iris_syntax::TypeExpression::Generic { name, .. }
+                | iris_syntax::TypeExpression::Name(name) => name,
+                _ => continue,
+            };
+            let Some(contract) = self.contract_names.get(bound).copied() else {
+                continue;
+            };
+            let conforms = self
+                .class_name(argument)?
+                .and_then(|class| self.class_contracts.get(&class))
+                .is_some_and(|declared| declared.contains(&contract));
+            if !conforms {
+                return Err(EvaluationError::TypeContractError);
+            }
+        }
+        Ok(())
+    }
+
     /// Compares two Contract-view receivers under `IRIS-V1-TYPES-C050`.
     ///
     /// An identity-bearing receiver requires the same IDENTITY; an
