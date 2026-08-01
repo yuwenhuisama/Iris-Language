@@ -332,6 +332,20 @@ impl Parser {
                         program.entries.push(ProgramEntry::Declaration(declaration));
                     })
                 }
+                // `import_decl` and `export_decl` are declarations, dispatched
+                // here rather than as statements.
+                Some("import") | Some("from") if decorators.is_empty() => {
+                    self.import_declaration().map(|value| {
+                        let declaration = Declaration::Import(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
+                }
+                Some("export") if decorators.is_empty() => self.export_declaration().map(|value| {
+                    let declaration = Declaration::Export(Box::new(value));
+                    program.declarations.push(declaration.clone());
+                    program.entries.push(ProgramEntry::Declaration(declaration));
+                }),
                 Some("contract") => self.contract_declaration(decorators).map(|value| {
                     let declaration = Declaration::Contract(value);
                     program.declarations.push(declaration.clone());
@@ -478,6 +492,63 @@ impl Parser {
     }
 
     /// Parses `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
+    /// Parses `import_decl`.
+    fn import_declaration(&mut self) -> Option<iris_syntax::ImportDeclaration> {
+        if self.consume("from") {
+            let target = self.qualified_name()?;
+            self.expect("import")?;
+            let mut specs = Vec::new();
+            loop {
+                let name = self.name()?;
+                let alias = self.consume("as").then(|| self.name()).flatten();
+                specs.push(iris_syntax::ImportSpec { name, alias });
+                if !self.consume(",") || self.check("\n") {
+                    break;
+                }
+            }
+            return Some(iris_syntax::ImportDeclaration {
+                target,
+                alias: None,
+                specs,
+            });
+        }
+        self.expect("import")?;
+        let target = self.qualified_name()?;
+        let alias = self.consume("as").then(|| self.name()).flatten();
+        Some(iris_syntax::ImportDeclaration {
+            target,
+            alias,
+            specs: Vec::new(),
+        })
+    }
+
+    /// Parses `export_decl`.
+    fn export_declaration(&mut self) -> Option<iris_syntax::ExportDeclaration> {
+        self.expect("export")?;
+        // `export <declaration>` publishes the declaration it wraps; anything
+        // else is a list of already-declared names.
+        let declaration = match self.peek() {
+            Some("class") | Some("open") => self
+                .class_declaration(Vec::new())
+                .map(|value| Box::new(iris_syntax::Declaration::Class(value))),
+            Some("module") => self
+                .module_declaration(Vec::new())
+                .map(|value| Box::new(iris_syntax::Declaration::Module(value))),
+            Some("contract") => self
+                .contract_declaration(Vec::new())
+                .map(|value| Box::new(iris_syntax::Declaration::Contract(value))),
+            _ => None,
+        };
+        if let Some(declaration) = declaration {
+            return Some(iris_syntax::ExportDeclaration::Declaration(declaration));
+        }
+        let mut names = vec![self.name()?];
+        while self.consume(",") && !self.check("\n") {
+            names.push(self.name()?);
+        }
+        Some(iris_syntax::ExportDeclaration::Names(names))
+    }
+
     fn type_alias_declaration(&mut self) -> Option<iris_syntax::TypeAliasDeclaration> {
         self.expect("type")?;
         let name = self.name()?;
@@ -675,6 +746,40 @@ impl Parser {
         // keyword, so `shared_decl` claims it only when `let` or `mut` follows.
         // Consuming it unconditionally made `shared class property` fail before
         // the property form was ever reached.
+        // `global_decl ::= "global" ("let"|"mut") global_name ...` has the same
+        // shape as `shared_decl`, and C013 makes `$name` reachable ONLY through
+        // one of them.
+        if self.check("global")
+            && matches!(self.peek_next(), Some("let") | Some("mut"))
+            && self.consume("global")
+        {
+            if !decorators.is_empty() {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            }
+            let mutable = if self.consume("let") {
+                false
+            } else if self.consume("mut") {
+                true
+            } else {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            };
+            self.expect("$")?;
+            let name = self.binding_name()?;
+            let annotation = if self.consume(":") {
+                Some(self.type_expression()?)
+            } else {
+                None
+            };
+            self.expect("=")?;
+            return self.expression(0).map(|value| Statement::GlobalBinding {
+                mutable,
+                name,
+                annotation,
+                value,
+            });
+        }
         if self.check("shared")
             && matches!(self.peek_next(), Some("let") | Some("mut"))
             && self.consume("shared")
@@ -1953,6 +2058,21 @@ mod tests {
         // Every other `||` keeps its operator tokenization.
         assert!(parse("let a = nil; let b = a || 7; b").program_accepted);
         assert!(parse("mut a = nil; a ||= 7; a").program_accepted);
+    }
+
+    #[test]
+    fn parses_the_declaration_forms_the_grammar_defines() {
+        // `global_decl`, `import_decl`, and `export_decl` are in the frozen
+        // grammar but were never implemented, so each was a parse error.
+        assert!(parse("global let $g = 1").program_accepted);
+        assert!(parse("global mut $g = 1").program_accepted);
+        assert!(parse("import Foo").program_accepted);
+        assert!(parse("import Foo as F").program_accepted);
+        assert!(parse("from Foo import a, b").program_accepted);
+        assert!(parse("export class A {}").program_accepted);
+        assert!(parse("class A {} export A").program_accepted);
+        // `global_decl` requires `let` or `mut`, exactly as `shared_decl` does.
+        assert!(!parse("global $g = 1").program_accepted);
     }
 
     #[test]

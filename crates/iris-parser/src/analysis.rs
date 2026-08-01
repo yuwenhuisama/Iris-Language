@@ -15,6 +15,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         diagnostics: Vec::new(),
         scopes: vec![Vec::new()],
         declared_class_variables: Vec::new(),
+        declared_globals: Vec::new(),
         qualified_namespace: Vec::new(),
         generic_classes: Vec::new(),
         generic_constraints: Vec::new(),
@@ -222,6 +223,12 @@ struct Analyzer {
     /// missing declared storage rather than creating it, so an assignment is
     /// checked against what was actually declared.
     declared_class_variables: Vec<String>,
+    /// Global names a `global` declaration published.
+    ///
+    /// `IRIS-V1-CONTROL-C013` makes a missing `$name` a declaration error
+    /// rather than creating the cell, so a read is checked against what was
+    /// actually declared.
+    declared_globals: Vec<String>,
     /// Each declared Contract paired with the selectors it REQUIRES.
     ///
     /// `IRIS-V1-TYPES-C046` makes a member satisfying a declared requirement
@@ -649,6 +656,23 @@ impl Analyzer {
                 }
                 (&value.name, Some(&value.body))
             }
+            // An import publishes its local name; an export republishes what it
+            // wraps, so the wrapped declaration is analysed in its own right.
+            iris_syntax::Declaration::Import(value) => {
+                let published = value.alias.clone().unwrap_or_else(|| value.target.clone());
+                self.publish_qualified_name(&published);
+                for spec in &value.specs {
+                    let name = spec.alias.clone().unwrap_or_else(|| spec.name.clone());
+                    self.publish_qualified_name(&name);
+                }
+                return;
+            }
+            iris_syntax::Declaration::Export(value) => {
+                if let iris_syntax::ExportDeclaration::Declaration(inner) = value.as_ref() {
+                    self.declaration(inner.as_ref());
+                }
+                return;
+            }
             iris_syntax::Declaration::TypeAlias(value) => {
                 // C058 rejects invalid recursive constraints, and a Type alias
                 // whose target names ITSELF is exactly such a fixed point: it
@@ -1041,6 +1065,21 @@ impl Analyzer {
                 }
                 self.declare(name, *mutable);
             }
+            // C013 makes `$name` reachable ONLY through a `global` declaration,
+            // so the declared name is published and its annotation guarded like
+            // any other binding boundary.
+            Statement::GlobalBinding {
+                name,
+                annotation,
+                value,
+                ..
+            } => {
+                if let Some(annotation) = annotation {
+                    self.check_raw_generic(annotation);
+                    self.check_annotated_value(annotation, value);
+                }
+                self.declared_globals.push(name.clone());
+            }
             Statement::SharedBinding {
                 name,
                 mutable,
@@ -1207,6 +1246,11 @@ impl Analyzer {
                 // C009 and C078: assignment to absent `@@name` storage is
                 // `MISSING_DECLARED_STORAGE` and creates nothing. A `shared`
                 // declaration is what publishes that storage.
+                if let Expression::GlobalVar(name) = left.as_ref()
+                    && !self.declared_globals.contains(name)
+                {
+                    self.report("MISSING_DECLARED_STORAGE");
+                }
                 if let Expression::ClassVar(name) = left.as_ref()
                     && !self.declared_class_variables.iter().any(|declared| {
                         declared == name || declared.trim_start_matches('@') == name
@@ -1342,6 +1386,13 @@ impl Analyzer {
             | Expression::Symbol(_)
             | Expression::RawIvar(_)
             | Expression::ClassVar(_) => {}
+            // C013 makes a missing `$name` a DECLARATION error rather than a
+            // fresh cell, so a read is checked against what was declared.
+            Expression::GlobalVar(name) => {
+                if !self.declared_globals.contains(name) {
+                    self.report("MISSING_DECLARED_STORAGE");
+                }
+            }
         }
     }
 }

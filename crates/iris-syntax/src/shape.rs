@@ -34,6 +34,12 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                     .as_ref()
                     .map_or_else(|| "absent".into(), type_expression_shape)
             )),
+            Declaration::Import(value) => Some(format!(
+                "Import(target={}, specs={})",
+                value.target,
+                value.specs.len()
+            )),
+            Declaration::Export(_) => Some("Export".into()),
             Declaration::TypeAlias(value) => Some(format!(
                 "TypeAlias(name={}, target={})",
                 value.name,
@@ -58,7 +64,8 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
             .iter()
             .filter_map(|statement| match statement {
                 Statement::Expression(expression) => Some(source_shape(expression, 0)),
-                Statement::SharedBinding { .. }
+                Statement::GlobalBinding { .. }
+                | Statement::SharedBinding { .. }
                 | Statement::Binding { .. }
                 | Statement::DeferredBinding { .. }
                 | Statement::StoredProperty { .. }
@@ -89,6 +96,7 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             (value.clone(), 17)
         }
         Expression::ClassVar(value) => (format!("@@{value}"), 17),
+        Expression::GlobalVar(value) => (format!("${value}"), 17),
         // A closed generic construction renders as its written source shape, so
         // `Box<String>.new()` is distinguishable from a bare `Box`.
         Expression::ClosedGeneric { name, arguments } => {
@@ -188,6 +196,7 @@ fn structural_shape(expression: &Expression) -> String {
             primary_shape(value)
         }
         Expression::ClassVar(value) => primary_shape(&format!("@@{value}")),
+        Expression::GlobalVar(value) => primary_shape(&format!("${value}")),
         Expression::ClosedGeneric { name, arguments } => {
             format!("closed_generic({name}, {})", arguments.len())
         }

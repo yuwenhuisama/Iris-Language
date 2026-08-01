@@ -177,7 +177,8 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
-            Statement::SharedBinding { .. }
+            Statement::GlobalBinding { .. }
+            | Statement::SharedBinding { .. }
             | Statement::Binding { .. }
             | Statement::DeferredBinding { .. }
             | Statement::StoredProperty { .. }
@@ -207,7 +208,8 @@ impl Evaluator {
             | Expression::Try { .. }
             // A closed generic construction and a reified Type both need the
             // Class registry the literal evaluator does not have.
-            | Expression::ClosedGeneric { .. }
+            | Expression::GlobalVar(_)
+        | Expression::ClosedGeneric { .. }
             | Expression::ReifiedType(_)
             | Expression::While { .. } => Err(EvaluationError::UnsupportedConstruct),
             Expression::Name(name) => self.name(name),
@@ -533,7 +535,8 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
 
 fn source_runtime_statement(statement: &Statement) -> bool {
     match statement {
-        Statement::SharedBinding { .. }
+        Statement::GlobalBinding { .. }
+        | Statement::SharedBinding { .. }
         | Statement::Binding { .. }
         | Statement::DeferredBinding { .. } => true,
         Statement::Expression(expression) => source_runtime_expression(expression),
@@ -592,6 +595,8 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::Try { .. }
         | Expression::ClosedGeneric { .. }
         | Expression::ReifiedType(_)
+        // A declared global lives in the source runtime's cell table.
+        | Expression::GlobalVar(_)
         | Expression::While { .. } => true,
         Expression::Array(values) => values.iter().any(source_runtime_expression),
         Expression::Member { receiver, .. }

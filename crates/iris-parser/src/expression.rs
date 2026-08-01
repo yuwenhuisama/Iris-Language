@@ -197,6 +197,9 @@ impl Parser {
         if self.consume("@@") {
             return self.name().map(Expression::ClassVar);
         }
+        if self.consume("$") {
+            return self.name().map(Expression::GlobalVar);
+        }
         if self.consume("@") {
             return self.name().map(Expression::RawIvar);
         }

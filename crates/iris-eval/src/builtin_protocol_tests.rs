@@ -2233,3 +2233,21 @@ module M { fun id<T>(x: T) -> T { x } let bound: String = id(1); result = bound 
     assert_eq!(rendered(mismatched), "TypeContractError");
     assert_eq!(rendered(plain), "Text(\"iris\")");
 }
+
+#[test]
+fn c013_makes_a_global_a_declared_cell() {
+    // C013 makes `$name` reachable ONLY through a `global let` or `global mut`
+    // declaration: a missing one is a declaration error rather than a fresh
+    // cell created by use.
+    let read = "global let $g = 1; $g";
+    let assigned = "global mut $g = 1; $g = 2; $g";
+    // `global let` is immutable exactly as an ordinary `let` is.
+    let immutable = "global let $g = 1; $g = 2; $g";
+    let undeclared = "$missing";
+
+    // When / Then
+    assert!(rendered(read).ends_with("Integer(IntegerValue(1))])"));
+    assert!(rendered(assigned).ends_with("Integer(IntegerValue(2))])"));
+    assert_eq!(rendered(immutable), "ImmutableBinding");
+    assert_eq!(rendered(undeclared), "NameError");
+}

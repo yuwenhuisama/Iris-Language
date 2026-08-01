@@ -22,11 +22,43 @@ pub enum Declaration {
     Class(ClassDeclaration),
     Module(ModuleDeclaration),
     Contract(ContractDeclaration),
+    /// `import_decl ::= "import" qualified_type_name import_alias?
+    ///                 | "from" qualified_type_name "import" import_spec_list`.
+    Import(ImportDeclaration),
+    /// `export_decl ::= "export" (declaration | ordinary_name ("," ordinary_name)* ","?)`.
+    Export(Box<ExportDeclaration>),
     /// `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
     ///
     /// `IRIS-V1-TYPES-C004` makes a Type alias TARGET an annotated boundary, so
     /// the target is retained rather than parsed and discarded.
     TypeAlias(TypeAliasDeclaration),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportDeclaration {
+    /// The imported Module path, `qualified_type_name`.
+    pub target: String,
+    /// The local alias from `import_alias`, when written.
+    pub alias: Option<String>,
+    /// The `import_spec_list` of a `from ... import ...`, empty otherwise.
+    pub specs: Vec<ImportSpec>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportSpec {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExportDeclaration {
+    /// `export <declaration>`, which publishes the declaration it wraps.
+    ///
+    /// Boxed because a `Declaration` is far larger than a name list, and an
+    /// unboxed variant would grow every `ExportDeclaration` to match.
+    Declaration(Box<Declaration>),
+    /// `export a, b`, which publishes already-declared names.
+    Names(Vec<String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,6 +156,17 @@ pub enum TypeExpression {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
+    /// `global_decl ::= "global" ("let" | "mut") global_name type_annotation? "=" expression`.
+    ///
+    /// `IRIS-V1-CONTROL-C013` makes `$name` reachable ONLY through a `global
+    /// let` or `global mut` declaration, so the binding is recorded rather than
+    /// created by use.
+    GlobalBinding {
+        mutable: bool,
+        name: String,
+        annotation: Option<TypeExpression>,
+        value: Expression,
+    },
     SharedBinding {
         mutable: bool,
         name: String,
@@ -451,6 +494,11 @@ pub enum Expression {
     Grouped(Box<Expression>),
     RawIvar(String),
     ClassVar(String),
+    /// `$name`, a declared package-qualified runtime global.
+    ///
+    /// `IRIS-V1-CONTROL-C013` makes a missing one a declaration error rather
+    /// than creating the cell.
+    GlobalVar(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

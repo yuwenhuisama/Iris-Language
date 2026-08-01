@@ -57,6 +57,11 @@ pub(super) struct SourceEvaluator {
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
+    /// Declared runtime globals, keyed by name without the sigil.
+    ///
+    /// `IRIS-V1-CONTROL-C013` makes `$name` a DECLARED cell: a missing one is
+    /// an error rather than a fresh binding, so reads consult this map.
+    globals: HashMap<String, Binding>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
     ///
     /// `IRIS-V1-RUNTIME-C065` makes stored-property storage TYPED, and `C161`
@@ -179,6 +184,7 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
+            globals: HashMap::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
             shared_class_properties: HashMap::new(),
@@ -229,6 +235,24 @@ impl SourceEvaluator {
                 // C061 makes a Type alias a NAME for its target, not a new
                 // nominal Type, so the alias binds to whatever the target
                 // already resolves to and shares its identity.
+                // An import needs the PACKAGE subsystem to resolve a target,
+                // which v1 does not have here, so it declares its local name
+                // and resolves nothing. An export evaluates what it wraps.
+                ProgramEntry::Declaration(iris_syntax::Declaration::Import(_)) => {}
+                ProgramEntry::Declaration(iris_syntax::Declaration::Export(export)) => {
+                    if let iris_syntax::ExportDeclaration::Declaration(inner) = export.as_ref() {
+                        match inner.as_ref() {
+                            iris_syntax::Declaration::Class(class) => self.class(class)?,
+                            iris_syntax::Declaration::Module(module) => {
+                                self.module(module)?;
+                            }
+                            iris_syntax::Declaration::Contract(contract) => {
+                                self.contract(contract)?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 ProgramEntry::Declaration(iris_syntax::Declaration::TypeAlias(alias)) => {
                     if let iris_syntax::TypeExpression::Name(target)
                     | iris_syntax::TypeExpression::Generic { name: target, .. } = &alias.target
@@ -1166,6 +1190,22 @@ impl SourceEvaluator {
                 arms,
                 fallback,
             } => self.match_statement(subject, arms, fallback.as_ref(), locals, receiver),
+            // C013 makes `$name` reachable ONLY through a `global` declaration,
+            // so the cell is created here and read by sigil name.
+            Statement::GlobalBinding {
+                mutable,
+                name,
+                annotation,
+                value,
+            } => {
+                let value = self.expression(value, locals, receiver)?;
+                if let Some(annotation) = annotation {
+                    self.check_binding_annotation(&value, annotation)?;
+                }
+                self.globals
+                    .insert(name.clone(), Binding::new(value.clone(), *mutable));
+                Ok(value)
+            }
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
@@ -1479,6 +1519,7 @@ impl SourceEvaluator {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
                 Statement::DeferredBinding { .. }
+                | Statement::GlobalBinding { .. }
                 | Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1897,6 +1938,12 @@ impl SourceEvaluator {
                 }
             }
             Expression::ClassVar(name) => self.read_class_var(name),
+            // C013 reads a DECLARED global; a missing one is an error.
+            Expression::GlobalVar(name) => self
+                .globals
+                .get(name)
+                .map(Binding::value)
+                .ok_or(EvaluationError::NameError),
             Expression::Literal(source) => literal(source),
             Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
             Expression::Grouped(expression) => self.expression(expression, locals, receiver),
@@ -2382,6 +2429,16 @@ impl SourceEvaluator {
                         | Value::Float64(_)) => self.assign_value_raw_ivar(value),
                         _ => Err(EvaluationError::UnsupportedConstruct),
                     };
+                }
+                if let Expression::GlobalVar(name) = left.as_ref() {
+                    let value = self.expression(right, locals, receiver)?;
+                    let binding = self
+                        .globals
+                        .get_mut(name)
+                        .ok_or(EvaluationError::NameError)?;
+                    return binding
+                        .assign(value)
+                        .map_err(|()| EvaluationError::ImmutableBinding);
                 }
                 if let Expression::ClassVar(name) = left.as_ref() {
                     let value = self.expression(right, locals, receiver)?;
