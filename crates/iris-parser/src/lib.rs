@@ -86,6 +86,7 @@ pub fn parse(source: &str) -> ParseResult {
         diagnostics: Vec::new(),
         no_trailing_block: false,
         no_type_union: false,
+        empty_closure_header: false,
     };
     let program = parser.program();
     let program_accepted = parser.diagnostics.is_empty() && parser.at_end();
@@ -270,6 +271,8 @@ struct Parser {
     /// inside `{ |x: Integer| ... }` the closing bar must not be read as a
     /// union operator.
     no_type_union: bool,
+    /// Set when a `||` token was rewritten into an empty closure header.
+    empty_closure_header: bool,
 }
 
 impl Parser {
@@ -570,7 +573,29 @@ impl Parser {
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
         self.expect("{")?;
         let mut parameters = Vec::new();
-        if self.consume("|") {
+        // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
+        // parameter list, but `||` lexes as ONE logical-or token, so a bare
+        // `{ ||; ... }` never reached the header at all. An empty header is
+        // consumed whole here, which is the same contextual longest-match
+        // C020 applies to `>>` closing two generic argument lists.
+        if self.check("||")
+            && let Some(token) = self.tokens.get_mut(self.cursor)
+        {
+            // Rewrite the pair into a single `|` and step past it, so the
+            // header below sees the empty parameter list it expects.
+            token.text = "|".into();
+            token.offset += 1;
+            self.empty_closure_header = true;
+        }
+        if self.empty_closure_header {
+            self.empty_closure_header = false;
+            self.advance();
+            if self.consume("-") {
+                self.expect(">")?;
+                self.type_expression()?;
+            }
+            self.consume_terminators();
+        } else if self.consume("|") {
             let outer = std::mem::replace(&mut self.no_type_union, true);
             while !self.check("|") && !self.at_end() {
                 let Some(parameter) = self.binding_name() else {
@@ -1915,6 +1940,30 @@ mod tests {
             invalid.diagnostics[0].code,
             "PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT"
         );
+    }
+
+    #[test]
+    fn c020_splits_a_pipe_pair_into_an_empty_closure_header() {
+        // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
+        // parameter list, but `||` lexes as ONE logical-or token, so a bare
+        // `{ ||; ... }` never reached the header. The pair is split by the same
+        // contextual longest-match C020 applies to `>>`.
+        assert!(parse("let c = { ||; 1 }; c").program_accepted);
+        assert!(parse("let c = { |x|; x }; c").program_accepted);
+        // Every other `||` keeps its operator tokenization.
+        assert!(parse("let a = nil; let b = a || 7; b").program_accepted);
+        assert!(parse("mut a = nil; a ||= 7; a").program_accepted);
+    }
+
+    #[test]
+    fn let_decl_keywords_are_mutually_exclusive() {
+        // `let_decl ::= ("let" | "mut" | "const") ...` offers exactly one
+        // keyword, so a mutable binding is `mut x`, never `let mut x`.
+        assert!(parse("mut x = 1").program_accepted);
+        assert!(parse("const x = 1").program_accepted);
+        assert!(!parse("let mut x = 1").program_accepted);
+        assert!(!parse("let const x = 1").program_accepted);
+        assert!(!parse("mut const x = 1").program_accepted);
     }
 
     #[test]
