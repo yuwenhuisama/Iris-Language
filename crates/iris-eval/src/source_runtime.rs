@@ -57,6 +57,11 @@ pub(super) struct SourceEvaluator {
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
+    /// Top-level `fun` declarations, keyed by name.
+    ///
+    /// A top-level function belongs to no Class, so it is not reachable
+    /// through dispatch and is resolved by name at the call site instead.
+    top_level_functions: HashMap<String, MethodBody>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
     ///
     /// `IRIS-V1-RUNTIME-C065` makes stored-property storage TYPED, and `C161`
@@ -179,6 +184,7 @@ impl SourceEvaluator {
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
+            top_level_functions: HashMap::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
             shared_class_properties: HashMap::new(),
@@ -1131,6 +1137,20 @@ impl SourceEvaluator {
                 arms,
                 fallback,
             } => self.match_statement(subject, arms, fallback.as_ref(), locals, receiver),
+            // A top-level `fun` is a named callable rather than a member of
+            // any Class. `IRIS-V1-CONTROL-C018` gives it the same parameter and
+            // body rules a Method has, so the declaration is registered and the
+            // name is bound to it; only a call reaches the body.
+            Statement::Method(method) if method.kind == MethodKind::Instance => {
+                let body = self.register_body(method.clone());
+                self.top_level_functions
+                    .insert(method.selector.clone(), body);
+                self.names.insert(
+                    method.selector.clone(),
+                    Binding::immutable(Value::Symbol(method.selector.clone())),
+                );
+                Ok(Value::Nil)
+            }
             Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
@@ -2103,6 +2123,13 @@ impl SourceEvaluator {
                             .ok_or(EvaluationError::UnsupportedConstruct)?;
                         self.call(callee, &arguments)
                     }
+                    // A top-level `fun` is resolved by NAME: it belongs to no
+                    // Class, so no dispatch can reach it.
+                    Expression::Name(selector)
+                        if self.top_level_functions.contains_key(selector) =>
+                    {
+                        self.invoke_top_level(selector, &arguments)
+                    }
                     Expression::Name(selector) => match receiver {
                         Some(receiver) => self.send(receiver, selector, &arguments),
                         None => self
@@ -2464,6 +2491,38 @@ impl SourceEvaluator {
             }
             target => self.send(target, "[]=", &[index, value]),
         }
+    }
+
+    /// Invokes a top-level `fun` by name.
+    fn invoke_top_level(
+        &mut self,
+        name: &str,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let body = *self
+            .top_level_functions
+            .get(name)
+            .ok_or(EvaluationError::NameError)?;
+        let declaration = self
+            .bodies
+            .get(&body.raw())
+            .cloned()
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let parameters = declaration.parameters.clone();
+        let Some(statements) = declaration.body.clone() else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let locals = self.bind_parameters(&parameters, arguments)?;
+        let result = match self.block(&statements, &locals, None) {
+            Err(EvaluationError::Return(value)) => Ok(value),
+            result => result,
+        }?;
+        // C004 guards the return boundary of a top-level function exactly as it
+        // does a Method's.
+        if let Some(annotation) = &declaration.return_type {
+            self.check_binding_annotation(&result, annotation)?;
+        }
+        Ok(result)
     }
 
     fn call(&mut self, value: Value, arguments: &[Value]) -> Result<Value, EvaluationError> {
