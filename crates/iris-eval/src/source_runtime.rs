@@ -64,6 +64,20 @@ pub(super) struct SourceEvaluator {
     /// contract the generated setter enforces. Without this, a Method body
     /// writing `@n` bypassed the property guard entirely.
     property_types: HashMap<(ClassId, Selector), iris_syntax::TypeExpression>,
+    /// Class-level stored-property names declared on each Class.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts this storage on the CLASS OBJECT, so `A.n`
+    /// must resolve even though no instance Method named `n` exists. The
+    /// declared names are recorded so a Class-object send can answer them
+    /// rather than reporting a missing message.
+    class_level_properties: HashMap<ClassId, Vec<Selector>>,
+    /// Class-level property names declared `shared` on each Class.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the UNAPPLIED
+    /// generic definition, so it is NOT reachable through a closed
+    /// construction. `IRIS-V1-TYPES-V238` observes that access as a missing
+    /// message rather than as a second slot.
+    shared_class_properties: HashMap<ClassId, Vec<String>>,
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
@@ -153,6 +167,8 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             property_types: HashMap::new(),
+            class_level_properties: HashMap::new(),
+            shared_class_properties: HashMap::new(),
             closures: HashMap::new(),
             next_closure: 900_000,
             contract_names: HashMap::new(),
@@ -360,19 +376,35 @@ impl SourceEvaluator {
             match statement {
                 Statement::StoredProperty {
                     decorators,
+                    shared,
+                    class_level,
                     name,
                     annotation,
                     initializer,
                     ..
                 } => {
-                    self.stored_property(
-                        class,
-                        builtin,
-                        decorators,
-                        name,
-                        annotation,
-                        initializer.clone(),
-                    )?;
+                    if *class_level {
+                        if *shared {
+                            self.shared_class_properties
+                                .entry(class)
+                                .or_default()
+                                .push(name.clone());
+                        }
+                        // C064 puts class-level storage on the CLASS OBJECT, so
+                        // its accessors are singleton Methods and its slot is a
+                        // Class raw ivar. Installing it as an instance property
+                        // left `A.n` unresolvable and reading it answered nil.
+                        self.class_level_property(class, name, initializer.clone())?;
+                    } else {
+                        self.stored_property(
+                            class,
+                            builtin,
+                            decorators,
+                            name,
+                            annotation,
+                            initializer.clone(),
+                        )?;
+                    }
                 }
                 Statement::SharedBinding {
                     mutable,
@@ -546,6 +578,37 @@ impl SourceEvaluator {
             Err(DispatchError::Class(error)) => Err(EvaluationError::Class(error)),
             Err(_) => Err(EvaluationError::UnsupportedConstruct),
         }
+    }
+
+    /// Reports whether a Class declares a class-level stored property.
+    fn is_class_level_property(&mut self, class: ClassId, selector: &str) -> bool {
+        let slot = self.selector(selector);
+        self.class_level_properties
+            .get(&class)
+            .is_some_and(|slots| slots.contains(&slot))
+    }
+
+    /// Installs a class-level stored property on the Class object.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts this storage on the Class rather than on an
+    /// instance, so the initializer is evaluated once at declaration and the
+    /// slot is a Class raw ivar that `A.n` reads through a singleton accessor.
+    fn class_level_property(
+        &mut self,
+        class: ClassId,
+        name: &str,
+        initializer: Expression,
+    ) -> Result<(), EvaluationError> {
+        let value = self.expression(&initializer, &HashMap::new(), Some(Value::Class(class)))?;
+        let slot = self.selector(name);
+        self.runtime
+            .assign_class_raw_ivar(class, slot, value)
+            .map_err(EvaluationError::Construction)?;
+        self.class_level_properties
+            .entry(class)
+            .or_default()
+            .push(slot);
+        Ok(())
     }
 
     /// The declared Type of a stored-property slot on a receiver, if any.
@@ -1785,6 +1848,20 @@ impl SourceEvaluator {
                 let Value::Class(class) = target else {
                     return self.member_read(target, selector);
                 };
+                // C064 puts a `shared class property` on the UNAPPLIED generic
+                // definition, so it is NOT reachable through a closed
+                // construction. V238 observes that access as a missing message
+                // rather than as a second, per-construction slot.
+                if self
+                    .shared_class_properties
+                    .get(&class)
+                    .is_some_and(|names| names.iter().any(|name| name == selector))
+                {
+                    return Err(EvaluationError::MessageNotFound {
+                        receiver_class: "Class".into(),
+                        selector: selector.to_owned(),
+                    });
+                }
                 let slot = self.selector(&qualified);
                 self.runtime
                     .class_raw_ivar(class, slot)
@@ -2431,6 +2508,30 @@ impl SourceEvaluator {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.subtype(left, *right)
+            }
+            // C064 puts class-level storage on the Class object, so a read of
+            // a DECLARED class-level property answers its slot rather than
+            // dispatching to a Method that does not exist. A setter spelling
+            // writes the same slot.
+            Value::Class(class)
+                if arguments.is_empty() && self.is_class_level_property(class, selector) =>
+            {
+                let slot = self.selector(selector);
+                self.runtime
+                    .class_raw_ivar(class, slot)
+                    .map_err(EvaluationError::Construction)
+            }
+            Value::Class(class)
+                if selector.ends_with('=')
+                    && self.is_class_level_property(class, &selector[..selector.len() - 1]) =>
+            {
+                let [value] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let slot = self.selector(&selector[..selector.len() - 1]);
+                self.runtime
+                    .assign_class_raw_ivar(class, slot, value.clone())
+                    .map_err(EvaluationError::Construction)
             }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);

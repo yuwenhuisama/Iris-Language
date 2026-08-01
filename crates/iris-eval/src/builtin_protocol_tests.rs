@@ -2007,3 +2007,27 @@ Cache.value = \"s\"; Cache.value";
     assert!(rendered(same_construction).ends_with("Text(\"t\")])"));
     assert!(rendered(non_generic).ends_with("Text(\"s\")])"));
 }
+
+#[test]
+fn c064_puts_a_shared_class_property_on_the_unapplied_definition() {
+    // C064 puts class-level storage on the CLASS OBJECT. It was installed as an
+    // instance property, so `A.n` was unresolvable and reading it answered nil.
+    let class_level_read = "class A { class property n: Integer = 5 } A.n";
+    let class_level_write = "class A { class property n: Integer = 5 } A.n = 9; A.n";
+    // A `shared class property` belongs to the UNAPPLIED definition, so the
+    // bare Class reads its declared initializer. The V238 vector asserts the
+    // closed-access error; this covers the read the vector cannot also carry.
+    let shared_read = "class Cache<T> { shared class property count: Integer = 0 } Cache.count";
+    // An ordinary class-level property stays per closed construction.
+    let per_construction =
+        "class Cache<T> { class property v: Integer = 7 } Cache<String>.v = 3; Cache<String>.v";
+    // An instance property is unaffected by the class-level path.
+    let instance = "class A { property n: Integer = 5 } A.new().n";
+
+    // When / Then
+    assert_eq!(rendered(class_level_read), "Integer(IntegerValue(5))");
+    assert!(rendered(class_level_write).ends_with("Integer(IntegerValue(9))])"));
+    assert_eq!(rendered(shared_read), "Integer(IntegerValue(0))");
+    assert!(rendered(per_construction).ends_with("Integer(IntegerValue(3))])"));
+    assert_eq!(rendered(instance), "Integer(IntegerValue(5))");
+}
