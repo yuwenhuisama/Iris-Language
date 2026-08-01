@@ -301,6 +301,7 @@ impl Analyzer {
             self.report("RAW_GENERIC_TYPE_FORBIDDEN");
         }
         self.check_generic_arity(annotation);
+        self.check_generic_placeholder(annotation);
     }
 
     /// A written Type's canonical spelling, used to compare two requirements.
@@ -432,6 +433,14 @@ impl Analyzer {
         // A mismatched ARITY is already reported as GENERIC_ARGUMENT_ARITY, and
         // an argument list of the wrong length says nothing about variance, so
         // only a same-length mismatch is an invariance violation.
+        // A `_` placeholder asks the construction to INFER its argument, so it
+        // is not a variance mismatch. Comparing it literally reported both an
+        // invariance violation and the placeholder diagnostic for one cause.
+        if constructed_arguments.iter().any(
+            |argument| matches!(argument, iris_syntax::TypeExpression::Name(name) if name == "_"),
+        ) {
+            return;
+        }
         if constructed == declared
             && constructed_arguments.len() == declared_arguments.len()
             && constructed_arguments != declared_arguments
@@ -447,6 +456,17 @@ impl Analyzer {
     /// against `class Pair<T,U>`: no default `U` is supplied. A Class this pass
     /// has not seen declared is left alone, since its arity is unknown rather
     /// than wrong.
+    /// Rejects a `_` placeholder in a PERSISTENT Type annotation.
+    ///
+    /// `IRIS-V1-TYPES-V231` lets a construction infer its argument, as in
+    /// `Box<_>.new("x")`, but a written annotation persists beyond that
+    /// inference and must name a closed Type. `D-204` names the code.
+    fn check_generic_placeholder(&mut self, annotation: &iris_syntax::TypeExpression) {
+        if Self::mentions_parameter(annotation, &["_".to_owned()]) {
+            self.report("GENERIC_PLACEHOLDER_FORBIDDEN");
+        }
+    }
+
     fn check_generic_arity(&mut self, annotation: &iris_syntax::TypeExpression) {
         match annotation {
             iris_syntax::TypeExpression::Generic { name, arguments } => {
@@ -1637,6 +1657,26 @@ mod tests {
         );
         assert_eq!(codes(compatible), Vec::<&str>::new());
         assert_eq!(codes(single), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d204_forbids_a_placeholder_in_a_persistent_annotation() {
+        // V231 lets a CONSTRUCTION infer its argument, as in `Box<_>.new("x")`,
+        // but a written annotation persists beyond that inference and must name
+        // a closed Type.
+        let annotated = "class Box<T> { fun initialize(value: T) -> Nil {} } \
+let b: Box<String> = Box<_>.new(\"x\"); let bad: Box<_> = b; bad";
+        // The construction side keeps its placeholder, which is what separates
+        // inference from a persistent annotation.
+        let construction_only = "class Box<T> { fun initialize(value: T) -> Nil {} } \
+let b: Box<String> = Box<_>.new(\"x\"); b";
+        let concrete = "class Box<T> { fun initialize(value: T) -> Nil {} } \
+let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
+
+        // When / Then
+        assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
+        assert_eq!(codes(construction_only), Vec::<&str>::new());
+        assert_eq!(codes(concrete), Vec::<&str>::new());
     }
 
     #[test]
