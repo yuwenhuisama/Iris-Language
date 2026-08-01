@@ -5060,7 +5060,7 @@ mod tests {
     fn retained_method_binding_failure_does_not_execute_its_observable_body()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "let mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+        let source = "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When

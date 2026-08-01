@@ -272,7 +272,7 @@ fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
 #[test]
 fn runtime_superclass_change_rejects_retained_method_before_body_entry() {
     // Given
-    let source = "let mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+    let source = "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
 
     // When
     let result = evaluate(source);
@@ -463,7 +463,7 @@ fn sends_not_equal_for_nan_and_ordinary_operands() {
 fn array_append_mutates_an_unannotated_binding_in_order() {
     // Given
     let source =
-        "let mut log = []; let ignored_a = log.append(:a); let ignored_b = log.append(:b); log";
+        "mut log = []; let ignored_a = log.append(:a); let ignored_b = log.append(:b); log";
 
     // When
     let result = evaluate(source);
@@ -481,7 +481,7 @@ fn array_append_mutates_an_unannotated_binding_in_order() {
 #[test]
 fn array_literal_append_grows_in_order_and_returns_nil() {
     // Given
-    let source = "let mut values = [:a]; [values.append(:b), values]";
+    let source = "mut values = [:a]; [values.append(:b), values]";
 
     // When
     let result = evaluate(source);
@@ -502,7 +502,7 @@ fn array_literal_append_grows_in_order_and_returns_nil() {
 #[test]
 fn array_append_accumulates_through_try_catch_and_finally() {
     // Given
-    let source = "let mut log = []; try { log.append(:try); raise :x } catch _ { log.append(:catch); :handled } finally { log.append(:finally) }; log";
+    let source = "mut log = []; try { log.append(:try); raise :x } catch _ { log.append(:catch); :handled } finally { log.append(:finally) }; log";
 
     // When
     let result = evaluate(source);
@@ -1048,7 +1048,7 @@ fn builtin_class_property_getter_replacement_is_observed() {
 #[test]
 fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
     // Given
-    let source = "let mut log = []; open class Integer { public property fun px=(value: Integer) -> Integer { log.append(value); value } }; let n = 1; [n.px = 2, n, log]";
+    let source = "mut log = []; open class Integer { public property fun px=(value: Integer) -> Integer { log.append(value); value } }; let n = 1; [n.px = 2, n, log]";
 
     // When
     let result = evaluate(source);
@@ -1067,7 +1067,7 @@ fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
 #[test]
 fn class_property_setter_records_without_creating_an_implicit_backing_slot() {
     // Given
-    let source = "let mut log = []; open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } public property fun infinity=(value: Float64) -> Float64 { log.append(value); value } }; let assigned = Float64.infinity = 3.0f64; [Float64.infinity, assigned, log]";
+    let source = "mut log = []; open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } public property fun infinity=(value: Float64) -> Float64 { log.append(value); value } }; let assigned = Float64.infinity = 3.0f64; [Float64.infinity, assigned, log]";
 
     // When
     let result = evaluate(source);
@@ -1473,7 +1473,7 @@ fn catch_receives_a_value_raised_by_initialize() {
 #[test]
 fn escaped_receiver_from_failed_initialize_remains_usable() {
     // Given
-    let source = "let mut escaped = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; try { A.new() } catch error { escaped.to_bool() }";
+    let source = "mut escaped = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; try { A.new() } catch error { escaped.to_bool() }";
 
     // When
     let result = evaluate(source);
@@ -1543,7 +1543,7 @@ fn user_defined_to_bool_overrides_the_installed_default_and_drives_if() {
 #[test]
 fn method_assignment_updates_an_enclosing_mutable_binding() {
     // Given
-    let source = "let mut value = 1; class A { public fun update() -> Integer { value = 2 } }; A.new().update(); value";
+    let source = "mut value = 1; class A { public fun update() -> Integer { value = 2 } }; A.new().update(); value";
 
     // When
     let result = evaluate(source);

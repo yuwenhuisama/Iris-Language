@@ -164,7 +164,7 @@ fn c114_float32_bit_classification_round_trips_through_to_bits() {
 #[test]
 fn c086_equality_tests_identity_before_consulting_spaceship() {
     // Given
-    let source = "let mut calls = []; class P { public fun <=>(o) { calls.append(:c); nil } }; \
+    let source = "mut calls = []; class P { public fun <=>(o) { calls.append(:c); nil } }; \
                   let a = P.new(); let same = a; let b = P.new(); \
                   let r = [a == same, a <=> b, a == b, a != b, a < b]; [r, calls]";
 
@@ -291,7 +291,7 @@ fn c162_rejects_a_subclass_redeclaring_an_anchored_cell() {
 #[test]
 fn d446_runs_property_initializers_superclass_first_then_initialize() {
     // Given
-    let source = "let mut log = []; \
+    let source = "mut log = []; \
                   class Base { property b: Nil = log.append(:base); } \
                   class Child extends Base { property c: Nil = log.append(:child); \
                   fun initialize() { log.append(:initialize) } } \
@@ -658,9 +658,9 @@ fn c094_and_c095_require_a_callable_annotation_to_name_its_kind() {
 fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
     // Given
     let raises = "class P { public fun to_bool() -> Bool { raise :sentinel } } \
-                  let mut x = P.new(); x &&= 1";
-    let skipped = "let mut log = []; let mut x = nil; let r = x &&= log.append(:ran); log";
-    let written = "let mut x = true; let r = x &&= 5; x";
+                  mut x = P.new(); x &&= 1";
+    let skipped = "mut log = []; mut x = nil; let r = x &&= log.append(:ran); log";
+    let written = "mut x = true; let r = x &&= 5; x";
 
     // When
     let raises = rendered(raises);
@@ -677,8 +677,8 @@ fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
 #[test]
 fn c037_or_assignment_writes_only_on_the_falsy_path() {
     // Given
-    let written = "let mut x = nil; let r = x ||= 7; x";
-    let skipped = "let mut log = []; let mut x = true; let r = x ||= log.append(:ran); log";
+    let written = "mut x = nil; let r = x ||= 7; x";
+    let skipped = "mut log = []; mut x = true; let r = x ||= log.append(:ran); log";
 
     // When
     let written = rendered(written);
@@ -749,7 +749,7 @@ fn c088_an_ordinary_object_has_a_stable_identity_hash() {
 fn c043_while_tests_before_each_iteration_and_break_carries_the_loop_result() {
     // Given
     let zero = "while false { 1 }";
-    let counted = "let mut n = 0; while n < 3 { n = n + 1 }; n";
+    let counted = "mut n = 0; while n < 3 { n = n + 1 }; n";
     let broke = "while true { break 7 }";
     let bare = "while true { break }";
 
@@ -771,7 +771,7 @@ fn c043_while_tests_before_each_iteration_and_break_carries_the_loop_result() {
 #[test]
 fn c044_for_iterates_until_done_and_c046_closes_the_iterator() {
     // Given
-    let source = "let mut log = []; let mut n = 0; \
+    let source = "mut log = []; mut n = 0; \
                   class It { public fun next() { n = n + 1; \
                   if n == 1 { Iteration.yield(nil) } else { Iteration.done } } \
                   public fun close() { log.append(:closed); nil } } \
@@ -788,12 +788,12 @@ fn c044_for_iterates_until_done_and_c046_closes_the_iterator() {
 #[test]
 fn c044_each_iteration_binds_in_a_fresh_scope() {
     // Given
-    let source = "let mut n = 0; \
+    let source = "mut n = 0; \
                   class It { public fun next() { n = n + 1; \
                   if n < 3 { Iteration.yield(n) } else { Iteration.done } } \
                   public fun close() { nil } } \
                   class Src { public fun iterator() { It.new() } } \
-                  let mut first = nil; let mut second = nil; \
+                  mut first = nil; mut second = nil; \
                   for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; \
                   [first.call(), second.call()]";
 
@@ -808,8 +808,8 @@ fn c044_each_iteration_binds_in_a_fresh_scope() {
 fn c048_labels_target_the_named_loop_and_bare_control_targets_the_nearest() {
     // Given
     let labelled = "outer: while true { while true { break outer: 7 } }";
-    let nearest = "let mut n = 0; outer: while n < 2 { n = n + 1; while true { break } }; n";
-    let skipped = "let mut n = 0; let mut log = []; \
+    let nearest = "mut n = 0; outer: while n < 2 { n = n + 1; while true { break } }; n";
+    let skipped = "mut n = 0; mut log = []; \
                    while n < 3 { n = n + 1; continue; log.append(:unreachable) }; log";
 
     // When
@@ -850,13 +850,13 @@ fn c050_match_tests_arms_in_source_order_with_no_fallthrough() {
 #[test]
 fn c045_for_destructuring_binds_or_raises_pattern_match_error() {
     // Given
-    let matched = "let mut n = 0; \
+    let matched = "mut n = 0; \
                    class It { public fun next() { n = n + 1; \
                    if n < 2 { Iteration.yield([1, 2]) } else { Iteration.done } } \
                    public fun close() { nil } } \
                    class Src { public fun iterator() { It.new() } } \
-                   let mut got = nil; for [a, b] in Src.new() { got = a }; got";
-    let mismatched = "let mut n = 0; \
+                   mut got = nil; for [a, b] in Src.new() { got = a }; got";
+    let mismatched = "mut n = 0; \
                       class It { public fun next() { n = n + 1; \
                       if n < 2 { Iteration.yield([1, 2, 3]) } else { Iteration.done } } \
                       public fun close() { nil } } \
@@ -900,7 +900,7 @@ fn c064_and_c047_chain_a_finally_raise_and_append_a_cleanup_failure() {
     // Given
     let chained = "try { try { raise :old } finally { raise :new } } \
                    catch e: Symbol, c { e }";
-    let suppressed = "let mut n = 0; \
+    let suppressed = "mut n = 0; \
                       class It { public fun next() { n = n + 1; \
                       if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                       public fun close() { raise :cleanup } } \
@@ -1005,10 +1005,10 @@ fn c036_compound_assignment_applies_its_operator_to_the_read_value() {
     // Given each supported symbolic compound assignment. D-348 stresses that
     // none is an independent selector, so each must send its ORDINARY operator
     // to the value read from the target.
-    let add = "let mut a = 1; a += 2; a";
-    let subtract = "let mut a = 8; a -= 3; a";
-    let multiply = "let mut a = 10; a *= 3; a";
-    let shift = "let mut a = 1; a <<= 4; a";
+    let add = "mut a = 1; a += 2; a";
+    let subtract = "mut a = 8; a -= 3; a";
+    let multiply = "mut a = 10; a *= 3; a";
+    let shift = "mut a = 1; a <<= 4; a";
 
     // When / Then the result is the operation applied to the old value, not the
     // right-hand side written over the top of it.
@@ -1034,14 +1034,14 @@ fn c036_compound_assignment_applies_its_operator_to_the_read_value() {
 fn c036_index_assignment_evaluates_receiver_index_and_rhs_exactly_once() {
     // Given a side-effectful index and right-hand side, each counting its own
     // evaluations. D-347 requires exactly one evaluation of each.
-    let counted = "let mut index_calls = 0; let mut rhs_calls = 0; let mut a = [1, 2]; \
+    let counted = "mut index_calls = 0; mut rhs_calls = 0; mut a = [1, 2]; \
                    class C { public fun index() { index_calls = index_calls + 1; 0 } \
                    public fun rhs() { rhs_calls = rhs_calls + 1; 5 } } \
                    let c = C.new(); a[c.index()] += c.rhs(); [a[0], index_calls, rhs_calls]";
     // A missing Hash key and an out-of-range Array index read `nil` rather than
     // raising, and a written value must survive into the next read.
-    let array_round_trip = "let mut a = [1, 2]; a[0] = 9; a[0]";
-    let hash_round_trip = "let mut h = %{ 1: 2 }; h[7] = 3; h[7]";
+    let array_round_trip = "mut a = [1, 2]; a[0] = 9; a[0]";
+    let hash_round_trip = "mut h = %{ 1: 2 }; h[7] = 3; h[7]";
     let absent = "let h = %{ 1: 2 }; [h[9], [1, 2][9]]";
 
     // When / Then
@@ -1065,7 +1065,7 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
     // only the caught VALUE, which cannot tell the two apart: a `close` that
     // raises installs its own context, and reading the value alone would still
     // report `:body` while the bound context reported `:close`.
-    let source = "let mut n = 0; \
+    let source = "mut n = 0; \
                   class It { public fun next() { n = n + 1; \
                   if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                   public fun close() { raise :close } } \
@@ -1073,7 +1073,7 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
                   try { for x in Src.new() { raise :body } } \
                   catch e, c { [e, c.value, c.suppressed] }";
     // A cleanup that SUCCEEDS must leave the primary context untouched.
-    let clean = "let mut n = 0; \
+    let clean = "mut n = 0; \
                  class It { public fun next() { n = n + 1; \
                  if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                  public fun close() { nil } } \
@@ -1146,9 +1146,9 @@ fn a_non_terminating_program_is_reported_rather_than_hanging_the_suite() {
 #[test]
 fn the_execution_bounds_admit_ordinary_loops_and_recursion() {
     // Given work far larger than any committed vector performs.
-    let counted = "let mut i = 0; while i < 1000 { i = i + 1 }; i";
+    let counted = "mut i = 0; while i < 1000 { i = i + 1 }; i";
     // `for` needs a scripted iterator: an Array is not itself iterable here.
-    let iterated = "let mut n = 0; let mut total = 0; \
+    let iterated = "mut n = 0; mut total = 0; \
                     class It { public fun next() { n = n + 1; \
                     if n <= 3 { Iteration.yield(n) } else { Iteration.done } } \
                     public fun close() { nil } } \
@@ -1169,11 +1169,11 @@ fn the_execution_bounds_admit_ordinary_loops_and_recursion() {
 #[test]
 fn c011_makes_an_array_iterable_through_the_ordinary_iterator_protocol() {
     // Given `for` over an Array, which C012 drives through iterator()/next().
-    let summed = "let mut total = 0; for x in [1, 2, 3] { total = total + x }; total";
-    let empty = "let mut count = 0; for x in [] { count = count + 1 }; count";
+    let summed = "mut total = 0; for x in [1, 2, 3] { total = total + x }; total";
+    let empty = "mut count = 0; for x in [] { count = count + 1 }; count";
     // Each iterator() call must allocate an INDEPENDENT cursor, or a nested
     // traversal of the same Array would share one position and stop early.
-    let nested = "let a = [1, 2]; let mut count = 0; \
+    let nested = "let a = [1, 2]; mut count = 0; \
                   for x in a { for y in a { count = count + 1 } }; count";
     // C013 returns the same done singleton on every call after exhaustion.
     let exhausted = "let i = [1].iterator(); [i.next(), i.next(), i.next()]";
@@ -1199,9 +1199,9 @@ fn c028_lets_a_nested_block_shadow_a_captured_binding_without_replacing_it() {
                     let inner = { let value = 2; value }; [inner.call(), c.call()]";
     // Capture by REFERENCE is unaffected: a Closure that assigns the captured
     // binding is still seen by the enclosing scope.
-    let shared_cell = "let mut v = 1; let c = { v = v + 1; v }; let a = c.call(); [a, v + 3]";
+    let shared_cell = "mut v = 1; let c = { v = v + 1; v }; let a = c.call(); [a, v + 3]";
     // Each loop iteration owns a fresh cell, so two escaping Closures differ.
-    let per_iteration = "let mut fs = []; for x in [1, 2] { fs.append({ x }) }; \
+    let per_iteration = "mut fs = []; for x in [1, 2] { fs.append({ x }) }; \
                          [fs[0].call(), fs[1].call()]";
 
     // When / Then
@@ -1229,7 +1229,7 @@ fn d421_returns_to_the_nearest_callable_boundary_only() {
     let method_return = "class C { public fun m() { return 1; 2 } } C.new().m()";
     let bare_return = "class C { public fun m() { return } } C.new().m()";
     // A `return` inside a loop still leaves the Method, not just the loop.
-    let from_loop = "class C { public fun m() { let mut i = 0; while i < 5 { i = i + 1; return i } } } \
+    let from_loop = "class C { public fun m() { mut i = 0; while i < 5 { i = i + 1; return i } } } \
          C.new().m()";
 
     // When / Then
@@ -1247,11 +1247,11 @@ fn a_block_local_mut_binding_is_assignable_and_does_not_escape() {
     // Given `let mut` inside a Method body. Block locals were stored as plain
     // values with no mutability, so ANY assignment to one was rejected as an
     // immutable-binding write and no Method could use a mutable local.
-    let assigned = "class C { public fun m() { let mut i = 0; i = 1; i } } C.new().m()";
-    let counted = "class C { public fun m() { let mut i = 0; while i < 3 { i = i + 1 }; i } } \
+    let assigned = "class C { public fun m() { mut i = 0; i = 1; i } } C.new().m()";
+    let counted = "class C { public fun m() { mut i = 0; while i < 3 { i = i + 1 }; i } } \
                    C.new().m()";
     // The binding is block-local, so it must not remain visible afterwards.
-    let escaped = "class C { public fun m() { let mut i = 0; i } } let r = C.new().m(); i";
+    let escaped = "class C { public fun m() { mut i = 0; i } } let r = C.new().m(); i";
 
     // When / Then
     assert_eq!(rendered(assigned), "Integer(IntegerValue(1))");
@@ -1270,7 +1270,7 @@ fn a_try_in_expression_position_yields_the_clause_that_supplied_the_result() {
     let finally_does_not_replace = "let a = try { 1 } finally { 2 }; let b = try { raise :x } catch _ { 3 } finally { 4 }; \
          [a, b]";
     // Clause order is observable, and the handler result is the value.
-    let ordered = "let mut log = []; \
+    let ordered = "mut log = []; \
                    let r = try { log.append(:try); raise :x } \
                    catch _ { log.append(:catch); :handled } \
                    finally { log.append(:finally) }; [log, r]";
@@ -1317,7 +1317,7 @@ fn c043_gives_a_loop_a_value_in_expression_position() {
     let broken = "let b = while true { break 7 }; b";
     let bare_break = "let b = while true { break }; b";
     // The statement spelling must keep working, since both run one evaluator.
-    let as_statement = "let mut i = 0; while i < 3 { i = i + 1 }; i";
+    let as_statement = "mut i = 0; while i < 3 { i = i + 1 }; i";
 
     // When / Then
     assert_eq!(rendered(natural), "Nil");
@@ -1365,11 +1365,11 @@ fn c035_yields_the_setter_result_for_a_property_write() {
     // DIFFERENT things: a binding yields the stored value, a property yields
     // whatever its setter Method returned.
     let both_writes = "class Box { public property fun name=(value) -> Symbol { :written } } \
-                       let mut local = 0; let local_result = (local = 1); \
+                       mut local = 0; let local_result = (local = 1); \
                        let property_result = (Box.new().name = 2); [local_result, property_result]";
     // Assignment is right-associative, so the inner setter runs first and the
     // outer setter receives its RESULT rather than the original operand.
-    let nested = "let mut log = []; \
+    let nested = "mut log = []; \
                   class Box { public property fun name=(value) -> Symbol { log.append(:set); value } } \
                   let outer = Box.new(); let inner = Box.new(); \
                   let r = (outer.name = (inner.name = :inner)); [r, log]";
@@ -1390,12 +1390,12 @@ fn c011_does_not_invoke_a_bare_callable_value() {
     // Given a bare `c.f` bound to a name. A call COUNTER is required here:
     // comparing two results cannot distinguish "the bare name was not invoked"
     // from "it was invoked and happened to return the same value".
-    let counted = "let mut calls = 0; class C { public fun f() { calls = calls + 1; 1 } } \
+    let counted = "mut calls = 0; class C { public fun f() { calls = calls + 1; 1 } } \
                    let c = C.new(); let bare = c.f; let after_bind = calls; \
                    let invoked = bare.call(); [after_bind, invoked, calls]";
     // A compound index assignment evaluates receiver, index and RHS exactly
     // once each, in that order.
-    let ordered = "let mut events = []; let mut store = [1, 2]; \
+    let ordered = "mut events = []; mut store = [1, 2]; \
                    class P { public fun factory() { events.append(:factory); store } \
                    public fun idx() { events.append(:index); 0 } \
                    public fun rhs() { events.append(:rhs); 5 } } \
@@ -1417,14 +1417,14 @@ fn c047_distinguishes_a_cleanup_failure_with_and_without_a_pending_exception() {
     // Given a `close` that raises while nothing is pending. With no primary to
     // attach to, the cleanup failure IS the primary and its suppressed list is
     // empty, which is the opposite arrangement from the body-failure case.
-    let cleanup_only = "let mut n = 0; \
+    let cleanup_only = "mut n = 0; \
                         class It { public fun next() { n = n + 1; \
                         if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                         public fun close() { raise :close } } \
                         class Src { public fun iterator() { It.new() } } \
                         try { for x in Src.new() { nil } } catch _, c { [c.value, c.suppressed] }";
     // A `break` still runs cleanup exactly once on its way out.
-    let break_closes = "let mut log = []; \
+    let break_closes = "mut log = []; \
                         class It { public fun next() { Iteration.yield(1) } \
                         public fun close() { log.append(:close) } } \
                         class Src { public fun iterator() { It.new() } } \
@@ -1444,7 +1444,7 @@ fn c042_calls_to_bool_once_per_tested_operand_and_short_circuits() {
     // disjunction. The disjunction's right side ASSIGNS, so a
     // non-short-circuiting implementation is visible as a changed counter
     // rather than only as a different result.
-    let counted = "let mut calls = 0; let mut rhs_ran = 0; \
+    let counted = "mut calls = 0; mut rhs_ran = 0; \
                    class P { public fun to_bool() { calls = calls + 1; true } } \
                    let negated = !P.new(); \
                    let conjoined = P.new() && :yes; \
@@ -1472,7 +1472,7 @@ fn c094_makes_every_value_answer_to_bool_through_root_object() {
     let falsehood = "if false { :yes } else { :no }";
     // Logical assignment reads the target through the same protocol, so a
     // truthy target must SHORT-CIRCUIT rather than fail.
-    let short_circuit = "let mut x = :kept; x ||= :other; x";
+    let short_circuit = "mut x = :kept; x ||= :other; x";
 
     // When / Then
     assert_eq!(rendered(symbol), "Symbol(\"yes\")");
@@ -1521,7 +1521,7 @@ fn c088_lets_an_exception_context_serve_as_a_hash_key() {
 fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
     // D-155 makes each bare `raise` APPEND one site to the context it
     // continues, without replacing the root stack or creating a fresh context.
-    let one_site = "let mut captured = nil; \
+    let one_site = "mut captured = nil; \
                     try { try { raise :x } catch _, c { captured = c; raise } } \
                     catch _, o { [o same? captured, o.re_raise_sites] }";
     let two_sites = "try { try { try { raise :x } catch _, c { raise } } \
@@ -1564,9 +1564,9 @@ fn c012_makes_a_top_level_call_a_privileged_implicit_send_to_main() {
     //
     // A Module body yields no value of its own, so the call's EFFECT is what is
     // observed: a helper that never ran would leave the counter at 0.
-    let called = "let mut log = 0; \
+    let called = "mut log = 0; \
                   module M { fun helper() -> Integer { log = 1; 1 } helper() } log";
-    let not_called = "let mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } } log";
+    let not_called = "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } } log";
     // D-433: a bare unresolved name is still a NameError rather than an
     // implicit send, so the privilege does not make every name resolvable.
     let unresolved = "module M { fun helper() -> Integer { 1 } helper_missing }";
@@ -1574,7 +1574,7 @@ fn c012_makes_a_top_level_call_a_privileged_implicit_send_to_main() {
     // are published before any executable statement runs.
     // The call and the declaration need a separator: C078 makes a bare
     // `f 1` the parenthesis-less call form, so two statements must be split.
-    let forward = "let mut log = 0; \
+    let forward = "mut log = 0; \
                    module M { later(); fun later() -> Integer { log = 2; 1 } } log";
 
     // When / Then
@@ -1628,7 +1628,7 @@ fn c079_exposes_source_locations_with_one_based_line_and_column() {
 fn d142_rejects_every_mutation_of_a_runtime_owned_collection() {
     // D-142 lets user code ITERATE and COPY a suppressed collection but never
     // insert, delete, replace, or reorder it.
-    let prefix = "let mut n = 0; \
+    let prefix = "mut n = 0; \
                   class It { public fun next() { n = n + 1; \
                   if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                   public fun close() { raise :close } } \
@@ -1683,7 +1683,7 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
     // directly. A call counter is required here: probing this row previously
     // produced a FALSE POSITIVE, because the expected `:then` also arrives from
     // the C094 default while `method_missing` runs zero times.
-    let dispatched = "let mut calls = 0; let mut seen = nil; \
+    let dispatched = "mut calls = 0; mut seen = nil; \
                       class C { public fun method_missing(selector, args, block) { \
                       calls = calls + 1; seen = [selector, args, block]; true } } \
                       C.undef_method(:to_bool); \
@@ -1694,7 +1694,7 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
                      C.undef_method(:to_bool); if C.new() { :then } else { :else }";
     // With `to_bool` still present, the ordinary path applies and the fallback
     // is never consulted.
-    let present = "let mut calls = 0; \
+    let present = "mut calls = 0; \
                    class C { public fun method_missing(s, a, b) { calls = calls + 1; true } } \
                    let result = if C.new() { :then } else { :else }; [result, calls]";
 
@@ -2188,17 +2188,17 @@ fn c013_reads_a_top_level_helper_as_a_bound_method() {
     // bindings. C014 makes reading a Method create a BoundMethod rather than
     // exposing a Function runtime kind, so a helper is readable as a value and
     // not only callable.
-    let read = "let mut r = 0; module M { fun f() -> Integer { 1 } r = f } r";
+    let read = "mut r = 0; module M { fun f() -> Integer { 1 } r = f } r";
     // A Module body is where top-level executable code lives, which includes
     // BINDINGS; only expressions ran, so every `let` there was skipped.
-    let binding = "let mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r";
+    let binding = "mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r";
     // C037: a parameter is CONTRAVARIANT, so a wider declared parameter accepts
     // a narrower argument, through a bound helper as through a direct call.
-    let contravariant = "let mut r = 0; \
+    let contravariant = "mut r = 0; \
 module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; r = f(\"x\") } r";
     // Narrowing the parameter reverses the relation, which proves the
     // acceptance is variance and not an absence of checking.
-    let narrowed = "let mut r = 0; \
+    let narrowed = "mut r = 0; \
 module M { fun accept(x: String) -> String { \"ok\" } let f = accept; r = f(1) } r";
     // C011 keeps an unresolved bare name a NameError, so the declaration lookup
     // does not make every name resolvable.
@@ -2217,16 +2217,16 @@ fn c059_infers_a_method_type_argument_from_the_call_site() {
     // `method_decl` spells `"fun" selector generic_params? parameter_list`, so
     // a Method may declare its OWN type parameters. They were never read, which
     // made `fun id<T>(x: T) -> T` a parse error rather than a generic Method.
-    let inferred = "let mut result: String = \"z\"; \
+    let inferred = "mut result: String = \"z\"; \
 module M { fun id<T>(x: T) -> T { x } let bound: String = id(\"iris\"); result = bound } result";
     // The inferred argument must be OBSERVED, not merely returned. A `let` with
     // a written Type is the boundary C004 guards AT RUNTIME, so a mismatched
     // call raises there. A `mut` reassignment reports only statically, which
     // would have let this pass for the wrong reason.
-    let mismatched = "let mut result: String = \"z\"; \
+    let mismatched = "mut result: String = \"z\"; \
 module M { fun id<T>(x: T) -> T { x } let bound: String = id(1); result = bound } result";
     // A non-generic Method with the same shape is unaffected.
-    let plain = "let mut result = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
+    let plain = "mut result = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
 
     // When / Then
     assert_eq!(rendered(inferred), "Text(\"iris\")");

@@ -683,8 +683,11 @@ impl Parser {
         }
         if self.check("let") || self.check("mut") || self.check("const") {
             let mut constant = false;
+            // `let_decl ::= ("let" | "mut" | "const") ...` makes the three
+            // keywords MUTUALLY EXCLUSIVE. Consuming an optional `mut` after
+            // `let` admitted `let mut x`, which the grammar does not spell.
             let mutable = if self.consume("let") {
-                self.consume("mut")
+                false
             } else if self.consume("mut") {
                 true
             } else {

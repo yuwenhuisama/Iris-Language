@@ -1381,7 +1381,7 @@ mod tests {
         // initialized binding of either kind is unremarkable.
         assert!(codes("mut x: Integer").is_empty());
         assert!(codes("let x = 1").is_empty());
-        assert!(codes("let mut x = 1").is_empty());
+        assert!(codes("mut x = 1").is_empty());
     }
 
     #[test]
@@ -1397,8 +1397,8 @@ mod tests {
 
         // Writing a declared mutable binding is the legal case, including from
         // inside a Closure that captures it.
-        assert!(codes("let mut x = 1; x = 2").is_empty());
-        assert!(codes("let mut x = 1; let c = { x = 2 }").is_empty());
+        assert!(codes("mut x = 1; x = 2").is_empty());
+        assert!(codes("mut x = 1; let c = { x = 2 }").is_empty());
     }
 
     #[test]
@@ -1406,7 +1406,7 @@ mod tests {
         // C077 keeps the two control-target diagnostics DISTINCT. A loop exists
         // here, but it lies across a Closure call boundary.
         assert_eq!(
-            codes("let mut i = 0; while i < 3 { let c = { break }; i = i + 1 }"),
+            codes("mut i = 0; while i < 3 { let c = { break }; i = i + 1 }"),
             ["CONTROL_TARGET_CROSSES_CLOSURE"]
         );
         // With no loop anywhere, the target does not exist at all.
@@ -1421,7 +1421,7 @@ mod tests {
         // `return` inside a Closure ends that Closure, and a loop transfer
         // inside its own loop is ordinary.
         assert!(codes("let c = { return 1 }").is_empty());
-        assert!(codes("let mut i = 0; while i < 3 { i = i + 1; break }").is_empty());
+        assert!(codes("mut i = 0; while i < 3 { i = i + 1; break }").is_empty());
         assert!(codes("for x in [1, 2] { continue }").is_empty());
         assert!(codes("class C { public fun m() { return 1 } }").is_empty());
     }
@@ -1771,7 +1771,7 @@ mod reserved_form_tests {
         // them rather than a locally invented spelling.
         assert_eq!(codes("defer { cleanup() }"), ["PARSE_UNSUPPORTED_DEFER"]);
         assert_eq!(
-            codes("let mut x = 1; x %= 2"),
+            codes("mut x = 1; x %= 2"),
             ["PARSE_UNSUPPORTED_COMPOUND_ASSIGNMENT"]
         );
 
@@ -1779,7 +1779,7 @@ mod reserved_form_tests {
         // rejection is specific to `%=` rather than to compound assignment.
         assert!(
             codes(
-                "let mut a = 1; a += 1; a -= 1; a *= 1; a /= 1; a **= 1; \
+                "mut a = 1; a += 1; a -= 1; a *= 1; a /= 1; a **= 1; \
                  a &= 1; a |= 1; a ^= 1; a <<= 1; a >>= 1"
             )
             .is_empty()
@@ -1812,7 +1812,7 @@ mod discard_binding_tests {
         // Binding to `_` remains legal wherever binding patterns allow it, and
         // a sibling binding in the same clause is still readable.
         assert!(codes("try { raise :x } catch _, context { context.value }").is_empty());
-        assert!(codes("let mut n = 0; for _ in [1, 2] { n = n + 1 }; n").is_empty());
+        assert!(codes("mut n = 0; for _ in [1, 2] { n = n + 1 }; n").is_empty());
     }
 }
 
@@ -1872,28 +1872,28 @@ mod fixed_local_type_tests {
         // C005 makes an untyped initializer's precise static Type the fixed
         // local Type, and C004 forbids a later assignment from widening it.
         assert_eq!(
-            codes("let mut value = 1; value = \"text\""),
+            codes("mut value = 1; value = \"text\""),
             ["BINDING_FIXED_LOCAL_TYPE"]
         );
         assert_eq!(
-            codes("let mut value: Integer = 1; value = :sym"),
+            codes("mut value: Integer = 1; value = :sym"),
             ["BINDING_FIXED_LOCAL_TYPE"]
         );
 
         // Assigning the SAME Type is the ordinary case.
-        assert!(codes("let mut value = 1; value = 2").is_empty());
-        assert!(codes("let mut value: Integer = 1; value = 2").is_empty());
+        assert!(codes("mut value = 1; value = 2").is_empty());
+        assert!(codes("mut value: Integer = 1; value = 2").is_empty());
 
         // C005 names an explicit union as the way to ask for a wider cell, so
         // the check must not fire there. This is the escape hatch: without it
         // the diagnostic would be inescapable rather than a contract.
-        assert!(codes("let mut value: String | Integer = 1; value = \"text\"").is_empty());
-        assert!(codes("let mut value: Dynamic<Object> = 1; value = \"text\"").is_empty());
+        assert!(codes("mut value: String | Integer = 1; value = \"text\"").is_empty());
+        assert!(codes("mut value: Dynamic<Object> = 1; value = \"text\"").is_empty());
 
         // An initializer whose Type this pass cannot infer leaves the binding
         // UNCHECKED rather than guessed at, since a wrong rejection is worse
         // than a missed one.
-        assert!(codes("class C {} let mut value = C.new(); value = 1").is_empty());
+        assert!(codes("class C {} mut value = C.new(); value = 1").is_empty());
     }
 }
 
@@ -1979,11 +1979,11 @@ mod operand_union_tests {
     fn c005_lets_a_written_union_widen_the_declared_cell() {
         // A wider declared Type accepts a narrower value, in either order, and
         // normalization makes the member order irrelevant.
-        assert!(codes("let mut v: String | Integer = 1; v = \"text\"").is_empty());
-        assert!(codes("let mut v: Integer | String = \"text\"; v = 1").is_empty());
+        assert!(codes("mut v: String | Integer = 1; v = \"text\"").is_empty());
+        assert!(codes("mut v: Integer | String = \"text\"; v = 1").is_empty());
         // A Type outside the written union is still rejected.
         assert_eq!(
-            codes("let mut v: String | Integer = 1; v = :sym"),
+            codes("mut v: String | Integer = 1; v = :sym"),
             ["BINDING_FIXED_LOCAL_TYPE"]
         );
     }
@@ -2007,7 +2007,7 @@ mod closure_header_tests {
         assert!(parse("let cl = { |x: Integer| -> Integer | Nil 2 }").program_accepted);
 
         // A binding annotation is unaffected by the suppression.
-        assert!(parse("let mut v: String | Integer = 1").program_accepted);
+        assert!(parse("mut v: String | Integer = 1").program_accepted);
     }
 }
 

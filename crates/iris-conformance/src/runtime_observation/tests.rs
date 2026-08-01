@@ -133,7 +133,7 @@ fn independent_source_mismatch_is_reported() {
 fn value_and_side_effects_are_accepted_when_both_match() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; let mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; mut log = []; Probe.observe()",
         vec![],
         "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
     );
@@ -149,7 +149,7 @@ fn value_and_side_effects_are_accepted_when_both_match() {
 fn side_effect_mismatch_is_reported_when_value_matches() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; let mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; mut log = []; Probe.observe()",
         vec![],
         "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"missing\"}]}}",
     );
@@ -165,7 +165,7 @@ fn side_effect_mismatch_is_reported_when_value_matches() {
 fn side_effects_without_value_are_accepted_from_a_single_item_observation() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [log] } }; let mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); [log] } }; mut log = []; Probe.observe()",
         vec![],
         "{\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
     );
