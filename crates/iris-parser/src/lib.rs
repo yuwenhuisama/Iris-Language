@@ -313,6 +313,22 @@ impl Parser {
                     program.declarations.push(declaration.clone());
                     program.entries.push(ProgramEntry::Declaration(declaration));
                 }),
+                // `type_alias_decl` is a declaration, not a statement, so it is
+                // dispatched here. `type` stays an ordinary identifier when it
+                // is not followed by a Type name, which keeps it usable as a
+                // selector.
+                Some("type")
+                    if decorators.is_empty()
+                        && self
+                            .peek_next()
+                            .is_some_and(|next| next.starts_with(char::is_uppercase)) =>
+                {
+                    self.type_alias_declaration().map(|value| {
+                        let declaration = Declaration::TypeAlias(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
+                }
                 Some("contract") => self.contract_declaration(decorators).map(|value| {
                     let declaration = Declaration::Contract(value);
                     program.declarations.push(declaration.clone());
@@ -455,6 +471,20 @@ impl Parser {
             constraints,
             meta_deny,
             body: self.body()?,
+        })
+    }
+
+    /// Parses `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
+    fn type_alias_declaration(&mut self) -> Option<iris_syntax::TypeAliasDeclaration> {
+        self.expect("type")?;
+        let name = self.name()?;
+        let parameters = self.generic_parameters();
+        self.expect("=")?;
+        let target = self.type_expression()?;
+        Some(iris_syntax::TypeAliasDeclaration {
+            name,
+            parameters,
+            target,
         })
     }
 

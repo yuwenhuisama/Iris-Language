@@ -226,6 +226,18 @@ impl SourceEvaluator {
                 ProgramEntry::Declaration(iris_syntax::Declaration::Contract(contract)) => {
                     self.contract(contract)?;
                 }
+                // C061 makes a Type alias a NAME for its target, not a new
+                // nominal Type, so the alias binds to whatever the target
+                // already resolves to and shares its identity.
+                ProgramEntry::Declaration(iris_syntax::Declaration::TypeAlias(alias)) => {
+                    if let iris_syntax::TypeExpression::Name(target)
+                    | iris_syntax::TypeExpression::Generic { name: target, .. } = &alias.target
+                        && let Some(class) = self.class_name(target)?
+                    {
+                        self.names
+                            .insert(alias.name.clone(), Binding::immutable(Value::Class(class)));
+                    }
+                }
                 ProgramEntry::Statement(statement) => {
                     let value = self.statement(statement, &HashMap::new(), None)?;
                     if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {

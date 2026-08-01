@@ -34,6 +34,11 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                     .as_ref()
                     .map_or_else(|| "absent".into(), type_expression_shape)
             )),
+            Declaration::TypeAlias(value) => Some(format!(
+                "TypeAlias(name={}, target={})",
+                value.name,
+                type_expression_shape(&value.target)
+            )),
             Declaration::Contract(value) => Some(format!(
                 "Contract(name={}, extends=[{}])",
                 value.name,

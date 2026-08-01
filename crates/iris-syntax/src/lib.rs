@@ -22,6 +22,18 @@ pub enum Declaration {
     Class(ClassDeclaration),
     Module(ModuleDeclaration),
     Contract(ContractDeclaration),
+    /// `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
+    ///
+    /// `IRIS-V1-TYPES-C004` makes a Type alias TARGET an annotated boundary, so
+    /// the target is retained rather than parsed and discarded.
+    TypeAlias(TypeAliasDeclaration),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeAliasDeclaration {
+    pub name: String,
+    pub parameters: Vec<String>,
+    pub target: TypeExpression,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

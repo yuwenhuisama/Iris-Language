@@ -548,6 +548,16 @@ impl Analyzer {
                 }
                 (&value.name, Some(&value.body))
             }
+            iris_syntax::Declaration::TypeAlias(value) => {
+                // C058 rejects invalid recursive constraints, and a Type alias
+                // whose target names ITSELF is exactly such a fixed point: it
+                // has no finite expansion. V256 names the code.
+                if Self::mentions_parameter(&value.target, std::slice::from_ref(&value.name)) {
+                    self.report("RECURSIVE_TYPE_ALIAS");
+                }
+                self.check_generic_arity(&value.target);
+                (&value.name, None)
+            }
             iris_syntax::Declaration::Contract(value) => {
                 // D-177: a Contract has no revision to reopen, so `open` is
                 // rejected here rather than at parse time. V204 observes a
@@ -1501,6 +1511,21 @@ mod tests {
         assert_eq!(codes(concrete), Vec::<&str>::new());
         assert_eq!(codes(per_construction), Vec::<&str>::new());
         assert_eq!(codes(non_generic), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c058_rejects_a_type_alias_that_names_itself() {
+        // C058 rejects invalid recursive constraints, and an alias whose target
+        // names ITSELF is exactly such a fixed point: it has no finite
+        // expansion. V256 names the code.
+        let recursive = "type Loop = Array<Loop>";
+        let plain = "type Name = Integer";
+        let generic = "type Name<T> = Array<T>";
+
+        // When / Then
+        assert_eq!(codes(recursive), vec!["RECURSIVE_TYPE_ALIAS"]);
+        assert_eq!(codes(plain), Vec::<&str>::new());
+        assert_eq!(codes(generic), Vec::<&str>::new());
     }
 
     #[test]

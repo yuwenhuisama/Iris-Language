@@ -2141,3 +2141,21 @@ class Host mixin Helpers {} Host.new().h()";
     assert_eq!(rendered(closed), "Integer(IntegerValue(7))");
     assert_eq!(rendered(plain), "Integer(IntegerValue(7))");
 }
+
+#[test]
+fn c061_makes_a_type_alias_a_name_for_its_target() {
+    // `type_alias_decl` is in the frozen grammar but was never implemented, so
+    // `type Name = Integer` did not parse at all. C061 makes an alias a NAME
+    // for its target rather than a new nominal Type, so the two share one
+    // interned Type identity. The V256 vector asserts the recursive-alias
+    // diagnostic; this covers the identity half, which the frozen row writes
+    // with `Array` and no built-in Class provides yet.
+    let shares_identity = "class Box<T> {} type Name<T> = Box<T>; \
+Name<String>.type same? Box<String>.type";
+    // `type` stays an ordinary selector when it does not begin a declaration.
+    let selector = "class A {} A.type same? A.type";
+
+    // When / Then
+    assert_eq!(rendered(shares_identity), "Bool(true)");
+    assert_eq!(rendered(selector), "Bool(true)");
+}
