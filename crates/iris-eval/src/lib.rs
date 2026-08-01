@@ -546,12 +546,7 @@ fn source_runtime_statement(statement: &Statement) -> bool {
         | Statement::Break { .. }
         | Statement::Continue(_)
         | Statement::Match { .. } => true,
-        // A top-level `fun` is a named callable the literal evaluator cannot
-        // register or invoke, so its presence routes the program to the source
-        // runtime. A Method inside a Class body is reached through the Class
-        // declaration instead and does not appear here.
-        Statement::Method(_) => true,
-        Statement::StoredProperty { .. } | Statement::Return(_) => false,
+        Statement::StoredProperty { .. } | Statement::Method(_) | Statement::Return(_) => false,
         Statement::Raise(_) | Statement::Try { .. } => true,
     }
 }

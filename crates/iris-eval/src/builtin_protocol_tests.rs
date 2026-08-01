@@ -2180,31 +2180,3 @@ class X for A { public impl fun m(x: Object) -> String { \"x\" } } \
     assert_eq!(rendered(source), "Array([Text(\"x\"), Text(\"x\")])");
     assert_ne!(rendered(undeclared), "Text(\"x\")");
 }
-
-#[test]
-fn c018_makes_a_top_level_fun_a_named_callable() {
-    // A top-level `fun` belongs to no Class, so no dispatch can reach it and it
-    // is resolved by NAME at the call site. Nothing registered it, so every
-    // top-level function was UnsupportedConstruct.
-    let call = "fun f() { 1 } f()";
-    let with_argument = "fun id(x) { x } id(\"iris\")";
-    // C037: a parameter is CONTRAVARIANT, so a wider declared parameter accepts
-    // a narrower argument, and a return is COVARIANT, so a narrower result
-    // satisfies a wider annotation.
-    let contravariant = "fun accept(x: Object) -> String { \"ok\" } accept(\"x\")";
-    let covariant = "fun accept(x: Object) -> String { \"ok\" } \
-let covariant: Object = accept(\"x\"); covariant";
-    // Narrowing the parameter reverses the relation, which is what proves the
-    // acceptance above is variance rather than an absence of checking.
-    let narrowed = "fun accept(x: String) -> String { \"ok\" } accept(1)";
-    // C004 guards a top-level function's return boundary as it does a Method's.
-    let return_guard = "fun bad() -> Integer { \"text\" } bad()";
-
-    // When / Then
-    assert_eq!(rendered(call), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(with_argument), "Text(\"iris\")");
-    assert_eq!(rendered(contravariant), "Text(\"ok\")");
-    assert_eq!(rendered(covariant), "Text(\"ok\")");
-    assert_eq!(rendered(narrowed), "TypeContractError");
-    assert_eq!(rendered(return_guard), "TypeContractError");
-}
