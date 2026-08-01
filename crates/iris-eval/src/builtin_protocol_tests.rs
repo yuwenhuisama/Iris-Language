@@ -2180,3 +2180,34 @@ class X for A { public impl fun m(x: Object) -> String { \"x\" } } \
     assert_eq!(rendered(source), "Array([Text(\"x\"), Text(\"x\")])");
     assert_ne!(rendered(undeclared), "Text(\"x\")");
 }
+
+#[test]
+fn c013_reads_a_top_level_helper_as_a_bound_method() {
+    // C012 puts top-level executable code inside a Module body, and C013
+    // resolves a bare name against visible DECLARATIONS as well as lexical
+    // bindings. C014 makes reading a Method create a BoundMethod rather than
+    // exposing a Function runtime kind, so a helper is readable as a value and
+    // not only callable.
+    let read = "let mut r = 0; module M { fun f() -> Integer { 1 } r = f } r";
+    // A Module body is where top-level executable code lives, which includes
+    // BINDINGS; only expressions ran, so every `let` there was skipped.
+    let binding = "let mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r";
+    // C037: a parameter is CONTRAVARIANT, so a wider declared parameter accepts
+    // a narrower argument, through a bound helper as through a direct call.
+    let contravariant = "let mut r = 0; \
+module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; r = f(\"x\") } r";
+    // Narrowing the parameter reverses the relation, which proves the
+    // acceptance is variance and not an absence of checking.
+    let narrowed = "let mut r = 0; \
+module M { fun accept(x: String) -> String { \"ok\" } let f = accept; r = f(1) } r";
+    // C011 keeps an unresolved bare name a NameError, so the declaration lookup
+    // does not make every name resolvable.
+    let unresolved = "module M { fun f() -> Integer { 1 } missing }";
+
+    // When / Then
+    assert!(rendered(read).starts_with("BoundMethod("));
+    assert_eq!(rendered(binding), "Integer(IntegerValue(5))");
+    assert_eq!(rendered(contravariant), "Text(\"ok\")");
+    assert_eq!(rendered(narrowed), "TypeContractError");
+    assert_eq!(rendered(unresolved), "NameError");
+}

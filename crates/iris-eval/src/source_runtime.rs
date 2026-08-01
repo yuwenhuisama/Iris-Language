@@ -910,7 +910,7 @@ impl SourceEvaluator {
                     ..
                 } => self.shared_binding(module_class, *mutable, name, value)?,
                 // Executable statements run in the second pass below.
-                Statement::Expression(_) => {}
+                Statement::Expression(_) | Statement::Binding { .. } => {}
                 Statement::Method(method) => {
                     if method.kind == MethodKind::Class || method.kind == MethodKind::Property {
                         return Err(EvaluationError::UnsupportedConstruct);
@@ -953,7 +953,15 @@ impl SourceEvaluator {
         let executable: Vec<&Statement> = declaration
             .body
             .iter()
-            .filter(|statement| matches!(statement, Statement::Expression(_)))
+            // C012 makes a Module body the home of top-level EXECUTABLE code,
+            // which includes bindings. Collecting only expressions skipped
+            // every `let`, so a helper could be called but never bound.
+            .filter(|statement| {
+                matches!(
+                    statement,
+                    Statement::Expression(_) | Statement::Binding { .. }
+                )
+            })
             .collect();
         if !executable.is_empty() {
             let main = self.module_main(module)?;
@@ -984,6 +992,29 @@ impl SourceEvaluator {
             .map_err(EvaluationError::Class)?;
         self.module_mains.insert(module, main);
         Ok(main)
+    }
+
+    /// Binds a top-level helper as a BoundMethod on the Module's `main`.
+    ///
+    /// `IRIS-V1-CONTROL-C013` resolves a bare name against visible declarations
+    /// as well as lexical bindings, and `C014` makes reading a Method create a
+    /// BoundMethod rather than exposing a Function kind. Only a Module body has
+    /// such declarations in scope, which is what `module_body_main` records.
+    fn main_bound_method(&mut self, name: &str, receiver: Option<&Value>) -> Option<Value> {
+        let main = self.module_body_main?;
+        let Some(Value::Object(object)) = receiver else {
+            return None;
+        };
+        let selector = self.selector(name);
+        // A Module body executes AS its `main`, so binding a helper that is
+        // private by default uses the same privileged context an implicit send
+        // does.
+        let context = iris_runtime::DispatchContext::implementation(main, true);
+        self.runtime
+            .registry_mut()
+            .bind_instance_with_context(*object, main, selector, context)
+            .ok()
+            .map(Value::BoundMethod)
     }
 
     fn statement(
@@ -1825,13 +1856,19 @@ impl SourceEvaluator {
                 .get(name)
                 .cloned()
                 .or_else(|| self.names.get(name).map(Binding::value))
-                .or_else(|| (name == "self").then_some(receiver).flatten())
+                .or_else(|| (name == "self").then_some(receiver.clone()).flatten())
                 .or_else(|| builtin(name, &self.kernel))
                 .or_else(|| {
                     self.module_names
                         .contains_key(name)
                         .then(|| Value::Symbol(name.clone()))
                 })
+                // C013 resolves a bare `name` against visible DECLARATIONS as
+                // well as lexical bindings, and C014 makes reading a Method
+                // create a BoundMethod. Inside a Module body the visible
+                // declarations are `main`'s Methods, so a top-level helper is
+                // readable as a value and not only callable.
+                .or_else(|| self.main_bound_method(name, receiver.as_ref()))
                 // IRIS-V1-CONTROL-C011: a non-call unresolved bare name raises
                 // `NameError`. It MUST NOT read a property, Method, global, or
                 // runtime-added member instead.
@@ -2101,6 +2138,23 @@ impl SourceEvaluator {
                             .get(selector)
                             .cloned()
                             .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        self.call(callee, &arguments)
+                    }
+                    // C013 looks up `name(args...)` in the LEXICAL/declaration
+                    // callable first. A binding holding a BoundMethod is such a
+                    // callable, so it is invoked rather than being re-sent to
+                    // `self` as a selector that does not exist.
+                    Expression::Name(selector)
+                        if matches!(
+                            self.names.get(selector).map(Binding::value),
+                            Some(Value::BoundMethod(_))
+                        ) =>
+                    {
+                        let callee = self
+                            .names
+                            .get(selector)
+                            .map(Binding::value)
+                            .ok_or(EvaluationError::NameError)?;
                         self.call(callee, &arguments)
                     }
                     Expression::Name(selector) => match receiver {

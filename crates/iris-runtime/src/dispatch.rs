@@ -476,6 +476,31 @@ impl crate::ClassRegistry {
         }
     }
 
+    /// Binds a Method for one receiver under an explicit dispatch context.
+    ///
+    /// `IRIS-V1-CONTROL-C012` makes a top-level helper PRIVATE by default, so
+    /// binding one from inside its own Module body needs the same privileged
+    /// context an implicit send uses. The context-free `bind_instance` reports
+    /// a visibility denial there.
+    pub fn bind_instance_with_context(
+        &mut self,
+        receiver: crate::ObjectId,
+        class: ClassId,
+        selector: Selector,
+        context: DispatchContext,
+    ) -> Result<BoundMethod, DispatchError> {
+        match self.dispatch_with_context(class, selector, context)? {
+            DispatchOutcome::Invoke(method) => Ok(BoundMethod::new(
+                self.next_bound_method()?,
+                BoundReceiver::Object(receiver),
+                method,
+            )),
+            DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                Err(DispatchError::MissingMethod { selector })
+            }
+        }
+    }
+
     /// Binds the exact Method identity selected for one ordinary object receiver.
     pub fn bind_instance(
         &mut self,
