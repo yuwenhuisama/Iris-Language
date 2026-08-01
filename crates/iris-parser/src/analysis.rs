@@ -19,6 +19,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         generic_classes: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
+        requirement_signatures: Vec::new(),
         contract_requirements: Vec::new(),
     };
     analyzer.program(program);
@@ -235,6 +236,12 @@ struct Analyzer {
     generic_constraints: Vec<(String, Vec<String>, Vec<iris_syntax::Constraint>)>,
     /// Each Class paired with the Contract names it declares `for`.
     declared_conformance: Vec<(String, Vec<String>)>,
+    /// Each Contract's requirement SIGNATURES, keyed by Contract then selector.
+    ///
+    /// `IRIS-V1-TYPES-C047` merges compatible same-name requirements into one
+    /// obligation but forbids choosing between INCOMPATIBLE ones, so the
+    /// written parameter and return Types are retained to tell the two apart.
+    requirement_signatures: Vec<(String, String, Vec<String>, String)>,
     /// Names published into the ONE qualified namespace.
     ///
     /// `IRIS-V1-CONTROL-D-432` puts Class, Module, Contract, Type aliases and
@@ -294,6 +301,79 @@ impl Analyzer {
             self.report("RAW_GENERIC_TYPE_FORBIDDEN");
         }
         self.check_generic_arity(annotation);
+    }
+
+    /// A written Type's canonical spelling, used to compare two requirements.
+    fn type_shape(annotation: &iris_syntax::TypeExpression) -> String {
+        match annotation {
+            iris_syntax::TypeExpression::Name(name) => name.clone(),
+            iris_syntax::TypeExpression::Generic { name, arguments } => format!(
+                "{name}<{}>",
+                arguments
+                    .iter()
+                    .map(Self::type_shape)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            iris_syntax::TypeExpression::Union(members) => members
+                .iter()
+                .map(Self::type_shape)
+                .collect::<Vec<_>>()
+                .join("|"),
+            iris_syntax::TypeExpression::Intersection(members) => members
+                .iter()
+                .map(Self::type_shape)
+                .collect::<Vec<_>>()
+                .join("&"),
+            iris_syntax::TypeExpression::Typeof(_) => "typeof".into(),
+            iris_syntax::TypeExpression::Function { parameters, result } => format!(
+                "({}) -> {}",
+                parameters
+                    .iter()
+                    .map(Self::type_shape)
+                    .collect::<Vec<_>>()
+                    .join(","),
+                Self::type_shape(result)
+            ),
+        }
+    }
+
+    /// Rejects a Class whose declared Contracts require the SAME name with
+    /// incompatible signatures.
+    ///
+    /// `IRIS-V1-TYPES-C047` merges compatible same-name requirements into one
+    /// obligation, but forbids choosing by Contract order or forming an
+    /// overload set when they are incompatible. `V224` names the code; such a
+    /// declaration must use explicit qualified implementations instead.
+    fn check_requirement_compatibility(&mut self, declaration: &iris_syntax::ClassDeclaration) {
+        let declared: Vec<&String> = declaration
+            .implements
+            .iter()
+            .filter_map(|target| match target {
+                iris_syntax::TypeExpression::Name(name) => Some(name),
+                _ => None,
+            })
+            .collect();
+        if declared.len() < 2 {
+            return;
+        }
+        let mut seen: Vec<(&String, &Vec<String>, &String)> = Vec::new();
+        let mut incompatible = false;
+        for (contract, selector, parameters, result) in &self.requirement_signatures {
+            if !declared.contains(&contract) {
+                continue;
+            }
+            if let Some((_, other_parameters, other_result)) =
+                seen.iter().find(|(name, _, _)| *name == selector)
+                && (*other_parameters != parameters || *other_result != result)
+            {
+                incompatible = true;
+            }
+            seen.push((selector, parameters, result));
+        }
+        if incompatible {
+            self.report("CONTRACT_REQUIREMENT_INCOMPATIBLE");
+        }
     }
 
     /// Rejects a generic Module mixin whose arguments are left to inference.
@@ -518,6 +598,7 @@ impl Analyzer {
                     ));
                 }
                 self.check_mixin_arguments(&value.mixins);
+                self.check_requirement_compatibility(value);
                 self.declared_conformance.push((
                     value.name.clone(),
                     value
@@ -578,6 +659,30 @@ impl Analyzer {
                     .collect();
                 self.contract_requirements
                     .push((value.name.clone(), requirements));
+                for statement in &value.body {
+                    if let Statement::Method(method) = statement
+                        && method.body.is_none()
+                    {
+                        self.requirement_signatures.push((
+                            value.name.clone(),
+                            method.selector.clone(),
+                            method
+                                .parameters
+                                .iter()
+                                .map(|parameter| {
+                                    parameter
+                                        .annotation
+                                        .as_ref()
+                                        .map_or_else(|| "?".into(), Self::type_shape)
+                                })
+                                .collect(),
+                            method
+                                .return_type
+                                .as_ref()
+                                .map_or_else(|| "?".into(), Self::type_shape),
+                        ));
+                    }
+                }
                 (&value.name, None)
             }
         };
@@ -1511,6 +1616,27 @@ mod tests {
         assert_eq!(codes(concrete), Vec::<&str>::new());
         assert_eq!(codes(per_construction), Vec::<&str>::new());
         assert_eq!(codes(non_generic), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d197_rejects_incompatible_same_name_requirements() {
+        // C047 merges COMPATIBLE same-name requirements into one obligation but
+        // forbids choosing by Contract order or forming an overload set when
+        // they are incompatible. V224 names the code.
+        let incompatible = "contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X for A, B { public impl fun m(x: Object) -> String { \"x\" } }";
+        // Two requirements with the SAME signature merge, which is what lets
+        // one `impl` member satisfy both.
+        let compatible = "contract A { fun m(x: Object) -> String } contract B { fun m(x: Object) -> String } class X for A, B { public impl fun m(x: Object) -> String { \"x\" } }";
+        // A single Contract has nothing to be incompatible WITH.
+        let single = "contract A { fun m(x: String) -> String } class X for A { public impl fun m(x: String) -> String { \"x\" } }";
+
+        // When / Then
+        assert_eq!(
+            codes(incompatible),
+            vec!["CONTRACT_REQUIREMENT_INCOMPATIBLE"]
+        );
+        assert_eq!(codes(compatible), Vec::<&str>::new());
+        assert_eq!(codes(single), Vec::<&str>::new());
     }
 
     #[test]

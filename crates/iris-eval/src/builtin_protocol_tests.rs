@@ -2159,3 +2159,24 @@ Name<String>.type same? Box<String>.type";
     assert_eq!(rendered(shares_identity), "Bool(true)");
     assert_eq!(rendered(selector), "Bool(true)");
 }
+
+#[test]
+fn c047_lets_one_impl_satisfy_two_compatible_contracts() {
+    // C047 merges compatible same-name requirements into ONE obligation, so a
+    // single `impl` member is reached through either Contract's view without
+    // listing targets.
+    let source = "contract A { fun m(x: Object) -> String } \
+contract B { fun m(x: Object) -> String } \
+class X for A, B { public impl fun m(x: Object) -> String { \"x\" } } \
+let x = X.new(); [(x as A)..m(1), (x as B)..m(1)]";
+    // A Contract the Class does NOT declare cannot be viewed, which keeps the
+    // merge from reaching an undeclared conformance.
+    let undeclared = "contract A { fun m(x: Object) -> String } \
+contract B { fun m(x: Object) -> String } \
+class X for A { public impl fun m(x: Object) -> String { \"x\" } } \
+(X.new() as B)..m(1)";
+
+    // When / Then
+    assert_eq!(rendered(source), "Array([Text(\"x\"), Text(\"x\")])");
+    assert_ne!(rendered(undeclared), "Text(\"x\")");
+}
