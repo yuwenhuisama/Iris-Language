@@ -2341,3 +2341,23 @@ fn c067_interns_no_identity_for_a_constraint_violation() {
     assert!(rendered(unconstrained).starts_with("Type("));
     assert_eq!(rendered(constructed), "TypeContractError");
 }
+
+#[test]
+fn c012_runs_a_raise_and_a_class_property_in_a_module_body() {
+    // C012 makes a Module body the home of top-level EXECUTABLE code, so a
+    // `raise` there is ordinary control flow. The declaration pass rejected it
+    // outright, and a class-level property in a Module body was unsupported
+    // even though C064 puts that storage on the Module's own object.
+    let raised = "module M { raise :stop } 1";
+    let declared = "module M { shared class property first: Integer = 1 } 1";
+    // A raise in a Module body propagates, so statements after it do not run.
+    let halted =
+        "mut r = 0; module M { shared class property first: Integer = 1; r = 5; raise :stop } r";
+    let completed = "mut r = 0; module M { shared class property first: Integer = 1; r = 5 } r";
+
+    // When / Then
+    assert_eq!(rendered(raised), "Raised(Symbol(\"stop\"))");
+    assert_eq!(rendered(declared), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(halted), "Raised(Symbol(\"stop\"))");
+    assert_eq!(rendered(completed), "Integer(IntegerValue(5))");
+}

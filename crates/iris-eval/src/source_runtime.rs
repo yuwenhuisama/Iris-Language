@@ -970,8 +970,20 @@ impl SourceEvaluator {
                     value,
                     ..
                 } => self.shared_binding(module_class, *mutable, name, value)?,
-                // Executable statements run in the second pass below.
-                Statement::Expression(_) | Statement::Binding { .. } => {}
+                // Executable statements run in the second pass below. C012
+                // makes a Module body the home of top-level executable code, so
+                // a `raise` there is ordinary control flow rather than an
+                // unsupported construct.
+                Statement::Expression(_) | Statement::Binding { .. } | Statement::Raise(_) => {}
+                // C064 puts a class-level property on the Module's own object.
+                Statement::StoredProperty {
+                    class_level,
+                    name,
+                    initializer,
+                    ..
+                } if *class_level => {
+                    self.class_level_property(module_class, name, initializer.clone())?;
+                }
                 Statement::Method(method) => {
                     if method.kind == MethodKind::Class || method.kind == MethodKind::Property {
                         return Err(EvaluationError::UnsupportedConstruct);
@@ -1020,7 +1032,7 @@ impl SourceEvaluator {
             .filter(|statement| {
                 matches!(
                     statement,
-                    Statement::Expression(_) | Statement::Binding { .. }
+                    Statement::Expression(_) | Statement::Binding { .. } | Statement::Raise(_)
                 )
             })
             .collect();
