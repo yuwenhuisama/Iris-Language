@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 61 are committed here;
-the remaining 19 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 62 are committed here;
+the remaining 18 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -76,6 +76,7 @@ correctly fails each.
 | `V230` | diagnostic | executable | `IRIS-V1-TYPES-C060` gives every application FIXED FULL ARITY; the v1.20 errata (`IRIS-V1-GRAMMAR-C066`) added the call-site type-argument syntax `C071` presupposes. |
 | `V229` | diagnostic | executable | `IRIS-V1-TYPES-C070` forbids a STANDALONE unconstrained call from defaulting its type parameter; an expected result or an argument-bound parameter is exempt. |
 | `V223` | diagnostic | executable | `D-196` makes the accepted-arity INTERSECTION across a union's members the set a call may use; an empty one rejects every call. |
+| `V222` | diagnostic | executable | `D-195`: a member only ONE constituent declares is not available on the union. The row writes `String \| MutableString`; two declared Classes stand in, since no `MutableString` Class exists yet. |
 
 ## Remaining rows and their blockers
 
@@ -88,5 +89,5 @@ and are now transcribed, and the groups below record why the rest did not.
 | --- | --- | --- |
 | Generic Types in expression position | `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. |
-| Open-class transaction ordering and MutableString | `V205`, `V222` | `V205` needs `D-178` declaration collection: an `open class A` may PRECEDE the `class A` it reopens, which requires the origin to be resolved before the open transaction runs. A reopen no longer collides in the qualified namespace, but deferring the transaction to a second pass broke the ordinary `class` then `open class` order, so the ordering itself is unimplemented. `V222` needs `MutableString`. |
+| Open-class transaction ordering | `V205` | `V205` needs `D-178` declaration collection: an `open class A` may PRECEDE the `class A` it reopens, which requires the origin to be resolved before the open transaction runs. A reopen no longer collides in the qualified namespace, but deferring the transaction to a second pass broke the ordinary `class` then `open class` order, so the ordering itself is unimplemented. |
 | Type values and reflection | `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |

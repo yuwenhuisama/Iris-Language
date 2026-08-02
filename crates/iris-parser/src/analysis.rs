@@ -603,6 +603,17 @@ impl Analyzer {
                 .map(|(_, _, arity)| *arity)
                 .collect();
             if accepted.is_empty() {
+                // D-195: a member that does not declare the selector at all
+                // makes it NOT COMMON to the union, which is a distinct failure
+                // from an empty arity intersection. A Class this pass never saw
+                // declared contributes nothing either way.
+                if self
+                    .class_method_arities
+                    .iter()
+                    .any(|(class, _, _)| class == member)
+                {
+                    self.report("UNION_MEMBER_NOT_COMMON");
+                }
                 return;
             }
             intersection = Some(match intersection {
@@ -2005,6 +2016,27 @@ open class A { public fun m2() -> Integer { 2 } } A.new().m2()";
         // When / Then
         assert_eq!(codes(reopened), Vec::<&str>::new());
         assert_eq!(codes(duplicated), vec!["QUALIFIED_NAMESPACE_COLLISION"]);
+    }
+
+    #[test]
+    fn d195_needs_a_member_common_to_every_union_constituent() {
+        // D-195: a member only ONE constituent declares is not available on the
+        // union. That is a distinct failure from D-196's empty arity
+        // intersection, where every member HAS the selector.
+        let declared = "class A { public fun length() -> Integer { 1 } \
+public fun append() -> Integer { 2 } } \
+class B { public fun length() -> Integer { 3 } } ";
+        let not_common = format!("{declared}let text: A | B = A.new(); text.append()");
+        let common = format!("{declared}let text: A | B = A.new(); text.length()");
+        // When BOTH declare it the member is common and the call is ordinary.
+        let both = "class A { public fun append() -> Integer { 2 } } \
+class B { public fun append() -> Integer { 3 } } \
+let text: A | B = A.new(); text.append()";
+
+        // When / Then
+        assert_eq!(codes(&not_common), vec!["UNION_MEMBER_NOT_COMMON"]);
+        assert_eq!(codes(&common), Vec::<&str>::new());
+        assert_eq!(codes(both), Vec::<&str>::new());
     }
 
     #[test]
