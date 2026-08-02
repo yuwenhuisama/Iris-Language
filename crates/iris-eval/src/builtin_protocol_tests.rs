@@ -2318,3 +2318,26 @@ open class A { public override fun marker() -> String { \"open\" } } A.new().mar
     assert_eq!(rendered(origin_first), "Text(\"open\")");
     assert_eq!(rendered(plain), "Integer(IntegerValue(1))");
 }
+
+#[test]
+fn c067_interns_no_identity_for_a_constraint_violation() {
+    // C067 validates every normalized `where` constraint BEFORE interning or
+    // publishing, so a violating construction interns no closed Type identity.
+    // Only Contract bounds were checked, so a Type bound such as `NonNil` was
+    // ignored entirely.
+    let violated = "class Box<T> where T: NonNil {} Box<Nil>.type";
+    let satisfied = "class Box<T> where T: NonNil {} Box<Integer>.type";
+    // C023 makes `Never` uninhabited, so no argument satisfies it.
+    let never = "class Box<T> where T: Never {} Box<Integer>.type";
+    // A Class with no `where` clause has no bound to violate.
+    let unconstrained = "class Box<T> {} Box<Nil>.type";
+    // The construction path checks the same bound the interning path does.
+    let constructed = "class Box<T> where T: NonNil {} Box<Nil>.new()";
+
+    // When / Then
+    assert_eq!(rendered(violated), "TypeContractError");
+    assert!(rendered(satisfied).starts_with("Type("));
+    assert_eq!(rendered(never), "TypeContractError");
+    assert!(rendered(unconstrained).starts_with("Type("));
+    assert_eq!(rendered(constructed), "TypeContractError");
+}

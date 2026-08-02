@@ -2036,6 +2036,10 @@ impl SourceEvaluator {
                 let Expression::ClosedGeneric { name, arguments } = target.as_ref() else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                // C067 validates every normalized constraint BEFORE interning,
+                // so a violating construction interns no closed Type identity
+                // at all. V242 observes exactly that.
+                self.check_generic_bounds(name, arguments)?;
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
                 let mut normalized = Vec::new();
                 for argument in arguments {
@@ -4079,6 +4083,23 @@ impl SourceEvaluator {
                 | iris_syntax::TypeExpression::Name(name) => name,
                 _ => continue,
             };
+            // C067 validates EVERY normalized constraint at materialization, so
+            // a Type bound such as `NonNil` is checked alongside a Contract
+            // one. `Box<Nil>` against `where T: NonNil` is exactly V242.
+            if bound == "NonNil" {
+                let nil = self
+                    .kernel
+                    .class(iris_runtime::BuiltinClass::Nil)
+                    .map_err(EvaluationError::Runtime)?;
+                if self.class_name(argument)? == Some(nil) {
+                    return Err(EvaluationError::TypeContractError);
+                }
+                continue;
+            }
+            if bound == "Never" {
+                // C023 makes `Never` uninhabited, so no argument satisfies it.
+                return Err(EvaluationError::TypeContractError);
+            }
             let Some(contract) = self.contract_names.get(bound).copied() else {
                 continue;
             };
