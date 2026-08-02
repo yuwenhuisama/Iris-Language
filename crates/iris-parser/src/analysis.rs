@@ -543,6 +543,42 @@ impl Analyzer {
         }
     }
 
+    /// Rejects a standalone call whose type parameters nothing can infer.
+    ///
+    /// `IRIS-V1-TYPES-C070` lets an explicit expected result infer Method type
+    /// arguments, including for argument-free factories, but a STANDALONE
+    /// unconstrained call MUST NOT default the parameter to `Object`. Only a
+    /// parameter that NO argument position mentions is unconstrained; one bound
+    /// by an argument is inferred under C068 and is left alone.
+    fn check_unconstrained_call(&mut self, expression: &Expression) {
+        let Expression::Call {
+            callee,
+            type_arguments,
+            ..
+        } = expression
+        else {
+            return;
+        };
+        if !type_arguments.is_empty() {
+            return;
+        }
+        let Expression::Name(selector) = callee.as_ref() else {
+            return;
+        };
+        let unconstrained = self.generic_methods.iter().any(|method| {
+            method.selector == *selector
+                && method.type_parameters.iter().any(|parameter| {
+                    !method
+                        .parameters
+                        .iter()
+                        .any(|declared| declared.as_ref() == Some(parameter))
+                })
+        });
+        if unconstrained {
+            self.report("GENERIC_INFERENCE_UNCONSTRAINED");
+        }
+    }
+
     /// Infers a generic Method call's result Type from its actual arguments.
     ///
     /// `IRIS-V1-TYPES-C068` keeps inference LOCAL and bounded: only the actual
@@ -1174,7 +1210,15 @@ impl Analyzer {
                 self.declared_class_variables.push(name.clone());
                 self.declare(name, *mutable);
             }
-            Statement::Expression(expression) => self.expression(expression, control),
+            Statement::Expression(expression) => {
+                // C070: an explicit expected result MAY infer Method type
+                // arguments, but a STANDALONE unconstrained call must not
+                // default the parameter to `Object`. An expression statement is
+                // exactly such a standalone position: nothing consumes its
+                // result, so no expected Type exists.
+                self.check_unconstrained_call(expression);
+                self.expression(expression, control);
+            }
             Statement::If {
                 condition,
                 then_body,
@@ -1842,6 +1886,27 @@ let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
         assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
         assert_eq!(codes(construction_only), Vec::<&str>::new());
         assert_eq!(codes(concrete), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c070_rejects_a_standalone_unconstrained_call() {
+        // C070 lets an explicit expected result infer Method type arguments,
+        // including for argument-free factories, but a STANDALONE unconstrained
+        // call MUST NOT default the parameter to `Object`.
+        let standalone = "module M { fun make<T>() -> T { nil } make() } 1";
+        // An annotated assignment supplies the expected result C070 permits.
+        let expected = "module M { fun make<T>() -> T { 1 } let u: Integer = make() } 1";
+        // A parameter an ARGUMENT binds is inferred under C068, so it is not
+        // unconstrained even in a standalone position.
+        let from_argument = "module M { fun make<T>(x: T) -> T { x } make(1) } 1";
+        // Explicit type arguments leave nothing to infer.
+        let explicit = "module M { fun make<T>() -> T { nil } make<Integer>() } 1";
+
+        // When / Then
+        assert_eq!(codes(standalone), vec!["GENERIC_INFERENCE_UNCONSTRAINED"]);
+        assert_eq!(codes(expected), Vec::<&str>::new());
+        assert_eq!(codes(from_argument), Vec::<&str>::new());
+        assert_eq!(codes(explicit), Vec::<&str>::new());
     }
 
     #[test]
