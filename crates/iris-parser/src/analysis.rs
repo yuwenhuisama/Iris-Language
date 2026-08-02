@@ -930,7 +930,14 @@ impl Analyzer {
                 (&value.name, None)
             }
         };
-        self.publish_qualified_name(name);
+        // A REOPEN names the Class its origin declaration already published, so
+        // it is not a second declaration and does not collide. `IRIS-V1-TYPES-D-178`
+        // resolves the origin before the open transaction, which is what lets
+        // the two spellings appear in either order.
+        let reopen = matches!(declaration, iris_syntax::Declaration::Class(value) if value.reopen);
+        if !reopen {
+            self.publish_qualified_name(name);
+        }
         let Some(body) = body else {
             return;
         };
@@ -1983,6 +1990,21 @@ let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
         assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
         assert_eq!(codes(construction_only), Vec::<&str>::new());
         assert_eq!(codes(concrete), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_reopen_does_not_collide_in_the_qualified_namespace() {
+        // D-432 rejects a SECOND declaration of one qualified name, but a
+        // reopen names the Class its origin already published rather than
+        // declaring another, so `open class A` after `class A` is ordinary.
+        let reopened = "class A { public fun m() -> Integer { 1 } } \
+open class A { public fun m2() -> Integer { 2 } } A.new().m2()";
+        // Two ORIGIN declarations of one name still collide.
+        let duplicated = "class A {} class A {} 1";
+
+        // When / Then
+        assert_eq!(codes(reopened), Vec::<&str>::new());
+        assert_eq!(codes(duplicated), vec!["QUALIFIED_NAMESPACE_COLLISION"]);
     }
 
     #[test]
