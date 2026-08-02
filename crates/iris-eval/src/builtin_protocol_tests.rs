@@ -2269,3 +2269,31 @@ fn v002_makes_a_contract_a_type_constituent() {
     assert_eq!(rendered(distinct), "Bool(false)");
     assert_eq!(rendered(classes), "Bool(true)");
 }
+
+#[test]
+fn c003_reflects_only_the_written_signature_annotations() {
+    // C003 gives an OMITTED Method parameter or return annotation the Contract
+    // `Dynamic<Object>`, and D-452 keeps body-local inference OUT of signature
+    // metadata. Nothing reflected a signature at all.
+    let omitted = "class A { public fun f(value) { value } } \
+[A.method(:f).parameters, A.method(:f).return_type]";
+    // A written annotation reflects as itself.
+    let written = "class A { public fun f(value: Integer) -> String { \"x\" } } \
+[A.method(:f).parameters, A.method(:f).return_type]";
+    // The BODY must not contribute: returning an Integer from an unannotated
+    // Method leaves the reflected return `Dynamic<Object>`, which is what
+    // "body-local inference is absent" means.
+    let body_typed = "class A { public fun f(value) { 1 } } \
+[A.method(:f).parameters, A.method(:f).return_type]";
+
+    // When / Then
+    assert_eq!(
+        rendered(omitted),
+        "Array([Array([Symbol(\"Dynamic<Object>\")]), Symbol(\"Dynamic<Object>\")])"
+    );
+    assert_eq!(
+        rendered(written),
+        "Array([Array([Symbol(\"Integer\")]), Symbol(\"String\")])"
+    );
+    assert_eq!(rendered(body_typed), rendered(omitted));
+}

@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 62 are committed here;
-the remaining 18 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 63 are committed here;
+the remaining 17 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -62,6 +62,7 @@ correctly fails each.
 | `V250` | positive | executable | `IRIS-V1-TYPES-C047` lets ONE unqualified `impl` member satisfy the requirement, so the view reaches it. |
 | `V251` | negative | executable | `IRIS-V1-TYPES-C050` makes a Contract view identity-LESS, so `same?` raises rather than comparing the receiver. |
 | `V252` | positive | executable | `IRIS-V1-TYPES-C050` compares views by receiver equality plus Contract identity; a view is never equal to a non-view. |
+| `V253` | positive | executable | `IRIS-V1-TYPES-C003` gives an omitted annotation the Contract `Dynamic<Object>`, and `D-452` keeps body-local inference out of signature metadata. The row writes `f.method`; `A.method(:f)` reaches the same Method. |
 | `V244` | diagnostic | executable | `IRIS-V1-TYPES-C058` needs EXPLICIT nominal conformance for an F-bounded bound; `C067` validates it at materialization and raises. |
 | `V246` | positive | executable | `D-219` reifies a CLOSED Module Type as a mixin target. The fixture writes the header `class_mixin` the grammar admits; the frozen row's body-level `mixin` is not a `declaration_body` member. |
 | `V247` | diagnostic | executable | `D-220` requires a generic Module mixin to state its arguments EXPLICITLY; host inference is not used. |
@@ -90,4 +91,3 @@ and are now transcribed, and the groups below record why the rest did not.
 | Generic Types in expression position | `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. `V214` additionally needs a NESTED union inside an intersection: normalization currently FLATTENS `A & (B | C)` into three peers, so the compact form `V016` requires is not represented and reflection cannot report the two members the row names. `V016` passes regardless because an intersection and a union are distinct forms whatever their members. |
 | Open-class transaction ordering | `V205` | `V205` needs `D-178` declaration collection: an `open class A` may PRECEDE the `class A` it reopens, which requires the origin to be resolved before the open transaction runs. A reopen no longer collides in the qualified namespace, but deferring the transaction to a second pass broke the ordinary `class` then `open class` order, so the ordering itself is unimplemented. |
-| Type values and reflection | `V253` | These read `.type` on a Type expression and compare identities, as in `(String?).type same? (String \| Nil).type`. A Type expression is not an expression form today, and `.type` answers only on a Class value. |

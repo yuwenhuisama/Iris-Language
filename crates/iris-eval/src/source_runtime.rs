@@ -2739,6 +2739,34 @@ impl SourceEvaluator {
             Value::Class(class) if selector == "ancestors" => self.ancestors(class),
             // IRIS-V1-TYPES-C076: a Class exposes `.type` metadata, and the Type
             // object it yields is deliberately NOT the Class object itself.
+            // C003 gives an OMITTED Method parameter or return annotation the
+            // Contract `Dynamic<Object>`, and D-452 keeps body-local inference
+            // out of signature metadata, so reflection reports what was
+            // WRITTEN rather than what the body happens to produce.
+            Value::Method(method) if selector == "parameters" || selector == "return_type" => {
+                let declaration = self
+                    .bodies
+                    .get(&method.body().raw())
+                    .cloned()
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                let reflected = |written: Option<&iris_syntax::TypeExpression>| match written {
+                    Some(iris_syntax::TypeExpression::Name(name)) => name.clone(),
+                    // An omitted annotation reflects as `Dynamic<Object>`; a
+                    // written form this reflection cannot spell reflects the
+                    // same way rather than inventing a rendering.
+                    _ => "Dynamic<Object>".to_owned(),
+                };
+                if selector == "return_type" {
+                    return Ok(Value::Symbol(reflected(declaration.return_type.as_ref())));
+                }
+                Ok(Value::Array(
+                    declaration
+                        .parameters
+                        .iter()
+                        .map(|parameter| Value::Symbol(reflected(parameter.annotation.as_ref())))
+                        .collect(),
+                ))
+            }
             // A bare Class name carries no generic arguments, so its Type is
             // the unapplied definition's.
             Value::Class(class) if selector == "type" => Ok(Value::Type(class, Vec::new())),
