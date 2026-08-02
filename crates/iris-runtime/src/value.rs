@@ -273,4 +273,10 @@ pub enum TypeAtom {
     Nominal(ClassId, Vec<ClassId>),
     /// `NonNil`, which C011 makes a Type rather than a declared Class.
     NonNil,
+    /// A named Contract used as a Type.
+    ///
+    /// `IRIS-V1-TYPES-V002` states intersection commutativity over two
+    /// CONTRACTS, so a Contract is an irreducible constituent alongside a
+    /// nominal Class.
+    Contract(crate::ContractId),
 }

@@ -3195,7 +3195,9 @@ impl SourceEvaluator {
                     iris_runtime::TypeAtom::Nominal(class, arguments) => {
                         Value::Type(*class, arguments.clone())
                     }
-                    iris_runtime::TypeAtom::NonNil => {
+                    // A `NonNil` or a Contract has no nominal Class to collapse
+                    // to, so the composed form is kept.
+                    iris_runtime::TypeAtom::NonNil | iris_runtime::TypeAtom::Contract(_) => {
                         Value::ComposedType(iris_runtime::ComposedType::Intersection(members))
                     }
                 }
@@ -3218,6 +3220,11 @@ impl SourceEvaluator {
                 Ok(ComposedType::Intersection(vec![TypeAtom::NonNil]))
             }
             iris_syntax::TypeExpression::Name(name) => {
+                // V002 states intersection commutativity over two CONTRACTS, so
+                // a Contract name is a Type constituent as much as a Class is.
+                if let Some(contract) = self.contract_names.get(name) {
+                    return Ok(ComposedType::Union(vec![TypeAtom::Contract(*contract)]));
+                }
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
                 Ok(ComposedType::Union(vec![TypeAtom::Nominal(
                     class,

@@ -2251,3 +2251,21 @@ fn c013_makes_a_global_a_declared_cell() {
     assert_eq!(rendered(immutable), "ImmutableBinding");
     assert_eq!(rendered(undeclared), "NameError");
 }
+
+#[test]
+fn v002_makes_a_contract_a_type_constituent() {
+    // V002 states intersection commutativity over two CONTRACTS, so a Contract
+    // is an irreducible Type constituent alongside a nominal Class. Only
+    // Classes were normalized, so a Contract intersection was unsupported.
+    let commutative = "contract Readable {} contract Closeable {} \
+(Readable & Closeable).type same? (Closeable & Readable).type";
+    let distinct = "contract Readable {} contract Closeable {} contract Other {} \
+(Readable & Closeable).type same? (Readable & Other).type";
+    // A Class intersection is unaffected.
+    let classes = "class A {} class B {} (A & B).type same? (B & A).type";
+
+    // When / Then
+    assert_eq!(rendered(commutative), "Bool(true)");
+    assert_eq!(rendered(distinct), "Bool(false)");
+    assert_eq!(rendered(classes), "Bool(true)");
+}
