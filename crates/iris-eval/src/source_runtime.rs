@@ -2827,6 +2827,28 @@ impl SourceEvaluator {
             // C065's lookahead does not consume the `.type`, so a reified Type
             // arrives here already normalized and answers `.type` as itself.
             value @ (Value::Type(..) | Value::ComposedType(_)) if selector == "type" => Ok(value),
+            // V214 reflects a composed Type's KIND and its MEMBERS: `A & (B|C)`
+            // is an intersection of `A` and the normalized union, NOT of three
+            // distributed alternatives.
+            Value::ComposedType(ref form) if selector == "kind" => Ok(Value::Symbol(
+                match form {
+                    iris_runtime::ComposedType::Never => "never",
+                    iris_runtime::ComposedType::Union(_) => "union",
+                    iris_runtime::ComposedType::Intersection(_) => "intersection",
+                }
+                .to_owned(),
+            )),
+            Value::Type(..) if selector == "kind" => Ok(Value::Symbol("nominal".to_owned())),
+            Value::ComposedType(ref form) if selector == "members" => {
+                let members = match form {
+                    iris_runtime::ComposedType::Never => Vec::new(),
+                    iris_runtime::ComposedType::Union(members)
+                    | iris_runtime::ComposedType::Intersection(members) => {
+                        members.iter().map(|atom| self.reflect_atom(atom)).collect()
+                    }
+                };
+                Ok(Value::Array(members))
+            }
             Value::Type(left, _) if selector == "subtype?" => {
                 let [Value::Type(right, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -3274,7 +3296,9 @@ impl SourceEvaluator {
                     }
                     // A `NonNil` or a Contract has no nominal Class to collapse
                     // to, so the composed form is kept.
-                    iris_runtime::TypeAtom::NonNil | iris_runtime::TypeAtom::Contract(_) => {
+                    iris_runtime::TypeAtom::NonNil
+                    | iris_runtime::TypeAtom::Contract(_)
+                    | iris_runtime::TypeAtom::Union(_) => {
                         Value::ComposedType(iris_runtime::ComposedType::Intersection(members))
                     }
                 }
@@ -3345,6 +3369,13 @@ impl SourceEvaluator {
                     match self.normalize_type(member)? {
                         // `T & Never` is `Never`, which absorbs the whole form.
                         ComposedType::Never => return Ok(ComposedType::Never),
+                        // V016 keeps `A & (B | C)` a COMPACT intersection
+                        // CONTAINING the union rather than distributing it, so
+                        // a MULTI-member union stays ONE constituent. V214
+                        // reflects exactly those two members.
+                        ComposedType::Union(nested) if nested.len() > 1 => {
+                            atoms.push(TypeAtom::Union(nested));
+                        }
                         ComposedType::Union(members) | ComposedType::Intersection(members) => {
                             atoms.extend(members)
                         }
@@ -3392,9 +3423,29 @@ impl SourceEvaluator {
             // V014 removes `Nil` from the intersection. V015 makes
             // `Nil & NonNil` uninhabited, so when `Nil` was the ONLY other
             // member nothing survives and the caller yields `Never`.
+            // V014 and V221 remove `Nil` from a NESTED union too: `(String |
+            // Nil) & NonNil` is `String`, so the constraint reaches inside the
+            // union constituent rather than stopping at its boundary.
+            for atom in &mut atoms {
+                if let TypeAtom::Union(nested) = atom {
+                    nested.retain(
+                        |member| !matches!(member, TypeAtom::Nominal(class, _) if *class == nil),
+                    );
+                }
+            }
+            // A union reduced to ONE member is that member, which is what lets
+            // the nested form collapse back to a nominal Type.
+            for atom in &mut atoms {
+                if let TypeAtom::Union(nested) = atom
+                    && nested.len() == 1
+                {
+                    *atom = nested[0].clone();
+                }
+            }
             let had_other = atoms
                 .iter()
-                .any(|atom| matches!(atom, TypeAtom::Nominal(class, _) if *class != nil));
+                .any(|atom| !matches!(atom, TypeAtom::Nominal(class, _) if *class == nil))
+                && atoms.iter().any(|atom| *atom != TypeAtom::NonNil);
             atoms.retain(|atom| !matches!(atom, TypeAtom::Nominal(class, _) if *class == nil));
             atoms.retain(|atom| *atom != TypeAtom::NonNil);
             if !had_other {
@@ -4124,6 +4175,24 @@ impl SourceEvaluator {
             }
         }
         Ok(())
+    }
+
+    /// Renders one Type constituent for reflection.
+    ///
+    /// A nested union stays ONE member, which is what `IRIS-V1-TYPES-V214`
+    /// observes when it requires `A` and the normalized union rather than
+    /// distributed alternatives.
+    fn reflect_atom(&self, atom: &iris_runtime::TypeAtom) -> Value {
+        match atom {
+            iris_runtime::TypeAtom::Nominal(class, arguments) => {
+                Value::Type(*class, arguments.clone())
+            }
+            iris_runtime::TypeAtom::NonNil => Value::Symbol("NonNil".to_owned()),
+            iris_runtime::TypeAtom::Contract(contract) => Value::Contract(*contract),
+            iris_runtime::TypeAtom::Union(nested) => {
+                Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
+            }
+        }
     }
 
     /// Compares two Contract-view receivers under `IRIS-V1-TYPES-C050`.

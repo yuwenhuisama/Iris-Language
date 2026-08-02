@@ -279,4 +279,11 @@ pub enum TypeAtom {
     /// CONTRACTS, so a Contract is an irreducible constituent alongside a
     /// nominal Class.
     Contract(crate::ContractId),
+    /// A nested UNION kept as ONE constituent of an intersection.
+    ///
+    /// `IRIS-V1-TYPES-V016` keeps `A & (B | C)` a COMPACT intersection
+    /// CONTAINING the union member rather than distributing it, and `V214`
+    /// reflects exactly those two members. Flattening the union into the
+    /// enclosing intersection would lose that structure entirely.
+    Union(Vec<TypeAtom>),
 }

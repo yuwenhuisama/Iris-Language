@@ -2361,3 +2361,30 @@ fn c012_runs_a_raise_and_a_class_property_in_a_module_body() {
     assert_eq!(rendered(halted), "Raised(Symbol(\"stop\"))");
     assert_eq!(rendered(completed), "Integer(IntegerValue(5))");
 }
+
+#[test]
+fn v214_keeps_a_union_member_inside_an_intersection() {
+    // V016 keeps `A & (B | C)` a COMPACT intersection CONTAINING the union
+    // member rather than distributing it, and V214 reflects exactly those two
+    // members. Normalization flattened the union into three peers, so the
+    // structure both rows describe was not represented at all.
+    let declared = "class A {} class B {} class C {} ";
+    let reflected =
+        format!("{declared}let t = (A & (B | C)).type; [t.kind, (B | C).type same? t.members[1]]");
+    // A flat intersection has no nested member to report.
+    let flat = format!("{declared}(A & B).type.kind");
+    // V014 and V221 still remove `Nil` from a NESTED union, so the constraint
+    // reaches inside the constituent rather than stopping at its boundary.
+    let non_nil = "((String | Nil) & NonNil).type same? String.type";
+    // A union reduced to one member collapses back to that member.
+    let collapsed = "(Nil & NonNil).type same? (Never).type";
+
+    // When / Then
+    assert_eq!(
+        rendered(&reflected),
+        "Array([Symbol(\"intersection\"), Bool(true)])"
+    );
+    assert_eq!(rendered(&flat), "Symbol(\"intersection\")");
+    assert_eq!(rendered(non_nil), "Bool(true)");
+    assert_eq!(rendered(collapsed), "Bool(true)");
+}
