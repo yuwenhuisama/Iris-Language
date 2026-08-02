@@ -433,6 +433,12 @@ pub enum Expression {
     },
     Call {
         callee: Box<Expression>,
+        /// Explicit Method type arguments from `call_type_arguments`.
+        ///
+        /// `IRIS-V1-GRAMMAR-C066` admits them before the argument list, and
+        /// `IRIS-V1-TYPES-C060` makes a missing trailing one an arity error
+        /// rather than an inferred default, so the written list is retained.
+        type_arguments: Vec<TypeExpression>,
         arguments: Vec<Expression>,
     },
     /// `receiver[index]`, the index read of `IRIS-V1-COLLECTIONS-C051`.
@@ -762,6 +768,7 @@ mod tests {
                     receiver: Box::new(Expression::Name("Float64".into())),
                     selector: "from_bits".into(),
                 }),
+                type_arguments: Vec::new(),
                 arguments: vec![Expression::Symbol("zero".into())],
             })],
             entries: Vec::new(),

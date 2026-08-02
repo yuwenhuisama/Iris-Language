@@ -2055,7 +2055,9 @@ impl SourceEvaluator {
                 let target = self.expression(target, locals, receiver)?;
                 self.member_read(target, selector)
             }
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee, arguments, ..
+            } => {
                 let arguments = arguments
                     .iter()
                     .map(|argument| self.expression(argument, locals, receiver.clone()))

@@ -2048,6 +2048,18 @@ mod tests {
     }
 
     #[test]
+    fn c066_admits_call_type_arguments_before_an_argument_list() {
+        // C066 admits explicit Method type arguments before the argument list.
+        // C020 is NOT weakened: the reading is taken only when the bracket pair
+        // closes with a `>` IMMEDIATELY followed by `(`.
+        assert!(parse("choose<String, Integer>(\"x\", 1)").program_accepted);
+        assert!(parse("choose<String, _>(\"x\", 1)").program_accepted);
+        // Every other `<` keeps its operator tokenization.
+        assert!(parse("let a = 1; let b = 2; a < b").program_accepted);
+        assert!(parse("let a = 8; let b = 2; a >> b").program_accepted);
+    }
+
+    #[test]
     fn c020_splits_a_pipe_pair_into_an_empty_closure_header() {
         // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
         // parameter list, but `||` lexes as ONE logical-or token, so a bare

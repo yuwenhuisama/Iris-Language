@@ -238,7 +238,11 @@ impl Evaluator {
                     Err(EvaluationError::UnsupportedConstruct)
                 }
             },
-            Expression::Call { callee, arguments } => match self.expression(callee)? {
+            Expression::Call {
+            callee,
+            arguments,
+            ..
+        } => match self.expression(callee)? {
                 Evaluated::Member(receiver, selector) => {
                     let arguments = self.arguments(arguments, None)?;
                     self.send(receiver, &selector, &arguments)
@@ -605,7 +609,11 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::Unary {
             operand: receiver, ..
         } => source_runtime_expression(receiver),
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee,
+            arguments,
+            ..
+        } => {
             builds_iteration(callee)
                 || constructs_root_object(callee)
                 || source_runtime_expression(callee)

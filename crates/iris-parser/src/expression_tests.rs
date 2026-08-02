@@ -73,6 +73,7 @@ fn parses_symbols_and_postfix_chains() {
                     receiver: Box::new(Expression::Name("Float64".into())),
                     selector: "from_bits".into(),
                 }),
+                type_arguments: Vec::new(),
                 arguments: vec![Expression::Literal("0x0000000000000000".into())],
             }),
             Statement::Expression(Expression::Member {
@@ -84,6 +85,7 @@ fn parses_symbols_and_postfix_chains() {
                     receiver: Box::new(Expression::Name("obj".into())),
                     selector: "method".into(),
                 }),
+                type_arguments: Vec::new(),
                 arguments: Vec::new(),
             }),
             Statement::Expression(Expression::Member {
@@ -92,6 +94,7 @@ fn parses_symbols_and_postfix_chains() {
                         receiver: Box::new(Expression::Name("a".into())),
                         selector: "b".into(),
                     }),
+                    type_arguments: Vec::new(),
                     arguments: vec![Expression::Name("c".into())],
                 }),
                 selector: "d".into(),

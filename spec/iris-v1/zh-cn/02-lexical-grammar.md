@@ -422,7 +422,9 @@ unary_expr         ::= ("+" | "-" | "~" | "!") unary_expr | exponent_expr
 exponent_expr      ::= postfix_expr ("**" unary_expr)?
 postfix_expr       ::= primary_expr postfix_part*
 postfix_part       ::= call_suffix | index_suffix | property_suffix | contract_view_suffix | trailing_block
-call_suffix        ::= "(" call_argument_list? ")"
+call_suffix        ::= call_type_arguments? "(" call_argument_list? ")"
+call_type_arguments ::= "<" call_type_argument ("," call_type_argument)* ">"
+call_type_argument ::= type_expr | "_"
 call_argument_list ::= call_argument ("," call_argument)* ","?
 call_argument      ::= expression | ordinary_name ":" expression | "*" expression | "**" expression | "&" expression
 index_suffix       ::= "[" call_argument_list? "]"
@@ -576,6 +578,8 @@ IRIS-V1-GRAMMAR-C063：v1.17 勘误向 `primary_expr` 增加 `closed_generic_nam
 IRIS-V1-GRAMMAR-C064：v1.18 勘误向 `property_decl` 增加 `"shared"? ("class" | "module")?`，因此属性 MAY 在类级或模块级声明，并 MAY 标记为 `shared`。这补上了 IRIS-V1-TYPES-C064 在区分「普通泛型类级存储（按闭合构造各自独立）」与「`shared class property`（属于未应用的泛型定义）」时已经预设的语法。其存储语义仍由 IRIS-V1-TYPES-C064 与 IRIS-V1-RUNTIME-C065 拥有；本条款仅补语法。`shared` 是 IRIS-V1-GRAMMAR-C059 已为 `shared_decl` 保留的关键字，因此不新增关键字；未标记的 `property` 保持其原有的实例级含义，完全不变。
 
 IRIS-V1-GRAMMAR-C065：v1.19 勘误向 `primary_expr` 增加 `reified_type_expr ::= "(" type_expr ")" &"." "type"`，因此带括号的类型表达式 MAY 被具体化为值。这补上了 IRIS-V1-TYPES-C016 与 IRIS-V1-TYPES-C076 在要求「可驻留、带标识的 Type 对象」时已经预设的语法，也是 `(String | Nil).type`、`(String & Object).type` 与 `(Object?).type` 所需要的语法。其中 `&"." "type"` 是**前瞻**而非被消费的输入：仅当右括号之后紧跟 `.type` 时，才取类型读法。其余一切位置上，`|`、`&`、`?` 均保持 IRIS-V1-GRAMMAR-C020 与表达式优先级表赋予它们的运算符分词，因此 `(a | b)` 仍是按位或，`(a & b) . 其他选择子` 仍是按位与。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。本条款不新增关键字、不新增词法单元：`type` 仍是普通选择子。
+
+IRIS-V1-GRAMMAR-C066：v1.20 勘误向 `call_suffix` 增加 `call_type_arguments`，因此调用 MAY 显式给出方法类型实参，如 `choose<String, Integer>(value)`。这补上了 IRIS-V1-TYPES-C071 在要求「使用全元数尖括号并以 `_` 占位」时已经预设的语法，也是 IRIS-V1-TYPES-C060 将缺失的末尾实参报为元数错误（而非推断默认值）所必需的语法。`call_type_argument` 仅在此处接纳 `_`：IRIS-V1-TYPES-C072 在一切持久类型位置上仍禁止它，且它是类型实参占位符，而非绑定、也非新的类型变量。IRIS-V1-GRAMMAR-C020 并未被削弱：名字之后的 `<` 仅在尖括号对以一个其后**紧跟** `(` 的 `>` 闭合时，才开始调用类型实参。其余每一个 `<` 都保持其运算符分词，因此 `a < b` 仍是比较。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。本条款不新增关键字、也不新增词法单元。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

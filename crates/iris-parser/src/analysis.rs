@@ -626,7 +626,9 @@ impl Analyzer {
             }
             // A generic Method call carries the Type its inference produced,
             // which is what lets an annotated target reject a widened one.
-            Expression::Call { callee, arguments } => match callee.as_ref() {
+            Expression::Call {
+                callee, arguments, ..
+            } => match callee.as_ref() {
                 Expression::Name(selector) => self.generic_call_type(selector, arguments),
                 _ => None,
             },
@@ -1384,7 +1386,23 @@ impl Analyzer {
             Expression::Closure { body, .. } => {
                 self.scoped_body(body, control.entering_closure());
             }
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee,
+                type_arguments,
+                arguments,
+            } => {
+                // C060 gives every Method application FIXED FULL ARITY: a
+                // missing trailing type argument is an arity error and never
+                // means `Object` or an inferred default. V230 names the code.
+                if let Expression::Name(selector) = callee.as_ref()
+                    && !type_arguments.is_empty()
+                    && self.generic_methods.iter().any(|method| {
+                        method.selector == *selector
+                            && method.type_parameters.len() != type_arguments.len()
+                    })
+                {
+                    self.report("GENERIC_ARGUMENT_ARITY");
+                }
                 // C061: ordinary construction requires a closed `Box<Type>`, so
                 // `Box.new()` on a generic Class supplies no arguments for its
                 // declared parameters. V232 names the code.
@@ -1824,6 +1842,30 @@ let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
         assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
         assert_eq!(codes(construction_only), Vec::<&str>::new());
         assert_eq!(codes(concrete), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c060_requires_full_arity_call_type_arguments() {
+        // C060 gives every Method application FIXED FULL ARITY: a missing
+        // trailing type argument is an arity error and NEVER means `Object` or
+        // an inferred default. C071 supplies `_` for the positions the caller
+        // still wants inferred, which is why the placeholder form is full arity.
+        let short = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
+choose<String>(\"x\", 1) } 1";
+        let explicit = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
+choose<String, Integer>(\"x\", 1) } 1";
+        let placeholder = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
+choose<String, _>(\"x\", 1) } 1";
+        // A call with no explicit type arguments at all is inference, not a
+        // short list, so it carries no arity obligation.
+        let inferred = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
+choose(\"x\", 1) } 1";
+
+        // When / Then
+        assert_eq!(codes(short), vec!["GENERIC_ARGUMENT_ARITY"]);
+        assert_eq!(codes(explicit), Vec::<&str>::new());
+        assert_eq!(codes(placeholder), Vec::<&str>::new());
+        assert_eq!(codes(inferred), Vec::<&str>::new());
     }
 
     #[test]

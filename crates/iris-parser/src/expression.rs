@@ -103,6 +103,24 @@ impl Parser {
                     receiver: Box::new(expression),
                     index: Box::new(index),
                 };
+            } else if self.check("<")
+                && let Some(type_arguments) = self.call_type_arguments()
+            {
+                // C066 admits explicit Method type arguments before the
+                // argument list. The reading is taken ONLY when the bracket
+                // pair closes with a `>` immediately followed by `(`, which is
+                // what keeps `a < b` a comparison; the helper rewinds
+                // otherwise, so reaching here means the `(` is already next.
+                self.expect("(")?;
+                let mut arguments = self.arguments()?;
+                if self.check("{") && !self.no_trailing_block {
+                    arguments.push(self.closure_literal()?);
+                }
+                expression = Expression::Call {
+                    callee: Box::new(expression),
+                    type_arguments,
+                    arguments,
+                };
             } else if self.consume("(") {
                 let mut arguments = self.arguments()?;
                 // `trailing_block ::= closure_literal` is a postfix part, so a
@@ -113,12 +131,56 @@ impl Parser {
                 }
                 expression = Expression::Call {
                     callee: Box::new(expression),
+                    type_arguments: Vec::new(),
                     arguments,
                 };
             } else {
                 return Some(expression);
             }
         }
+    }
+
+    /// Parses `call_type_arguments`, or rewinds entirely.
+    ///
+    /// `IRIS-V1-GRAMMAR-C066` takes the type-argument reading ONLY when the
+    /// bracket pair closes with a `>` IMMEDIATELY followed by `(`. Where both
+    /// readings would be well formed the OPERATOR reading wins, so this
+    /// speculates and restores diagnostics as well as the cursor.
+    ///
+    /// `call_type_argument ::= type_expr | "_"`; C072 keeps `_` forbidden in
+    /// every persistent Type position, so it is admitted only here.
+    fn call_type_arguments(&mut self) -> Option<Vec<iris_syntax::TypeExpression>> {
+        let start = self.cursor;
+        let diagnostics = self.diagnostics.len();
+        self.advance();
+        let mut arguments = Vec::new();
+        loop {
+            let argument = if self.check("_") {
+                self.advance();
+                iris_syntax::TypeExpression::Name("_".into())
+            } else {
+                match self.type_expression() {
+                    Some(argument) => argument,
+                    None => {
+                        self.rewind(start, diagnostics);
+                        return None;
+                    }
+                }
+            };
+            arguments.push(argument);
+            if !self.consume(",") {
+                break;
+            }
+        }
+        if self.expect_generic_close().is_none() {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        if !self.check("(") {
+            self.rewind(start, diagnostics);
+            return None;
+        }
+        Some(arguments)
     }
 
     /// Parses `generic_args` in expression position, or rewinds entirely.

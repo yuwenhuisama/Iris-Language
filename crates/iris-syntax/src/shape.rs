@@ -132,7 +132,9 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::ContractView { receiver, selector } => {
             (format!("{}..{}", source_shape(receiver, 17), selector), 17)
         }
-        Expression::Call { callee, arguments } => (
+        Expression::Call {
+            callee, arguments, ..
+        } => (
             format!(
                 "{}({})",
                 source_shape(callee, 17),
@@ -226,7 +228,9 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::ContractView { receiver, selector } => {
             format!("contract_view({}, {selector})", structural_shape(receiver))
         }
-        Expression::Call { callee, arguments } => format!(
+        Expression::Call {
+            callee, arguments, ..
+        } => format!(
             "call({}, [{}])",
             structural_shape(callee),
             arguments

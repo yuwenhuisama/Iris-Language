@@ -422,7 +422,9 @@ unary_expr         ::= ("+" | "-" | "~" | "!") unary_expr | exponent_expr
 exponent_expr      ::= postfix_expr ("**" unary_expr)?
 postfix_expr       ::= primary_expr postfix_part*
 postfix_part       ::= call_suffix | index_suffix | property_suffix | contract_view_suffix | trailing_block
-call_suffix        ::= "(" call_argument_list? ")"
+call_suffix        ::= call_type_arguments? "(" call_argument_list? ")"
+call_type_arguments ::= "<" call_type_argument ("," call_type_argument)* ">"
+call_type_argument ::= type_expr | "_"
 call_argument_list ::= call_argument ("," call_argument)* ","?
 call_argument      ::= expression | ordinary_name ":" expression | "*" expression | "**" expression | "&" expression
 index_suffix       ::= "[" call_argument_list? "]"
@@ -576,6 +578,8 @@ IRIS-V1-GRAMMAR-C063: The v1.17 errata adds `closed_generic_name ::= qualified_t
 IRIS-V1-GRAMMAR-C064: The v1.18 errata adds `"shared"? ("class" | "module")?` to `property_decl`, so a property may be declared at Class or Module level and may be marked `shared`. This supplies the syntax IRIS-V1-TYPES-C064 already presupposes when it distinguishes ordinary generic class-level storage, which is per closed construction, from a `shared class property`, which belongs to the unapplied generic definition. The storage semantics remain owned by IRIS-V1-TYPES-C064 and IRIS-V1-RUNTIME-C065; this clause adds syntax only. `shared` is the keyword IRIS-V1-GRAMMAR-C059 already reserved for `shared_decl`, so no keyword is added, and an unmarked `property` keeps exactly the instance-level meaning it had.
 
 IRIS-V1-GRAMMAR-C065: The v1.19 errata adds `reified_type_expr ::= "(" type_expr ")" &"." "type"` to `primary_expr`, so a parenthesized Type expression may be reified as a value. This supplies the syntax IRIS-V1-TYPES-C016 and IRIS-V1-TYPES-C076 already presuppose when they require interned, identity-bearing Type objects, and which `(String | Nil).type`, `(String & Object).type`, and `(Object?).type` need. The `&"." "type"` is a LOOKAHEAD, not consumed input: the Type reading is taken ONLY when the closing parenthesis is immediately followed by `.type`. Everywhere else `|`, `&`, and `?` keep the operator tokenization IRIS-V1-GRAMMAR-C020 and the expression precedence table give them, so `(a | b)` remains a bitwise or and `(a & b) . anything_else` remains a bitwise and. Where both readings would otherwise be well formed, the OPERATOR reading wins, which preserves the meaning of every program that parsed before this errata. This clause adds no keyword and no token: `type` remains an ordinary selector.
+
+IRIS-V1-GRAMMAR-C066: The v1.20 errata adds `call_type_arguments` to `call_suffix`, so a call may state Method type arguments explicitly, as in `choose<String, Integer>(value)`. This supplies the syntax IRIS-V1-TYPES-C071 already presupposes when it requires full-arity angle brackets with `_` placeholders, and which IRIS-V1-TYPES-C060 needs in order to report a missing trailing argument as an arity error rather than an inferred default. `call_type_argument` admits `_` ONLY here: IRIS-V1-TYPES-C072 keeps it forbidden in every persistent Type position, and it is a type-argument placeholder rather than a binding or a fresh type variable. IRIS-V1-GRAMMAR-C020 is NOT weakened: a `<` after a name begins call type arguments only where the bracket pair closes with a `>` IMMEDIATELY followed by `(`. Every other `<` keeps its operator tokenization, so `a < b` remains a comparison. Where both readings would otherwise be well formed, the OPERATOR reading wins, which preserves the meaning of every program that parsed before this errata. This clause adds no keyword and no token.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
