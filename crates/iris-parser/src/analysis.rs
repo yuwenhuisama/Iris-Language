@@ -16,6 +16,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         scopes: vec![Vec::new()],
         declared_class_variables: Vec::new(),
         declared_globals: Vec::new(),
+        generic_methods: Vec::new(),
         qualified_namespace: Vec::new(),
         generic_classes: Vec::new(),
         generic_constraints: Vec::new(),
@@ -25,6 +26,20 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
     };
     analyzer.program(program);
     analyzer.diagnostics
+}
+
+/// A generic Method's declared shape, used to infer type arguments at a call.
+///
+/// `IRIS-V1-TYPES-C068` keeps inference LOCAL: only the actual arguments'
+/// static Types and an explicit immediate expected result may contribute, so
+/// nothing here records a body.
+struct GenericMethod {
+    selector: String,
+    type_parameters: Vec<String>,
+    /// Each parameter's declared Type NAME, when it is a bare nominal one.
+    parameters: Vec<Option<String>>,
+    /// The declared return Type name, when it is a bare nominal one.
+    result: Option<String>,
 }
 
 /// One binding visible to later statements in the same scope.
@@ -223,6 +238,12 @@ struct Analyzer {
     /// missing declared storage rather than creating it, so an assignment is
     /// checked against what was actually declared.
     declared_class_variables: Vec<String>,
+    /// Generic Method signatures, keyed by selector.
+    ///
+    /// `IRIS-V1-TYPES-C068` infers omitted Method type arguments from the
+    /// ACTUAL arguments' static Types, so the declared parameter Types are kept
+    /// to match a call site against.
+    generic_methods: Vec<GenericMethod>,
     /// Global names a `global` declaration published.
     ///
     /// `IRIS-V1-CONTROL-C013` makes a missing `$name` a declaration error
@@ -522,6 +543,55 @@ impl Analyzer {
         }
     }
 
+    /// Infers a generic Method call's result Type from its actual arguments.
+    ///
+    /// `IRIS-V1-TYPES-C068` keeps inference LOCAL and bounded: only the actual
+    /// arguments' static Types contribute. `C069` combines multiple lower-bound
+    /// candidates for ONE type parameter as their NORMALIZED UNION, which is
+    /// what makes `pair("x", 1)` infer `String | Integer` rather than picking
+    /// the first argument or rejecting the call.
+    fn generic_call_type(&self, selector: &str, arguments: &[Expression]) -> Option<StaticType> {
+        let method = self
+            .generic_methods
+            .iter()
+            .find(|method| method.selector == selector)?;
+        // Each type parameter collects the Types of every argument position
+        // declared with it, unioned in declaration order.
+        let mut bindings: Vec<(&String, Option<StaticType>)> = method
+            .type_parameters
+            .iter()
+            .map(|parameter| (parameter, None))
+            .collect();
+        for (position, declared) in method.parameters.iter().enumerate() {
+            let Some(declared) = declared else { continue };
+            let Some(slot) = bindings
+                .iter_mut()
+                .find(|(parameter, _)| *parameter == declared)
+            else {
+                continue;
+            };
+            let Some(argument) = arguments.get(position) else {
+                continue;
+            };
+            let Some(actual) = self.expression_type(argument) else {
+                // One untyped argument leaves the parameter unknown rather than
+                // narrowing it to the arguments that ARE typed.
+                slot.1 = None;
+                return None;
+            };
+            slot.1 = Some(match slot.1.take() {
+                Some(existing) => StaticType::union(&existing, &actual),
+                None => actual,
+            });
+        }
+        // The result Type is whichever parameter the return position names.
+        let result = method.result.as_ref()?;
+        bindings
+            .into_iter()
+            .find(|(parameter, _)| *parameter == result)
+            .and_then(|(_, inferred)| inferred)
+    }
+
     /// Infers an expression's static Type, or `None` when it is not known.
     fn expression_type(&self, expression: &Expression) -> Option<StaticType> {
         match expression {
@@ -554,6 +624,12 @@ impl Analyzer {
                 let right = self.expression_type(right)?;
                 Some(StaticType::union(&left, &right))
             }
+            // A generic Method call carries the Type its inference produced,
+            // which is what lets an annotated target reject a widened one.
+            Expression::Call { callee, arguments } => match callee.as_ref() {
+                Expression::Name(selector) => self.generic_call_type(selector, arguments),
+                _ => None,
+            },
             _ => StaticType::of(expression),
         }
     }
@@ -1192,6 +1268,26 @@ impl Analyzer {
                 }
             }
             Statement::Method(declaration) => {
+                // C068 infers from actual arguments, so a generic Method's
+                // declared parameter Types are recorded for the call sites.
+                if !declaration.type_parameters.is_empty() {
+                    self.generic_methods.push(GenericMethod {
+                        selector: declaration.selector.clone(),
+                        type_parameters: declaration.type_parameters.clone(),
+                        parameters: declaration
+                            .parameters
+                            .iter()
+                            .map(|parameter| match &parameter.annotation {
+                                Some(iris_syntax::TypeExpression::Name(name)) => Some(name.clone()),
+                                _ => None,
+                            })
+                            .collect(),
+                        result: match &declaration.return_type {
+                            Some(iris_syntax::TypeExpression::Name(name)) => Some(name.clone()),
+                            _ => None,
+                        },
+                    });
+                }
                 // IRIS-V1-CONTROL-C006 makes parameter bindings IMMUTABLE
                 // unless their own declaration uses `mut`. Declaring them keeps
                 // a write to one reported as an immutable-binding error rather
@@ -1728,6 +1824,30 @@ let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
         assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
         assert_eq!(codes(construction_only), Vec::<&str>::new());
         assert_eq!(codes(concrete), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn c069_unions_multiple_candidates_for_one_type_parameter() {
+        // C068 keeps Method type inference LOCAL: only the actual arguments'
+        // static Types contribute. C069 combines multiple lower-bound
+        // candidates for ONE type parameter as their NORMALIZED UNION, so
+        // `pair("x", 1)` infers `String | Integer` rather than picking the
+        // first argument.
+        let widened = "module M { fun pair<T>(a: T, b: T) -> T { a } \
+let narrowed: String = pair(\"x\", 1) } 1";
+        // Two candidates of one Type union to that Type, so the annotated
+        // target accepts it.
+        let uniform = "module M { fun pair<T>(a: T, b: T) -> T { a } \
+let narrowed: String = pair(\"x\", \"y\") } 1";
+        // A target wide enough for the union accepts it, which is what shows
+        // the rejection above is the UNION and not the call itself.
+        let widened_target = "module M { fun pair<T>(a: T, b: T) -> T { a } \
+let wide: Object = pair(\"x\", 1) } 1";
+
+        // When / Then
+        assert_eq!(codes(widened), vec!["BINDING_FIXED_LOCAL_TYPE"]);
+        assert_eq!(codes(uniform), Vec::<&str>::new());
+        assert_eq!(codes(widened_target), Vec::<&str>::new());
     }
 
     #[test]
