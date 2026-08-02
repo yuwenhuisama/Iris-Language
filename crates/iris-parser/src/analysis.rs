@@ -19,6 +19,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         generic_methods: Vec::new(),
         qualified_namespace: Vec::new(),
         generic_classes: Vec::new(),
+        class_method_arities: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
         requirement_signatures: Vec::new(),
@@ -53,6 +54,12 @@ struct Local {
     /// assignments to satisfy it without widening. `None` means the Type is not
     /// statically known, so no assignment can be rejected against it.
     fixed_type: Option<StaticType>,
+    /// The Class names of a WRITTEN union annotation, when the source wrote one.
+    ///
+    /// `IRIS-V1-TYPES-D-196` rejects a call whose accepted-arity intersection
+    /// across the union members is empty, which needs the members themselves
+    /// rather than the normalized Type `fixed_type` records.
+    union_members: Vec<String>,
 }
 
 /// One nominal member of a static Type.
@@ -282,6 +289,12 @@ struct Analyzer {
     /// METADATA rather than an instance Type, so construction and instance
     /// annotations need a closed `Box<Type>`.
     generic_classes: Vec<(String, usize)>,
+    /// Each Class paired with the arities its Methods accept, by selector.
+    ///
+    /// `IRIS-V1-TYPES-D-196` rejects a call on a UNION whose accepted-arity
+    /// intersection across the members is empty, so the arities each member
+    /// accepts must be known.
+    class_method_arities: Vec<(String, String, usize)>,
 }
 
 impl Analyzer {
@@ -300,11 +313,22 @@ impl Analyzer {
     }
 
     fn declare_typed(&mut self, name: &str, mutable: bool, fixed_type: Option<StaticType>) {
+        self.declare_union(name, mutable, fixed_type, Vec::new());
+    }
+
+    fn declare_union(
+        &mut self,
+        name: &str,
+        mutable: bool,
+        fixed_type: Option<StaticType>,
+        union_members: Vec<String>,
+    ) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.push(Local {
                 name: name.to_owned(),
                 mutable,
                 fixed_type,
+                union_members,
             });
         }
     }
@@ -543,6 +567,57 @@ impl Analyzer {
         }
     }
 
+    /// Rejects a call on a union-annotated binding whose members accept no
+    /// common arity.
+    ///
+    /// `IRIS-V1-TYPES-D-196` makes the ACCEPTED-ARITY INTERSECTION across the
+    /// union's members the set a call may use. When that intersection is empty
+    /// every call is rejected, however many arguments it passes, because no
+    /// single call can satisfy both members.
+    fn check_union_call(&mut self, expression: &Expression) {
+        let Expression::Call { callee, .. } = expression else {
+            return;
+        };
+        let Expression::Member { receiver, selector } = callee.as_ref() else {
+            return;
+        };
+        let Expression::Name(binding) = receiver.as_ref() else {
+            return;
+        };
+        let Some(members) = self
+            .lookup(binding)
+            .map(|local| local.union_members.clone())
+            .filter(|members| members.len() > 1)
+        else {
+            return;
+        };
+        // Each member contributes the arities ITS Method accepts. A member with
+        // no such Method contributes nothing, which leaves the call to ordinary
+        // dispatch rather than to this check.
+        let mut intersection: Option<Vec<usize>> = None;
+        for member in &members {
+            let accepted: Vec<usize> = self
+                .class_method_arities
+                .iter()
+                .filter(|(class, method, _)| class == member && method == selector)
+                .map(|(_, _, arity)| *arity)
+                .collect();
+            if accepted.is_empty() {
+                return;
+            }
+            intersection = Some(match intersection {
+                Some(existing) => existing
+                    .into_iter()
+                    .filter(|arity| accepted.contains(arity))
+                    .collect(),
+                None => accepted,
+            });
+        }
+        if intersection.is_some_and(|arities| arities.is_empty()) {
+            self.report("UNION_CALL_ARITY_MISMATCH");
+        }
+    }
+
     /// Rejects a standalone call whose type parameters nothing can infer.
     ///
     /// `IRIS-V1-TYPES-C070` lets an explicit expected result infer Method type
@@ -730,6 +805,17 @@ impl Analyzer {
         let (name, body) = match declaration {
             iris_syntax::Declaration::Class(value) => {
                 self.check_declared_conformance(value);
+                // D-196 needs the arities each Class Method accepts in order to
+                // intersect them across a union's members.
+                for statement in &value.body {
+                    if let Statement::Method(method) = statement {
+                        self.class_method_arities.push((
+                            value.name.clone(),
+                            method.selector.clone(),
+                            method.parameters.len(),
+                        ));
+                    }
+                }
                 self.check_generic_constraints(&value.parameters, &value.constraints);
                 if !value.constraints.is_empty() {
                     self.generic_constraints.push((
@@ -1161,7 +1247,17 @@ impl Analyzer {
                 {
                     self.report("DECLARATION_REBINDING");
                 }
-                self.declare_typed(name, *mutable, fixed_type);
+                let union_members = match annotation {
+                    Some(iris_syntax::TypeExpression::Union(members)) => members
+                        .iter()
+                        .filter_map(|member| match member {
+                            iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                self.declare_union(name, *mutable, fixed_type, union_members);
             }
             // `IRIS-V1-CONTROL-D-427`: `let` MUST be initialized, and a deferred
             // `mut` is legal only with an explicit type.
@@ -1217,6 +1313,7 @@ impl Analyzer {
                 // exactly such a standalone position: nothing consumes its
                 // result, so no expected Type exists.
                 self.check_unconstrained_call(expression);
+                self.check_union_call(expression);
                 self.expression(expression, control);
             }
             Statement::If {
@@ -1886,6 +1983,30 @@ let b: Box<String> = Box<_>.new(\"x\"); let ok: Box<String> = b; ok";
         assert_eq!(codes(annotated), vec!["GENERIC_PLACEHOLDER_FORBIDDEN"]);
         assert_eq!(codes(construction_only), Vec::<&str>::new());
         assert_eq!(codes(concrete), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn d196_needs_a_common_arity_across_union_members() {
+        // D-196 makes the ACCEPTED-ARITY INTERSECTION across a union's members
+        // the set a call may use. When it is empty EVERY call is rejected,
+        // however many arguments it passes, because no single call satisfies
+        // both members.
+        let declared = "class A { public fun m() -> Integer { 1 } } \
+class B { public fun m(x: Integer) -> Integer { x } } ";
+        let zero_args = format!("{declared}let value: A | B = A.new(); value.m()");
+        let one_arg = format!("{declared}let value: A | B = A.new(); value.m(1)");
+        // Members that accept the SAME arity intersect to it, so the call is
+        // ordinary.
+        let uniform = "class A { public fun m() -> Integer { 1 } } \
+class B { public fun m() -> Integer { 2 } } let value: A | B = A.new(); value.m()";
+        // A single-Type annotation has nothing to intersect.
+        let single = format!("{declared}let value: A = A.new(); value.m()");
+
+        // When / Then
+        assert_eq!(codes(&zero_args), vec!["UNION_CALL_ARITY_MISMATCH"]);
+        assert_eq!(codes(&one_arg), vec!["UNION_CALL_ARITY_MISMATCH"]);
+        assert_eq!(codes(uniform), Vec::<&str>::new());
+        assert_eq!(codes(&single), Vec::<&str>::new());
     }
 
     #[test]
