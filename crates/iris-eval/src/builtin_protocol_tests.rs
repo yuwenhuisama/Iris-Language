@@ -2297,3 +2297,24 @@ fn c003_reflects_only_the_written_signature_annotations() {
     );
     assert_eq!(rendered(body_typed), rendered(omitted));
 }
+
+#[test]
+fn d178_resolves_the_origin_before_the_open_transaction() {
+    // D-178: declaration collection resolves the ORIGIN before the open
+    // transaction, so an `open class A` may PRECEDE the `class A` it reopens.
+    // A single ordered pass ran the transaction against a Class that did not
+    // exist yet.
+    let open_first = "open class A { public override fun marker() -> String { \"open\" } } \
+class A { public fun marker() -> String { \"origin\" } } A.new().marker()";
+    // The ordinary order still applies the transaction AFTER the origin's own
+    // members exist, so hoisting the origin must not reorder the reopen.
+    let origin_first = "class A { public fun marker() -> String { \"origin\" } } \
+open class A { public override fun marker() -> String { \"open\" } } A.new().marker()";
+    // A Class with no reopen is unaffected by the hoisting pass.
+    let plain = "class A { public fun m() -> Integer { 1 } } A.new().m()";
+
+    // When / Then
+    assert_eq!(rendered(open_first), "Text(\"open\")");
+    assert_eq!(rendered(origin_first), "Text(\"open\")");
+    assert_eq!(rendered(plain), "Integer(IntegerValue(1))");
+}

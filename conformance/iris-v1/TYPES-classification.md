@@ -4,8 +4,8 @@ This document classifies the committed `IRIS-V1-TYPES` vectors from the
 normative tables in `spec/iris-v1/05-types-contracts-generics.md`.
 
 **Coverage is partial.** The chapter contains 80 vector rows: 64 standard vector
-rows and 16 entries in the Type-normalization law tables. 63 are committed here;
-the remaining 17 are NOT yet transcribed and are therefore not covered by any
+rows and 16 entries in the Type-normalization law tables. 64 are committed here;
+the remaining 16 are NOT yet transcribed and are therefore not covered by any
 evidence in this repository.
 
 `executable` means the frozen row supplies a concrete source and a concrete
@@ -23,6 +23,7 @@ correctly fails each.
 | `V220` | negative | executable | `IRIS-V1-TYPES-C004` makes a written annotation a RUNTIME boundary guard, so `NonNil` rejects `nil` before the value is published. It was grouped under reflection by mistake: it never reads `.type`. |
 | `V258` | diagnostic | executable | `IRIS-V1-TYPES-C042` forbids a Method body in a Contract. The v1.16 errata makes the body PARSE, so it is reported as a static diagnostic rather than a parse error. |
 | `V204` | diagnostic | executable | `D-177` gives a Contract no revision to reopen, so `open` is consumed by the parser and rejected statically rather than as a parse error. |
+| `V205` | positive | executable | `D-178` resolves the ORIGIN before the open transaction, so an `open class A` may precede the `class A` it reopens. `C024` needs the `override` the row omits. |
 | `V248` | diagnostic | executable | `IRIS-V1-TYPES-C046` rejects an unmarked Class-provided implementation where an explicit `impl` is required. |
 | `V261` | diagnostic | executable | `D-279` makes Contract conformance a Class fact, so `module M for C` parses and is rejected statically. |
 | `V235` | diagnostic | executable | `IRIS-V1-TYPES-C063` makes `open class Box<String>` an error in v1; a parameter entry naming an existing Type is a closed construction. |
@@ -90,4 +91,3 @@ and are now transcribed, and the groups below record why the rest did not.
 | --- | --- | --- |
 | Generic Types in expression position | `V257` | The v1.17 errata (`IRIS-V1-GRAMMAR-C063`) added `closed_generic_name` to `primary_expr`, so `Box<String>.new()` now parses and `V245` closed. These rows each need a FURTHER capability: generic inference, Dynamic entry, Module generic arguments, or recursive alias detection. |
 | Metadata fixtures | `V200`-`V203`, `V206`-`V208`, `V214`, `V234`, `V239`-`V242`, `V260`, `V262` | The row supplies a PROSE metadata schedule, not source: opening a candidate, staging members, then forcing validation failure. This is the same out-of-band scheduling the RUNTIME chapter records as `no-fixture`. `V214` additionally needs a NESTED union inside an intersection: normalization currently FLATTENS `A & (B | C)` into three peers, so the compact form `V016` requires is not represented and reflection cannot report the two members the row names. `V016` passes regardless because an intersection and a union are distinct forms whatever their members. |
-| Open-class transaction ordering | `V205` | `V205` needs `D-178` declaration collection: an `open class A` may PRECEDE the `class A` it reopens, which requires the origin to be resolved before the open transaction runs. A reopen no longer collides in the qualified namespace, but deferring the transaction to a second pass broke the ordinary `class` then `open class` order, so the ordering itself is unimplemented. |

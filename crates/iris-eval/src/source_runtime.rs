@@ -62,6 +62,8 @@ pub(super) struct SourceEvaluator {
     /// `IRIS-V1-CONTROL-C013` makes `$name` a DECLARED cell: a missing one is
     /// an error rather than a fresh binding, so reads consult this map.
     globals: HashMap<String, Binding>,
+    /// Origin Class names already declared by the D-178 hoisting pass.
+    hoisted_origins: Vec<String>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
     ///
     /// `IRIS-V1-RUNTIME-C065` makes stored-property storage TYPED, and `C161`
@@ -185,6 +187,7 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             globals: HashMap::new(),
+            hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
             shared_class_properties: HashMap::new(),
@@ -221,9 +224,39 @@ impl SourceEvaluator {
 
     pub(super) fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
         let mut values = Vec::new();
+        // D-178: declaration collection resolves the ORIGIN before the open
+        // transaction, so an `open class A` may PRECEDE the `class A` it
+        // reopens. Only the origin is hoisted; the reopen still runs at its own
+        // position, which keeps the ordinary `class` then `open class` order
+        // applying the transaction after the origin's members exist.
+        let mut seen_reopen: Vec<&str> = Vec::new();
+        for entry in &program.entries {
+            let ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) = entry else {
+                continue;
+            };
+            if class.reopen {
+                seen_reopen.push(&class.name);
+            } else if seen_reopen.contains(&class.name.as_str()) {
+                // A reopen of this name came FIRST, so the origin is resolved
+                // now and its own position is skipped below.
+                self.class(class)?;
+                self.hoisted_origins.push(class.name.clone());
+            }
+        }
         for entry in &program.entries {
             match entry {
                 ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) => {
+                    // An origin already run in the hoisting pass is not declared
+                    // a second time.
+                    if !class.reopen
+                        && let Some(position) = self
+                            .hoisted_origins
+                            .iter()
+                            .position(|name| *name == class.name)
+                    {
+                        self.hoisted_origins.remove(position);
+                        continue;
+                    }
                     self.class(class)?;
                 }
                 ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
