@@ -185,6 +185,20 @@ pub(super) struct SourceEvaluator {
     /// send to `main`, so a private top-level helper is reachable from the
     /// Module body while an importer is still denied.
     module_body_main: Option<ClassId>,
+    /// The Class a programmatic `Class#open` transaction is targeting.
+    ///
+    /// `IRIS-V1-META-C023` makes a structural meta message sent to the target
+    /// reach the CURRENT candidate, so the block needs to know which target is
+    /// open rather than inferring it from the receiver alone.
+    open_target: Option<ClassId>,
+    /// The Classes declared with type parameters.
+    ///
+    /// `IRIS-V1-META-C033` forbids programmatic open from targeting a Contract
+    /// or a closed generic Class, and v1 interns ONE Class per generic
+    /// definition, so the definition itself is what must be refused. Reading
+    /// this from the generic BOUNDS was wrong: those are recorded only when the
+    /// declaration wrote a `where` clause.
+    generic_definitions: Vec<ClassId>,
     active_exception: Option<Value>,
     active_context: Option<Value>,
     next_selector: u64,
@@ -284,6 +298,8 @@ impl SourceEvaluator {
             lexical_class: None,
             current_method: None,
             module_body_main: None,
+            open_target: None,
+            generic_definitions: Vec::new(),
             active_exception: None,
             active_context: None,
             next_selector: 1_000,
@@ -539,6 +555,11 @@ impl SourceEvaluator {
                 );
             }
             self.class_contracts.insert(class, conformances);
+            // C033 refuses a programmatic open on a generic definition, so the
+            // definition is recorded whether or not it wrote a `where` clause.
+            if !declaration.parameters.is_empty() {
+                self.generic_definitions.push(class);
+            }
             // C067 validates every normalized `where` constraint at closed
             // generic materialization, so the bounds are recorded against the
             // declaration name the construction will use.
@@ -1115,6 +1136,108 @@ impl SourceEvaluator {
             .ok()
             .map(Value::BoundMethod)
             .or(Some(Value::Method(method)))
+    }
+
+    /// Runs a programmatic `Class#open` transaction.
+    ///
+    /// `IRIS-V1-META-C033` makes programmatic open the same transaction model
+    /// the declarative `open class` uses, and accepts an alias, a reflection
+    /// result, or a dynamically selected Class. `IRIS-V1-META-C034` commits on
+    /// normal completion and rolls back the candidate on exception, validation
+    /// error or capability denial.
+    ///
+    /// The block receives the target's stable logical identity, so structural
+    /// meta messages sent to it reach the current candidate under
+    /// `IRIS-V1-META-C023`.
+    fn programmatic_open(
+        &mut self,
+        class: ClassId,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let [Value::Closure(block)] = arguments else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        // C033 forbids targeting a Contract or a closed generic Class, so a
+        // generic definition is refused rather than opened per construction.
+        if self.generic_definitions.contains(&class) {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
+        let block = *block;
+        self.runtime
+            .registry_mut()
+            .begin_transaction(class)
+            .map_err(EvaluationError::Class)?;
+        let previous = self.open_target.replace(class);
+        let outcome = self
+            .invoke_closure(block, &[Value::Class(class)])
+            // C022 validates the COMPLETE candidate before publishing, so the
+            // same Contract check the declarative form runs applies here.
+            .and_then(|value| self.validate_candidate_contracts(class).map(|()| value));
+        self.open_target = previous;
+        match outcome {
+            Ok(value) => {
+                self.runtime
+                    .registry_mut()
+                    .commit_transaction(class)
+                    .map_err(EvaluationError::Class)?;
+                Ok(value)
+            }
+            Err(error) => {
+                self.runtime.registry_mut().roll_back_transaction(class);
+                Err(error)
+            }
+        }
+    }
+
+    /// Defines a Method on a Class through the `define_method` meta message.
+    ///
+    /// `IRIS-V1-META-C023` makes this reach the CURRENT transaction candidate,
+    /// so inside a `Class#open` block the Method joins that candidate and
+    /// publishes with it. Outside one it is an ordinary structural change and
+    /// publishes its own revision, which is the pre-existing reflective
+    /// behaviour for a standalone call.
+    ///
+    /// `IRIS-V1-META-C026` keeps the Method from closing over the block's
+    /// locals: the Closure body becomes an ordinary Method body rather than a
+    /// capturing Closure.
+    fn meta_define_method(
+        &mut self,
+        class: ClassId,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let [Value::Symbol(name), Value::Closure(block)] = arguments else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        // Only the shape of the Closure is needed: C026 keeps the defined
+        // Method from closing over the block's captures, so the captured
+        // environment is deliberately NOT carried over.
+        let (parameters, body) = self
+            .closures
+            .get(block)
+            .map(|record| (record.parameters.clone(), record.body.clone()))
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let declaration = MethodDeclaration {
+            decorators: Vec::new(),
+            impl_contract: None,
+            kind: MethodKind::Instance,
+            selector: name.clone(),
+            type_parameters: Vec::new(),
+            parameters: parameters
+                .iter()
+                .map(|parameter| iris_syntax::Parameter {
+                    name: parameter.clone(),
+                    category: iris_syntax::ParameterCategory::Positional,
+                    annotation: None,
+                    default: None,
+                })
+                .collect(),
+            return_type: None,
+            visibility: iris_syntax::Visibility::Public,
+            body: Some(body),
+            is_override: false,
+        };
+        self.class_method(class, false, false, &declaration)?;
+        Ok(Value::Nil)
     }
 
     /// Reports whether a Class declares a class-level stored property.
@@ -3488,6 +3611,16 @@ impl SourceEvaluator {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.set_superclass(class, *superclass)
+            }
+            // C033 makes programmatic `Class#open` the same transaction model
+            // the declarative `open class` uses, and C034 commits on normal
+            // completion and rolls back the candidate on any failure.
+            Value::Class(class) if selector == "open" => self.programmatic_open(class, arguments),
+            // C023 makes `define_method` sent to the target a STRUCTURAL meta
+            // message that reaches the current transaction candidate rather
+            // than mutating the published active revision directly.
+            Value::Class(class) if selector == "define_method" => {
+                self.meta_define_method(class, arguments)
             }
             Value::Class(class) if selector == "ancestors" => self.ancestors(class),
             // IRIS-V1-TYPES-C076: a Class exposes `.type` metadata, and the Type

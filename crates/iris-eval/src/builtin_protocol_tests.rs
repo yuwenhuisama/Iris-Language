@@ -2759,3 +2759,49 @@ fn c012_sends_a_bare_call_to_the_executing_module() {
     assert_eq!(rendered(called), "Integer(IntegerValue(8))");
     assert!(rendered(read).starts_with("BoundMethod"));
 }
+
+#[test]
+fn c033_and_c034_run_a_programmatic_open_transaction() {
+    // IRIS-V1-META-C033 makes programmatic `Class#open` the same transaction
+    // model the declarative `open class` uses, and C034 commits on normal
+    // completion and rolls the candidate back on failure. Neither `Class#open`
+    // nor `define_method` existed, so seven TYPES rows and most of chapter 08's
+    // open-transaction rows had no way to be driven at all.
+    let defined = "class A {} A.open() { |t| t.define_method(:extra) { 9 } }; A.new().extra()";
+    let parameters = "class A {} A.open() { |t| t.define_method(:add) { |x| x + 1 } }; \
+                      A.new().add(1)";
+    // C033 forbids targeting a closed generic Class, and v1 interns one Class
+    // per generic definition, so the definition itself is refused.
+    let generic = "class Box<T> {} Box.open() { |t| 1 }";
+    let closed = "class Box<T> {} Box<String>.open() { |t| 1 }";
+
+    // When / Then: the block's own value is reported, after the `define_method`
+    // statement's nil.
+    assert_eq!(rendered(defined), "Array([Nil, Integer(IntegerValue(9))])");
+    assert_eq!(
+        rendered(parameters),
+        "Array([Nil, Integer(IntegerValue(2))])"
+    );
+    assert_eq!(rendered(generic), "UnsupportedConstruct");
+    assert_eq!(rendered(closed), "UnsupportedConstruct");
+}
+
+#[test]
+fn c034_rolls_back_a_failed_programmatic_open() {
+    // C034 rolls back every candidate on exception, and C022 publishes NOTHING
+    // from a failed candidate, so a Method staged before the failure must be
+    // absent from the published revision.
+    let fails = "class A { public fun base() { 0 } } \
+                 A.open() { |t| t.define_method(:extra) { 9 } raise :boom }";
+    let succeeds = "class A { public fun base() { 0 } } \
+                    A.open() { |t| t.define_method(:extra) { 9 } }";
+
+    // When
+    let (failed, leaked) = crate::evaluate_with_member_probe(fails, "A", "extra");
+    let (_, published) = crate::evaluate_with_member_probe(succeeds, "A", "extra");
+
+    // Then
+    assert!(failed.is_err());
+    assert!(!leaked);
+    assert!(published);
+}
