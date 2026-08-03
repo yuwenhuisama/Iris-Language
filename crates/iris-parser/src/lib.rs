@@ -537,6 +537,14 @@ impl Parser {
             Some("contract") => self
                 .contract_declaration(Vec::new())
                 .map(|value| Box::new(iris_syntax::Declaration::Contract(value))),
+            // `export_decl ::= "export" (declaration | ...)` and `declaration`
+            // derives `import_decl`, so `export import pkg::M` and
+            // `export from pkg::M import Name` are the facade re-export forms
+            // IRIS-V1-META-C015 names. Only the three declaration keywords were
+            // accepted, so both spellings failed to parse.
+            Some("import") | Some("from") => self
+                .import_declaration()
+                .map(|value| Box::new(iris_syntax::Declaration::Import(value))),
             _ => None,
         };
         if let Some(declaration) = declaration {
@@ -1940,6 +1948,35 @@ mod import_wildcard_tests {
 
         // A named import is unaffected.
         assert!(codes("import org.dep::Core as C").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod export_facade_tests {
+    use crate::parse;
+
+    fn accepted(source: &str) -> bool {
+        parse(source).program_accepted
+    }
+
+    #[test]
+    fn c015_admits_the_two_facade_re_export_forms() {
+        // `export_decl ::= "export" (declaration | ...)` and `declaration`
+        // derives `import_decl`, so IRIS-V1-META-C015's re-export spellings
+        // `export import` and `export from` are already in the grammar. Only
+        // the three declaration keywords were accepted, so both failed to
+        // parse and every facade row was unreachable.
+        assert!(accepted("export import org.dep::Core"));
+        assert!(accepted("export from org.dep::Core import Name"));
+        assert!(accepted(
+            "export from org.dep::Core import Name, Other as Alias"
+        ));
+
+        // The wrapped-declaration and name-list forms still parse.
+        assert!(accepted(
+            "export module M { public fun f() -> Integer { 1 } }"
+        ));
+        assert!(accepted("class A { } export A"));
     }
 }
 
