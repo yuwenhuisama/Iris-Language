@@ -2566,3 +2566,49 @@ fn d432_orders_unqualified_resolution_across_three_tiers() {
     );
     assert_eq!(rendered(aliased), "Integer(IntegerValue(5))");
 }
+
+#[test]
+fn c022_publishes_nothing_from_a_failed_class_body_transaction() {
+    // IRIS-V1-META-C022 makes a Class or open body an executable construction
+    // transaction over a CANDIDATE: success validates the complete candidate
+    // and publishes atomically, failure publishes NOTHING from it. Every
+    // structural operation used to open and publish its own revision, so a
+    // body failing halfway had already published its earlier members.
+    let staged = |source: &str, selector: &str| {
+        let (outcome, published) = crate::evaluate_with_member_probe(source, "A", selector);
+        (outcome.is_err(), published)
+    };
+    // An open body whose LATER member fails must not leave `ok` published.
+    let open_fails = "class A { public fun base() { 0 } } \
+                      open class A { public fun ok() { 9 } public override fun nope() { 1 } }";
+    // An origin body failing halfway must not leave its earlier member either.
+    let origin_fails = "class A { public fun ok() { 9 } public fun bad() { 1 } \
+                        public fun bad() { 2 } }";
+    // A succeeding open publishes what it staged.
+    let open_succeeds = "class A { public fun base() { 0 } } \
+                         open class A { public fun ok() { 9 } }";
+
+    // When / Then
+    assert_eq!(staged(open_fails, "ok"), (true, false));
+    assert_eq!(staged(origin_fails, "ok"), (true, false));
+    assert_eq!(staged(open_succeeds, "ok"), (true, true));
+}
+
+#[test]
+fn v206_validates_a_candidate_against_its_declared_contracts() {
+    // C022 validates the COMPLETE candidate before publishing, and
+    // IRIS-V1-TYPES-C006 reports a Contract failure as `TypeContractError`. An
+    // open that breaks a declared Contract used to fail as an unsupported
+    // construct AFTER publishing the member staged before it.
+    let incompatible = "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+                        open class A { public fun m() { 9 } \
+                        public override fun draw(a, b) { 2 } } A.new().m()";
+    // The same body with a COMPATIBLE replacement commits, and `m` is callable.
+    let compatible = "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+                      open class A { public fun m() { 9 } \
+                      public override fun draw() { 2 } } A.new().m()";
+
+    // When / Then
+    assert_eq!(rendered(incompatible), "TypeContractError");
+    assert_eq!(rendered(compatible), "Integer(IntegerValue(9))");
+}

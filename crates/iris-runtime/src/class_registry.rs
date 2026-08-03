@@ -118,6 +118,14 @@ pub struct ClassRegistry {
     pub(crate) next_method_id: u64,
     pub(crate) next_bound_method_id: u64,
     pub(crate) builtins: HashMap<ClassId, BuiltinClass>,
+    /// The candidate each target accumulates into during an open transaction.
+    ///
+    /// `IRIS-V1-META-C034` mutates ONE implicit candidate per target for the
+    /// current transaction group, and `IRIS-V1-META-C022` publishes the whole
+    /// candidate atomically on success and nothing at all on failure. Without
+    /// this, every structural operation opened and published its own candidate,
+    /// so a body that failed halfway had already published its earlier members.
+    pub(crate) staged: HashMap<ClassId, CandidateRevision>,
 }
 
 impl ClassRegistry {
@@ -382,6 +390,91 @@ impl ClassRegistry {
         }
     }
 
+    /// Begins staging structural changes for `class` in a transaction.
+    ///
+    /// `IRIS-V1-META-C038` makes a nested open REUSE the target's existing
+    /// candidate rather than starting a second one, so an already staged target
+    /// is left alone.
+    pub fn begin_transaction(&mut self, class: ClassId) -> Result<(), ClassError> {
+        if !self.staged.contains_key(&class) {
+            let candidate = self.open(class)?;
+            self.staged.insert(class, candidate);
+        }
+        Ok(())
+    }
+
+    /// Publishes the candidate staged for `class`, if any.
+    ///
+    /// `IRIS-V1-META-C022` validates the COMPLETE candidate and publishes it
+    /// atomically, so this is the single commit point for a body.
+    pub fn commit_transaction(&mut self, class: ClassId) -> Result<(), ClassError> {
+        if let Some(candidate) = self.staged.remove(&class) {
+            self.publish(candidate)?;
+        }
+        Ok(())
+    }
+
+    /// Discards the candidate staged for `class`, publishing nothing.
+    ///
+    /// `IRIS-V1-META-C034` rolls the candidate back on exception, validation
+    /// error or capability denial, and `C022` publishes NOTHING from a failed
+    /// candidate.
+    pub fn roll_back_transaction(&mut self, class: ClassId) {
+        self.staged.remove(&class);
+    }
+
+    /// Reports whether a staged candidate already holds `selector`.
+    ///
+    /// `IRIS-V1-META-C035` lets the open block read its OWN candidate metadata
+    /// after writes, so a Method staged earlier in the same body is visible to
+    /// the rest of that body even though nothing is published yet.
+    pub fn staged_has_method(&self, class: ClassId, selector: crate::Selector) -> bool {
+        self.staged
+            .get(&class)
+            .is_some_and(|candidate| candidate.methods.contains_key(&selector))
+    }
+
+    /// The Method identity staged for `selector`, if the target is staging one.
+    ///
+    /// `IRIS-V1-META-C035` lets a transaction read its own candidate metadata
+    /// after writes, which is what validating a candidate before commit needs.
+    pub fn staged_method(
+        &self,
+        class: ClassId,
+        selector: crate::Selector,
+    ) -> Option<crate::MethodId> {
+        self.staged
+            .get(&class)
+            .and_then(|candidate| candidate.methods.get(&selector).copied())
+    }
+
+    /// Reports whether `class` is currently staging a candidate.
+    pub fn is_staging(&self, class: ClassId) -> bool {
+        self.staged.contains_key(&class)
+    }
+
+    /// Applies one structural change to `class`, honouring an open transaction.
+    ///
+    /// `IRIS-V1-META-C034` mutates ONE implicit candidate per target for the
+    /// duration of a transaction, so a staged target ACCUMULATES the change and
+    /// publishes nothing here. Outside a transaction the change is its own
+    /// candidate and publishes immediately, which is the pre-existing
+    /// behaviour for a standalone reflective call.
+    pub(crate) fn mutate_candidate(
+        &mut self,
+        class: ClassId,
+        change: impl FnOnce(&mut CandidateRevision),
+    ) -> Result<(), ClassError> {
+        if let Some(candidate) = self.staged.get_mut(&class) {
+            change(candidate);
+            return Ok(());
+        }
+        let mut candidate = self.open(class)?;
+        change(&mut candidate);
+        self.publish(candidate)?;
+        Ok(())
+    }
+
     /// Opens a candidate from the Class's sole active revision.
     pub fn open(&self, class: ClassId) -> Result<CandidateRevision, ClassError> {
         CandidateRevision::from_revision(self.active(class)?)
@@ -402,6 +495,23 @@ impl ClassRegistry {
     ) -> Result<ClassRevision, ClassError> {
         candidate.stage_decorators(decorators);
         self.publish(candidate)
+    }
+
+    /// Stages declaration decorators, honouring an open transaction.
+    ///
+    /// `IRIS-V1-META-C034` mutates one candidate per target for the duration of
+    /// a transaction, so decorators declared on a Class join that candidate
+    /// rather than publishing a revision of their own and leaving the staged
+    /// candidate stale.
+    pub fn stage_decorators(
+        &mut self,
+        class: ClassId,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+    ) -> Result<(), ClassError> {
+        let decorators: Vec<_> = decorators.into_iter().collect();
+        self.mutate_candidate(class, move |candidate| {
+            candidate.stage_decorators(decorators);
+        })
     }
 
     /// Rebuilds a candidate from a retained artifact and publishes new history.

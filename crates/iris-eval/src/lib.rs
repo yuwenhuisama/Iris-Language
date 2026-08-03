@@ -236,6 +236,30 @@ pub fn evaluate_with_class_publication(
     (outcome, published)
 }
 
+/// Evaluates source and reports whether a named Class responds to a selector.
+///
+/// `IRIS-V1-META-C022` publishes NOTHING from a failed candidate. A failure
+/// halts the program, so a member the failed transaction staged cannot be read
+/// from Iris source afterwards; this observes the published revision directly.
+pub fn evaluate_with_member_probe(
+    source: &str,
+    class_name: &str,
+    selector: &str,
+) -> (Result<RuntimeValue, EvaluationError>, bool) {
+    let parsed = parse(source);
+    if !parsed.program_accepted {
+        return (Err(EvaluationError::ParseDiagnostic), false);
+    }
+    let mut evaluator =
+        match source_runtime::SourceEvaluator::new_in_package(source_runtime::LOCAL_PACKAGE) {
+            Ok(evaluator) => evaluator,
+            Err(error) => return (Err(error), false),
+        };
+    let outcome = evaluator.program(&parsed.program);
+    let responds = evaluator.class_responds_to(class_name, selector);
+    (outcome, responds)
+}
+
 struct Evaluator {
     kernel: Kernel,
     registry: iris_runtime::ClassRegistry,

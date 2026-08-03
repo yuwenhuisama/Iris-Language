@@ -85,9 +85,9 @@ impl crate::ClassRegistry {
             body,
             visibility,
         );
-        let mut candidate = self.open(class)?;
-        candidate.replace_method(selector, method.id());
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.replace_method(selector, method.id());
+        })?;
         self.methods.insert(method.id(), method);
         Ok(method)
     }
@@ -150,7 +150,14 @@ impl crate::ClassRegistry {
         body: MethodBody,
         visibility: Visibility,
     ) -> Result<Method, ClassError> {
-        let capability = if self.active(class)?.methods().contains_key(&selector) {
+        // C035 lets the transaction read its OWN candidate metadata after
+        // writes, so replacing a Method staged earlier in the same body is a
+        // body change rather than a new slot.
+        let present = match self.staged.get(&class) {
+            Some(candidate) => candidate.methods.contains_key(&selector),
+            None => self.active(class)?.methods().contains_key(&selector),
+        };
+        let capability = if present {
             crate::Capability::MethodBody
         } else {
             crate::Capability::MethodSet
@@ -163,9 +170,9 @@ impl crate::ClassRegistry {
             body,
             visibility,
         );
-        let mut candidate = self.open(class)?;
-        candidate.replace_method(selector, method.id());
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.replace_method(selector, method.id());
+        })?;
         self.methods.insert(method.id(), method);
         Ok(method)
     }
@@ -179,9 +186,9 @@ impl crate::ClassRegistry {
     ) -> Result<(), ClassError> {
         self.require_meta_capability(class, crate::Capability::MethodSet)?;
         let method = self.resolve_local_or_ancestor_method(class, original)?;
-        let mut candidate = self.open(class)?;
-        candidate.replace_method(alias, method.id());
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.replace_method(alias, method.id());
+        })?;
         Ok(())
     }
 
@@ -215,18 +222,18 @@ impl crate::ClassRegistry {
     /// Removes only the current owner's local slot, allowing ancestors to resolve it.
     pub fn remove_method(&mut self, class: ClassId, selector: Selector) -> Result<(), ClassError> {
         self.require_meta_capability(class, crate::Capability::MethodSet)?;
-        let mut candidate = self.open(class)?;
-        candidate.remove_method(selector);
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.remove_method(selector);
+        })?;
         Ok(())
     }
 
     /// Installs a local tombstone that makes the selector absent despite ancestors.
     pub fn undef_method(&mut self, class: ClassId, selector: Selector) -> Result<(), ClassError> {
         self.require_meta_capability(class, crate::Capability::MethodSet)?;
-        let mut candidate = self.open(class)?;
-        candidate.undef_method(selector);
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.undef_method(selector);
+        })?;
         Ok(())
     }
 
@@ -245,9 +252,9 @@ impl crate::ClassRegistry {
             body,
             visibility,
         );
-        let mut candidate = self.open(class)?;
-        candidate.replace_singleton_method(selector, method.id());
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.replace_singleton_method(selector, method.id());
+        })?;
         self.methods.insert(method.id(), method);
         Ok(method)
     }
@@ -274,10 +281,10 @@ impl crate::ClassRegistry {
             body,
             visibility,
         );
-        let mut candidate = self.open(class)?;
-        candidate.stage_decorators(decorators);
-        candidate.replace_method(selector, method.id());
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.stage_decorators(decorators);
+            candidate.replace_method(selector, method.id());
+        })?;
         self.methods.insert(method.id(), method);
         Ok(method)
     }
@@ -300,9 +307,9 @@ impl crate::ClassRegistry {
             crate::Capability::PropertySet
         };
         self.require_meta_capability(class, capability)?;
-        let mut candidate = self.open(class)?;
-        candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
+        })?;
         Ok(())
     }
 
@@ -325,10 +332,10 @@ impl crate::ClassRegistry {
             crate::Capability::PropertySet
         };
         self.require_meta_capability(class, capability)?;
-        let mut candidate = self.open(class)?;
-        candidate.stage_decorators(decorators);
-        candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
-        self.publish(candidate)?;
+        self.mutate_candidate(class, |candidate| {
+            candidate.stage_decorators(decorators);
+            candidate.add_stored_property(crate::StoredProperty::new(selector, initializer));
+        })?;
         Ok(())
     }
 
@@ -339,13 +346,23 @@ impl crate::ClassRegistry {
         name: Selector,
         mutable: bool,
     ) -> Result<(), ClassError> {
-        let mut candidate = self.open(class)?;
-        if candidate.class_vars.contains(&name) {
+        // C035 lets the transaction read its own candidate after writes, so a
+        // duplicate is detected against the staged candidate when one is open.
+        let duplicate = match self.staged.get(&class) {
+            Some(candidate) => candidate.class_vars.contains(&name),
+            None => self.open(class)?.class_vars.contains(&name),
+        };
+        if duplicate {
             return Err(ClassError::DuplicateClassVariable { class, name });
         }
-        candidate.add_class_var(name, mutable);
-        self.publish(candidate)?;
-        Ok(())
+        self.mutate_candidate(class, |candidate| {
+            candidate.add_class_var(name, mutable);
+        })
+    }
+
+    /// The Method with this identity, if the registry holds one.
+    pub fn method_by_id(&self, id: MethodId) -> Option<Method> {
+        self.methods.get(&id).copied()
     }
 
     pub(crate) fn method(&self, id: MethodId) -> Option<Method> {

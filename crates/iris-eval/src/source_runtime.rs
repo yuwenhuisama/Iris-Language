@@ -123,6 +123,13 @@ pub(super) struct SourceEvaluator {
     /// Contract actually requires rather than treating any same-name Method as
     /// an accidental implementation.
     contract_requirements: HashMap<iris_runtime::ContractId, Vec<String>>,
+    /// The parameter count each Contract requirement declares.
+    ///
+    /// `IRIS-V1-META-C022` validates the COMPLETE candidate before publishing,
+    /// so an open transaction that would leave a declared Contract unsatisfied
+    /// must be rejected at commit. Comparing arity needs the requirement's own
+    /// arity, which the requirement NAMES alone do not carry.
+    contract_requirement_arities: HashMap<(iris_runtime::ContractId, String), usize>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
     /// Each generic Class name paired with its parameters and `where` bounds.
     ///
@@ -243,6 +250,7 @@ impl SourceEvaluator {
             next_closure: 900_000,
             contract_names: HashMap::new(),
             contract_requirements: HashMap::new(),
+            contract_requirement_arities: HashMap::new(),
             class_contracts: HashMap::new(),
             generic_bounds: HashMap::new(),
             qualified_methods: HashMap::new(),
@@ -537,7 +545,39 @@ impl SourceEvaluator {
             class
         };
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
-        let outcome = self.class_body(class, builtin, declaration);
+        // C022 makes a Class body an executable construction transaction over a
+        // CANDIDATE: success validates the complete candidate and publishes
+        // atomically, failure publishes NOTHING from it. Each structural
+        // operation used to publish its own revision, so a body that failed
+        // halfway had already published its earlier members.
+        //
+        // A builtin reopen is excluded: its target is a kernel Class whose
+        // members are installed outside this transaction model.
+        let transactional = !builtin;
+        if transactional {
+            self.runtime
+                .registry_mut()
+                .begin_transaction(class)
+                .map_err(EvaluationError::Class)?;
+        }
+        let outcome = self
+            .class_body(class, builtin, declaration)
+            // C022 validates the COMPLETE candidate before publishing, so a
+            // body that would leave a declared Contract unsatisfied fails as a
+            // transaction rather than committing and being caught later.
+            .and_then(|()| self.validate_candidate_contracts(class));
+        if transactional {
+            match &outcome {
+                Ok(()) => self
+                    .runtime
+                    .registry_mut()
+                    .commit_transaction(class)
+                    .map_err(EvaluationError::Class)?,
+                // C034 rolls the candidate back on exception, validation error
+                // or capability denial and publishes nothing.
+                Err(_) => self.runtime.registry_mut().roll_back_transaction(class),
+            }
+        }
         if outcome.is_err() && !declaration.reopen {
             // IRIS-V1-RUNTIME-C024 requires a rejected declaration to publish no
             // Class. The name is bound before the body is validated, so an origin
@@ -748,6 +788,14 @@ impl SourceEvaluator {
         kind: MethodKind,
         selector: Selector,
     ) -> Result<bool, EvaluationError> {
+        // C035 lets a body read its OWN candidate after writes, so a Method
+        // staged earlier in the same body counts as being replaced even though
+        // the transaction has published nothing yet.
+        if matches!(kind, MethodKind::Instance | MethodKind::Property)
+            && self.runtime.registry().staged_has_method(class, selector)
+        {
+            return Ok(true);
+        }
         let result = match (builtin, kind) {
             (true, MethodKind::Class) => self
                 .runtime
@@ -783,6 +831,76 @@ impl SourceEvaluator {
     pub(super) fn enter_package(&mut self, package: &str, source: &str) {
         self.package = package.to_owned();
         self.source = source.to_owned();
+    }
+
+    /// Reports whether the published revision of a named Class holds a slot.
+    ///
+    /// `IRIS-V1-META-C022` publishes nothing from a failed candidate, so a
+    /// member staged by a failed body must NOT be dispatchable afterwards.
+    pub(super) fn class_responds_to(&mut self, name: &str, selector: &str) -> bool {
+        let Ok(Some(class)) = self.class_name(name) else {
+            return false;
+        };
+        let selector = self.selector(selector);
+        // The published REVISION is what a failed transaction must not have
+        // touched. A dispatch probe would answer true through `method_missing`
+        // for any name at all, so it cannot tell a leak from an absence.
+        self.runtime
+            .registry()
+            .active(class)
+            .is_ok_and(|revision| revision.methods().contains_key(&selector))
+    }
+
+    /// Validates a candidate against every Contract its Class declares.
+    ///
+    /// `IRIS-V1-META-C022` validates the complete candidate and publishes
+    /// nothing on failure, and `IRIS-V1-TYPES-C006` reports a Contract failure
+    /// as `TypeContractError`. A member staged earlier in the same body is
+    /// therefore discarded along with the one that broke the Contract, which is
+    /// what `IRIS-V1-TYPES-V206` observes.
+    fn validate_candidate_contracts(&mut self, class: ClassId) -> Result<(), EvaluationError> {
+        let Some(contracts) = self.class_contracts.get(&class).cloned() else {
+            return Ok(());
+        };
+        for contract in contracts {
+            let Some(requirements) = self.contract_requirements.get(&contract).cloned() else {
+                continue;
+            };
+            for requirement in requirements {
+                let Some(required) = self
+                    .contract_requirement_arities
+                    .get(&(contract, requirement.clone()))
+                    .copied()
+                else {
+                    continue;
+                };
+                let selector = self.selector(&requirement);
+                let Some(arity) = self.candidate_method_arity(class, selector) else {
+                    continue;
+                };
+                if arity != required {
+                    return Err(EvaluationError::TypeContractError);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The parameter count of a Method staged or published for `class`.
+    fn candidate_method_arity(&self, class: ClassId, selector: Selector) -> Option<usize> {
+        let registry = self.runtime.registry();
+        let method = registry.staged_method(class, selector).or_else(|| {
+            registry
+                .active(class)
+                .ok()?
+                .methods()
+                .get(&selector)
+                .copied()
+        })?;
+        let method = registry.method_by_id(method)?;
+        self.bodies
+            .get(&method.body().raw())
+            .map(|body| body.parameters.len())
     }
 
     /// Reports whether a Class declares a class-level stored property.
@@ -1017,15 +1135,13 @@ impl SourceEvaluator {
         if decorators.is_empty() {
             return Ok(());
         }
-        let candidate = self
-            .runtime
-            .registry_mut()
-            .open(class)
-            .map_err(EvaluationError::Class)?;
         let transforms = self.decorator_transforms(decorators);
+        // C034 keeps one candidate per target for the transaction, so class
+        // decorators join it rather than publishing their own revision and
+        // leaving the body's staged candidate stale.
         self.runtime
             .registry_mut()
-            .publish_decorated(candidate, transforms)
+            .stage_decorators(class, transforms)
             .map_err(EvaluationError::Class)?;
         Ok(())
     }
@@ -1085,6 +1201,14 @@ impl SourceEvaluator {
                 _ => None,
             })
             .collect();
+        for statement in &declaration.body {
+            if let Statement::Method(method) = statement
+                && method.body.is_none()
+            {
+                self.contract_requirement_arities
+                    .insert((contract, method.selector.clone()), method.parameters.len());
+            }
+        }
         self.contract_requirements.insert(contract, requirements);
         self.names.insert(
             declaration.name.clone(),
