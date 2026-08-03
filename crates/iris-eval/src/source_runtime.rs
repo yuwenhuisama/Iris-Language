@@ -85,6 +85,16 @@ pub(super) struct SourceEvaluator {
     /// construction. `IRIS-V1-TYPES-V238` observes that access as a missing
     /// message rather than as a second slot.
     shared_class_properties: HashMap<ClassId, Vec<String>>,
+    /// Deferred per-closed class-property initializers for a generic Class.
+    ///
+    /// `IRIS-V1-TYPES-C066` runs a per-closed class property initializer once
+    /// when the CLOSED Class is first materialized, not once at the generic
+    /// declaration. The initializer is therefore held until a construction
+    /// requests it, and `materialized_constructions` records which closed
+    /// constructions already ran so a repeat request does not rerun it.
+    pending_class_properties: HashMap<ClassId, Vec<(String, Expression)>>,
+    /// The closed constructions whose per-closed initializers already ran.
+    materialized_constructions: std::collections::HashSet<(ClassId, Vec<ClassId>)>,
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
@@ -201,6 +211,8 @@ impl SourceEvaluator {
             contract_parents: HashMap::new(),
             next_contract: 0,
             module_names: HashMap::new(),
+            pending_class_properties: HashMap::new(),
+            materialized_constructions: std::collections::HashSet::new(),
             module_classes: HashMap::new(),
             module_mains: HashMap::new(),
             source: String::new(),
@@ -514,11 +526,23 @@ impl SourceEvaluator {
                                 .or_default()
                                 .push(name.clone());
                         }
-                        // C064 puts class-level storage on the CLASS OBJECT, so
-                        // its accessors are singleton Methods and its slot is a
-                        // Class raw ivar. Installing it as an instance property
-                        // left `A.n` unresolvable and reading it answered nil.
-                        self.class_level_property(class, name, initializer.clone())?;
+                        // C066 runs a PER-CLOSED initializer once when the
+                        // closed Class is first materialized, so a generic
+                        // definition's ordinary class property is held rather
+                        // than evaluated here. A `shared` property belongs to
+                        // the unapplied definition and still runs now.
+                        if !*shared && !declaration.parameters.is_empty() {
+                            self.pending_class_properties
+                                .entry(class)
+                                .or_default()
+                                .push((name.clone(), initializer.clone()));
+                            self.class_level_properties.entry(class).or_default();
+                        } else {
+                            // C064 puts class-level storage on the CLASS OBJECT,
+                            // so its accessors are singleton Methods and its
+                            // slot is a Class raw ivar.
+                            self.class_level_property(class, name, initializer.clone())?;
+                        }
                     } else {
                         self.stored_property(
                             class,
@@ -732,6 +756,75 @@ impl SourceEvaluator {
             .entry(class)
             .or_default()
             .push(slot);
+        Ok(())
+    }
+
+    /// Runs the per-closed class property initializers for one construction.
+    ///
+    /// `IRIS-V1-TYPES-C066` runs each per-closed initializer ONCE when the
+    /// closed Class is first materialized, inside that creation transaction.
+    /// A repeat request for an already materialized construction reuses it and
+    /// reruns nothing, which is what `IRIS-V1-TYPES-V240` observes.
+    ///
+    /// A failed materialization publishes NOTHING for that construction: the
+    /// slots this call wrote are removed and the construction is not recorded,
+    /// so a later request retries and reruns the initializers. External side
+    /// effects the initializer already performed are NOT undone, which is what
+    /// `IRIS-V1-TYPES-V241` observes.
+    fn materialize_closed(
+        &mut self,
+        class: ClassId,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<(), EvaluationError> {
+        let Some(pending) = self.pending_class_properties.get(&class).cloned() else {
+            return Ok(());
+        };
+        let mut normalized = Vec::new();
+        for argument in arguments {
+            let iris_syntax::TypeExpression::Name(argument) = argument else {
+                return Ok(());
+            };
+            normalized.push(
+                self.class_name(argument)?
+                    .ok_or(EvaluationError::NameError)?,
+            );
+        }
+        if !self
+            .materialized_constructions
+            .insert((class, normalized.clone()))
+        {
+            return Ok(());
+        }
+        let mut suffix = String::new();
+        for argument in &normalized {
+            suffix.push_str(&format!("<{}>", argument.raw()));
+        }
+        let mut written = Vec::new();
+        for (name, initializer) in pending {
+            let outcome = self.expression(&initializer, &HashMap::new(), Some(Value::Class(class)));
+            let value = match outcome {
+                Ok(value) => value,
+                Err(error) => {
+                    // The candidate publishes nothing, so every slot this
+                    // transaction already wrote is discarded and the
+                    // construction is left unrecorded for a later retry.
+                    for slot in written {
+                        let _ = self.runtime.assign_class_raw_ivar(class, slot, Value::Nil);
+                    }
+                    self.materialized_constructions.remove(&(class, normalized));
+                    return Err(error);
+                }
+            };
+            let slot = self.selector(&format!("{name}{suffix}"));
+            self.runtime
+                .assign_class_raw_ivar(class, slot, value)
+                .map_err(EvaluationError::Construction)?;
+            written.push(slot);
+            self.class_level_properties
+                .entry(class)
+                .or_default()
+                .push(slot);
+        }
         Ok(())
     }
 
@@ -1881,9 +1974,12 @@ impl SourceEvaluator {
                 // normalized constraint BEFORE interning or publishing, and a
                 // failure raises rather than being reported statically.
                 self.check_generic_bounds(name, arguments)?;
-                self.class_name(name)?
-                    .map(Value::Class)
-                    .ok_or(EvaluationError::NameError)
+                let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
+                // C066 runs a per-closed class property initializer once when
+                // the closed Class is FIRST materialized, so the construction
+                // itself is what triggers it.
+                self.materialize_closed(class, arguments)?;
+                Ok(Value::Class(class))
             }
             Expression::KeywordArgument { name, value } => {
                 let value = self.expression(value, locals, receiver)?;

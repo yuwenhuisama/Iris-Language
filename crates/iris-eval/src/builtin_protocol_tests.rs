@@ -2388,3 +2388,52 @@ fn v214_keeps_a_union_member_inside_an_intersection() {
     assert_eq!(rendered(non_nil), "Bool(true)");
     assert_eq!(rendered(collapsed), "Bool(true)");
 }
+
+#[test]
+fn v240_runs_a_per_closed_initializer_once_per_construction() {
+    // C066 runs a per-closed class property initializer ONCE when the closed
+    // Class is first materialized, not once at the generic declaration. The
+    // initializer never ran at all, so every closed construction answered nil.
+    let declared = "mut n = 0; mut log = []; class Box<T> { class property tag: Integer = \
+                    { n = n + 1; log.append(n); n }.call() } ";
+    // Two requests for the SAME construction reuse the first materialization.
+    let repeated = format!(
+        "{declared}let a = Box<String>.tag; let b = Box<String>.tag; \
+         let c = Box<Integer>.tag; [log, a, b, c]"
+    );
+    // C064 keeps ordinary generic class-level storage independent per closed
+    // construction.
+    let independent = "class Box<T> { class property tag: Integer = 7 } \
+                       [Box<String>.tag, Box<Integer>.tag]";
+
+    // When / Then
+    assert_eq!(
+        rendered(&repeated),
+        "Array([Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))]), \
+         Integer(IntegerValue(1)), Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
+    );
+    assert_eq!(
+        rendered(independent),
+        "Array([Integer(IntegerValue(7)), Integer(IntegerValue(7))])"
+    );
+}
+
+#[test]
+fn a_failed_materialization_publishes_nothing_and_retries() {
+    // C066 discards candidate state on a failed materialization and lets a
+    // later request RETRY and rerun the initializer, while NOT undoing the
+    // external side effects the initializer already performed.
+    let source = "mut log = []; class Box<T> { class property tag: Integer = \
+                  { log.append(1); raise :boom; 1 }.call() } \
+                  try { Box<String>.tag } catch e { 1 } \
+                  try { Box<String>.tag } catch e { 1 } log";
+
+    // When / Then: the retry reran the initializer, so the external log kept
+    // BOTH attempts rather than being rolled back. Each `try` also yields its
+    // own recovery value, which is why the program reports three statements.
+    assert_eq!(
+        rendered(source),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(1)), \
+         Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))])])"
+    );
+}
