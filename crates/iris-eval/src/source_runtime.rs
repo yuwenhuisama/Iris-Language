@@ -5960,6 +5960,18 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
             iris_runtime::ClassError::MetaCapabilityDenied { .. }
             | iris_runtime::ClassError::ProtectedSuperclass { .. },
         ) => "MetaCapabilityError",
+        // IRIS-V1-RUNTIME-C077 names the visibility failure, C014 and D-103
+        // name the binding and super failures, and V434 observes a private
+        // call being refused from every path but the declaring Class.
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::VisibilityDenied { .. },
+        )) => "MethodVisibilityError",
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::MethodBinding { .. },
+        )) => "MethodBindingError",
+        EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::NoSuperMethod { .. },
+        )) => "NoSuperMethodError",
         EvaluationError::MessageNotFound { .. } => "MessageNotFound",
         _ => return None,
     };

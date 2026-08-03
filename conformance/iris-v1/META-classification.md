@@ -1,7 +1,7 @@
 # META chapter classification
 
-`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 9 are
-committed here; the remaining 42 are NOT yet transcribed and are bucketed below
+`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 10 are
+committed here; the remaining 41 are NOT yet transcribed and are bucketed below
 by what actually blocks each one.
 
 Every row names a concrete on-disk fixture, `fixtures/meta/vNNN/iris.toml` for
@@ -39,6 +39,8 @@ such a field stays blocked below.
 
 | `V417` | diagnostic | executable | `IRIS-V1-META-C013` keeps wildcard imports out of Iris v1 source and the v1.23 errata `IRIS-V1-GRAMMAR-C068` supplies the dotted package path the row writes, so the fixture parses far enough for the wildcard to be rejected under the code the row names. |
 
+| `V434` | differential | executable | `IRIS-V1-RUNTIME-C161` keeps `@name` per receiver, `C072` keeps an escaping Closure bound to the receiver that created it, and `C077` answers a private Method only for its declaring Class's lexical call. The row also schedules Class-object `@x` and `@@x` distinctness and a Dynamic call path, which need `Reflection::Object` get/set APIs; that remainder is recorded rather than asserted. |
+
 ## Blocked
 
 | Blocker | Rows | Why |
@@ -48,5 +50,5 @@ such a field stays blocked below.
 | Upgrade, lock and digest | `V352`, `V357`, `V420`, `V429`, `V431` | `IRIS-V1-META-C066` and `C067` resolve an artifact through the active package store and verify a BLAKE3-256 canonical manifest digest. There is no package store, no `iris.lock`, and no digest scheme. `V357` is the one row naming `artifact.json` rather than a manifest. |
 | Reflection views | `V344`, `V358`, `V416`, `V424`, `V425`, `V432` | `IRIS-V1-META-C100` and `C107` expose `Reflection::Object` ivar APIs and package-scoped reflection whose authorization is ambient to the executing package. The reflection surface these rows read does not exist. `V416` additionally needs `open module P::M` across two files in one package. |
 | Cross-package import | `V346`, `V347`, `V348`, `V349`, `V418`, `V438` | Each needs a SECOND package to import from, plus dependency resolution. `D-432`'s three resolution tiers are implemented and observed by `IRIS-V1-CONTROL-V351`, but only for a Module already loaded into this runtime; a cross-package target needs the dependency machinery `IRIS-V1-META-C003` puts in the manifest. |
-| Decorators | `V434` | `IRIS-V1-META-C001` owns decorators, whose static plan and application order have no implementation. |
+| Decorators | `V429`, `V431` | `IRIS-V1-META-C001` owns decorators, whose static plan and application order have no implementation. |
 | Other | `V343`, `V350`, `V433`, `V440` | Each depends on one of the above: `V343` and `V440` on candidate validation, `V350` on module composition authorization, `V433` on revision migration. |

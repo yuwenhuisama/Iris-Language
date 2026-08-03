@@ -3077,3 +3077,45 @@ fn c017_rejects_a_package_whose_sources_import_each_other() {
         Ok(vec!["A".to_owned()])
     );
 }
+
+#[test]
+fn c077_refuses_a_private_method_from_every_path_but_its_class() {
+    // IRIS-V1-RUNTIME-C077 makes a Method private by default outside an
+    // explicit declaration, and IRIS-V1-META-V434 requires only the declaring
+    // Class's lexical call to succeed. The refusal was raised correctly but was
+    // NOT catchable, so the row could observe the success and not the refusals.
+    let own = "class B { private fun secret() -> Symbol { :secret } \
+               public fun own() -> Symbol { secret() } } B.new().own()";
+    let external = "class B { private fun secret() -> Symbol { :secret } } \
+                    try { B.new().secret() } catch e { e }";
+    let subclass = "class B { private fun secret() -> Symbol { :secret } } \
+                    class C extends B { public fun t() -> Symbol { secret() } } \
+                    try { C.new().t() } catch e { e }";
+
+    // When / Then
+    assert_eq!(rendered(own), "Symbol(\"secret\")");
+    assert_eq!(rendered(external), "Symbol(\"MethodVisibilityError\")");
+    assert_eq!(rendered(subclass), "Symbol(\"MethodVisibilityError\")");
+}
+
+#[test]
+fn c072_keeps_a_raw_ivar_per_receiver_and_binds_an_escaping_closure() {
+    // IRIS-V1-RUNTIME-C161 makes `@name` per-receiver storage and C072 keeps a
+    // Closure created in an instance Method bound to the receiver that created
+    // it, which is what IRIS-V1-META-V434 observes across two receivers.
+    let distinct = "class B { public fun w(v) { @x = v } public fun r() { @x } } \
+                    let a = B.new(); let b = B.new(); a.w(:first); b.w(:second); [a.r(), b.r()]";
+    let escaped = "class B { public fun w(v) { @x = v } public fun grab() { { @x } } } \
+                   let a = B.new(); let f = a.grab(); a.w(:first); \
+                   let b = B.new(); b.w(:second); f.call()";
+
+    // When / Then: the escaped Closure still reads the FIRST receiver.
+    assert_eq!(
+        rendered(distinct),
+        "Array([Symbol(\"first\"), Symbol(\"second\"), Array([Symbol(\"first\"), Symbol(\"second\")])])"
+    );
+    assert_eq!(
+        rendered(escaped),
+        "Array([Symbol(\"first\"), Symbol(\"second\"), Symbol(\"first\")])"
+    );
+}

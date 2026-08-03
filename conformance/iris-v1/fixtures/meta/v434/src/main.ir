@@ -1,0 +1,8 @@
+class Box {
+  public fun write(v) { @x = v }
+  public fun read() { @x }
+  public fun grab() { { @x } }
+  private fun secret() -> Symbol { :secret }
+  public fun own_call() -> Symbol { secret() }
+}
+class Sub extends Box { public fun try_secret() -> Symbol { secret() } }

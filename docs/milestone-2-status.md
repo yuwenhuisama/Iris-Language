@@ -10,7 +10,7 @@
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 128, failed: 0, needs_subsystem: 5                                  (133 records, buckets sum 133)
 TYPES    passed: 72, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (72 records, buckets sum 72)
-META     passed: 9, failed: 0, needs_subsystem: 0                                    (9 records, buckets sum 9)
+META     passed: 10, failed: 0, needs_subsystem: 0                                  (10 records, buckets sum 10)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
