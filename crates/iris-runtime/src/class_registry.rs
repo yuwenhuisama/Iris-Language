@@ -527,6 +527,17 @@ impl ClassRegistry {
             .collect())
     }
 
+    /// The Modules composed into `module`, in composition order.
+    ///
+    /// `IRIS-V1-META-V358` observes that a Module written without `mixin` has
+    /// an EMPTY edge list, so no implicit edge may appear.
+    pub fn module_components(&self, module: crate::ModuleId) -> Vec<crate::ModuleId> {
+        self.modules
+            .components(module)
+            .map(|edges| edges.iter().map(|edge| edge.module()).collect())
+            .unwrap_or_default()
+    }
+
     /// Reports whether `class` is currently staging a candidate.
     pub fn is_staging(&self, class: ClassId) -> bool {
         self.staged.contains_key(&class)

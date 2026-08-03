@@ -1356,6 +1356,26 @@ impl SourceEvaluator {
         Ok(Value::Nil)
     }
 
+    /// Names the Modules composed into `module`, in composition order.
+    ///
+    /// `IRIS-V1-META-V358` observes an EMPTY edge list for a Module written
+    /// without `mixin`, so this reports exactly the recorded edges.
+    fn module_component_names(&self, module: ModuleId) -> Vec<Value> {
+        self.runtime
+            .registry()
+            .module_components(module)
+            .into_iter()
+            .map(|component| {
+                self.module_names
+                    .iter()
+                    .find_map(|(name, known)| {
+                        (*known == component).then(|| Value::Symbol(name.clone()))
+                    })
+                    .unwrap_or(Value::Nil)
+            })
+            .collect()
+    }
+
     /// Reports whether a Class declares a class-level stored property.
     fn is_class_level_property(&mut self, class: ClassId, selector: &str) -> bool {
         let slot = self.selector(selector);
@@ -2969,6 +2989,11 @@ impl SourceEvaluator {
                     .module_names
                     .get(name)
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
+                // V358 observes that a Module written without `mixin` has an
+                // EMPTY edge list, so no implicit composition edge may appear.
+                if selector == "modules" {
+                    return Ok(Value::Array(self.module_component_names(module)));
+                }
                 let module_class = *self
                     .module_classes
                     .get(&module)
@@ -3126,6 +3151,8 @@ impl SourceEvaluator {
                             .module_names
                             .get(name)
                             .ok_or(EvaluationError::UnsupportedConstruct)?;
+                        // V358 observes that a Module written without `mixin` has an
+                        // EMPTY edge list, so no implicit composition edge may appear.
                         if selector == "method" {
                             let [Value::Symbol(name)] = arguments.as_slice() else {
                                 return Err(EvaluationError::UnsupportedConstruct);
@@ -3760,6 +3787,17 @@ impl SourceEvaluator {
             // revision until the commit. C036 makes candidate properties
             // visible ONLY through such a read, never through an instance send.
             Value::Class(class) if selector == "properties" => self.class_properties(class),
+            // V358 observes that a Contract written without `extends` has an
+            // EMPTY parent list, so no implicit parent may appear. C043 forms
+            // inheritance as a plain relation, which is what this reports.
+            Value::Contract(contract) if selector == "parents" => Ok(Value::Array(
+                self.contract_parents
+                    .get(&contract)
+                    .into_iter()
+                    .flatten()
+                    .map(|parent| Value::Contract(*parent))
+                    .collect(),
+            )),
             // C081 fixes the capability vocabulary and V360 observes a target's
             // EFFECTIVE deny set, which a subclass inherits and an open cannot
             // restore. The view is a plain immutable Array of Symbols.

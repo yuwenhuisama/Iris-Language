@@ -3162,3 +3162,20 @@ fn c100_gives_raw_ivar_reflection_one_slot_vocabulary() {
     );
     assert_eq!(rendered(missing), "Nil");
 }
+
+#[test]
+fn v358_reports_no_implicit_contract_parent_or_module_edge() {
+    // IRIS-V1-TYPES-C043 forms Contract inheritance as a plain relation and
+    // IRIS-V1-META-C078 adds a Module edge only through `mixin`, so a Contract
+    // written without `extends` and a Module written without `mixin` have EMPTY
+    // views. Neither view existed, so no row could observe the absence.
+    let empty = "contract Plain { } module Empty { } [Plain.parents, Empty.modules]";
+    // A declared parent and a declared edge DO appear.
+    let parent = "contract A { } contract B extends A { } B.parents";
+    let edge = "module A { } module B mixin A { } B.modules";
+
+    // When / Then
+    assert_eq!(rendered(empty), "Array([Array([]), Array([])])");
+    assert_eq!(rendered(parent), "Array([Contract(ContractId(0))])");
+    assert_eq!(rendered(edge), "Array([Symbol(\"A\")])");
+}
