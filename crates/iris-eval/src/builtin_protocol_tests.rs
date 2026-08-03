@@ -3179,3 +3179,33 @@ fn v358_reports_no_implicit_contract_parent_or_module_edge() {
     assert_eq!(rendered(parent), "Array([Contract(ContractId(0))])");
     assert_eq!(rendered(edge), "Array([Symbol(\"A\")])");
 }
+
+#[test]
+fn c006_loads_packages_in_dependency_order_on_one_runtime() {
+    // IRIS-V1-META-C006 selects dependencies before initialization and
+    // IRIS-V1-META-C017 initializes a dependency before its dependent, so
+    // ordered packages share ONE runtime and a consumer reaches what its
+    // dependency exported. No entry loaded more than one package at a time, so
+    // no cross-package row could be driven at all.
+    let dependency = (
+        "org.dep".to_owned(),
+        vec![(
+            "src/main.ir".to_owned(),
+            "export class Base { public fun tag() -> Symbol { :tag } }".to_owned(),
+        )],
+    );
+    let consumer = (
+        "org.app".to_owned(),
+        vec![("src/main.ir".to_owned(), "import org.dep::Base".to_owned())],
+    );
+
+    // When
+    let loaded = crate::load_package_tree(&[dependency, consumer], Some("Base.new().tag()"));
+
+    // Then: the consumer's probe runs under its OWN package identity and still
+    // reaches the dependency's exported Class.
+    assert_eq!(
+        loaded.map(|(_, observed)| format!("{observed:?}")),
+        Ok("Some(Symbol(\"tag\"))".to_owned())
+    );
+}

@@ -245,6 +245,59 @@ pub fn load_package_with_probe(
     Ok((initialized, observed))
 }
 
+/// Loads ordered packages onto ONE runtime and probes the last one.
+///
+/// `IRIS-V1-META-C006` selects dependencies before initialization and
+/// `IRIS-V1-META-C017` initializes a dependency before its dependent, so the
+/// packages arrive dependencies-first and share one runtime. `D-431` keys a
+/// global by `(package_id, $name)`, so each package's own declarations stay
+/// distinct while its exports remain reachable to a consumer that imports them.
+///
+/// Each entry is `(package_id, sources)`. The probe runs under the LAST
+/// package's identity, which is the consumer.
+pub fn load_package_tree(
+    packages: &[(String, Vec<(String, String)>)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    let Some((entry, _)) = packages.last() else {
+        return Ok((Vec::new(), None));
+    };
+    let mut evaluator = source_runtime::SourceEvaluator::new_in_package(entry)?;
+    let mut initialized = Vec::new();
+    for (package_id, sources) in packages {
+        // C017 makes Module initialization an acyclic deterministic DAG within
+        // a package too, so each package's own graph is checked before any of
+        // its Module bodies run.
+        reject_import_cycles(sources)?;
+        for (_, source) in sources {
+            let parsed = parse(source);
+            if !parsed.program_accepted {
+                return Err(EvaluationError::ParseDiagnostic);
+            }
+            evaluator.enter_package(package_id, source);
+            let declarations_only = parsed.program.statements.is_empty();
+            match evaluator.program(&parsed.program) {
+                Ok(_) => {}
+                Err(EvaluationError::UnsupportedConstruct) if declarations_only => {}
+                Err(error) => return Err(error),
+            }
+            initialized.extend(declared_modules(&parsed.program));
+        }
+    }
+    let observed = match probe {
+        Some(probe) => {
+            let parsed = parse(probe);
+            if !parsed.program_accepted {
+                return Err(EvaluationError::ParseDiagnostic);
+            }
+            evaluator.enter_package(entry, probe);
+            Some(evaluator.program(&parsed.program)?)
+        }
+        None => None,
+    };
+    Ok((initialized, observed))
+}
+
 /// Rejects a package whose source files import each other in a cycle.
 ///
 /// `IRIS-V1-META-C017` makes Module initialization an ACYCLIC deterministic DAG

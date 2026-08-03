@@ -26,6 +26,12 @@ pub struct Package {
     /// `IRIS-V1-META-C017` initializes in manifest-declared source order, so
     /// the order these are listed in is load-bearing rather than incidental.
     pub sources: Vec<(String, String)>,
+    /// The `package_id` of each package this one depends on, in declared order.
+    ///
+    /// `IRIS-V1-META-C006` selects dependencies before initialization and
+    /// `C007` aborts linking on a resolution failure, so a dependency names a
+    /// package that must already be loadable rather than being fetched.
+    pub dependencies: Vec<String>,
 }
 
 /// Reads the package fixture rooted at `directory`.
@@ -51,13 +57,53 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         package_id: manifest.package_id,
         api_major: manifest.api_major,
         sources,
+        dependencies: manifest.dependencies,
     })
+}
+
+/// Loads a package fixture together with every package it depends on.
+///
+/// `IRIS-V1-META-C006` resolves dependencies BEFORE initialization and
+/// `IRIS-V1-META-C017` initializes a dependency before its dependent, so the
+/// result is ordered dependencies-first. A dependency directory sits beside the
+/// consumer under the shared fixture root and is named by its `package_id`.
+///
+/// `IRIS-V1-META-C007` aborts linking on a resolution failure, so a missing
+/// dependency or a dependency cycle is reported rather than skipped.
+pub fn load_tree(root: &Path, entry: &str) -> Result<Vec<Package>, String> {
+    let mut ordered: Vec<Package> = Vec::new();
+    let mut visiting: Vec<String> = Vec::new();
+    load_into(root, entry, &mut ordered, &mut visiting)?;
+    Ok(ordered)
+}
+
+fn load_into(
+    root: &Path,
+    name: &str,
+    ordered: &mut Vec<Package>,
+    visiting: &mut Vec<String>,
+) -> Result<(), String> {
+    if ordered.iter().any(|package| package.package_id == name) {
+        return Ok(());
+    }
+    if visiting.iter().any(|seen| seen == name) {
+        return Err(format!("package dependency cycle at {name}"));
+    }
+    let package = load(&root.join(name))?;
+    visiting.push(name.to_owned());
+    for dependency in package.dependencies.clone() {
+        load_into(root, &dependency, ordered, visiting)?;
+    }
+    visiting.pop();
+    ordered.push(package);
+    Ok(())
 }
 
 struct Manifest {
     package_id: String,
     api_major: u32,
     sources: Vec<String>,
+    dependencies: Vec<String>,
 }
 
 /// Parses the manifest subset chapter 08 vectors observe.
@@ -70,6 +116,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
     let mut package_id = None;
     let mut api_major = None;
     let mut sources = Vec::new();
+    let mut dependencies = Vec::new();
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or_default().trim();
         if line.is_empty() || line.starts_with('[') {
@@ -89,6 +136,11 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 );
             }
             "sources" => sources = parse_array(value)?,
+            // C003 lists dependency constraints in the manifest. The fixtures
+            // this loader serves name a package rather than a SemVer range, and
+            // C006 requires the selection to be exact, so a bare package name
+            // is the already-selected result rather than a range to resolve.
+            "dependencies" => dependencies = parse_array(value)?,
             // A manifest key this loader does not model is IGNORED rather than
             // rejected, so a fixture may carry the version, dependency or
             // permission fields `C003` lists without this pretending to honour
@@ -100,6 +152,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
         package_id: package_id.ok_or("manifest declares no package_id")?,
         api_major: api_major.ok_or("manifest declares no api_major")?,
         sources,
+        dependencies,
     })
 }
 

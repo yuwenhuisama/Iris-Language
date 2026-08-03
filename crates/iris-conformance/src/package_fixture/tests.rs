@@ -27,6 +27,7 @@ fn it_loads_a_manifest_and_its_ordered_sources() {
                 ("src/a.ir".into(), "module A { }".into()),
                 ("src/b.ir".into(), "module B { }".into()),
             ],
+            dependencies: vec![],
         })
     );
     let _ = std::fs::remove_dir_all(&directory);
@@ -77,6 +78,7 @@ fn an_unmodelled_manifest_key_is_ignored_rather_than_honoured() {
             package_id: "org.iris.test".into(),
             api_major: 1,
             sources: vec![],
+            dependencies: vec![],
         })
     );
     let _ = std::fs::remove_dir_all(&directory);
@@ -95,4 +97,71 @@ fn write(directory: &std::path::Path, relative: &str, contents: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(path, contents);
+}
+
+#[test]
+fn c006_orders_a_dependency_before_its_dependent() {
+    // IRIS-V1-META-C006 selects dependencies BEFORE initialization and
+    // IRIS-V1-META-C017 initializes a dependency before its dependent, so a
+    // tree load returns dependencies first.
+    let root = tempdir("tree");
+    write(
+        &root,
+        "org.dep/iris.toml",
+        "package_id = \"org.dep\"\napi_major = 1\nsources = [\"src/main.ir\"]\n",
+    );
+    write(&root, "org.dep/src/main.ir", "module Dep { }");
+    write(
+        &root,
+        "org.app/iris.toml",
+        "package_id = \"org.app\"\napi_major = 1\nsources = [\"src/main.ir\"]\ndependencies = [\"org.dep\"]\n",
+    );
+    write(&root, "org.app/src/main.ir", "module App { }");
+
+    // When
+    let loaded = super::load_tree(&root, "org.app");
+
+    // Then
+    assert_eq!(
+        loaded.map(|packages| packages
+            .into_iter()
+            .map(|package| package.package_id)
+            .collect::<Vec<_>>()),
+        Ok(vec!["org.dep".to_owned(), "org.app".to_owned()])
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn c007_aborts_on_a_missing_or_cyclic_dependency() {
+    // IRIS-V1-META-C007 aborts package linking on a resolution failure, so a
+    // dependency that does not exist and a dependency cycle are both reported
+    // rather than skipped.
+    let missing = tempdir("missing-dep");
+    write(
+        &missing,
+        "org.app/iris.toml",
+        "package_id = \"org.app\"\napi_major = 1\ndependencies = [\"org.absent\"]\n",
+    );
+    let cyclic = tempdir("cyclic-dep");
+    write(
+        &cyclic,
+        "org.a/iris.toml",
+        "package_id = \"org.a\"\napi_major = 1\ndependencies = [\"org.b\"]\n",
+    );
+    write(
+        &cyclic,
+        "org.b/iris.toml",
+        "package_id = \"org.b\"\napi_major = 1\ndependencies = [\"org.a\"]\n",
+    );
+
+    // When / Then
+    assert!(super::load_tree(&missing, "org.app").is_err());
+    assert_eq!(
+        super::load_tree(&cyclic, "org.a"),
+        Err("package dependency cycle at org.a".into())
+    );
+    for directory in [missing, cyclic] {
+        let _ = std::fs::remove_dir_all(&directory);
+    }
 }
