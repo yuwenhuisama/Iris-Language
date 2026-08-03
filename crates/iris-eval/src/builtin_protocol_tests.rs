@@ -3305,3 +3305,31 @@ fn c097_advances_the_active_revision_by_one_per_commit() {
     assert!(rendered(two_opens).ends_with("Integer(IntegerValue(2))])"));
     assert_eq!(rendered(none), "Integer(IntegerValue(0))");
 }
+
+#[test]
+fn c098_reports_a_visible_slot_without_consulting_method_missing() {
+    // IRIS-V1-META-C098 makes `respond_to?` report actual visible ordinary
+    // slots on the receiver's current active ordinary MRO, and it MUST NOT
+    // invoke or consult `method_missing`. The selector did not exist at all, so
+    // no row could observe either half.
+    let declared = "class B { public fun show() -> Integer { 1 } } B.new().respond_to?(:show)";
+    let absent = "class B { } B.new().respond_to?(:ghost)";
+    // The inherited root Method is a visible slot too.
+    let inherited = "class B { } B.new().respond_to?(:to_bool)";
+    // A receiver DEFINING `method_missing` still answers false for an absent
+    // selector, and the fallback does not run: it would raise `:called`.
+    let fallback = "class B { public fun method_missing(s) { raise :called } } \
+                    B.new().respond_to?(:ghost)";
+    // IRIS-V1-TYPES-C049 keeps a qualified Contract slot out of the ordinary
+    // namespace, so it is NOT an ordinary visible slot either.
+    let qualified = "contract N { fun name() } \
+                     class B for N { public impl fun N::name() -> Symbol { :n } } \
+                     B.new().respond_to?(:name)";
+
+    // When / Then
+    assert_eq!(rendered(declared), "Bool(true)");
+    assert_eq!(rendered(absent), "Bool(false)");
+    assert_eq!(rendered(inherited), "Bool(true)");
+    assert_eq!(rendered(fallback), "Bool(false)");
+    assert_eq!(rendered(qualified), "Bool(false)");
+}

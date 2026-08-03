@@ -3716,6 +3716,29 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
         match receiver {
+            // C098 reports actual visible ordinary slots on the receiver's
+            // current active ordinary MRO, and MUST NOT invoke or consult
+            // `method_missing`. Dispatch already distinguishes a selected
+            // Method from the fallback, so the answer is read from that outcome
+            // rather than by attempting the call.
+            _ if selector == "respond_to?" => {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::ArgumentError);
+                };
+                let Value::Object(object) = receiver else {
+                    return Ok(Value::Bool(false));
+                };
+                let class = self
+                    .runtime
+                    .class_of(object)
+                    .map_err(EvaluationError::Construction)?;
+                let slot = self.selector(name);
+                let responds = matches!(
+                    self.runtime.registry().dispatch(class, slot),
+                    Ok(iris_runtime::DispatchOutcome::Invoke(_))
+                );
+                Ok(Value::Bool(responds))
+            }
             Value::Class(class) if selector == "new" => {
                 self.construct(class, arguments).map(Value::Object)
             }
