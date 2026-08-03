@@ -21,6 +21,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         qualified_scope: None,
         generic_classes: Vec::new(),
         class_method_arities: Vec::new(),
+        declared_superclasses: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
         requirement_signatures: Vec::new(),
@@ -74,6 +75,40 @@ enum TypeMember {
     Nil,
     Array,
     Hash,
+}
+
+/// One nominal member of a static Type, built-in or user-declared.
+///
+/// `IRIS-V1-META-C045` gates a cross-Module static extension on a DIRECT
+/// import, and `IRIS-V1-META-V346` observes that gate as a compile-phase
+/// diagnostic, so a static pass must be able to name the Class a receiver has.
+/// The built-in members alone cannot: `let o = B.new()` had no tracked Type at
+/// all, so nothing downstream could ask what `B` declares.
+///
+/// This is GROUNDWORK. No check consumes a `Declared` member yet, which keeps
+/// the `StaticType` contract intact: a Type this pass cannot model stays
+/// `None` at the call site, since a wrong rejection is far worse than a missed
+/// one, and every runtime-only member -- `define_method`, a reflective open, a
+/// mixin-contributed Method -- is exactly such a case.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum NominalMember {
+    /// A built-in this pass already models.
+    Builtin(TypeMember),
+    /// A Class the source declared, named by its declaration name.
+    Declared(String),
+}
+
+impl NominalMember {
+    /// The nominal member a written annotation names, when this pass can.
+    ///
+    /// A built-in keeps the exact member `StaticType::from_nominal` already
+    /// tracks, so the two agree; any other name is the Class it spells.
+    fn from_name(name: &str) -> Self {
+        match StaticType::from_nominal(name).and_then(|declared| declared.0.first().copied()) {
+            Some(member) => Self::Builtin(member),
+            None => Self::Declared(name.to_owned()),
+        }
+    }
 }
 
 /// The statically known Type of an expression, to the depth this pass tracks.
@@ -303,6 +338,15 @@ struct Analyzer {
     /// intersection across the members is empty, so the arities each member
     /// accepts must be known.
     class_method_arities: Vec<(String, String, usize)>,
+    /// Each Class paired with the superclass its declaration named, if any.
+    ///
+    /// `IRIS-V1-RUNTIME-C046` resolves a member through the ancestor chain, so
+    /// a static pass that asked only what a Class declares LOCALLY would reject
+    /// an inherited member. Recording the declared edge is what lets a later
+    /// pass walk that chain instead.
+    ///
+    /// This is GROUNDWORK: no check consumes it yet.
+    declared_superclasses: Vec<(String, String)>,
 }
 
 impl Analyzer {
@@ -596,6 +640,17 @@ impl Analyzer {
             .lookup(binding)
             .map(|local| local.union_members.clone())
             .filter(|members| members.len() > 1)
+            .map(|members| {
+                // A union member is a NOMINAL member: a built-in this pass
+                // already models, or a Class the source declared. Naming it
+                // through one vocabulary is what lets a later pass ask what a
+                // DECLARED member provides, which `IRIS-V1-META-C045` needs in
+                // order to gate a static extension on a direct import.
+                members
+                    .iter()
+                    .map(|member| NominalMember::from_name(member))
+                    .collect::<Vec<_>>()
+            })
         else {
             return;
         };
@@ -604,6 +659,12 @@ impl Analyzer {
         // dispatch rather than to this check.
         let mut intersection: Option<Vec<usize>> = None;
         for member in &members {
+            // Only a DECLARED member can contribute arities: a built-in's
+            // Methods are not declared in this source, so it contributes
+            // nothing either way, exactly as an unseen Class does.
+            let NominalMember::Declared(member) = member else {
+                continue;
+            };
             let accepted: Vec<usize> = self
                 .class_method_arities
                 .iter()
@@ -831,6 +892,14 @@ impl Analyzer {
         let (name, body) = match declaration {
             iris_syntax::Declaration::Class(value) => {
                 self.check_declared_conformance(value);
+                // C046 resolves a member through the ancestor chain, so the
+                // declared edge is recorded for a later pass to walk. A reopen
+                // names no superclass of its own, and only a plain nominal
+                // name is an edge this pass can follow.
+                if let Some(iris_syntax::TypeExpression::Name(parent)) = &value.extends {
+                    self.declared_superclasses
+                        .push((value.name.clone(), parent.clone()));
+                }
                 // D-196 needs the arities each Class Method accepts in order to
                 // intersect them across a union's members.
                 for statement in &value.body {
@@ -2723,6 +2792,66 @@ mod qualified_namespace_tests {
         assert_eq!(
             codes("import Dep\nimport Dep"),
             ["QUALIFIED_NAMESPACE_COLLISION"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod nominal_groundwork_tests {
+    use super::{NominalMember, TypeMember};
+    use crate::{analyze, parse};
+
+    #[test]
+    fn a_user_class_is_a_nominal_member_distinct_from_a_builtin() {
+        // IRIS-V1-META-C045 gates a cross-Module static extension on a DIRECT
+        // import and IRIS-V1-META-V346 observes that gate as a compile-phase
+        // diagnostic, so a static pass must be able to NAME the Class a
+        // receiver has. The built-in members alone cannot.
+        assert_eq!(
+            NominalMember::from_name("Integer"),
+            NominalMember::Builtin(TypeMember::Integer)
+        );
+        assert_eq!(
+            NominalMember::from_name("Box"),
+            NominalMember::Declared("Box".to_owned())
+        );
+
+        // Two Classes are distinct members, and neither collides with a
+        // built-in.
+        assert_ne!(
+            NominalMember::from_name("Box"),
+            NominalMember::from_name("Crate")
+        );
+        assert_ne!(
+            NominalMember::from_name("Box"),
+            NominalMember::from_name("String")
+        );
+    }
+
+    #[test]
+    fn the_groundwork_changes_no_existing_diagnostic() {
+        // The nominal member and the superclass edge are GROUNDWORK: nothing
+        // consumes them yet, so every existing check must be unchanged. A
+        // member-existence check built on them would have to model reflective
+        // opens, `define_method` and mixin-contributed Methods first, or it
+        // would produce the wrong rejections `StaticType` deliberately avoids.
+        let codes = |source: &str| {
+            let parsed = parse(source);
+            assert!(parsed.program_accepted, "source must parse: {source}");
+            analyze(&parsed.program)
+                .into_iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>()
+        };
+
+        // An absent member is STILL not diagnosed, which is what keeps a
+        // Method added by `define_method` or a mixin from being rejected.
+        assert!(codes("class A { } A.new().nothing()").is_empty());
+        assert!(codes("class A { } class B extends A { } B.new().nothing()").is_empty());
+
+        // An ordinary declaration with a superclass is unaffected.
+        assert!(
+            codes("class A { public fun m() -> Integer { 1 } } class B extends A { }").is_empty()
         );
     }
 }
