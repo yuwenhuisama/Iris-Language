@@ -720,6 +720,13 @@ impl SourceEvaluator {
                     }
                     self.expression(expression, &body_locals, Some(Value::Class(class)))?;
                 }
+                // C022 lets a Class body run ordinary synchronous control flow,
+                // which includes `raise`. C034 then rolls the candidate back
+                // and C024 leaves the Class unpublished, which is what
+                // IRIS-V1-META-V341 observes.
+                Statement::Raise(_) => {
+                    self.statement(statement, &body_locals, Some(Value::Class(class)))?;
+                }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }

@@ -1,0 +1,2 @@
+contract C { fun m() -> Nil { nil } }
+open contract C { fun n() -> Nil }

@@ -46,6 +46,13 @@ fn compare_package_fixture(
         .join("conformance/iris-v1")
         .join(fixture);
     let package = crate::package_fixture::load(&directory)?;
+    // A row observing a STATIC rejection never reaches evaluation, so its
+    // sources are collected through the same diagnostics collector every other
+    // chapter uses rather than being loaded.
+    if let Some(diagnostics) = expected.get("diagnostics") {
+        return compare_package_diagnostics(diagnostics, &package)
+            .map_err(|error| format!("{}: {error}", record.id));
+    }
     // A row that observes a Module member sends to it AFTER the load, since a
     // package source file is declarations only under `IRIS-V1-META-C011`.
     let outcome = iris_eval::load_package_with_probe(
@@ -62,6 +69,40 @@ fn compare_package_fixture(
         None => values::compare_evaluated(expected, outcome),
     }
     .map_err(|error| format!("{}: {error}", record.id))
+}
+
+/// Compares the diagnostics a package fixture's sources report.
+///
+/// `IRIS-V1-META-C011` makes a package source file declarations only, so a row
+/// stating a static rejection observes the codes its files report rather than
+/// any loaded value. The codes from every source are gathered in manifest
+/// order, since `IRIS-V1-META-C017` makes that order normative.
+fn compare_package_diagnostics(
+    expected: &Value,
+    package: &crate::package_fixture::Package,
+) -> Result<(), String> {
+    let Value::Array(entries) = expected else {
+        return Err("diagnostics expectation must be an array".into());
+    };
+    let expected = entries
+        .iter()
+        .map(|entry| string(object(entry)?, "code").map(str::to_owned))
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut actual = Vec::new();
+    for (_, source) in &package.sources {
+        actual.extend(
+            crate::runner::diagnostics(source)
+                .into_iter()
+                .map(|diagnostic| diagnostic.code),
+        );
+    }
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "diagnostics expected {expected:?}, actual {actual:?}"
+        ))
+    }
 }
 
 fn compare_independent_sources(

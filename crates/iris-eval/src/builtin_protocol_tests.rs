@@ -2936,3 +2936,25 @@ fn c056_makes_a_specification_named_error_catchable() {
     );
     assert_eq!(rendered(returned), "Integer(IntegerValue(5))");
 }
+
+#[test]
+fn c022_rolls_back_an_origin_body_that_raises() {
+    // IRIS-V1-META-C022 lets a Class body run ordinary synchronous control
+    // flow, which includes `raise`, and publishes NOTHING from a failed
+    // candidate. A `raise` in a Class body was rejected as an unsupported
+    // construct instead, so IRIS-V1-META-V341's origin-transaction failure
+    // could not be expressed at all.
+    let raises = "class Box { self.define_method(:ok) { 1 }; raise :stop }";
+    let commits = "class Box { self.define_method(:ok) { 1 } } Box.new().ok()";
+
+    // When
+    let (outcome, class_published) = crate::evaluate_with_class_publication(raises, "Box");
+    let (_, member_published) = crate::evaluate_with_member_probe(raises, "Box", "ok");
+
+    // Then: IRIS-V1-RUNTIME-C024 leaves the Class unpublished and C022 commits
+    // no staged Method with it.
+    assert!(outcome.is_err());
+    assert!(!class_published);
+    assert!(!member_published);
+    assert_eq!(rendered(commits), "Integer(IntegerValue(1))");
+}

@@ -948,7 +948,15 @@ impl Analyzer {
         // it is not a second declaration and does not collide. `IRIS-V1-TYPES-D-178`
         // resolves the origin before the open transaction, which is what lets
         // the two spellings appear in either order.
-        let reopen = matches!(declaration, iris_syntax::Declaration::Class(value) if value.reopen);
+        // `IRIS-V1-META-C031` rejects an attempt to open a Contract BEFORE
+        // publication and creates no candidate, so it is not a second
+        // declaration of that name either. Registering it produced a spurious
+        // QUALIFIED_NAMESPACE_COLLISION beside the real diagnostic.
+        let reopen = match declaration {
+            iris_syntax::Declaration::Class(value) => value.reopen,
+            iris_syntax::Declaration::Contract(value) => value.open,
+            _ => false,
+        };
         if !reopen {
             self.publish_qualified_name(name);
         }
