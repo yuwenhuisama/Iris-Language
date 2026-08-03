@@ -1,7 +1,7 @@
 # META chapter classification
 
-`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 8 are
-committed here; the remaining 43 are NOT yet transcribed and are bucketed below
+`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 9 are
+committed here; the remaining 42 are NOT yet transcribed and are bucketed below
 by what actually blocks each one.
 
 Every row names a concrete on-disk fixture, `fixtures/meta/vNNN/iris.toml` for
@@ -37,6 +37,8 @@ such a field stays blocked below.
 
 | `V419` | negative | executable | `IRIS-V1-META-C017` makes Module initialization an ACYCLIC deterministic DAG and requires a dependency or initialization cycle to be a compile or link error. The two source files import each other, so the package fails to link and neither Module is initialized. This row needs no second package: its cycle is WITHIN one package's sources. |
 
+| `V417` | diagnostic | executable | `IRIS-V1-META-C013` keeps wildcard imports out of Iris v1 source and the v1.23 errata `IRIS-V1-GRAMMAR-C068` supplies the dotted package path the row writes, so the fixture parses far enough for the wildcard to be rejected under the code the row names. |
+
 ## Blocked
 
 | Blocker | Rows | Why |
@@ -45,6 +47,6 @@ such a field stays blocked below.
 | Permissions and policy | `V362`, `V363`, `V421`, `V422`, `V423`, `V435` | Re-probed row by row rather than as one bucket, which closed `V359`, `V360` and `V361`: `meta deny` and the `C081` capability checks were already implemented and enforcing, and only the observation surface was missing. These six genuinely need what the bucket claimed. `IRIS-V1-META-C009` makes a permission a manifest REQUEST that only Host configuration can grant and forbids a package from self-authorizing; the loader models no permission field and there is no Host grant surface to check one against, which blocks `V421`, `V422`, `V423`, `V363` and `V435`. `V362` additionally needs the `Reflection::Object` ivar APIs of `IRIS-V1-META-C100`: `list_ivars` exists but `get_ivar`, `set_ivar` and `remove_ivar` do not. |
 | Upgrade, lock and digest | `V352`, `V357`, `V420`, `V429`, `V431` | `IRIS-V1-META-C066` and `C067` resolve an artifact through the active package store and verify a BLAKE3-256 canonical manifest digest. There is no package store, no `iris.lock`, and no digest scheme. `V357` is the one row naming `artifact.json` rather than a manifest. |
 | Reflection views | `V344`, `V358`, `V416`, `V424`, `V425`, `V432` | `IRIS-V1-META-C100` and `C107` expose `Reflection::Object` ivar APIs and package-scoped reflection whose authorization is ambient to the executing package. The reflection surface these rows read does not exist. `V416` additionally needs `open module P::M` across two files in one package. |
-| Cross-package import | `V346`, `V347`, `V348`, `V349`, `V417`, `V418`, `V438` | Each needs a SECOND package to import from, plus dependency resolution. `D-432`'s three resolution tiers are implemented and observed by `IRIS-V1-CONTROL-V351`, but only for a Module already loaded into this runtime; a cross-package target needs the dependency machinery `IRIS-V1-META-C003` puts in the manifest. |
+| Cross-package import | `V346`, `V347`, `V348`, `V349`, `V418`, `V438` | Each needs a SECOND package to import from, plus dependency resolution. `D-432`'s three resolution tiers are implemented and observed by `IRIS-V1-CONTROL-V351`, but only for a Module already loaded into this runtime; a cross-package target needs the dependency machinery `IRIS-V1-META-C003` puts in the manifest. |
 | Decorators | `V434` | `IRIS-V1-META-C001` owns decorators, whose static plan and application order have no implementation. |
 | Other | `V343`, `V350`, `V433`, `V440` | Each depends on one of the above: `V343` and `V440` on candidate validation, `V350` on module composition authorization, `V433` on revision migration. |

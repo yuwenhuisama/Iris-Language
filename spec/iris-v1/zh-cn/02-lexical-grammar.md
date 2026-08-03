@@ -331,7 +331,10 @@ declaration_or_statement ::= declaration | statement
 declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | shared_decl | let_decl
 decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
 decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
-import_decl        ::= "import" qualified_type_name import_alias? | "from" qualified_type_name "import" import_spec_list
+import_decl        ::= "import" import_path import_alias? | "from" import_path "import" import_spec_list
+import_path        ::= package_qualified_name | qualified_type_name
+package_qualified_name ::= package_name "::" qualified_type_name
+package_name       ::= ordinary_name ("." ordinary_name)*
 import_alias       ::= "as" ordinary_name
 import_spec_list   ::= import_spec ("," import_spec)* ","?
 import_spec        ::= ordinary_name import_alias?
@@ -582,6 +585,8 @@ IRIS-V1-GRAMMAR-C065：v1.19 勘误向 `primary_expr` 增加 `reified_type_expr 
 IRIS-V1-GRAMMAR-C066：v1.20 勘误向 `call_suffix` 增加 `call_type_arguments`，因此调用 MAY 显式给出方法类型实参，如 `choose<String, Integer>(value)`。这补上了 IRIS-V1-TYPES-C071 在要求「使用全元数尖括号并以 `_` 占位」时已经预设的语法，也是 IRIS-V1-TYPES-C060 将缺失的末尾实参报为元数错误（而非推断默认值）所必需的语法。`call_type_argument` 仅在此处接纳 `_`：IRIS-V1-TYPES-C072 在一切持久类型位置上仍禁止它，且它是类型实参占位符，而非绑定、也非新的类型变量。IRIS-V1-GRAMMAR-C020 并未被削弱：名字之后的 `<` 仅在尖括号对以一个其后**紧跟** `(` 的 `>` 闭合时，才开始调用类型实参。其余每一个 `<` 都保持其运算符分词，因此 `a < b` 仍是比较。当两种读法都可良构时，以**运算符**读法为准，从而保持本勘误之前所有可解析程序的含义不变。本条款不新增关键字、也不新增词法单元。
 
 IRIS-V1-GRAMMAR-C067：v1.22 勘误允许闭合泛型名作为完整表达式，因此 `Box<String>` 可用作值，而不仅仅是 `postfix_part` 的接收者。这补充了 D-456 已经预设的语法——它使驻留的 Type 对象区别于 Class 对象，IRIS-V1-TYPES-V257 正是通过比较 `Box<String>.type` 与 `Box<String>` 来观察这一点。本条就地取代 IRIS-V1-GRAMMAR-C063 中的 `postfix_part` 要求；C063 陈述的其余条件均不变。IRIS-V1-GRAMMAR-C020 不被削弱。仅当名称是 `type_name` 且括号对以 `>` 闭合时才采用泛型读法，并且闭合的 `>` 之后现在必须跟随 `postfix_part`，或跟随一个无法延续表达式的 token：语句终结符、`,`、`]`、`)`、`}` 或输入结束。当两种读法本都良构时，仍以运算符读法优先，因此 `a < b` 仍是比较，`a >> b` 仍是右移。不带参数的裸泛型名依据 IRIS-V1-TYPES-C061 仍是定义元数据，此处不予接纳。
+
+IRIS-V1-GRAMMAR-C068：v1.23 勘误新增 `package_qualified_name ::= package_name "::" qualified_type_name` 与 `package_name ::= ordinary_name ("." ordinary_name)*`，并允许其作为 `import_decl` 的路径。这补充了 IRIS-V1-META-C013 已经预设的语法——该条将支持的形式写作 `import pkg::Module`，而 IRIS-V1-META-C003 使每个可发布的 `pkg` 都是形如 `org.dep` 的反向域名式 `package_id`。点分名称仅允许出现在导入路径中 `::` 之前的包段位置：`ordinary_name` 不变，`qualified_type_name` 不变，其他位置的 `.` 保持成员访问含义，因此 `a.b` 仍是成员读取。不含 `::` 的导入路径继续命名当前包中的 Module。IRIS-V1-META-C013 对通配符导入与运行时字符串导入的排除不变，`*` 在导入路径中的任何位置仍不被接纳。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

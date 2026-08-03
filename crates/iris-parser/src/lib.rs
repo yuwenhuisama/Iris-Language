@@ -495,7 +495,7 @@ impl Parser {
     /// Parses `import_decl`.
     fn import_declaration(&mut self) -> Option<iris_syntax::ImportDeclaration> {
         if self.consume("from") {
-            let target = self.qualified_name()?;
+            let target = self.import_path()?;
             self.expect("import")?;
             let mut specs = Vec::new();
             loop {
@@ -513,7 +513,7 @@ impl Parser {
             });
         }
         self.expect("import")?;
-        let target = self.qualified_name()?;
+        let target = self.import_path()?;
         let alias = self.consume("as").then(|| self.name()).flatten();
         Some(iris_syntax::ImportDeclaration {
             target,
@@ -1640,6 +1640,48 @@ impl Parser {
         }
     }
 
+    /// Parses the path of an `import_decl`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C068` admits `package_name "::" qualified_type_name`,
+    /// where `package_name` is a DOTTED reverse-domain identity such as
+    /// `org.dep`. `IRIS-V1-META-C003` makes every publishable package carry such
+    /// an identity, which `IRIS-V1-META-C013` then writes as `pkg::Module`.
+    ///
+    /// The dotted form is admitted ONLY here, before the `::`. A `.` elsewhere
+    /// keeps its member-access meaning, and a path with no `::` continues to
+    /// name a Module in the current package.
+    fn import_path(&mut self) -> Option<String> {
+        let mut name = self.name()?;
+        while self.check(".") {
+            let restore = self.cursor;
+            self.advance();
+            let Some(segment) = self.name() else {
+                self.cursor = restore;
+                break;
+            };
+            // Only a dotted run that REACHES a `::` is a package name. Anything
+            // else is left to its ordinary reading rather than being consumed.
+            name.push('.');
+            name.push_str(&segment);
+        }
+        while self.consume_qualified_separator() {
+            name.push_str("::");
+            // IRIS-V1-META-C013 keeps wildcard imports out of Iris v1 source and
+            // IRIS-V1-META-V417 names the diagnostic, so a `*` here is reported
+            // under that name rather than as a generic unexpected token.
+            if self.check("*") {
+                self.error("IRIS-IMPORT-WILDCARD");
+                // The `*` is consumed so the rejected declaration does not also
+                // strand a token and report a second, generic diagnostic for one
+                // cause. V417 names exactly one code for this input.
+                self.advance();
+                return Some(name);
+            }
+            name.push_str(&self.name()?);
+        }
+        Some(name)
+    }
+
     pub(crate) fn qualified_name(&mut self) -> Option<String> {
         let mut name = self.name()?;
         while self.consume_qualified_separator() {
@@ -1870,6 +1912,35 @@ fn is_reserved_keyword(value: &str) -> bool {
             | "super"
             | "typeof"
     )
+}
+
+#[cfg(test)]
+mod import_wildcard_tests {
+    use crate::parse;
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        parse(source)
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c013_rejects_a_wildcard_import_under_its_named_code() {
+        // IRIS-V1-META-C013 keeps wildcard imports out of Iris v1 source, and
+        // IRIS-V1-META-V417 names the diagnostic. The rejection was already
+        // correct but reported the generic parse code, and stranding the `*`
+        // reported a SECOND diagnostic for one cause.
+        assert_eq!(codes("import org.dep::*"), ["IRIS-IMPORT-WILDCARD"]);
+        assert_eq!(
+            codes("import org.dep::Core as C\nimport org.dep::*"),
+            ["IRIS-IMPORT-WILDCARD"]
+        );
+
+        // A named import is unaffected.
+        assert!(codes("import org.dep::Core as C").is_empty());
+    }
 }
 
 #[cfg(test)]

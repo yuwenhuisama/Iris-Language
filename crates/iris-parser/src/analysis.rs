@@ -2687,6 +2687,25 @@ mod qualified_namespace_tests {
     }
 
     #[test]
+    fn c068_admits_a_dotted_package_segment_before_the_separator() {
+        // IRIS-V1-GRAMMAR-C068 admits `package_name "::" qualified_type_name`,
+        // where `package_name` is a DOTTED reverse-domain identity such as
+        // `org.dep`. IRIS-V1-META-C003 makes every publishable package carry
+        // one, which C013 then writes as `pkg::Module`; without this the form
+        // every chapter 08 import row uses had no derivation at all.
+        assert!(codes("import org.dep::Core as C").is_empty());
+        assert!(codes("from org.dep::Names import One, Two as T").is_empty());
+
+        // The dotted form is admitted ONLY before the `::`. A `.` elsewhere
+        // keeps its member-access meaning.
+        assert!(codes("module M { let a = 1; public fun f() { a.to_text() } }").is_empty());
+
+        // A path with no `::` still names a Module in the current package,
+        // which IRIS-V1-CONTROL-V351 depends on.
+        assert!(codes("module Dep { } import Dep as D").is_empty());
+    }
+
+    #[test]
     fn c013_publishes_only_what_an_import_form_requests() {
         // C013 gives `from pkg::Module import Name` and `import pkg::Module`
         // different effects, and C014 introduces ONLY the Modules or items the
