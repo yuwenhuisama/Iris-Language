@@ -2424,15 +2424,25 @@ fn a_failed_materialization_reports_a_type_contract_error() {
     // `TypeContractError`, matching how C067 reports a constraint failure on
     // the SAME materialization path. The initializer's own `:boom` propagated
     // instead, so the failure was indistinguishable from an ordinary raise.
-    let escaping = "class Box<T> { class property tag: Integer = { raise :boom; 1 }.call() } \
-                    Box<String>.tag";
+    //
+    // C066 does NOT undo external side effects and lets a later request retry,
+    // so both attempts survive in the external log. IRIS-V1-TYPES-V241
+    // observes exactly that.
+    let retried = "mut log = []; class Box<T> { class property tag: Integer = \
+                   { log.append(:attempt); raise :boom; 1 }.call() } \
+                   let a = try { Box<String>.tag } catch e { e }; \
+                   let b = try { Box<String>.tag } catch e { e }; [a, b, log]";
     // C066 publishes nothing for the failed construction, so an UNRELATED
     // construction still materializes normally afterwards.
     let unaffected = "mut n = 0; class Box<T> { class property tag: Integer = \
                       { n = n + 1; n }.call() } Box<String>.tag";
 
     // When / Then
-    assert_eq!(rendered(escaping), "TypeContractError");
+    assert_eq!(
+        rendered(retried),
+        "Array([Symbol(\"TypeContractError\"), Symbol(\"TypeContractError\"), \
+         Array([Symbol(\"attempt\"), Symbol(\"attempt\")])])"
+    );
     assert_eq!(rendered(unaffected), "Integer(IntegerValue(1))");
 }
 
@@ -2898,4 +2908,31 @@ fn c035_reads_the_candidate_inside_a_transaction_and_the_revision_outside() {
         rendered(both),
         "Array([Array([Symbol(\"@x\")]), Array([Symbol(\"@x\")])])"
     );
+}
+
+#[test]
+fn c056_makes_a_specification_named_error_catchable() {
+    // IRIS-V1-CONTROL-C056 makes `raise value` accept ANY Iris object or value
+    // and hands the ORIGINAL value to the catch. Every runtime failure the
+    // specification NAMES travelled past every handler as an evaluator-internal
+    // error instead, so no `catch` of any form intercepted one. That blocked
+    // C040's explicit retry and V241's second attempt among others.
+    let name_error = "try { undefined_name } catch e { e }";
+    let contract = "contract C { fun d() } class Box<T> where T: C {} class X {} \
+                    try { Box<X>.tag } catch e { e }";
+    // IRIS-V1-META-C040 lets user code catch a conflict and retry explicitly.
+    let conflict = "class A {} try { A.open() { |x| x.define_method(:m) { 1 }; \
+                    Reflection::Class.set_superclass(A, Object) } } catch e { e }";
+    // A control-flow unwind is NOT an exception and still reaches its own
+    // boundary rather than being intercepted by an unrelated handler.
+    let returned = "class A { public fun m() { try { return 5 } catch e { 9 } } } A.new().m()";
+
+    // When / Then
+    assert_eq!(rendered(name_error), "Symbol(\"NameError\")");
+    assert_eq!(rendered(contract), "Symbol(\"TypeContractError\")");
+    assert_eq!(
+        rendered(conflict),
+        "Symbol(\"MetaTransactionConflictError\")"
+    );
+    assert_eq!(rendered(returned), "Integer(IntegerValue(5))");
 }

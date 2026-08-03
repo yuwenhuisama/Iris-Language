@@ -2459,7 +2459,20 @@ impl SourceEvaluator {
             Err(EvaluationError::Raised(value)) => {
                 self.catch_exception(value, catches, locals, receiver.clone())
             }
-            Err(error) => Err(error),
+            // C056 makes `raise value` accept ANY Iris object or value and
+            // hands the ORIGINAL value to the catch. A runtime failure the
+            // specification NAMES, such as `TypeContractError`, is such a
+            // value, so it is catchable under its own name rather than
+            // travelling past every handler as an evaluator-internal error.
+            //
+            // A control-flow unwind is NOT an exception and still travels to
+            // its own boundary.
+            Err(error) => match catchable_name(&error) {
+                Some(name) => {
+                    self.catch_exception(Value::Symbol(name), catches, locals, receiver.clone())
+                }
+                None => Err(error),
+            },
         };
         if let Some(finally) = finally {
             let pending = match &result {
@@ -5855,6 +5868,32 @@ const fn compound_selector(operator: &iris_syntax::AssignmentOperator) -> Option
         | AssignmentOperator::LogicalAnd
         | AssignmentOperator::LogicalOr => None,
     }
+}
+
+/// The specification-named error a runtime failure reports, when it names one.
+///
+/// `IRIS-V1-CONTROL-C056` makes `raise value` accept any Iris value and hands
+/// the ORIGINAL value to the catch, so a failure the specification names is
+/// catchable under that name. Returning `None` keeps a failure that names no
+/// such error, and every control-flow unwind, travelling to its own boundary
+/// instead of being intercepted by an unrelated handler.
+fn catchable_name(error: &EvaluationError) -> Option<String> {
+    let name = match error {
+        EvaluationError::TypeContractError => "TypeContractError",
+        EvaluationError::IdentityError => "IdentityError",
+        EvaluationError::ComparisonContractError => "ComparisonContractError",
+        EvaluationError::ArgumentError => "ArgumentError",
+        EvaluationError::PatternMatchError => "PatternMatchError",
+        EvaluationError::NameError => "NameError",
+        EvaluationError::ImmutableBinding => "ImmutableBindingError",
+        EvaluationError::ReadonlyProperty => "ReadonlyMutationError",
+        EvaluationError::Class(iris_runtime::ClassError::MetaTransactionConflict { .. }) => {
+            "MetaTransactionConflictError"
+        }
+        EvaluationError::MessageNotFound { .. } => "MessageNotFound",
+        _ => return None,
+    };
+    Some(name.to_owned())
 }
 
 #[cfg(test)]
