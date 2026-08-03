@@ -348,7 +348,7 @@ impl Analyzer {
             && self
                 .generic_classes
                 .iter()
-                .any(|(declared, _)| declared == name)
+                .any(|(declared, arity)| declared == name && *arity > 0)
         {
             self.report("RAW_GENERIC_TYPE_FORBIDDEN");
         }
@@ -807,9 +807,12 @@ impl Analyzer {
     }
 
     fn declaration(&mut self, declaration: &iris_syntax::Declaration) {
-        if let iris_syntax::Declaration::Class(value) = declaration
-            && !value.parameters.is_empty()
-        {
+        // A NON-generic Class is recorded with arity 0, so `A<B>` for a Class
+        // declared without type parameters is the same arity violation
+        // `GENERIC_ARGUMENT_ARITY` already names. The v1.22 errata made that
+        // spelling parse as a construction rather than fail as a parse error,
+        // so without this it would have constructed silently.
+        if let iris_syntax::Declaration::Class(value) = declaration {
             self.generic_classes
                 .push((value.name.clone(), value.parameters.len()));
         }
@@ -1571,7 +1574,7 @@ impl Analyzer {
                     && self
                         .generic_classes
                         .iter()
-                        .any(|(declared, _)| declared == name)
+                        .any(|(declared, arity)| declared == name && *arity > 0)
                 {
                     self.report("GENERIC_ARGUMENT_ARITY");
                 }
@@ -2651,6 +2654,31 @@ mod generic_type_tests {
                 Vec::new()
             })
             .collect()
+    }
+
+    #[test]
+    fn a_non_generic_class_rejects_supplied_type_arguments() {
+        // The v1.22 errata made `A<B>` PARSE as a closed generic construction
+        // rather than fail as a parse error, so a Class declared with NO type
+        // parameters would otherwise have constructed silently. Supplying one
+        // argument where none are declared is the same arity violation
+        // `GENERIC_ARGUMENT_ARITY` already names for `Pair<String>`.
+        let supplied = "class A {} class B {} A<B>";
+        // Recording a non-generic Class must not make its ORDINARY uses look
+        // generic: a bare annotation is not a raw generic Type, and `new()` on
+        // it supplies no missing arguments.
+        let ordinary = "class Plain {} let p: Plain = Plain.new()";
+        // The genuine generic diagnostics are unaffected.
+        let raw_annotation = "class Box<T> {} let b: Box = 1";
+        let bare_construction = "class Box<T> {} Box.new()";
+        let closed = "class Box<T> {} Box<String>.new()";
+
+        // When / Then
+        assert_eq!(codes(supplied), vec!["GENERIC_ARGUMENT_ARITY"]);
+        assert!(codes(ordinary).is_empty());
+        assert_eq!(codes(raw_annotation), vec!["RAW_GENERIC_TYPE_FORBIDDEN"]);
+        assert_eq!(codes(bare_construction), vec!["GENERIC_ARGUMENT_ARITY"]);
+        assert!(codes(closed).is_empty());
     }
 
     #[test]
