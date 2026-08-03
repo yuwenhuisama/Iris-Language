@@ -334,7 +334,20 @@ impl Parser {
                 }
                 // `import_decl` and `export_decl` are declarations, dispatched
                 // here rather than as statements.
+                // C069 admits an `override` marker before the import keyword, so
+                // the dispatch looks past it rather than treating the marker as
+                // an unexpected token.
                 Some("import") | Some("from") if decorators.is_empty() => {
+                    self.import_declaration().map(|value| {
+                        let declaration = Declaration::Import(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
+                }
+                Some("override")
+                    if decorators.is_empty()
+                        && matches!(self.peek_next(), Some("import") | Some("from")) =>
+                {
                     self.import_declaration().map(|value| {
                         let declaration = Declaration::Import(value);
                         program.declarations.push(declaration.clone());
@@ -494,6 +507,10 @@ impl Parser {
     /// Parses `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
     /// Parses `import_decl`.
     fn import_declaration(&mut self) -> Option<iris_syntax::ImportDeclaration> {
+        // C069 places the C049 replacement-authorization marker BEFORE the
+        // keyword, since D-230 authorizes the replacements that import
+        // contributes rather than authorizing per name.
+        let replacement_authorized = self.consume("override");
         if self.consume("from") {
             let target = self.import_path()?;
             self.expect("import")?;
@@ -510,6 +527,7 @@ impl Parser {
                 target,
                 alias: None,
                 specs,
+                replacement_authorized,
             });
         }
         self.expect("import")?;
@@ -518,6 +536,7 @@ impl Parser {
         Some(iris_syntax::ImportDeclaration {
             target,
             alias,
+            replacement_authorized,
             specs: Vec::new(),
         })
     }
@@ -1977,6 +1996,50 @@ mod export_facade_tests {
             "export module M { public fun f() -> Integer { 1 } }"
         ));
         assert!(accepted("class A { } export A"));
+    }
+}
+
+#[cfg(test)]
+mod import_override_marker_tests {
+    use crate::parse;
+
+    fn authorized(source: &str) -> Vec<bool> {
+        parse(source)
+            .program
+            .declarations
+            .iter()
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Import(value) => Some(value.replacement_authorized),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn c069_marks_an_import_that_authorizes_replacement() {
+        // IRIS-V1-META-C049 requires import-site replacement authorization
+        // using "the language's accepted `override` import marker", and D-230
+        // left its placement for later standardization. The v1.24 errata
+        // IRIS-V1-GRAMMAR-C069 places it before the keyword, since D-230
+        // authorizes the replacements THAT IMPORT contributes rather than
+        // authorizing per name.
+        assert_eq!(
+            authorized("override import org.dep::Core\nimport org.dep::Other"),
+            [true, false]
+        );
+        assert_eq!(
+            authorized("override from org.dep::Names import One"),
+            [true]
+        );
+
+        // The marker is admitted ONLY before an import keyword, so
+        // `method_decl`'s own `override` is untouched.
+        let method = "class A { public fun m() -> Integer { 1 } } \
+                      class B extends A { public override fun m() -> Integer { 2 } }";
+        assert!(parse(method).program_accepted);
+
+        // The unmarked forms still parse, which IRIS-V1-CONTROL-V351 depends on.
+        assert!(parse("module S { const K = 5 } from S import K").program_accepted);
     }
 }
 

@@ -42,6 +42,15 @@ pub struct ImportDeclaration {
     pub alias: Option<String>,
     /// The `import_spec_list` of a `from ... import ...`, empty otherwise.
     pub specs: Vec<ImportSpec>,
+    /// Whether the source wrote the `override` replacement marker.
+    ///
+    /// `IRIS-V1-META-C049` requires import-site replacement authorization
+    /// before a direct import may replace an already merged static extension
+    /// member, and the v1.24 errata `IRIS-V1-GRAMMAR-C069` places that marker
+    /// before the keyword. `D-230` authorizes the replacements THAT import
+    /// contributes, so the flag belongs to the declaration rather than to a
+    /// single spec.
+    pub replacement_authorized: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
