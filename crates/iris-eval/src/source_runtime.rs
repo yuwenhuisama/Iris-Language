@@ -116,6 +116,12 @@ pub(super) struct SourceEvaluator {
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
+    /// The capabilities each Contract's `meta deny` withholds.
+    ///
+    /// `IRIS-V1-META-C076` subtracts every Contract-required deny from a
+    /// Class's effective capabilities, so a Contract's policy has to be
+    /// reachable when a Class declaring `for` that Contract is published.
+    contract_capabilities: HashMap<iris_runtime::ContractId, iris_runtime::MetaCapabilities>,
     /// The selectors each declared Contract REQUIRES.
     ///
     /// `IRIS-V1-TYPES-C047` lets one unqualified `impl` member satisfy every
@@ -277,6 +283,7 @@ impl SourceEvaluator {
             closures: HashMap::new(),
             next_closure: 900_000,
             contract_names: HashMap::new(),
+            contract_capabilities: HashMap::new(),
             contract_requirements: HashMap::new(),
             contract_requirement_arities: HashMap::new(),
             contract_requirement_returns: HashMap::new(),
@@ -509,7 +516,17 @@ impl SourceEvaluator {
             }
             class
         } else {
-            let capabilities = meta_capabilities(&declaration.meta_deny)?;
+            let mut capabilities = meta_capabilities(&declaration.meta_deny)?;
+            // C076: a Class's effective capabilities subtract every
+            // Contract-required deny as well as its own and its ancestors'.
+            for target in &declaration.implements {
+                if let iris_syntax::TypeExpression::Name(name) = target
+                    && let Some(contract) = self.contract_names.get(name)
+                    && let Some(policy) = self.contract_capabilities.get(contract)
+                {
+                    capabilities = capabilities.narrowed_by(*policy);
+                }
+            }
             self.validate_module_overrides(superclass, &mixins)?;
             let class = self
                 .runtime
@@ -1623,6 +1640,11 @@ impl SourceEvaluator {
             );
         }
         let contract = iris_runtime::ContractId::new(self.next_contract);
+        // C076 subtracts Contract-required denies from an implementing Class's
+        // effective capabilities, so a Contract's own `meta deny` is recorded
+        // rather than parsed and discarded.
+        self.contract_capabilities
+            .insert(contract, meta_capabilities(&declaration.meta_deny)?);
         self.next_contract += 1;
         self.contract_names
             .insert(declaration.name.clone(), contract);
@@ -3739,6 +3761,23 @@ impl SourceEvaluator {
             // revision until the commit. C036 makes candidate properties
             // visible ONLY through such a read, never through an instance send.
             Value::Class(class) if selector == "properties" => self.class_properties(class),
+            // C081 fixes the capability vocabulary and V360 observes a target's
+            // EFFECTIVE deny set, which a subclass inherits and an open cannot
+            // restore. The view is a plain immutable Array of Symbols.
+            Value::Class(class) if selector == "denied_capabilities" => {
+                let capabilities = self
+                    .runtime
+                    .registry()
+                    .active_meta_capabilities(class)
+                    .map_err(EvaluationError::Class)?;
+                Ok(Value::Array(
+                    capabilities
+                        .denied()
+                        .into_iter()
+                        .map(|capability| Value::Symbol(capability_name(capability).to_owned()))
+                        .collect(),
+                ))
+            }
             // C023 makes a structural meta message reach the current
             // candidate, so a property staged here is visible to the rest of
             // the transaction and published only if it commits.
@@ -5874,6 +5913,24 @@ const fn compound_selector(operator: &iris_syntax::AssignmentOperator) -> Option
         AssignmentOperator::Assign
         | AssignmentOperator::LogicalAnd
         | AssignmentOperator::LogicalOr => None,
+    }
+}
+
+/// The `IRIS-V1-META-C081` vocabulary name of one capability.
+const fn capability_name(capability: iris_runtime::Capability) -> &'static str {
+    match capability {
+        iris_runtime::Capability::MethodSet => "method_set",
+        iris_runtime::Capability::MethodBody => "method_body",
+        iris_runtime::Capability::PropertySet => "property_set",
+        iris_runtime::Capability::PropertyBody => "property_body",
+        iris_runtime::Capability::Modules => "modules",
+        iris_runtime::Capability::Superclass => "superclass",
+        iris_runtime::Capability::Subclass => "subclass",
+        iris_runtime::Capability::Shape => "shape",
+        iris_runtime::Capability::ClassStateSet => "class_state_set",
+        iris_runtime::Capability::ClassStateWrite => "class_state_write",
+        iris_runtime::Capability::InstanceState => "instance_state",
+        iris_runtime::Capability::Native => "native",
     }
 }
 

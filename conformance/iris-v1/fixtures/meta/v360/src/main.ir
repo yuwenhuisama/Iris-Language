@@ -1,0 +1,4 @@
+class Base meta deny method_set { }
+module NoShape meta deny shape { }
+contract Fixed meta deny class_state_set { }
+class Target extends Base for Fixed mixin NoShape { }

@@ -2980,3 +2980,29 @@ fn c081_denies_a_meta_operation_missing_its_capability() {
     assert_eq!(rendered(method_body), "Symbol(\"MetaCapabilityError\")");
     assert_eq!(rendered(property_set), "Symbol(\"MetaCapabilityError\")");
 }
+
+#[test]
+fn c076_combines_deny_origins_from_every_source() {
+    // IRIS-V1-META-C076 makes a Class's effective capabilities the defaults
+    // minus every denial from the declared superclass chain, local origin
+    // denies, the runtime chain, Module-sourced denies, AND Contract-required
+    // denies. A Contract's `meta deny` was parsed and then DISCARDED, so a
+    // Contract-required denial never reached an implementing Class.
+    let combined = "class Base meta deny method_set { } module NoShape meta deny shape { } \
+                    contract Fixed meta deny class_state_set { } \
+                    class Target extends Base for Fixed mixin NoShape { } \
+                    Target.denied_capabilities";
+    // C077 forbids a subclass or an open from re-enabling an ancestor's denial.
+    let cannot_restore = "class Base meta deny method_set { } class T extends Base { } \
+                          try { T.open() { |t| t.define_method(:m) { 1 } } } catch e { e }";
+    // A Class denying nothing reports an empty set.
+    let none = "class B { } B.denied_capabilities";
+
+    // When / Then: the denials are reported in the fixed C081 vocabulary order.
+    assert_eq!(
+        rendered(combined),
+        "Array([Symbol(\"method_set\"), Symbol(\"shape\"), Symbol(\"class_state_set\")])"
+    );
+    assert_eq!(rendered(cannot_restore), "Symbol(\"MetaCapabilityError\")");
+    assert_eq!(rendered(none), "Array([])");
+}

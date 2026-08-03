@@ -1,0 +1,3 @@
+package_id = "org.iris.v360"
+api_major = 1
+sources = ["src/main.ir"]

@@ -67,6 +67,32 @@ impl MetaCapabilities {
     }
 
     /// Builds an immutable policy by removing source-declared capabilities.
+    /// Every capability this policy DENIES, in the C081 vocabulary order.
+    ///
+    /// `IRIS-V1-META-C081` fixes the capability vocabulary, and
+    /// `IRIS-V1-META-V360` observes a target's effective deny set, so the
+    /// denials are reported in that fixed order rather than in an
+    /// implementation-defined one.
+    pub fn denied(self) -> Vec<Capability> {
+        [
+            Capability::MethodSet,
+            Capability::MethodBody,
+            Capability::PropertySet,
+            Capability::PropertyBody,
+            Capability::Modules,
+            Capability::Superclass,
+            Capability::Subclass,
+            Capability::Shape,
+            Capability::ClassStateSet,
+            Capability::ClassStateWrite,
+            Capability::InstanceState,
+            Capability::Native,
+        ]
+        .into_iter()
+        .filter(|capability| !self.allows(*capability))
+        .collect()
+    }
+
     pub fn denying(capabilities: &[Capability]) -> Self {
         let mut policy = Self::all();
         policy.deny(capabilities);
@@ -86,7 +112,13 @@ impl MetaCapabilities {
     }
 
     /// Combines independent denials without granting authorization.
-    pub(crate) const fn narrowed_by(self, other: Self) -> Self {
+    /// This policy narrowed by another's denials.
+    ///
+    /// `IRIS-V1-META-C076` subtracts denials from several origins -- the
+    /// declared superclass chain, local origin denies, the runtime chain,
+    /// Module-sourced denies, and Contract-required denies -- so combining two
+    /// policies is the shared operation each of those uses.
+    pub const fn narrowed_by(self, other: Self) -> Self {
         Self(self.0 & other.0)
     }
 
