@@ -33,6 +33,15 @@ pub enum ClassError {
     RevisionArtifactUnavailable(RevisionId),
     RevisionIdentityExhausted,
     CommitIdentityExhausted,
+    /// A transaction group's target changed since its candidate's base.
+    ///
+    /// `IRIS-V1-META-C039` raises this at commit when an overlapping target
+    /// changed since the recorded base revision, and rolls the whole group
+    /// back. `IRIS-V1-META-C040` gives v1 no automatic retry, rebase or merge:
+    /// user code may catch this and retry explicitly.
+    MetaTransactionConflict {
+        class: ClassId,
+    },
     RevisionNumberExhausted {
         class: ClassId,
     },
@@ -84,6 +93,9 @@ impl fmt::Display for ClassError {
             }
             Self::RevisionIdentityExhausted => "Iris revision identity space exhausted",
             Self::CommitIdentityExhausted => "Iris commit identity space exhausted",
+            Self::MetaTransactionConflict { .. } => {
+                "Iris meta transaction target changed since its base revision"
+            }
             Self::RevisionNumberExhausted { .. } => "Iris Class revision number space exhausted",
             Self::ClassIdentityExhausted => "Iris Class identity space exhausted",
             Self::MethodIdentityExhausted => "Iris Method identity space exhausted",
@@ -412,6 +424,49 @@ impl ClassRegistry {
             self.publish(candidate)?;
         }
         Ok(())
+    }
+
+    /// Publishes every candidate staged in the current transaction group.
+    ///
+    /// `IRIS-V1-META-C038` makes same-thread nested opens join the OUTERMOST
+    /// transaction group, forbids an inner open from committing independently,
+    /// and requires all candidates in the group to validate and publish
+    /// together or all roll back. `IRIS-V1-META-C041` publishes them under one
+    /// commit so no thread observes a partial structural mix.
+    ///
+    /// `IRIS-V1-META-C039` records each candidate's base active revision and
+    /// raises `MetaTransactionConflictError` when an overlapping target changed
+    /// since that base, rolling the whole group back.
+    pub fn commit_group(&mut self) -> Result<(), ClassError> {
+        let staged = std::mem::take(&mut self.staged);
+        if staged.is_empty() {
+            return Ok(());
+        }
+        for (class, candidate) in &staged {
+            if self.active_revision(*class)? != candidate.base_revision() {
+                return Err(ClassError::MetaTransactionConflict { class: *class });
+            }
+        }
+        let mut candidates: Vec<_> = staged.into_iter().collect();
+        // A group publishes in a deterministic order, since `IRIS-V1-META-C017`
+        // and `IRIS-V1-IDENTITY-C021` forbid an observable outcome from
+        // depending on runtime allocation or hash order.
+        candidates.sort_by_key(|(class, _)| *class);
+        self.publish_all(
+            candidates
+                .into_iter()
+                .map(|(_, candidate)| candidate)
+                .collect(),
+        )?;
+        Ok(())
+    }
+
+    /// Discards every candidate staged in the current transaction group.
+    ///
+    /// `IRIS-V1-META-C038` rolls back ALL candidates in the group together, so
+    /// an inner open's target is discarded with the outermost one.
+    pub fn roll_back_group(&mut self) {
+        self.staged.clear();
     }
 
     /// Discards the candidate staged for `class`, publishing nothing.

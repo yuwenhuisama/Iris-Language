@@ -2805,3 +2805,61 @@ fn c034_rolls_back_a_failed_programmatic_open() {
     assert!(!leaked);
     assert!(published);
 }
+
+#[test]
+fn c038_joins_nested_opens_into_one_transaction_group() {
+    // IRIS-V1-META-C038 makes same-thread nested opens join the OUTERMOST
+    // transaction group, forbids an inner open from committing independently,
+    // and requires all candidates in the group to publish together or all roll
+    // back. An inner open committed on its own, so its target stayed published
+    // even when the outer transaction later failed.
+    let published = |source: &str, class: &str, selector: &str| {
+        crate::evaluate_with_member_probe(source, class, selector).1
+    };
+    // The group commits together when the outermost completes.
+    let commits = "class A {} class B {} \
+                   A.open() { |x| x.define_method(:m) { 1 }; \
+                   B.open() { |y| y.define_method(:n) { 2 } } }";
+    // The group rolls back together when the outermost fails.
+    let rolls_back = "class A {} class B {} \
+                      A.open() { |x| x.define_method(:m) { 1 }; \
+                      B.open() { |y| y.define_method(:n) { 2 } }; raise :boom }";
+    // Reopening a target already in the group REUSES its candidate, so both
+    // Methods survive rather than the second candidate replacing the first.
+    let reused = "class A {} A.open() { |x| x.define_method(:one) { 1 }; \
+                  A.open() { |y| y.define_method(:two) { 2 } } }";
+
+    // When / Then
+    assert!(published(commits, "A", "m"));
+    assert!(published(commits, "B", "n"));
+    assert!(!published(rolls_back, "A", "m"));
+    assert!(!published(rolls_back, "B", "n"));
+    assert!(published(reused, "A", "one"));
+    assert!(published(reused, "A", "two"));
+}
+
+#[test]
+fn c039_raises_a_conflict_when_a_target_moved_past_its_base() {
+    // IRIS-V1-META-C039 records every candidate's base active revision and, at
+    // commit, raises `MetaTransactionConflictError` and rolls the whole group
+    // back when an overlapping target changed since that base. Nothing recorded
+    // or compared a base revision, so a concurrent structural change was
+    // silently overwritten by the committing candidate.
+    //
+    // A reflective mutation inside the block publishes its own revision, which
+    // is what moves the target past the recorded base.
+    let conflicting = "class A { public fun base() { 0 } } \
+                       A.open() { |x| x.define_method(:m) { 1 }; \
+                       Reflection::Class.set_superclass(A, Object) }";
+    // A group with no outside change still commits.
+    let clean = "class A {} A.open() { |x| x.define_method(:m) { 1 } }; A.new().m()";
+
+    // When
+    let (conflicted, published) = crate::evaluate_with_member_probe(conflicting, "A", "m");
+
+    // Then: the conflict rolls the group back, so the staged Method is absent.
+    assert!(rendered(conflicting).starts_with("Class(MetaTransactionConflict"));
+    assert!(conflicted.is_err());
+    assert!(!published);
+    assert_eq!(rendered(clean), "Array([Nil, Integer(IntegerValue(1))])");
+}

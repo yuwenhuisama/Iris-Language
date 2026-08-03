@@ -351,6 +351,15 @@ impl CandidateRevision {
     }
 
     /// Adds one Module edge to the candidate metadata.
+    /// The active revision this candidate was opened from.
+    ///
+    /// `IRIS-V1-META-C039` requires every candidate to record its target's base
+    /// active revision, so a commit can detect that an overlapping target
+    /// changed since then.
+    pub const fn base_revision(&self) -> RevisionId {
+        self.base
+    }
+
     pub fn add_module(&mut self, module: ModuleId) {
         self.add_composition_edge(CompositionEdge::new(module, false));
     }

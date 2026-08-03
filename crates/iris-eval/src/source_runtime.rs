@@ -191,6 +191,12 @@ pub(super) struct SourceEvaluator {
     /// reach the CURRENT candidate, so the block needs to know which target is
     /// open rather than inferring it from the receiver alone.
     open_target: Option<ClassId>,
+    /// Every target joined to the current open transaction group.
+    ///
+    /// `IRIS-V1-META-C038` makes same-thread nested opens join the OUTERMOST
+    /// group and requires all its candidates to publish together or all roll
+    /// back, so the group's membership must be known at the outermost commit.
+    open_group: Vec<ClassId>,
     /// The Classes declared with type parameters.
     ///
     /// `IRIS-V1-META-C033` forbids programmatic open from targeting a Contract
@@ -299,6 +305,7 @@ impl SourceEvaluator {
             current_method: None,
             module_body_main: None,
             open_target: None,
+            open_group: Vec::new(),
             generic_definitions: Vec::new(),
             active_exception: None,
             active_context: None,
@@ -1167,6 +1174,13 @@ impl SourceEvaluator {
             .registry_mut()
             .begin_transaction(class)
             .map_err(EvaluationError::Class)?;
+        // C038 makes a same-thread NESTED open join the outermost transaction
+        // group: only the outermost commits, and a reopen of a target already
+        // in the group reuses that target's candidate. An inner open that
+        // committed on its own left its target published even when the outer
+        // transaction later failed.
+        let outermost = self.open_target.is_none();
+        self.open_group.push(class);
         let previous = self.open_target.replace(class);
         let outcome = self
             .invoke_closure(block, &[Value::Class(class)])
@@ -1174,16 +1188,30 @@ impl SourceEvaluator {
             // same Contract check the declarative form runs applies here.
             .and_then(|value| self.validate_candidate_contracts(class).map(|()| value));
         self.open_target = previous;
+        if !outermost {
+            // An inner open NEVER commits independently, so its result travels
+            // to the outermost transaction unchanged.
+            return outcome;
+        }
+        let group = std::mem::take(&mut self.open_group);
         match outcome {
             Ok(value) => {
+                // C038 validates every candidate in the group before any of
+                // them publishes, so one failing target rolls back all.
+                for target in &group {
+                    if let Err(error) = self.validate_candidate_contracts(*target) {
+                        self.runtime.registry_mut().roll_back_group();
+                        return Err(error);
+                    }
+                }
                 self.runtime
                     .registry_mut()
-                    .commit_transaction(class)
+                    .commit_group()
                     .map_err(EvaluationError::Class)?;
                 Ok(value)
             }
             Err(error) => {
-                self.runtime.registry_mut().roll_back_transaction(class);
+                self.runtime.registry_mut().roll_back_group();
                 Err(error)
             }
         }

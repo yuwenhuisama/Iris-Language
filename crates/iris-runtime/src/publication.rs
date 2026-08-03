@@ -5,8 +5,22 @@ use crate::{CandidateRevision, ClassError, ClassRegistry, ClassRevision, Revisio
 impl ClassRegistry {
     pub fn publish_group<const N: usize>(
         &mut self,
-        mut candidates: [CandidateRevision; N],
+        candidates: [CandidateRevision; N],
     ) -> Result<Vec<ClassRevision>, ClassError> {
+        self.publish_all(candidates.into())
+    }
+
+    /// Publishes every candidate in one transaction group atomically.
+    ///
+    /// `IRIS-V1-META-C038` validates and publishes all candidates in a group
+    /// together, or rolls them all back, and `IRIS-V1-META-C041` forbids a
+    /// thread from observing a partial structural mix. They therefore share one
+    /// commit identity rather than being published one at a time.
+    pub fn publish_all(
+        &mut self,
+        mut candidates: Vec<CandidateRevision>,
+    ) -> Result<Vec<ClassRevision>, ClassError> {
+        let count = candidates.len();
         for candidate in &mut candidates {
             crate::decorator::apply_pending(candidate)?;
         }
@@ -29,7 +43,8 @@ impl ClassRegistry {
             .next_commit_id
             .checked_add(1)
             .ok_or(ClassError::CommitIdentityExhausted)?;
-        let revision_count = u64::try_from(N).map_err(|_| ClassError::RevisionIdentityExhausted)?;
+        let revision_count =
+            u64::try_from(count).map_err(|_| ClassError::RevisionIdentityExhausted)?;
         let final_revision_id = self
             .next_revision_id
             .checked_add(revision_count)
@@ -58,11 +73,8 @@ impl ClassRegistry {
         Ok(published)
     }
 
-    fn validate_group<const N: usize>(
-        &self,
-        candidates: &[CandidateRevision; N],
-    ) -> Result<(), ClassError> {
-        let mut owners = HashSet::with_capacity(N);
+    fn validate_group(&self, candidates: &[CandidateRevision]) -> Result<(), ClassError> {
+        let mut owners = HashSet::with_capacity(candidates.len());
         for candidate in candidates {
             let active = self.active(candidate.owner)?;
             if !owners.insert(candidate.owner) {
