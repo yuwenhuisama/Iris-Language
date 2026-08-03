@@ -3040,3 +3040,40 @@ fn c148_lets_a_stable_builtin_gain_behaviour_but_keep_its_identity() {
     );
     assert_eq!(rendered(ordinary), "Nil");
 }
+
+#[test]
+fn c017_rejects_a_package_whose_sources_import_each_other() {
+    // IRIS-V1-META-C017 makes Module initialization an ACYCLIC deterministic
+    // DAG and requires a dependency or initialization cycle to be a compile or
+    // link error. A package whose two files imported each other LOADED
+    // SUCCESSFULLY and reported both Modules as initialized.
+    let cyclic = [
+        ("src/a.ir".to_owned(), "import B\nmodule A { }\n".to_owned()),
+        ("src/b.ir".to_owned(), "import A\nmodule B { }\n".to_owned()),
+    ];
+    // Breaking either edge makes the graph acyclic again.
+    let acyclic = [
+        ("src/a.ir".to_owned(), "module A { }\n".to_owned()),
+        ("src/b.ir".to_owned(), "import A\nmodule B { }\n".to_owned()),
+    ];
+    // A file importing a name no other file declares is not a cycle.
+    let unresolved = [(
+        "src/a.ir".to_owned(),
+        "import Absent\nmodule A { }\n".to_owned(),
+    )];
+
+    // When / Then: the cycle is rejected BEFORE any Module body runs, so the
+    // package publishes nothing.
+    assert!(matches!(
+        crate::load_package("org.test", &cyclic),
+        Err(crate::EvaluationError::ModuleInitializationCycleError)
+    ));
+    assert_eq!(
+        crate::load_package("org.test", &acyclic),
+        Ok(vec!["A".to_owned(), "B".to_owned()])
+    );
+    assert_eq!(
+        crate::load_package("org.test", &unresolved),
+        Ok(vec!["A".to_owned()])
+    );
+}

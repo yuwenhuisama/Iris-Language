@@ -86,6 +86,12 @@ pub enum EvaluationError {
     NoActiveExceptionError,
     /// A cause or suppressed edge would have formed a cycle.
     ExceptionChainError,
+    /// A package's Module dependencies form a cycle.
+    ///
+    /// `IRIS-V1-META-C017` makes Module initialization an ACYCLIC deterministic
+    /// DAG and requires a dependency or initialization cycle to be a compile or
+    /// link error, so a package whose sources import each other never loads.
+    ModuleInitializationCycleError,
     /// A `continue` is unwinding to start the next iteration of its target loop.
     ///
     /// `IRIS-V1-CONTROL-C043` gives `continue` NO value, so unlike `LoopBreak`
@@ -196,6 +202,10 @@ pub fn load_package_with_probe(
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     let mut initialized = Vec::new();
+    // C017 makes Module initialization an acyclic deterministic DAG and makes a
+    // cycle a LINK error, so the dependency graph is checked before any Module
+    // body runs rather than after a half-initialized package is published.
+    reject_import_cycles(sources)?;
     for (_, source) in sources {
         let parsed = parse(source);
         if !parsed.program_accepted {
@@ -228,6 +238,64 @@ pub fn load_package_with_probe(
         None => None,
     };
     Ok((initialized, observed))
+}
+
+/// Rejects a package whose source files import each other in a cycle.
+///
+/// `IRIS-V1-META-C017` makes Module initialization an ACYCLIC deterministic DAG
+/// and requires a dependency or initialization cycle to be a compile or link
+/// error. The graph is per SOURCE FILE, since that is what a package's manifest
+/// orders and what an `import` in one file names in another.
+fn reject_import_cycles(sources: &[(String, String)]) -> Result<(), EvaluationError> {
+    let mut declares: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut imports: Vec<(usize, Vec<String>)> = Vec::new();
+    for (index, (_, source)) in sources.iter().enumerate() {
+        let parsed = parse(source);
+        if !parsed.program_accepted {
+            return Err(EvaluationError::ParseDiagnostic);
+        }
+        declares.push((index, declared_modules(&parsed.program)));
+        imports.push((index, imported_targets(&parsed.program)));
+    }
+    // An edge runs from the file that imports a name to the file declaring it.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    for (from, targets) in &imports {
+        for target in targets {
+            for (to, names) in &declares {
+                if from != to && names.iter().any(|name| name == target) {
+                    edges.push((*from, *to));
+                }
+            }
+        }
+    }
+    // A cycle exists when repeatedly removing a file with no outgoing edge
+    // cannot empty the graph.
+    let mut remaining: Vec<usize> = (0..sources.len()).collect();
+    loop {
+        let Some(position) = remaining.iter().position(|file| {
+            !edges
+                .iter()
+                .any(|(from, to)| from == file && remaining.contains(to))
+        }) else {
+            return Err(EvaluationError::ModuleInitializationCycleError);
+        };
+        remaining.remove(position);
+        if remaining.is_empty() {
+            return Ok(());
+        }
+    }
+}
+
+/// Names the Modules a program's imports target.
+fn imported_targets(program: &iris_syntax::Program) -> Vec<String> {
+    program
+        .declarations
+        .iter()
+        .filter_map(|entry| match entry {
+            iris_syntax::Declaration::Import(import) => Some(import.target.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Names the Modules a program declares, in source order.
