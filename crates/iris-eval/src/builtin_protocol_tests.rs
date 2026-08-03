@@ -2534,3 +2534,35 @@ fn d431_scopes_a_global_to_its_declaring_package() {
         "Err(NameError)"
     );
 }
+
+#[test]
+fn d432_orders_unqualified_resolution_across_three_tiers() {
+    // D-432 resolves an unqualified name as LEXICAL scope, then the CURRENT
+    // module's declarations, then explicit imports. A Module body `const` was
+    // an ordinary lexical binding, so it LEAKED: code outside any Module read
+    // it, and a second Module declaring the same name overwrote the first.
+    let tiers = "module S { const K = 5 } \
+                 module M { const K = 1 public module fun lexical() { let K = 9; K } \
+                 public module fun declared() { K } } \
+                 from S import K; [M.lexical(), M.declared(), K]";
+    // A Module's constant is invisible OUTSIDE the Module that declared it.
+    let scoped = "module M { const K = 5 } K";
+    // Two Modules may declare the same constant name without collision.
+    let independent = "module A { const K = 1 public module fun f() { K } } \
+                       module B { const K = 2 public module fun g() { K } } [A.f(), B.g()]";
+    // An import binds under its alias when the source writes one.
+    let aliased = "module M { const K = 5 } from M import K as J; J";
+
+    // When / Then: 9 is lexical, 1 is the Module's own declaration, 5 is the
+    // import, which is the exact precedence D-432 states.
+    assert_eq!(
+        rendered(tiers),
+        "Array([Integer(IntegerValue(9)), Integer(IntegerValue(1)), Integer(IntegerValue(5))])"
+    );
+    assert_eq!(rendered(scoped), "NameError");
+    assert_eq!(
+        rendered(independent),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
+    );
+    assert_eq!(rendered(aliased), "Integer(IntegerValue(5))");
+}

@@ -135,6 +135,19 @@ pub(super) struct SourceEvaluator {
     next_contract: u64,
     module_names: HashMap<String, ModuleId>,
     module_classes: HashMap<ModuleId, ClassId>,
+    /// The constants each Module declares, keyed by `(module, name)`.
+    ///
+    /// `D-432` puts a `const` in the qualified namespace of its declaring
+    /// Module and resolves an unqualified name against the CURRENT module's
+    /// declarations, so a constant is not an ordinary lexical binding and two
+    /// Modules may declare the same name without collision.
+    module_constants: HashMap<(ModuleId, String), Value>,
+    /// Names an explicit import brought into scope.
+    ///
+    /// `D-432` makes an explicit import the THIRD resolution tier, so these
+    /// are kept apart from lexical bindings and from module declarations and
+    /// are consulted only after both.
+    imported_names: HashMap<String, Value>,
     /// The `main` receiver Class each executable Module owns.
     module_mains: HashMap<ModuleId, ClassId>,
     /// The program text, used to convert a byte offset into a line and column.
@@ -239,6 +252,8 @@ impl SourceEvaluator {
             pending_class_properties: HashMap::new(),
             materialized_constructions: std::collections::HashSet::new(),
             module_classes: HashMap::new(),
+            module_constants: HashMap::new(),
+            imported_names: HashMap::new(),
             module_mains: HashMap::new(),
             source: String::new(),
             // No file is involved when a program is evaluated from a string,
@@ -305,10 +320,17 @@ impl SourceEvaluator {
                 // C061 makes a Type alias a NAME for its target, not a new
                 // nominal Type, so the alias binds to whatever the target
                 // already resolves to and shares its identity.
-                // An import needs the PACKAGE subsystem to resolve a target,
-                // which v1 does not have here, so it declares its local name
-                // and resolves nothing. An export evaluates what it wraps.
-                ProgramEntry::Declaration(iris_syntax::Declaration::Import(_)) => {}
+                // D-432 makes an explicit import the THIRD resolution tier,
+                // after lexical scope and the current module's declarations. A
+                // `from M import K` therefore binds `K` to what Module `M`
+                // declares, and loses to both earlier tiers.
+                //
+                // Only a Module already loaded into this runtime is resolvable:
+                // a cross-PACKAGE target needs the manifest and dependency
+                // machinery chapter 08 owns, which is not claimed here.
+                ProgramEntry::Declaration(iris_syntax::Declaration::Import(import)) => {
+                    self.import(import)?;
+                }
                 ProgramEntry::Declaration(iris_syntax::Declaration::Export(export)) => {
                     if let iris_syntax::ExportDeclaration::Declaration(inner) = export.as_ref() {
                         match inner.as_ref() {
@@ -1187,7 +1209,72 @@ impl SourceEvaluator {
             self.module_body_main = previous;
             result?;
         }
+        // D-432 makes a `const` a declaration of the CURRENT module rather than
+        // an ordinary lexical binding, so it must not stay visible outside the
+        // Module that declared it. Leaving it in the shared lexical scope let a
+        // second Module declaring the same name overwrite the first, and let
+        // code outside any Module read either one.
+        for statement in &declaration.body {
+            if let Statement::Binding {
+                constant: true,
+                name,
+                ..
+            } = statement
+                && let Some(binding) = self.names.remove(name)
+            {
+                self.module_constants
+                    .insert((module, name.clone()), binding.value());
+            }
+        }
         Ok(())
+    }
+
+    /// Binds the names an explicit import brings into scope.
+    ///
+    /// `D-432` orders unqualified resolution as lexical scope, then the current
+    /// module or package declarations, then explicit imports. An import is
+    /// therefore recorded in its own tier rather than as a lexical binding, so
+    /// a later `let` of the same name still wins.
+    fn import(&mut self, import: &iris_syntax::ImportDeclaration) -> Result<(), EvaluationError> {
+        let Some(module) = self.module_names.get(&import.target).copied() else {
+            // A target this runtime has not loaded needs the package subsystem
+            // to resolve, so nothing is bound rather than a name being invented.
+            return Ok(());
+        };
+        for spec in &import.specs {
+            let Some(value) = self
+                .module_constants
+                .get(&(module, spec.name.clone()))
+                .cloned()
+            else {
+                continue;
+            };
+            let local = spec.alias.clone().unwrap_or_else(|| spec.name.clone());
+            self.imported_names.insert(local, value);
+        }
+        Ok(())
+    }
+
+    /// Reads a constant declared by the module whose code is executing.
+    ///
+    /// `D-432` resolves an unqualified name against lexical scope first, then
+    /// the CURRENT module or package declarations, then explicit imports. A
+    /// constant therefore belongs to its declaring Module rather than to the
+    /// shared lexical scope, so it is looked up by the executing module.
+    fn current_module_constant(&self, name: &str) -> Option<Value> {
+        let module = match self.current_method.map(|method| method.owner()) {
+            Some(MethodOwner::Module(module)) => Some(module),
+            // A Module body executes AS its `main`, so no Method frame is
+            // active and the executing module is found through that receiver.
+            _ => self.module_body_main.and_then(|main| {
+                self.module_mains
+                    .iter()
+                    .find_map(|(module, owner)| (*owner == main).then_some(*module))
+            }),
+        }?;
+        self.module_constants
+            .get(&(module, name.to_owned()))
+            .cloned()
     }
 
     /// Returns the Class backing this Module's `main` receiver.
@@ -2092,6 +2179,14 @@ impl SourceEvaluator {
                 .or_else(|| self.names.get(name).map(Binding::value))
                 .or_else(|| (name == "self").then_some(receiver.clone()).flatten())
                 .or_else(|| builtin(name, &self.kernel))
+                // D-432 resolves an unqualified name against LEXICAL scope
+                // first and the CURRENT module's declarations second, so a
+                // Module's own constant is reachable from its Methods and its
+                // body while staying invisible outside it.
+                .or_else(|| self.current_module_constant(name))
+                // D-432's THIRD tier: an explicit import, after lexical scope
+                // and the current module's own declarations.
+                .or_else(|| self.imported_names.get(name).cloned())
                 .or_else(|| {
                     self.module_names
                         .contains_key(name)
