@@ -274,7 +274,14 @@ impl Parser {
             return self.name().map(Expression::GlobalVar);
         }
         if self.consume("@") {
-            return self.name().map(Expression::RawIvar);
+            // IRIS-V1-RUNTIME-C161 makes a stored property named `name` create
+            // the slot `@name`, and a declared property publishes under that
+            // exact spelling. Dropping the sigil here gave a raw `@x = 1` the
+            // DIFFERENT slot `x`, so one ivar had two slots and reflection
+            // could not see what source had written.
+            return self
+                .name()
+                .map(|name| Expression::RawIvar(format!("@{name}")));
         }
         if self.check("(") {
             // C065 reifies a parenthesized Type expression, but ONLY when the

@@ -275,6 +275,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::NoActiveExceptionError => "NoActiveExceptionError".into(),
         EvaluationError::ExceptionChainError => "ExceptionChainError".into(),
         EvaluationError::ModuleInitializationCycleError => "ModuleInitializationCycleError".into(),
+        EvaluationError::InstanceVariableNotFoundError => "InstanceVariableNotFoundError".into(),
         // A  that escaped every callable boundary has no target, which
         // is the same control-target failure a stray break reports.
         EvaluationError::LoopBreak(..)

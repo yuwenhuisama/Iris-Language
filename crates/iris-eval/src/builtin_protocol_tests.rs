@@ -3119,3 +3119,46 @@ fn c072_keeps_a_raw_ivar_per_receiver_and_binds_an_escaping_closure() {
         "Array([Symbol(\"first\"), Symbol(\"second\"), Symbol(\"first\")])"
     );
 }
+
+#[test]
+fn c100_gives_raw_ivar_reflection_one_slot_vocabulary() {
+    // IRIS-V1-RUNTIME-C161 makes a stored property named `name` create the slot
+    // `@name`, and IRIS-V1-META-C100 gives `list_ivars`, `get_ivar`, `set_ivar`
+    // and `remove_ivar` one name vocabulary over those slots. Source `@x = 1`
+    // parsed to the slot `x` while a declared property and `set_ivar` published
+    // `@x`, so ONE ivar had TWO slots and reflection could not see what source
+    // had written.
+    let written = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
+                   [Reflection::Object.list_ivars(o), Reflection::Object.get_ivar(o, :@x)]";
+    // A name `list_ivars` reports feeds straight back in, with or without the
+    // sigil.
+    let round_trip = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
+                      Reflection::Object.get_ivar(o, :x)";
+    // C100 removes an EXISTING slot and returns its old value.
+    let removed = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
+                   Reflection::Object.remove_ivar(o, :@x)";
+    // V362 names the absent case.
+    let absent = "class B { } \
+                  try { Reflection::Object.remove_ivar(B.new(), :@gone) } catch e { e }";
+    // An absent GET is nil rather than an error.
+    let missing = "class B { } Reflection::Object.get_ivar(B.new(), :@gone)";
+
+    // When / Then
+    assert_eq!(
+        rendered(written),
+        "Array([Integer(IntegerValue(3)), Array([Array([Symbol(\"@x\")]), Integer(IntegerValue(3))])])"
+    );
+    assert_eq!(
+        rendered(round_trip),
+        "Array([Integer(IntegerValue(3)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(
+        rendered(removed),
+        "Array([Integer(IntegerValue(3)), Integer(IntegerValue(3))])"
+    );
+    assert_eq!(
+        rendered(absent),
+        "Symbol(\"InstanceVariableNotFoundError\")"
+    );
+    assert_eq!(rendered(missing), "Nil");
+}

@@ -1568,11 +1568,10 @@ impl SourceEvaluator {
         let property = self.selector(&format!("@{name}"));
         // C065 makes the storage TYPED and C161 makes `@name` that exact slot,
         // so the declared Type is recorded against the slot a raw write targets.
-        // Source `@n` parses to the RawIvar text `n` WITHOUT the sigil, so the
-        // key uses that spelling rather than the `@n` the registry publishes.
-        let raw_slot = self.selector(name);
+        // That is the SAME slot the registry publishes, now that source `@n`
+        // keeps its sigil.
         self.property_types
-            .insert((class, raw_slot), annotation.clone());
+            .insert((class, property), annotation.clone());
         let decorators = self.decorator_transforms(decorators);
         self.runtime
             .registry_mut()
@@ -4178,14 +4177,23 @@ impl SourceEvaluator {
             _ => return Err(EvaluationError::UnsupportedConstruct),
         }
         .map_err(EvaluationError::Construction)?;
-        value.ok_or(EvaluationError::UnsupportedConstruct)
+        // C100 removes an EXISTING slot and returns its old value, and
+        // IRIS-V1-META-V362 names the absent case
+        // `InstanceVariableNotFoundError`.
+        value.ok_or(EvaluationError::InstanceVariableNotFoundError)
     }
 
+    /// The raw-ivar slot a reflective name refers to.
+    ///
+    /// `IRIS-V1-META-C100` gives `list_ivars`, `get_ivar`, `set_ivar` and
+    /// `remove_ivar` ONE name vocabulary, and `list_ivars` reports a slot
+    /// WITHOUT its sigil. Accepting only the sigilled form meant a name this
+    /// API had just produced could not be fed back into it, so both spellings
+    /// name the same slot.
     fn selector_id(&mut self, name: &str) -> Result<Selector, EvaluationError> {
-        if name.starts_with('@') {
-            Ok(self.selector(name))
-        } else {
-            Err(EvaluationError::UnsupportedConstruct)
+        match name.strip_prefix('@') {
+            Some(_) => Ok(self.selector(name)),
+            None => Ok(self.selector(&format!("@{name}"))),
         }
     }
 
@@ -5949,6 +5957,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::ArgumentError => "ArgumentError",
         EvaluationError::PatternMatchError => "PatternMatchError",
         EvaluationError::NameError => "NameError",
+        // IRIS-V1-META-C100 removes an EXISTING slot, and
+        // IRIS-V1-META-V362 names the absent case.
+        EvaluationError::InstanceVariableNotFoundError => "InstanceVariableNotFoundError",
         EvaluationError::ImmutableBinding => "ImmutableBindingError",
         EvaluationError::ReadonlyProperty => "ReadonlyMutationError",
         EvaluationError::Class(iris_runtime::ClassError::MetaTransactionConflict { .. }) => {

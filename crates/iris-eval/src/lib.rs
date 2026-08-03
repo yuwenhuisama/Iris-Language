@@ -92,6 +92,11 @@ pub enum EvaluationError {
     /// DAG and requires a dependency or initialization cycle to be a compile or
     /// link error, so a package whose sources import each other never loads.
     ModuleInitializationCycleError,
+    /// A raw ivar removal named a slot the receiver does not own.
+    ///
+    /// `IRIS-V1-META-C100` removes an EXISTING slot and returns its old value,
+    /// and `IRIS-V1-META-V362` names the absent case.
+    InstanceVariableNotFoundError,
     /// A `continue` is unwinding to start the next iteration of its target loop.
     ///
     /// `IRIS-V1-CONTROL-C043` gives `continue` NO value, so unlike `LoopBreak`
