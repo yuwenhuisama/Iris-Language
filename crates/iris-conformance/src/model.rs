@@ -13,6 +13,13 @@ pub struct Record {
     pub id: String,
     pub source: String,
     pub independent_sources: Vec<String>,
+    /// Ordered `(package_id, source)` programs sharing ONE runtime.
+    ///
+    /// `D-431` makes a global's identity `(package_id, $name)` with no flat
+    /// cross-package namespace, which cannot be observed from a single program
+    /// and is NOT the same as `independent_sources`, whose programs each run
+    /// against a fresh runtime.
+    pub package_sources: Vec<(String, String)>,
     pub expect: String,
     pub tags: Vec<String>,
 }
@@ -96,6 +103,7 @@ fn load(path: &Path) -> Result<Record, String> {
         id: string(root, "id")?.into(),
         source: input_source(input)?,
         independent_sources: input_independent_sources(input)?,
+        package_sources: input_package_sources(input)?,
         expect: render(root.get("expect").ok_or("expect missing")?),
         tags,
     })
@@ -111,11 +119,38 @@ fn input_independent_sources(
     }
 }
 
+fn input_package_sources(
+    input: &std::collections::BTreeMap<String, Value>,
+) -> Result<Vec<(String, String)>, String> {
+    let Some(value) = input.get("package_sources") else {
+        return Ok(Vec::new());
+    };
+    let Value::Array(entries) = value else {
+        return Err("array field package_sources required".into());
+    };
+    entries
+        .iter()
+        .map(|entry| {
+            let entry = object(entry)?;
+            Ok((
+                string(entry, "package_id")?.to_owned(),
+                string(entry, "source_text")?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
 fn input_source(input: &std::collections::BTreeMap<String, Value>) -> Result<String, String> {
     match input.get("source_text") {
         Some(Value::String(source)) => Ok(source.clone()),
         Some(_) => Err("string field source_text required".into()),
-        None => match input.get("independent_sources") {
+        // Independent sources and package sources each carry their own
+        // programs, so neither needs a single `source_text` or a prose
+        // `fixture_ref`.
+        None => match input
+            .get("independent_sources")
+            .or_else(|| input.get("package_sources"))
+        {
             Some(_) => Ok(String::new()),
             None => string(input, "fixture_ref").map(str::to_owned),
         },

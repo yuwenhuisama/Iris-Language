@@ -2493,3 +2493,44 @@ fn c067_admits_a_bare_closed_generic_name_as_a_value() {
     assert_eq!(rendered(at_end), "Class(ClassId(7))");
     assert_eq!(rendered(right_operand), "Bool(false)");
 }
+
+#[test]
+fn d431_scopes_a_global_to_its_declaring_package() {
+    // D-431 makes a global's TRUE identity `(package_id, $name)`, unique
+    // within a package and separately instantiated per runtime, with NO flat
+    // cross-package namespace and no auto-merge. Keying by name alone let two
+    // packages declaring the same `$name` share one cell, which is exactly the
+    // process-global storage D-431 says does not exist.
+    let packages = |entries: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = entries
+            .iter()
+            .map(|(package, source)| ((*package).to_owned(), (*source).to_owned()))
+            .collect();
+        format!("{:?}", crate::evaluate_packages(&owned))
+    };
+    let mutated = "global mut $count: Integer = 1; $count = 7";
+
+    // When / Then: `b` declares the same name and still reads its OWN cell.
+    assert_eq!(
+        packages(&[
+            ("a", mutated),
+            ("b", "global mut $count: Integer = 1; $count")
+        ]),
+        "Ok(Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))]))"
+    );
+    // The declaring package still sees its own mutation.
+    assert_eq!(
+        packages(&[("a", mutated), ("a", "$count")]),
+        "Ok(Integer(IntegerValue(7)))"
+    );
+    // C013 keeps an undeclared `$name` an error that creates NO storage, and
+    // another package's global does not satisfy the read.
+    assert_eq!(
+        packages(&[("a", mutated), ("b", "$count")]),
+        "Err(NameError)"
+    );
+    assert_eq!(
+        packages(&[("a", mutated), ("a", "$missing")]),
+        "Err(NameError)"
+    );
+}

@@ -6,6 +6,23 @@ use crate::{
     model::{object, render, string},
 };
 
+/// Compares an ALREADY EVALUATED outcome against a value expectation.
+///
+/// A multi-package program is evaluated by the caller, because `D-431` needs
+/// its packages to share one runtime, so the outcome arrives here rather than
+/// a source string.
+pub(super) fn compare_evaluated(
+    expected: &std::collections::BTreeMap<String, Value>,
+    outcome: Result<iris_runtime::Value, iris_eval::EvaluationError>,
+) -> Result<(), String> {
+    let actual = outcome.map_err(render_evaluation_error)?;
+    compare_value(
+        expected.get("value").ok_or("runtime value missing")?,
+        expected.get("type"),
+        actual,
+    )
+}
+
 pub(super) fn compare_observation(
     expected: &std::collections::BTreeMap<String, Value>,
     source: &str,
@@ -80,6 +97,28 @@ fn compare_rendered(label: &str, expected: &Value, actual: &RuntimeValue) -> Res
         Ok(())
     } else {
         Err(format!("{label} expected {expected}, actual {actual}"))
+    }
+}
+
+/// Compares an ALREADY EVALUATED outcome against an error expectation.
+pub(super) fn compare_evaluated_error(
+    expected: &Value,
+    outcome: Result<iris_runtime::Value, iris_eval::EvaluationError>,
+) -> Result<(), String> {
+    let expected = string(object(expected)?, "code")?;
+    match outcome {
+        Ok(value) => Err(format!(
+            "error expected {expected}, actual value {}",
+            render_value(&value)
+        )),
+        Err(error) => {
+            let actual = error_code(&error);
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!("error expected {expected}, actual {actual}"))
+            }
+        }
     }
 }
 

@@ -14,8 +14,14 @@ use iris_syntax::{
 use crate::EvaluationError;
 use crate::source_method::{builtin, literal, visibility};
 
+/// The package identity a manifestless local script runs under.
+///
+/// `IRIS-V1-IDENTITY-C030` gives such a script runtime-local package identity,
+/// so one anonymous name serves every program the Host runs without a manifest.
+pub(super) const LOCAL_PACKAGE: &str = "runtime-local";
+
 pub(super) fn evaluate(program: &Program, source: &str) -> Result<Value, EvaluationError> {
-    let mut evaluator = SourceEvaluator::new()?;
+    let mut evaluator = SourceEvaluator::new_in_package(LOCAL_PACKAGE)?;
     evaluator.source = source.to_owned();
     evaluator.program(program)
 }
@@ -57,11 +63,23 @@ pub(super) struct SourceEvaluator {
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
-    /// Declared runtime globals, keyed by name without the sigil.
+    /// Declared runtime globals, keyed by `(package_id, name)`.
     ///
     /// `IRIS-V1-CONTROL-C013` makes `$name` a DECLARED cell: a missing one is
     /// an error rather than a fresh binding, so reads consult this map.
-    globals: HashMap<String, Binding>,
+    ///
+    /// `D-431` makes a global's TRUE identity `(package_id, $name)`, unique
+    /// within a package and separately instantiated per runtime, with NO flat
+    /// cross-package namespace and no auto-merge. Keying by name alone let two
+    /// packages declaring the same `$name` share one cell, which is exactly
+    /// the process-global storage `D-431` says does not exist.
+    globals: HashMap<(String, String), Binding>,
+    /// The package identity this program runs under.
+    ///
+    /// `IRIS-V1-META-C003` lets a manifestless local script run with
+    /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
+    /// that identity runtime-local rather than publishable.
+    package: String,
     /// Origin Class names already declared by the D-178 hoisting pass.
     hoisted_origins: Vec<String>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
@@ -184,7 +202,13 @@ fn construction_error(error: iris_runtime::ConstructionError) -> EvaluationError
 }
 
 impl SourceEvaluator {
-    pub(super) fn new() -> Result<Self, EvaluationError> {
+    /// Builds an evaluator running under one package identity.
+    ///
+    /// `IRIS-V1-META-C003` lets a manifestless local script run with
+    /// runtime-local package identity only, which `IRIS-V1-IDENTITY-C030`
+    /// keeps runtime-local rather than publishable. `D-431` then makes a
+    /// global's identity `(package_id, $name)`.
+    pub(super) fn new_in_package(package: &str) -> Result<Self, EvaluationError> {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
         Ok(Self {
@@ -197,6 +221,7 @@ impl SourceEvaluator {
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             globals: HashMap::new(),
+            package: package.to_owned(),
             hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
@@ -726,6 +751,16 @@ impl SourceEvaluator {
             Err(DispatchError::Class(error)) => Err(EvaluationError::Class(error)),
             Err(_) => Err(EvaluationError::UnsupportedConstruct),
         }
+    }
+
+    /// Switches the evaluator to another package identity.
+    ///
+    /// `D-431` scopes a global to `(package_id, $name)`, so running a second
+    /// package's program against the same runtime must change which package
+    /// its `global` declarations and `$name` reads belong to.
+    pub(super) fn enter_package(&mut self, package: &str, source: &str) {
+        self.package = package.to_owned();
+        self.source = source.to_owned();
     }
 
     /// Reports whether a Class declares a class-level stored property.
@@ -1352,8 +1387,9 @@ impl SourceEvaluator {
                 if let Some(annotation) = annotation {
                     self.check_binding_annotation(&value, annotation)?;
                 }
+                let key = (self.package.clone(), name.clone());
                 self.globals
-                    .insert(name.clone(), Binding::new(value.clone(), *mutable));
+                    .insert(key, Binding::new(value.clone(), *mutable));
                 Ok(value)
             }
             Statement::SharedBinding { .. }
@@ -2092,9 +2128,11 @@ impl SourceEvaluator {
             }
             Expression::ClassVar(name) => self.read_class_var(name),
             // C013 reads a DECLARED global; a missing one is an error.
+            // D-431 resolves `$name` within the CURRENT package, so a global
+            // another package declared under the same name is not visible.
             Expression::GlobalVar(name) => self
                 .globals
-                .get(name)
+                .get(&(self.package.clone(), name.clone()))
                 .map(Binding::value)
                 .ok_or(EvaluationError::NameError),
             Expression::Literal(source) => literal(source),
@@ -2621,9 +2659,10 @@ impl SourceEvaluator {
                 }
                 if let Expression::GlobalVar(name) = left.as_ref() {
                     let value = self.expression(right, locals, receiver)?;
+                    let key = (self.package.clone(), name.clone());
                     let binding = self
                         .globals
-                        .get_mut(name)
+                        .get_mut(&key)
                         .ok_or(EvaluationError::NameError)?;
                     return binding
                         .assign(value)
@@ -5046,7 +5085,10 @@ mod tests {
     ) -> Result<(SourceEvaluator, iris_syntax::Program), crate::EvaluationError> {
         let parsed = parse(source);
         assert!(parsed.program_accepted, "{parsed:#?}");
-        Ok((SourceEvaluator::new()?, parsed.program))
+        Ok((
+            SourceEvaluator::new_in_package(super::LOCAL_PACKAGE)?,
+            parsed.program,
+        ))
     }
 
     #[test]

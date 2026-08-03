@@ -141,6 +141,32 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     }
 }
 
+/// Evaluates ordered per-package programs against ONE runtime.
+///
+/// `IRIS-V1-META-C003` lets a manifestless local script run with runtime-local
+/// package identity only, and `D-431` makes a global's true identity
+/// `(package_id, $name)`, unique within a package and separately instantiated
+/// per runtime, with NO flat cross-package namespace and no auto-merge.
+/// Observing that requires two packages sharing one runtime, which a single
+/// program cannot express.
+///
+/// Each entry is a `(package_id, source)` pair. The programs run in order and
+/// the LAST value is reported, so a later package can read what an earlier one
+/// published through its own package identity.
+pub fn evaluate_packages(programs: &[(String, String)]) -> Result<RuntimeValue, EvaluationError> {
+    let mut evaluator = source_runtime::SourceEvaluator::new_in_package("")?;
+    let mut last = RuntimeValue::Nil;
+    for (package, source) in programs {
+        let parsed = parse(source);
+        if !parsed.program_accepted {
+            return Err(EvaluationError::ParseDiagnostic);
+        }
+        evaluator.enter_package(package, source);
+        last = evaluator.program(&parsed.program)?;
+    }
+    Ok(last)
+}
+
 /// Evaluates source and reports whether a named Class was published before failure.
 pub fn evaluate_with_class_publication(
     source: &str,
@@ -150,10 +176,11 @@ pub fn evaluate_with_class_publication(
     if !parsed.program_accepted {
         return (Err(EvaluationError::ParseDiagnostic), false);
     }
-    let mut evaluator = match source_runtime::SourceEvaluator::new() {
-        Ok(evaluator) => evaluator,
-        Err(error) => return (Err(error), false),
-    };
+    let mut evaluator =
+        match source_runtime::SourceEvaluator::new_in_package(source_runtime::LOCAL_PACKAGE) {
+            Ok(evaluator) => evaluator,
+            Err(error) => return (Err(error), false),
+        };
     let outcome = evaluator.program(&parsed.program);
     let published = matches!(evaluator.class_name(class_name), Ok(Some(_)));
     (outcome, published)
