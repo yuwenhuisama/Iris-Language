@@ -2958,3 +2958,25 @@ fn c022_rolls_back_an_origin_body_that_raises() {
     assert!(!member_published);
     assert_eq!(rendered(commits), "Integer(IntegerValue(1))");
 }
+
+#[test]
+fn c081_denies_a_meta_operation_missing_its_capability() {
+    // IRIS-V1-META-C081's capability matrix is normative and complete for v1
+    // core meta operations, and IRIS-V1-META-V361 requires every denied lane to
+    // raise `MetaCapabilityError` while the allowed lane commits its diff. The
+    // denial was raised but was NOT catchable, so a row could observe neither
+    // lane from Iris source.
+    let allowed = "class B { } B.open() { |t| t.define_method(:m) { 7 } }; B.new().m()";
+    let method_set = "class B meta deny method_set { } \
+                      try { B.open() { |t| t.define_method(:m) { 1 } } } catch e { e }";
+    let method_body = "class B meta deny method_body { public fun m() -> Integer { 1 } } \
+                       try { B.open() { |t| t.define_method(:m) { 2 } } } catch e { e }";
+    let property_set = "class B meta deny property_set { } \
+                        try { B.open() { |t| t.define_property(:x) { 1 } } } catch e { e }";
+
+    // When / Then
+    assert_eq!(rendered(allowed), "Array([Nil, Integer(IntegerValue(7))])");
+    assert_eq!(rendered(method_set), "Symbol(\"MetaCapabilityError\")");
+    assert_eq!(rendered(method_body), "Symbol(\"MetaCapabilityError\")");
+    assert_eq!(rendered(property_set), "Symbol(\"MetaCapabilityError\")");
+}

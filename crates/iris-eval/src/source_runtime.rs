@@ -5897,6 +5897,12 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::Class(iris_runtime::ClassError::MetaTransactionConflict { .. }) => {
             "MetaTransactionConflictError"
         }
+        // IRIS-V1-META-C081 names this for a denied meta operation, and
+        // IRIS-V1-META-V361 requires each denied lane to raise it.
+        EvaluationError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+            | iris_runtime::ClassError::ProtectedSuperclass { .. },
+        ) => "MetaCapabilityError",
         EvaluationError::MessageNotFound { .. } => "MessageNotFound",
         _ => return None,
     };

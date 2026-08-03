@@ -1,0 +1,4 @@
+class Allowed { }
+class DenySet meta deny method_set { }
+class DenyBody meta deny method_body { public fun m() -> Integer { 1 } }
+class DenyProp meta deny property_set { }
