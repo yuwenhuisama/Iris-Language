@@ -4923,6 +4923,14 @@ impl SourceEvaluator {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
         };
         let Expression::Name(name) = target else {
+            // `IRIS-V1-TYPES-C064` puts class-level storage on the Class or
+            // Module object, so `S.e.append(x)` names a SLOT rather than a
+            // lexical binding. Routing `append` by syntax reached only the
+            // binding form, so a class-level Array could be READ but never
+            // appended to.
+            if let Some(appended) = self.append_class_level_slot(target, value, locals)? {
+                return Ok(appended);
+            }
             // `append` is routed by SYNTAX before the receiver is evaluated, so
             // a runtime-owned read-only view would otherwise never reach the
             // send path that rejects mutation. D-142 forbids the append itself,
@@ -4945,6 +4953,64 @@ impl SourceEvaluator {
         };
         values.push(value.clone());
         Ok(Value::Nil)
+    }
+
+    /// Appends to a class-level storage slot named as `Owner.slot`.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts class-level storage on the Class or Module
+    /// OBJECT rather than on an instance, so `S.e` is a slot read through a
+    /// singleton accessor. `append` is routed by syntax before its receiver is
+    /// evaluated, so without this the slot could be read and never appended to.
+    ///
+    /// Returns `None` when the target is not such a slot, leaving the ordinary
+    /// rejection in place.
+    fn append_class_level_slot(
+        &mut self,
+        target: &Expression,
+        value: &Value,
+        locals: &HashMap<String, Value>,
+    ) -> Result<Option<Value>, EvaluationError> {
+        let Expression::Member {
+            receiver: owner,
+            selector,
+        } = target
+        else {
+            return Ok(None);
+        };
+        let Expression::Name(owner) = owner.as_ref() else {
+            return Ok(None);
+        };
+        if locals.contains_key(owner) {
+            return Ok(None);
+        }
+        // A Module name evaluates to a Symbol, so its backing Class is found
+        // through the Module registry rather than through the evaluated value.
+        let class = match self.module_names.get(owner).copied() {
+            Some(module) => self.module_classes.get(&module).copied(),
+            None => match self.names.get(owner).map(Binding::value) {
+                Some(Value::Class(class)) => Some(class),
+                _ => None,
+            },
+        };
+        let Some(class) = class else {
+            return Ok(None);
+        };
+        if !self.is_class_level_property(class, selector) {
+            return Ok(None);
+        }
+        let slot = self.selector(selector);
+        let current = self
+            .runtime
+            .class_raw_ivar(class, slot)
+            .map_err(EvaluationError::Construction)?;
+        let Value::Array(mut values) = current else {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        };
+        values.push(value.clone());
+        self.runtime
+            .assign_class_raw_ivar(class, slot, Value::Array(values))
+            .map_err(EvaluationError::Construction)?;
+        Ok(Some(Value::Nil))
     }
 
     /// Allocates a fresh identity for one propagation event.

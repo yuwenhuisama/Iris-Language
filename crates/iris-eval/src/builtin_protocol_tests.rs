@@ -3209,3 +3209,51 @@ fn c006_loads_packages_in_dependency_order_on_one_runtime() {
         Ok("Some(Symbol(\"tag\"))".to_owned())
     );
 }
+
+#[test]
+fn c064_appends_to_a_class_level_storage_slot() {
+    // IRIS-V1-TYPES-C064 puts class-level storage on the Class or Module
+    // OBJECT, so `S.e` names a slot read through a singleton accessor rather
+    // than a lexical binding. `append` is routed by SYNTAX before its receiver
+    // is evaluated, and that routing reached only the binding form, so a
+    // class-level Array could be READ and never appended to.
+    let module_slot = "module S { shared class property e: Array = [] } S.e.append(1); S.e";
+    let class_slot = "class C { shared class property e: Array = [] } C.e.append(1); C.e";
+    // A slot that is not an Array is a type failure, not a silent no-op.
+    let wrong_type = "module S { shared class property e: Integer = 1 } S.e.append(1)";
+    // An ordinary lexical binding is unaffected.
+    let binding = "let a = []; a.append(1); a";
+
+    // When / Then
+    assert_eq!(
+        rendered(module_slot),
+        "Array([Nil, Array([Integer(IntegerValue(1))])])"
+    );
+    assert_eq!(
+        rendered(class_slot),
+        "Array([Nil, Array([Integer(IntegerValue(1))])])"
+    );
+    assert_eq!(rendered(wrong_type), "Runtime(Type)");
+    assert_eq!(
+        rendered(binding),
+        "Array([Nil, Array([Integer(IntegerValue(1))])])"
+    );
+}
+
+#[test]
+fn c027_lets_an_escaping_closure_keep_a_body_local() {
+    // IRIS-V1-META-C027 makes Class body locals ordinary lexical locals that
+    // nested Closures may capture and escaping Closures may outlive, while
+    // C025 keeps them from becoming properties or storage. This is
+    // IRIS-V1-META-V344, and it needed the class-level append above to be
+    // expressible in a package fixture at all.
+    let escaped = "mut kept = []; class Box { let local = 7; let shadow = 9; \
+                   kept.append({ local }); kept.append({ shadow }) } \
+                   [kept[0].call(), kept[1].call(), Box.properties]";
+
+    // When / Then: each Closure keeps its OWN local, and neither became a slot.
+    assert_eq!(
+        rendered(escaped),
+        "Array([Integer(IntegerValue(7)), Integer(IntegerValue(9)), Array([])])"
+    );
+}

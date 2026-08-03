@@ -1,0 +1,9 @@
+module Store {
+  shared class property escaped: Array = []
+}
+class Box {
+  let local = 7
+  let shadow = 9
+  Store.escaped.append({ local })
+  Store.escaped.append({ shadow })
+}
