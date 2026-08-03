@@ -2644,3 +2644,64 @@ fn v203_rejects_a_candidate_that_replaces_a_contract_visible_return_type() {
     assert!(outcome.is_err());
     assert!(!published);
 }
+
+#[test]
+fn c022_runs_executable_statements_in_a_class_body() {
+    // IRIS-V1-META-C022 makes a Class body an EXECUTABLE construction
+    // transaction that may run ordinary control flow and use lexical locals,
+    // and C027 keeps those locals ordinary: they do NOT become class state
+    // merely because the transaction commits. A Class body rejected every
+    // executable statement as an unsupported construct.
+    let binding = "class A { let v = 7 } 1";
+    let expression = "class A { 1 + 1 } 1";
+    // C027: the local is not published as class state.
+    let not_state = "class A { let v = 7 } A.v";
+
+    // When / Then
+    assert_eq!(rendered(binding), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(expression), "Integer(IntegerValue(1))");
+    assert_eq!(
+        rendered(not_state),
+        "MessageNotFound { receiver_class: \"Class\", selector: \"v\" }"
+    );
+}
+
+#[test]
+fn c023_defines_a_method_on_the_current_candidate() {
+    // IRIS-V1-META-C023 makes a structural meta message sent to `self`, such as
+    // `define_method`, target the current transaction CANDIDATE. C026 keeps the
+    // defined Method from closing over the body's transaction-temporary
+    // locals: its lexical environment is definition scope and its own
+    // parameters, not the body execution's locals.
+    let defined = "class A { self.define_method(:m) { 1 } } A.new().m()";
+    let parameters = "class A { self.define_method(:add) { |x| x + 1 } } A.new().add(1)";
+    // C026: the body local `value` is NOT captured, so the call resolves to the
+    // declared Method and answers 8 rather than the transaction local's 7.
+    let uncaptured = "class A { let value = 7 self.define_method(:answer) { value() } \
+                      public fun value() -> Integer { 8 } } A.new().answer()";
+    // Without a declaration to resolve to, the local is simply not in scope.
+    let absent = "class A { let value = 7 self.define_method(:answer) { value } } A.new().answer()";
+
+    // When / Then
+    assert_eq!(rendered(defined), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(parameters), "Integer(IntegerValue(2))");
+    assert_eq!(rendered(uncaptured), "Integer(IntegerValue(8))");
+    assert_eq!(rendered(absent), "NameError");
+}
+
+#[test]
+fn c014_reads_a_bare_name_as_a_bound_method_of_its_own_class() {
+    // IRIS-V1-CONTROL-C014 makes reading an instance Method create a
+    // BoundMethod, and IRIS-V1-META-C024 makes an unqualified name that matched
+    // no binding or declaration a PRIVILEGED send to the current `self`. A bare
+    // name naming a Method of the receiver's own Class reported NameError.
+    let read = "class A { public fun v() { 8 } public fun m() { v } } A.new().m()";
+    let called = "class A { public fun v() { 8 } public fun m() { v() } } A.new().m()";
+    // A name matching nothing is still unresolved.
+    let unresolved = "class A { public fun m() { nothing_here } } A.new().m()";
+
+    // When / Then
+    assert!(rendered(read).starts_with("BoundMethod"));
+    assert_eq!(rendered(called), "Integer(IntegerValue(8))");
+    assert_eq!(rendered(unresolved), "NameError");
+}

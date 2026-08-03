@@ -1117,7 +1117,18 @@ impl Parser {
         // infix would have consumed the following token as its operator. Only a
         // statement terminator or a closing brace may follow a complete
         // expression, so anything else here is the parenthesis-less call form.
-        if !self.at_end() && !matches!(self.peek(), Some(";" | "}" | "\n")) {
+        //
+        // An expression that ITSELF ends in `}`, such as a closure or a block
+        // form, already delimits itself, so a following declaration is a new
+        // statement rather than a stranded operand. Requiring a terminator
+        // there rejected `self.define_method(:m) { 1 } public fun v() { 8 }`,
+        // which is the shape IRIS-V1-META-C023 uses.
+        let self_delimited = self
+            .cursor
+            .checked_sub(1)
+            .and_then(|index| self.tokens.get(index))
+            .is_some_and(|token| token.text == "}");
+        if !self.at_end() && !self_delimited && !matches!(self.peek(), Some(";" | "}" | "\n")) {
             self.error("PARSE_CALL_REQUIRES_PARENTHESES");
             return None;
         }

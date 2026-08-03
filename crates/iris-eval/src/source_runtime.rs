@@ -604,6 +604,11 @@ impl SourceEvaluator {
     ) -> Result<(), EvaluationError> {
         self.publish_decorators(class, &declaration.decorators)?;
         let mut declared_in_body: Vec<(MethodKind, Selector)> = Vec::new();
+        // C022 makes a Class body an EXECUTABLE construction transaction, and
+        // C027 makes its locals ordinary lexical locals that do NOT become
+        // class state merely because the transaction commits. They therefore
+        // live in a scope of their own rather than in `self.names`.
+        let mut body_locals: HashMap<String, Value> = HashMap::new();
         for statement in &declaration.body {
             match statement {
                 Statement::StoredProperty {
@@ -668,6 +673,24 @@ impl SourceEvaluator {
                         .any(|(kind, seen)| *kind == method.kind && *seen == selector);
                     self.class_method(class, builtin, declaration.reopen || duplicate, method)?;
                     declared_in_body.push((method.kind, selector));
+                }
+                // C022 lets a Class body run ordinary synchronous control flow
+                // and use lexical locals. C025 keeps such a statement from
+                // implicitly defining a Method, property or storage slot, so it
+                // is evaluated for its effect and its binding stays local.
+                Statement::Binding { name, value, .. } => {
+                    let value = self.expression(value, &body_locals, Some(Value::Class(class)))?;
+                    body_locals.insert(name.clone(), value);
+                }
+                Statement::Expression(expression) => {
+                    // C023 makes a structural meta message sent to `self`, such
+                    // as `define_method`, target the current transaction
+                    // CANDIDATE rather than the published active revision.
+                    if let Some(defined) = self.candidate_define_method(class, expression)? {
+                        declared_in_body.push((MethodKind::Instance, defined));
+                        continue;
+                    }
+                    self.expression(expression, &body_locals, Some(Value::Class(class)))?;
                 }
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
@@ -929,6 +952,71 @@ impl SourceEvaluator {
         })?;
         let method = registry.method_by_id(method)?;
         self.bodies.get(&method.body().raw())
+    }
+
+    /// Handles `self.define_method(:selector) { body }` inside a Class body.
+    ///
+    /// `IRIS-V1-META-C023` makes a structural meta message sent to `self`
+    /// target the CURRENT transaction candidate, so the Method joins the
+    /// candidate the body is accumulating and publishes with it.
+    ///
+    /// `IRIS-V1-META-C026` keeps the defined Method from closing over the
+    /// body's transaction-temporary locals: its lexical environment is
+    /// definition scope and its own parameters, not the body execution's
+    /// locals. The Closure body is therefore installed as an ordinary Method
+    /// body rather than as a capturing Closure.
+    ///
+    /// Returns the defined selector, or `None` when the expression is not this
+    /// meta message and should be evaluated ordinarily.
+    fn candidate_define_method(
+        &mut self,
+        class: ClassId,
+        expression: &Expression,
+    ) -> Result<Option<Selector>, EvaluationError> {
+        let Expression::Call {
+            callee, arguments, ..
+        } = expression
+        else {
+            return Ok(None);
+        };
+        let Expression::Member { receiver, selector } = callee.as_ref() else {
+            return Ok(None);
+        };
+        if selector != "define_method"
+            || !matches!(receiver.as_ref(), Expression::Name(name) if name == "self")
+        {
+            return Ok(None);
+        }
+        let [
+            Expression::Symbol(name),
+            Expression::Closure { parameters, body },
+        ] = arguments.as_slice()
+        else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let declaration = MethodDeclaration {
+            decorators: Vec::new(),
+            impl_contract: None,
+            kind: MethodKind::Instance,
+            selector: name.clone(),
+            type_parameters: Vec::new(),
+            parameters: parameters
+                .iter()
+                .map(|parameter| iris_syntax::Parameter {
+                    name: parameter.clone(),
+                    category: iris_syntax::ParameterCategory::Positional,
+                    annotation: None,
+                    default: None,
+                })
+                .collect(),
+            return_type: None,
+            visibility: iris_syntax::Visibility::Public,
+            body: Some(body.clone()),
+            is_override: false,
+        };
+        let selector = self.selector(name);
+        self.class_method(class, false, false, &declaration)?;
+        Ok(Some(selector))
     }
 
     /// Reports whether a Class declares a class-level stored property.
@@ -1469,6 +1557,29 @@ impl SourceEvaluator {
         self.runtime
             .registry_mut()
             .bind_instance_with_context(*object, main, selector, context)
+            .ok()
+            .map(Value::BoundMethod)
+    }
+
+    /// Binds a Method of the RECEIVER's own Class for a bare name.
+    ///
+    /// `IRIS-V1-CONTROL-C014` makes reading an instance Method create a
+    /// BoundMethod, and `IRIS-V1-META-C024` makes an unqualified name that
+    /// matched no binding or declaration a PRIVILEGED send to the current
+    /// `self`. The lookup is therefore privileged, so a Method that is private
+    /// by default is reachable from its own Class exactly as an implicit send
+    /// would reach it.
+    fn receiver_bound_method(&mut self, name: &str, receiver: Option<&Value>) -> Option<Value> {
+        let Some(Value::Object(object)) = receiver else {
+            return None;
+        };
+        let object = *object;
+        let class = self.runtime.class_of(object).ok()?;
+        let selector = self.selector(name);
+        let context = iris_runtime::DispatchContext::implementation(class, true);
+        self.runtime
+            .registry_mut()
+            .bind_instance_with_context(object, class, selector, context)
             .ok()
             .map(Value::BoundMethod)
     }
@@ -2354,6 +2465,12 @@ impl SourceEvaluator {
                 // declarations are `main`'s Methods, so a top-level helper is
                 // readable as a value and not only callable.
                 .or_else(|| self.main_bound_method(name, receiver.as_ref()))
+                // C014 makes reading an instance Method create a BoundMethod,
+                // and IRIS-V1-META-C024 falls back to a PRIVILEGED send to the
+                // current `self` when no binding or declaration matched. A bare
+                // `value` inside a Method of the same Class therefore reads
+                // that Method rather than reporting an unresolved name.
+                .or_else(|| self.receiver_bound_method(name, receiver.as_ref()))
                 // IRIS-V1-CONTROL-C011: a non-call unresolved bare name raises
                 // `NameError`. It MUST NOT read a property, Method, global, or
                 // runtime-added member instead.
