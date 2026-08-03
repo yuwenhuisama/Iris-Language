@@ -2466,3 +2466,30 @@ fn a_module_class_level_property_is_readable_through_the_module_name() {
     assert_eq!(rendered(method), "Integer(IntegerValue(7))");
     assert_eq!(rendered(shadowed), "Integer(IntegerValue(9))");
 }
+
+#[test]
+fn c067_admits_a_bare_closed_generic_name_as_a_value() {
+    // C067 admits a CLOSED generic name as a complete expression, which D-456
+    // needs in order to distinguish an interned Type object from the Class
+    // object. Requiring a `postfix_part` left `Box<String>` unparseable as a
+    // value, so V257's comparison could not be written at all.
+    let distinct = "class Box<T> {} let t = Box<String>.type; \
+                    [t same? Box<String>.type, t same? Box<String>]";
+    // C020 is NOT weakened: anything that could continue an expression keeps
+    // the operator reading.
+    let comparison = "let a = 1; let b = 2; let c = 3; let d = 4; [a < b, c > d]";
+    let shift = "let a = 8; let b = 1; a >> b";
+    // A closed generic name is complete at the end of the input and as the
+    // RIGHT operand of an infix send. As a LEFT operand it is followed by a
+    // name, which could continue an expression, so C067 leaves that to the
+    // operator reading.
+    let at_end = "class Box<T> {} Box<String>";
+    let right_operand = "class Box<T> {} let t = Box<String>.type; t same? Box<String>";
+
+    // When / Then
+    assert_eq!(rendered(distinct), "Array([Bool(true), Bool(false)])");
+    assert_eq!(rendered(comparison), "Array([Bool(true), Bool(false)])");
+    assert_eq!(rendered(shift), "Integer(IntegerValue(4))");
+    assert_eq!(rendered(at_end), "Class(ClassId(7))");
+    assert_eq!(rendered(right_operand), "Bool(false)");
+}

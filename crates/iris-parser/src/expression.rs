@@ -212,10 +212,21 @@ impl Parser {
             self.rewind(start, diagnostics);
             return None;
         }
-        // A closed generic name is only an expression when something USES it,
-        // which is the `postfix_part` that follows. A bare `Box<String>` is a
-        // Type, not a value, so it is left to the operator reading.
-        if !self.check(".") && !self.check("(") && !self.check("..") {
+        // C067 admits a closed generic name as a COMPLETE expression, so the
+        // closing `>` may be followed by a `postfix_part` OR by a token that
+        // cannot continue an expression. Requiring a `postfix_part` left
+        // `Box<String>` unusable as a value, which is what D-456 needs in order
+        // to distinguish an interned Type object from the Class object.
+        //
+        // C020 is still not weakened: anything that COULD continue an
+        // expression keeps the operator reading, so `a < b` stays a comparison.
+        let complete = self.check(";")
+            || self.check(",")
+            || self.check("]")
+            || self.check(")")
+            || self.check("}")
+            || self.at_end();
+        if !self.check(".") && !self.check("(") && !self.check("..") && !complete {
             self.rewind(start, diagnostics);
             return None;
         }
