@@ -86,9 +86,7 @@
     "input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
+      "required": ["kind"],
       "properties": {
         "kind": {
           "enum": [
@@ -107,9 +105,19 @@
         "independent_sources": {
           "type": "array",
           "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "package_sources": {
+          "type": "array",
+          "minItems": 1,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package_id", "source_text"],
+            "properties": {
+              "package_id": { "type": "string", "minLength": 1 },
+              "source_text": { "type": "string", "minLength": 1 }
+            }
           }
         },
         "files": true,
@@ -121,101 +129,29 @@
         "fixture_ref": true,
         "malformed": {
           "const": true
-        },
-        "package_sources": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "package_id",
-              "source_text"
-            ],
-            "properties": {
-              "package_id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "source_text": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          }
         }
       },
       "anyOf": [
-        {
-          "required": [
-            "source_text"
-          ]
-        },
-        {
-          "required": [
-            "independent_sources"
-          ]
-        },
-        {
-          "required": [
-            "files"
-          ]
-        },
-        {
-          "required": [
-            "package"
-          ]
-        },
-        {
-          "required": [
-            "metadata"
-          ]
-        },
-        {
-          "required": [
-            "native_artifact"
-          ]
-        },
-        {
-          "required": [
-            "serialized_value"
-          ]
-        },
-        {
-          "required": [
-            "host_calls"
-          ]
-        },
-        {
-          "required": [
-            "fixture_ref"
-          ]
-        },
-        {
-          "required": [
-            "package_sources"
-          ]
-        }
+        { "required": ["source_text"] },
+        { "required": ["independent_sources"] },
+        { "required": ["package_sources"] },
+        { "required": ["files"] },
+        { "required": ["package"] },
+        { "required": ["metadata"] },
+        { "required": ["native_artifact"] },
+        { "required": ["serialized_value"] },
+        { "required": ["host_calls"] },
+        { "required": ["fixture_ref"] }
       ]
     },
     "applicability": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "interpreter",
-        "jit",
-        "native"
-      ],
+      "required": ["interpreter", "jit", "native"],
       "properties": {
-        "interpreter": {
-          "$ref": "#/$defs/applicabilityValue"
-        },
-        "jit": {
-          "$ref": "#/$defs/applicabilityValue"
-        },
-        "native": {
-          "$ref": "#/$defs/applicabilityValue"
-        },
+        "interpreter": { "$ref": "#/$defs/applicabilityValue" },
+        "jit": { "$ref": "#/$defs/applicabilityValue" },
+        "native": { "$ref": "#/$defs/applicabilityValue" },
         "reason": {
           "type": "string",
           "minLength": 1
@@ -234,9 +170,7 @@
         "independent_expectations": {
           "type": "array",
           "minItems": 1,
-          "items": {
-            "type": "object"
-          }
+          "items": { "type": "object" }
         },
         "diagnostics": true,
         "status": true,
@@ -253,9 +187,7 @@
         "pattern": "^[a-z0-9][a-z0-9:_-]*$",
         "allOf": [
           {
-            "if": {
-              "pattern": "^legacy:"
-            },
+            "if": { "pattern": "^legacy:" },
             "then": {
               "enum": [
                 "legacy:preserve",
@@ -286,33 +218,19 @@
         "properties": {
           "applicability": {
             "properties": {
-              "interpreter": {
-                "const": "required"
-              },
-              "jit": {
-                "const": "required"
-              },
-              "native": {
-                "const": "required"
-              }
+              "interpreter": { "const": "required" },
+              "jit": { "const": "required" },
+              "native": { "const": "required" }
             },
-            "required": [
-              "interpreter",
-              "jit",
-              "native"
-            ]
+            "required": ["interpreter", "jit", "native"]
           }
         },
-        "required": [
-          "applicability"
-        ]
+        "required": ["applicability"]
       },
       "else": {
         "properties": {
           "applicability": {
-            "required": [
-              "reason"
-            ]
+            "required": ["reason"]
           }
         }
       }
@@ -320,54 +238,35 @@
     {
       "if": {
         "properties": {
-          "category": {
-            "enum": [
-              "negative",
-              "diagnostic"
-            ]
-          }
+          "category": { "enum": ["negative", "diagnostic"] }
         },
-        "required": [
-          "category"
-        ]
+        "required": ["category"]
       },
       "then": {
         "properties": {
-          "expect": {
-            "minProperties": 1
-          }
+          "expect": { "minProperties": 1 }
         }
       }
     },
     {
       "if": {
         "properties": {
-          "category": {
-            "const": "negative"
-          }
+          "category": { "const": "negative" }
         },
-        "required": [
-          "category"
-        ]
+        "required": ["category"]
       },
       "then": {
         "anyOf": [
           {
             "properties": {
-              "expect": {
-                "required": [
-                  "error"
-                ]
-              }
+              "expect": { "required": ["error"] }
             }
           },
           {
             "properties": {
               "source": {
                 "properties": {
-                  "decisions": {
-                    "minItems": 1
-                  }
+                  "decisions": { "minItems": 1 }
                 }
               }
             }
@@ -380,36 +279,21 @@
         "properties": {
           "input": {
             "properties": {
-              "malformed": {
-                "const": true
-              }
+              "malformed": { "const": true }
             },
-            "required": [
-              "malformed"
-            ]
+            "required": ["malformed"]
           }
         },
-        "required": [
-          "input"
-        ]
+        "required": ["input"]
       },
       "then": {
         "properties": {
-          "category": {
-            "enum": [
-              "negative",
-              "diagnostic"
-            ]
-          }
+          "category": { "enum": ["negative", "diagnostic"] }
         },
         "anyOf": [
           {
             "properties": {
-              "expect": {
-                "required": [
-                  "diagnostics"
-                ]
-              }
+              "expect": { "required": ["diagnostics"] }
             }
           },
           {
@@ -418,14 +302,10 @@
                 "properties": {
                   "error": {
                     "type": "object",
-                    "required": [
-                      "phase"
-                    ]
+                    "required": ["phase"]
                   }
                 },
-                "required": [
-                  "error"
-                ]
+                "required": ["error"]
               }
             }
           }
