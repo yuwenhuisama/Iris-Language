@@ -438,6 +438,8 @@ IRIS-V1-TYPES-C095：`Block<S>` 是语言核心的 Type 别名，声明为 `type
 
 IRIS-V1-TYPES-C096：可调用 Type 参数与其他所有泛型参数一样是不变的，依据 IRIS-V1-TYPES-C028 与 IRIS-V1-TYPES-C031。因此 `Closure<(Integer) -> Object>` 不可赋值给 `Closure<(Integer) -> Symbol>`，反向亦不成立。本条取代 IRIS-V1-TYPES-C036 与 IRIS-V1-CONTROL-C018 先前规定的参数逆变、返回协变可赋值性规则。签名兼容性在调用处依据被调用可调用体的已声明签名检查，遵循 IRIS-V1-TYPES-C007 的普通实参与返回边界规则，而非通过可调用 Type 之间的变型。
 
+IRIS-V1-TYPES-C097：v1.21 勘误确定了逐闭合物化失败时抛出的诊断。IRIS-V1-TYPES-C066 要求失败的闭合 Class 物化丢弃候选状态且不发布任何内容，但未指明诊断，而 IRIS-V1-TYPES-V241 已要求 `TypeContractError`。因此，从逐闭合类级属性初始化器中逸出的异常报告为 `TypeContractError`，与 IRIS-V1-TYPES-C067 在同一物化路径上报告约束失败的方式一致。原始异常作为 cause 携带，因此初始化器自身的错误仍可观察。本条补充了实现无法回避的规则；它不改变 C066 丢弃的内容，C066 不撤销外部副作用的规定亦不变。
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-TYPES-V018` | positive | 需要 compiler；需要 interpreter；需要 JIT；native 不适用 | Iris source fixture: `contract Named { fun name() -> String } class User for Named { impl fun name() -> String { "iris" } } let view = User.new() as Named; view..name()`. | 值 `"iris"`；Type `String`；checked view construction 和 explicit qualified dispatch 选择 `Named::name`。 | `D-233`, `D-234`, `D-236`, `D-237`, `D-239`, `D-278` |

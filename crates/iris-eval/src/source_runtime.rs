@@ -812,7 +812,19 @@ impl SourceEvaluator {
                         let _ = self.runtime.assign_class_raw_ivar(class, slot, Value::Nil);
                     }
                     self.materialized_constructions.remove(&(class, normalized));
-                    return Err(error);
+                    // C097 reports an exception escaping a per-closed
+                    // initializer as `TypeContractError`, matching how C067
+                    // reports a constraint failure on the SAME materialization
+                    // path. A control-flow unwind is not a failure and passes
+                    // through unchanged.
+                    return Err(match error {
+                        // A control-flow unwind is not a materialization
+                        // failure and travels to its own boundary unchanged.
+                        error @ (EvaluationError::LoopContinue(_)
+                        | EvaluationError::LoopBreak(..)
+                        | EvaluationError::Return(_)) => error,
+                        _ => EvaluationError::TypeContractError,
+                    });
                 }
             };
             let slot = self.selector(&format!("{name}{suffix}"));

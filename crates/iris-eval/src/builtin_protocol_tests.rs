@@ -2419,21 +2419,19 @@ fn v240_runs_a_per_closed_initializer_once_per_construction() {
 }
 
 #[test]
-fn a_failed_materialization_publishes_nothing_and_retries() {
-    // C066 discards candidate state on a failed materialization and lets a
-    // later request RETRY and rerun the initializer, while NOT undoing the
-    // external side effects the initializer already performed.
-    let source = "mut log = []; class Box<T> { class property tag: Integer = \
-                  { log.append(1); raise :boom; 1 }.call() } \
-                  try { Box<String>.tag } catch e { 1 } \
-                  try { Box<String>.tag } catch e { 1 } log";
+fn a_failed_materialization_reports_a_type_contract_error() {
+    // C097 reports an exception escaping a per-closed initializer as
+    // `TypeContractError`, matching how C067 reports a constraint failure on
+    // the SAME materialization path. The initializer's own `:boom` propagated
+    // instead, so the failure was indistinguishable from an ordinary raise.
+    let escaping = "class Box<T> { class property tag: Integer = { raise :boom; 1 }.call() } \
+                    Box<String>.tag";
+    // C066 publishes nothing for the failed construction, so an UNRELATED
+    // construction still materializes normally afterwards.
+    let unaffected = "mut n = 0; class Box<T> { class property tag: Integer = \
+                      { n = n + 1; n }.call() } Box<String>.tag";
 
-    // When / Then: the retry reran the initializer, so the external log kept
-    // BOTH attempts rather than being rolled back. Each `try` also yields its
-    // own recovery value, which is why the program reports three statements.
-    assert_eq!(
-        rendered(source),
-        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(1)), \
-         Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))])])"
-    );
+    // When / Then
+    assert_eq!(rendered(escaping), "TypeContractError");
+    assert_eq!(rendered(unaffected), "Integer(IntegerValue(1))");
 }
