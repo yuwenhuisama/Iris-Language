@@ -18,6 +18,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         declared_globals: Vec::new(),
         generic_methods: Vec::new(),
         qualified_namespace: Vec::new(),
+        qualified_scope: None,
         generic_classes: Vec::new(),
         class_method_arities: Vec::new(),
         generic_constraints: Vec::new(),
@@ -283,6 +284,13 @@ struct Analyzer {
     /// constants in a single namespace, so a kind or name collision between any
     /// two of them is an error rather than a shadowing.
     qualified_namespace: Vec<String>,
+    /// The Module whose body is being analysed, when one is.
+    ///
+    /// `D-432` puts declarations in one QUALIFIED namespace, so a `const` in a
+    /// Module body publishes `Module::Name` rather than a bare `Name`. Keying
+    /// by the bare name made two Modules declaring the same constant collide,
+    /// which is exactly the flat cross-module namespace `D-432` denies.
+    qualified_scope: Option<String>,
     /// Generic Class names with their declared parameter arity.
     ///
     /// `IRIS-V1-TYPES-C061` makes a bare generic Class name definition
@@ -781,11 +789,15 @@ impl Analyzer {
     /// requires the SECOND declaration not to publish, so the namespace keeps
     /// only the first.
     fn publish_qualified_name(&mut self, name: &str) {
-        if self.qualified_namespace.iter().any(|taken| taken == name) {
+        let qualified = match &self.qualified_scope {
+            Some(scope) => format!("{scope}::{name}"),
+            None => name.to_owned(),
+        };
+        if self.qualified_namespace.contains(&qualified) {
             self.report("QUALIFIED_NAMESPACE_COLLISION");
             return;
         }
-        self.qualified_namespace.push(name.to_owned());
+        self.qualified_namespace.push(qualified);
     }
 
     fn lookup(&self, name: &str) -> Option<&Local> {
@@ -873,8 +885,15 @@ impl Analyzer {
             // An import publishes its local name; an export republishes what it
             // wraps, so the wrapped declaration is analysed in its own right.
             iris_syntax::Declaration::Import(value) => {
-                let published = value.alias.clone().unwrap_or_else(|| value.target.clone());
-                self.publish_qualified_name(&published);
+                // C013 gives `from pkg::Module import Name` and `import
+                // pkg::Module` different effects, and C014 introduces ONLY the
+                // Modules or items the source requested. The `from` form asks
+                // for its specs, not for the Module, so publishing the target
+                // name too made `from S import K` collide with `module S`.
+                if value.specs.is_empty() {
+                    let published = value.alias.clone().unwrap_or_else(|| value.target.clone());
+                    self.publish_qualified_name(&published);
+                }
                 for spec in &value.specs {
                     let name = spec.alias.clone().unwrap_or_else(|| spec.name.clone());
                     self.publish_qualified_name(&name);
@@ -975,7 +994,17 @@ impl Analyzer {
         }
         // A Class body holds Method declarations, each of which is its own
         // callable boundary and is entered through `Statement::Method`.
+        //
+        // D-432 qualifies a declaration by the Module that encloses it, so a
+        // Module body's own declarations are analysed under its name.
+        let previous = match declaration {
+            iris_syntax::Declaration::Module(value) => {
+                self.qualified_scope.replace(value.name.clone())
+            }
+            _ => self.qualified_scope.take(),
+        };
         self.scoped_body(body, Control::top_level());
+        self.qualified_scope = previous;
     }
 
     /// Reports a value whose static Type the written annotation cannot accept.
@@ -2640,6 +2669,42 @@ mod qualified_namespace_tests {
         // check would reject ordinary shadowing.
         assert!(codes("let Name = 1; class Name {}").is_empty());
         assert!(codes("const Name = 1; class Other {}").is_empty());
+    }
+
+    #[test]
+    fn d432_qualifies_a_declaration_by_its_enclosing_module() {
+        // D-432 puts declarations in one QUALIFIED namespace with NO flat
+        // cross-module namespace, so two Modules may each declare `K`. Keying
+        // by the bare name reported a collision between them, which is exactly
+        // the flat namespace D-432 denies.
+        assert!(codes("module S { const K = 5 } module M { const K = 1 }").is_empty());
+
+        // Within ONE Module the same name still collides.
+        assert_eq!(
+            codes("module S { const K = 5 const K = 6 }"),
+            ["QUALIFIED_NAMESPACE_COLLISION", "DECLARATION_REBINDING"]
+        );
+    }
+
+    #[test]
+    fn c013_publishes_only_what_an_import_form_requests() {
+        // C013 gives `from pkg::Module import Name` and `import pkg::Module`
+        // different effects, and C014 introduces ONLY the Modules or items the
+        // source requested. The `from` form asks for its specs, so publishing
+        // the target Module name too made `from S import K` collide with the
+        // `module S` it names.
+        assert!(codes("module S { const K = 5 } from S import K").is_empty());
+
+        // The plain form DOES introduce the Module name, so it still collides
+        // with a Module already declared under it.
+        assert_eq!(
+            codes("module S { } import S"),
+            ["QUALIFIED_NAMESPACE_COLLISION"]
+        );
+        assert_eq!(
+            codes("import Dep\nimport Dep"),
+            ["QUALIFIED_NAMESPACE_COLLISION"]
+        );
     }
 }
 
