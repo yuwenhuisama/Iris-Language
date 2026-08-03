@@ -130,6 +130,14 @@ pub(super) struct SourceEvaluator {
     /// must be rejected at commit. Comparing arity needs the requirement's own
     /// arity, which the requirement NAMES alone do not carry.
     contract_requirement_arities: HashMap<(iris_runtime::ContractId, String), usize>,
+    /// The return Type each Contract requirement declares, when it wrote one.
+    ///
+    /// `IRIS-V1-TYPES-C045` makes declared Contract conformance immutable for a
+    /// revision's static spine and forbids metaprogramming from incompatibly
+    /// replacing it, so validating a candidate needs the requirement's own
+    /// return Type and not its arity alone.
+    contract_requirement_returns:
+        HashMap<(iris_runtime::ContractId, String), iris_syntax::TypeExpression>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
     /// Each generic Class name paired with its parameters and `where` bounds.
     ///
@@ -251,6 +259,7 @@ impl SourceEvaluator {
             contract_names: HashMap::new(),
             contract_requirements: HashMap::new(),
             contract_requirement_arities: HashMap::new(),
+            contract_requirement_returns: HashMap::new(),
             class_contracts: HashMap::new(),
             generic_bounds: HashMap::new(),
             qualified_methods: HashMap::new(),
@@ -875,10 +884,23 @@ impl SourceEvaluator {
                     continue;
                 };
                 let selector = self.selector(&requirement);
-                let Some(arity) = self.candidate_method_arity(class, selector) else {
+                let Some(declaration) = self.candidate_method_declaration(class, selector) else {
                     continue;
                 };
-                if arity != required {
+                if declaration.parameters.len() != required {
+                    return Err(EvaluationError::TypeContractError);
+                }
+                // C045 forbids replacing a declared Contract fact with an
+                // incompatible one, so a candidate that rewrites the
+                // Contract-VISIBLE return Type is rejected before commit.
+                // Comparing arity alone let `draw() -> Integer` replace
+                // `draw() -> String` silently, which V203 observes.
+                let stated = self
+                    .contract_requirement_returns
+                    .get(&(contract, requirement.clone()));
+                if let (Some(required), Some(actual)) = (stated, declaration.return_type.as_ref())
+                    && required != actual
+                {
                     return Err(EvaluationError::TypeContractError);
                 }
             }
@@ -886,8 +908,16 @@ impl SourceEvaluator {
         Ok(())
     }
 
-    /// The parameter count of a Method staged or published for `class`.
-    fn candidate_method_arity(&self, class: ClassId, selector: Selector) -> Option<usize> {
+    /// The declaration of a Method staged or published for `class`.
+    ///
+    /// `IRIS-V1-META-C035` lets a transaction read its OWN candidate after
+    /// writes, so a Method staged earlier in the same body is validated rather
+    /// than the published revision it will replace.
+    fn candidate_method_declaration(
+        &self,
+        class: ClassId,
+        selector: Selector,
+    ) -> Option<&MethodDeclaration> {
         let registry = self.runtime.registry();
         let method = registry.staged_method(class, selector).or_else(|| {
             registry
@@ -898,9 +928,7 @@ impl SourceEvaluator {
                 .copied()
         })?;
         let method = registry.method_by_id(method)?;
-        self.bodies
-            .get(&method.body().raw())
-            .map(|body| body.parameters.len())
+        self.bodies.get(&method.body().raw())
     }
 
     /// Reports whether a Class declares a class-level stored property.
@@ -1207,6 +1235,10 @@ impl SourceEvaluator {
             {
                 self.contract_requirement_arities
                     .insert((contract, method.selector.clone()), method.parameters.len());
+                if let Some(returns) = &method.return_type {
+                    self.contract_requirement_returns
+                        .insert((contract, method.selector.clone()), returns.clone());
+                }
             }
         }
         self.contract_requirements.insert(contract, requirements);

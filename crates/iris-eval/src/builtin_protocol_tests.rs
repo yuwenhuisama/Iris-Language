@@ -2612,3 +2612,35 @@ fn v206_validates_a_candidate_against_its_declared_contracts() {
     assert_eq!(rendered(incompatible), "TypeContractError");
     assert_eq!(rendered(compatible), "Integer(IntegerValue(9))");
 }
+
+#[test]
+fn v203_rejects_a_candidate_that_replaces_a_contract_visible_return_type() {
+    // IRIS-V1-TYPES-C045 makes declared Contract conformance immutable for a
+    // revision's static spine and forbids metaprogramming from incompatibly
+    // replacing it. Candidate validation compared ARITY alone, so an open
+    // rewriting `draw() -> String` as `draw() -> Integer` committed silently.
+    let replaced = "contract C { fun draw() -> String } \
+                    class A for C { public fun draw() -> String { \"a\" } } \
+                    open class A { public fun extra() { 9 } \
+                    public override fun draw() -> Integer { 1 } } A.new().draw()";
+    // A replacement keeping the declared return Type still commits.
+    let compatible = "contract C { fun draw() -> String } \
+                      class A for C { public fun draw() -> String { \"a\" } } \
+                      open class A { public override fun draw() -> String { \"b\" } } \
+                      A.new().draw()";
+    // C022 publishes NOTHING from the failed candidate, so the member staged
+    // beside the offending one is absent from the published revision too.
+    let staged = "contract C { fun draw() -> String } \
+                  class A for C { public fun draw() -> String { \"a\" } } \
+                  open class A { public fun extra() { 9 } \
+                  public override fun draw() -> Integer { 1 } }";
+
+    // When
+    let (outcome, published) = crate::evaluate_with_member_probe(staged, "A", "extra");
+
+    // Then
+    assert_eq!(rendered(replaced), "TypeContractError");
+    assert_eq!(rendered(compatible), "Text(\"b\")");
+    assert!(outcome.is_err());
+    assert!(!published);
+}
