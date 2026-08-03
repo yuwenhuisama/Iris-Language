@@ -2142,6 +2142,36 @@ impl SourceEvaluator {
             {
                 Ok(Value::IterationDone)
             }
+            // C064 puts a Module's class-level property on the MODULE's own
+            // object, so `M.first` reads that storage. A Module name evaluates
+            // to a Symbol, so the read is routed from the SOURCE here rather
+            // than through the evaluated receiver, which has no storage.
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::Name(name)
+                if self.module_names.contains_key(name)
+                    && !self.names.contains_key(name)) =>
+            {
+                let Expression::Name(name) = target.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let module = *self
+                    .module_names
+                    .get(name)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                let module_class = *self
+                    .module_classes
+                    .get(&module)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                if !self.is_class_level_property(module_class, selector) {
+                    return self.member_read(Value::Symbol(name.clone()), selector);
+                }
+                let slot = self.selector(selector);
+                self.runtime
+                    .class_raw_ivar(module_class, slot)
+                    .map_err(EvaluationError::Construction)
+            }
             // D-206 interns a closed identity by definition AND normalized
             // arguments. The construction itself resolves to the definition's
             // Class, so the arguments are read from the SOURCE here; going

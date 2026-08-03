@@ -2435,3 +2435,34 @@ fn a_failed_materialization_reports_a_type_contract_error() {
     assert_eq!(rendered(escaping), "TypeContractError");
     assert_eq!(rendered(unaffected), "Integer(IntegerValue(1))");
 }
+
+#[test]
+fn a_module_class_level_property_is_readable_through_the_module_name() {
+    // C064 puts a class-level property on the MODULE's own object, and D-212
+    // runs each shared initializer once in source declaration order. The
+    // storage was installed correctly but nothing could READ it: a Module name
+    // evaluates to a Symbol, so `M.first` reported a missing message on Symbol
+    // whatever the Module actually held.
+    let single = "module M { shared class property first: Integer = 1 } M.first";
+    // D-212 runs the initializers in SOURCE DECLARATION ORDER.
+    let ordered = "module M { shared class property a: Integer = 1 \
+                   shared class property b: Integer = 2 } [M.a, M.b]";
+    // C064 also gives a Module an ordinary, non-shared class-level property.
+    let ordinary = "module M { class property c: Integer = 3 } M.c";
+    // A Module Method send still resolves, rather than being captured by the
+    // property path.
+    let method = "module M { public module fun f() { 7 } } M.f()";
+    // A lexical binding SHADOWS the Module name, so the property path must not
+    // hijack a name the program rebound.
+    let shadowed = "module M { shared class property x: Integer = 1 } let M = 9; M";
+
+    // When / Then
+    assert_eq!(rendered(single), "Integer(IntegerValue(1))");
+    assert_eq!(
+        rendered(ordered),
+        "Array([Integer(IntegerValue(1)), Integer(IntegerValue(2))])"
+    );
+    assert_eq!(rendered(ordinary), "Integer(IntegerValue(3))");
+    assert_eq!(rendered(method), "Integer(IntegerValue(7))");
+    assert_eq!(rendered(shadowed), "Integer(IntegerValue(9))");
+}
