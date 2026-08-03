@@ -2705,3 +2705,57 @@ fn c014_reads_a_bare_name_as_a_bound_method_of_its_own_class() {
     assert_eq!(rendered(called), "Integer(IntegerValue(8))");
     assert_eq!(rendered(unresolved), "NameError");
 }
+
+#[test]
+fn c023_defines_a_module_method_on_its_main_receiver() {
+    // IRIS-V1-META-C023 makes `self.define_method` inside a Module body target
+    // the current transaction candidate, and IRIS-V1-CONTROL-C012 gives that
+    // body its Module's `main` receiver. IRIS-V1-TYPES-C074 keeps the Method a
+    // Module member as well, which is why a declared `fun` publishes both
+    // copies; the defined Method needs the same second copy or `M.m()` reports
+    // a missing message on Module.
+    let defined = "module M { self.define_method(:m) { 1 } } M.m()";
+    // C026 keeps the defined Method from closing over the body's
+    // transaction-temporary locals, so `value` resolves to the DECLARED Method
+    // and answers 8 rather than the local's 7. This is IRIS-V1-META-V342.
+    let uncaptured = "module M { let value = 7 self.define_method(:answer) { value() } \
+                      public fun value() -> Integer { 8 } } M.answer()";
+
+    // When / Then
+    assert_eq!(rendered(defined), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(uncaptured), "Integer(IntegerValue(8))");
+}
+
+#[test]
+fn c027_discards_module_body_locals_after_the_body_runs() {
+    // IRIS-V1-META-C027 makes Class and Module body locals ORDINARY LEXICAL
+    // LOCALS that do NOT become Module state merely because the body
+    // transaction commits. A Module body `let` stayed in the shared lexical
+    // scope, so it outlived its body and was readable from outside the Module.
+    let escaped = "module M { let value = 7 } value";
+    // A `const` is a DECLARATION of the current module under D-432 and is
+    // still reachable from the Module's own Methods.
+    let constant = "module M { const K = 5 public fun read() -> Integer { K } } M.read()";
+
+    // When / Then
+    assert_eq!(rendered(escaped), "NameError");
+    assert_eq!(rendered(constant), "Integer(IntegerValue(5))");
+}
+
+#[test]
+fn c012_sends_a_bare_call_to_the_executing_module() {
+    // IRIS-V1-CONTROL-C012 makes a bare `f(...)` inside a Module a PRIVILEGED
+    // implicit send, and IRIS-V1-META-C024 falls back to the current Module
+    // `main` receiver. A Module name evaluates to a Symbol, so the evaluated
+    // receiver could not serve the send and one Module Method calling another
+    // reported a missing message on Symbol.
+    let called = "module M { public fun a() -> Integer { b() } \
+                  public fun b() -> Integer { 8 } } M.a()";
+    // IRIS-V1-CONTROL-C014 makes READING an instance Method create a
+    // BoundMethod rather than invoking it.
+    let read = "module M { public fun a() { b } public fun b() -> Integer { 8 } } M.a()";
+
+    // When / Then
+    assert_eq!(rendered(called), "Integer(IntegerValue(8))");
+    assert!(rendered(read).starts_with("BoundMethod"));
+}

@@ -1019,6 +1019,104 @@ impl SourceEvaluator {
         Ok(Some(selector))
     }
 
+    /// Mirrors a Method defined on a Module's `main` into the Module table.
+    ///
+    /// `IRIS-V1-TYPES-C074` keeps a Module body Method a Module member as well
+    /// as a `main` Method, which is why a declared `fun` publishes both. A
+    /// Method defined through `IRIS-V1-META-C023`'s `self.define_method` is the
+    /// same kind of member and needs the same second copy.
+    fn publish_module_copy(
+        &mut self,
+        module: ModuleId,
+        main: ClassId,
+        selector: Selector,
+    ) -> Result<(), EvaluationError> {
+        // A Module's `main` is not itself the body's transaction target, so the
+        // Method may already sit in its published revision rather than in a
+        // staged candidate. Both are consulted, since `C035` only guarantees
+        // that a transaction can read its OWN candidate.
+        let registry = self.runtime.registry();
+        let Some(body) = registry
+            .staged_method(main, selector)
+            .or_else(|| {
+                registry
+                    .active(main)
+                    .ok()?
+                    .methods()
+                    .get(&selector)
+                    .copied()
+            })
+            .and_then(|method| registry.method_by_id(method))
+            .map(|method| method.body())
+        else {
+            return Ok(());
+        };
+        let defined = self
+            .runtime
+            .registry_mut()
+            .define_module_method(module, selector, body, iris_runtime::Visibility::Public)
+            .map_err(EvaluationError::Class)?;
+        self.module_methods.insert((module, selector), defined);
+        self.module_method_overrides.insert(defined.id(), false);
+        Ok(())
+    }
+
+    /// Sends a bare call to the Module whose Method is executing.
+    ///
+    /// `IRIS-V1-CONTROL-C012` makes a bare `f(...)` inside a Module a
+    /// PRIVILEGED implicit send, and `IRIS-V1-META-C024` falls back to the
+    /// current `self` or Module `main` receiver when no lexical binding
+    /// matched. A Module name evaluates to a Symbol, so the evaluated receiver
+    /// cannot serve that send.
+    ///
+    /// Returns `None` when no Module Method is executing or the Module declares
+    /// no such member, so an ordinary send still applies.
+    fn module_self_send(
+        &mut self,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Option<Value>, EvaluationError> {
+        let Some(MethodOwner::Module(module)) = self.current_method.map(|method| method.owner())
+        else {
+            return Ok(None);
+        };
+        let slot = self.selector(selector);
+        let Some(method) = self.module_methods.get(&(module, slot)).copied() else {
+            return Ok(None);
+        };
+        let main = self.module_main(module)?;
+        let receiver = self.construct(main, &[])?;
+        self.invoke_method(method, Value::Object(receiver), arguments)
+            .map(Some)
+    }
+
+    /// Binds a Method of the Module whose Method is executing, for a bare name.
+    ///
+    /// `IRIS-V1-CONTROL-C014` makes reading an instance Method create a
+    /// BoundMethod, and `IRIS-V1-META-C024` falls back to the current Module
+    /// `main` receiver. A Module name evaluates to a Symbol, so the evaluated
+    /// receiver cannot serve the read.
+    fn module_bound_method(&mut self, name: &str) -> Option<Value> {
+        let MethodOwner::Module(module) = self.current_method?.owner() else {
+            return None;
+        };
+        let selector = self.selector(name);
+        let method = self.module_methods.get(&(module, selector)).copied()?;
+        let main = self.module_main(module).ok()?;
+        let receiver = self.construct(main, &[]).ok()?;
+        self.runtime
+            .registry_mut()
+            .bind_instance_with_context(
+                receiver,
+                main,
+                selector,
+                iris_runtime::DispatchContext::implementation(main, true),
+            )
+            .ok()
+            .map(Value::BoundMethod)
+            .or(Some(Value::Method(method)))
+    }
+
     /// Reports whether a Class declares a class-level stored property.
     fn is_class_level_property(&mut self, class: ClassId, selector: &str) -> bool {
         let slot = self.selector(selector);
@@ -1442,15 +1540,60 @@ impl SourceEvaluator {
                 )
             })
             .collect();
+        // C027 makes Class and Module body locals ORDINARY LEXICAL LOCALS that
+        // do NOT become Module state merely because the body transaction
+        // commits, and C026 keeps a Method declared in that body from closing
+        // over them. A body `let` therefore lives only for the body execution:
+        // leaving it behind let `IRIS-V1-META-V342`'s defined Method resolve
+        // the transaction local `value` instead of the declared `value()`.
+        //
+        // A `const` is NOT included: D-432 makes it a DECLARATION of the
+        // current module, which the pass below moves into the module namespace.
+        let shadowed: Vec<(String, Option<Binding>)> = declaration
+            .body
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Binding {
+                    constant: false,
+                    name,
+                    ..
+                } => Some((name.clone(), self.names.get(name).cloned())),
+                _ => None,
+            })
+            .collect();
         if !executable.is_empty() {
             let main = self.module_main(module)?;
             let receiver = self.construct(main, &[])?;
             let previous = self.module_body_main.replace(main);
             let result = executable.into_iter().try_for_each(|statement| {
+                // C023 makes a structural meta message sent to `self` inside a
+                // Module body target the current transaction candidate, and
+                // C012 gives that body its Module's `main` receiver, so a
+                // Method defined here joins `main` exactly as a top-level `fun`
+                // does. Routing it through the ordinary statement path would
+                // have evaluated it as a missing message on the receiver.
+                if let Statement::Expression(expression) = statement
+                    && let Some(selector) = self.candidate_define_method(main, expression)?
+                {
+                    // C074 keeps a Module body Method a Module member as well,
+                    // so it enters the Module table exactly as a declared `fun`
+                    // does. Publishing it on `main` alone left `M.answer()`
+                    // reporting a missing message on Module.
+                    self.publish_module_copy(module, main, selector)?;
+                    return Ok(());
+                }
                 self.statement(statement, &HashMap::new(), Some(Value::Object(receiver)))
                     .map(|_| ())
             });
             self.module_body_main = previous;
+            // The body's own locals are discarded whether it succeeded or
+            // failed, and a name it shadowed is restored rather than deleted.
+            for (name, outer) in shadowed {
+                match outer {
+                    Some(binding) => self.names.insert(name, binding),
+                    None => self.names.remove(&name),
+                };
+            }
             result?;
         }
         // D-432 makes a `const` a declaration of the CURRENT module rather than
@@ -2471,6 +2614,10 @@ impl SourceEvaluator {
                 // `value` inside a Method of the same Class therefore reads
                 // that Method rather than reporting an unresolved name.
                 .or_else(|| self.receiver_bound_method(name, receiver.as_ref()))
+                // The same C014 read inside a MODULE Method: its receiver is
+                // the Module's `main`, which a bare name must reach the same
+                // way a Class Method reaches its own Class.
+                .or_else(|| self.module_bound_method(name))
                 // IRIS-V1-CONTROL-C011: a non-call unresolved bare name raises
                 // `NameError`. It MUST NOT read a property, Method, global, or
                 // runtime-added member instead.
@@ -2802,6 +2949,18 @@ impl SourceEvaluator {
                             .map(Binding::value)
                             .ok_or(EvaluationError::NameError)?;
                         self.call(callee, &arguments)
+                    }
+                    // C012 makes a bare `f(...)` inside a Module a PRIVILEGED
+                    // implicit send to that Module's own members, and C024
+                    // falls back to the current `self` or Module `main`
+                    // receiver. A Module name evaluates to a Symbol, so sending
+                    // to the evaluated receiver looked for the helper on Symbol
+                    // and reported a missing message instead.
+                    Expression::Name(selector)
+                        if !locals.contains_key(selector)
+                            && let Some(value) = self.module_self_send(selector, &arguments)? =>
+                    {
+                        Ok(value)
                     }
                     Expression::Name(selector) => match receiver {
                         Some(receiver) => self.send(receiver, selector, &arguments),

@@ -46,20 +46,20 @@ fn compare_package_fixture(
         .join("conformance/iris-v1")
         .join(fixture);
     let package = crate::package_fixture::load(&directory)?;
-    let outcome = iris_eval::load_package(&package.package_id, &package.sources);
+    // A row that observes a Module member sends to it AFTER the load, since a
+    // package source file is declarations only under `IRIS-V1-META-C011`.
+    let outcome = iris_eval::load_package_with_probe(
+        &package.package_id,
+        &package.sources,
+        record.package_probe.as_deref(),
+    )
+    .map(|(modules, observed)| match observed {
+        Some(value) => value,
+        None => RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect()),
+    });
     match expected.get("error") {
-        Some(error) => values::compare_evaluated_error(
-            error,
-            outcome.map(|modules| {
-                RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect())
-            }),
-        ),
-        None => values::compare_evaluated(
-            expected,
-            outcome.map(|modules| {
-                RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect())
-            }),
-        ),
+        Some(error) => values::compare_evaluated_error(error, outcome),
+        None => values::compare_evaluated(expected, outcome),
     }
     .map_err(|error| format!("{}: {error}", record.id))
 }

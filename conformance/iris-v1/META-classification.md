@@ -1,7 +1,7 @@
 # META chapter classification
 
-`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 1 is
-committed here; the remaining 50 are NOT yet transcribed and are bucketed below
+`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 2 are
+committed here; the remaining 49 are NOT yet transcribed and are bucketed below
 by what actually blocks each one.
 
 Every row names a concrete on-disk fixture, `fixtures/meta/vNNN/iris.toml` for
@@ -24,11 +24,13 @@ such a field stays blocked below.
 | --- | --- | --- | --- |
 | `V415` | positive | executable | `IRIS-V1-META-C017` initializes a package in manifest-declared source order, and `IRIS-V1-META-C011` puts every executable statement inside a Module body, so a package source file is declarations only. The load observes the initialized Module order `[First, Second]`. |
 
+| `V342` | positive | executable | `IRIS-V1-META-C023` defines the Method on the current candidate and `C026` keeps it from closing over the body's transaction locals, so `answer` resolves the DECLARED `value()` and answers 8 rather than the local's 7. |
+
 ## Blocked
 
 | Blocker | Rows | Why |
 | --- | --- | --- |
-| Open transactions | `V340`, `V341`, `V342`, `V345`, `V351`, `V353`, `V354`, `V355`, `V356`, `V426`, `V427`, `V428`, `V430`, `V436`, `V437`, `V439`, `V441` | `IRIS-V1-META-C022` through `C025` make a Class or Module origin body an executable construction transaction over a CANDIDATE, published atomically at a safepoint. Candidate isolation now EXISTS: a body accumulates into one candidate and publishes atomically or rolls back, Class bodies run executable statements, and `self.define_method` targets the candidate. What remains is the programmatic `Class.open` and `Module.open` entry points, `superclass=`, MODULE-side `define_method`, and the safepoint and conflict machinery of `C038` through `C041`. `V342` needs the Module side specifically, since it observes `M.main.answer()`. These are the same rows seven TYPES rows are blocked on. |
+| Open transactions | `V340`, `V341`, `V345`, `V351`, `V353`, `V354`, `V355`, `V356`, `V426`, `V427`, `V428`, `V430`, `V436`, `V437`, `V439`, `V441` | `IRIS-V1-META-C022` through `C025` make a Class or Module origin body an executable construction transaction over a CANDIDATE, published atomically at a safepoint. Candidate isolation now EXISTS: a body accumulates into one candidate and publishes atomically or rolls back, Class bodies run executable statements, and `self.define_method` targets the candidate. What remains is the programmatic `Class.open` and `Module.open` entry points, `superclass=`, MODULE-side `define_method`, and the safepoint and conflict machinery of `C038` through `C041`. Module-side `define_method` is now implemented, which closed `V342`. These are the same rows seven TYPES rows are blocked on. |
 | Permissions and policy | `V359`, `V360`, `V361`, `V362`, `V363`, `V421`, `V422`, `V423`, `V435` | `IRIS-V1-META-C009` makes a permission a manifest REQUEST that only Host configuration can grant, and forbids a package from self-authorizing. The loader models no permission field, and there is no Host grant surface to check one against. |
 | Upgrade, lock and digest | `V352`, `V357`, `V420`, `V429`, `V431` | `IRIS-V1-META-C066` and `C067` resolve an artifact through the active package store and verify a BLAKE3-256 canonical manifest digest. There is no package store, no `iris.lock`, and no digest scheme. `V357` is the one row naming `artifact.json` rather than a manifest. |
 | Reflection views | `V344`, `V358`, `V416`, `V424`, `V425`, `V432` | `IRIS-V1-META-C100` and `C107` expose `Reflection::Object` ivar APIs and package-scoped reflection whose authorization is ambient to the executing package. The reflection surface these rows read does not exist. `V416` additionally needs `open module P::M` across two files in one package. |

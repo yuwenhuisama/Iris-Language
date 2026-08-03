@@ -1,0 +1,5 @@
+module M {
+  let value = 7
+  self.define_method(:answer) { value() }
+  public fun value() -> Integer { 8 }
+}

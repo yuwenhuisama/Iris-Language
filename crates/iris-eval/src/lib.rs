@@ -180,6 +180,20 @@ pub fn load_package(
     package_id: &str,
     sources: &[(String, String)],
 ) -> Result<Vec<String>, EvaluationError> {
+    load_package_with_probe(package_id, sources, None).map(|(modules, _)| modules)
+}
+
+/// Loads a package and evaluates one probe expression against it afterwards.
+///
+/// A package source file is declarations only under `IRIS-V1-META-C011`, so a
+/// row observing a Module member, such as `IRIS-V1-META-V342`'s
+/// `M.answer()`, needs a send made AFTER the load rather than a trailing
+/// statement inside the package.
+pub fn load_package_with_probe(
+    package_id: &str,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     let mut initialized = Vec::new();
     for (_, source) in sources {
@@ -202,7 +216,18 @@ pub fn load_package(
         }
         initialized.extend(declared_modules(&parsed.program));
     }
-    Ok(initialized)
+    let observed = match probe {
+        Some(probe) => {
+            let parsed = parse(probe);
+            if !parsed.program_accepted {
+                return Err(EvaluationError::ParseDiagnostic);
+            }
+            evaluator.enter_package(package_id, probe);
+            Some(evaluator.program(&parsed.program)?)
+        }
+        None => None,
+    };
+    Ok((initialized, observed))
 }
 
 /// Names the Modules a program declares, in source order.

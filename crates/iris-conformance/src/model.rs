@@ -26,6 +26,12 @@ pub struct Record {
     /// carrying their program inline, which `IRIS-V1-META-C003` requires of a
     /// publishable package.
     pub package_fixture: Option<String>,
+    /// An expression evaluated AFTER the package loads.
+    ///
+    /// A package source file is declarations only under `IRIS-V1-META-C011`,
+    /// so a row observing a Module member needs a send made after the load
+    /// rather than a trailing statement inside the package.
+    pub package_probe: Option<String>,
     pub expect: String,
     pub tags: Vec<String>,
 }
@@ -115,6 +121,11 @@ fn load(path: &Path) -> Result<Record, String> {
         package_fixture: match input.get("package_fixture") {
             Some(Value::String(path)) => Some(path.clone()),
             Some(_) => return Err("string field package_fixture required".into()),
+            None => None,
+        },
+        package_probe: match input.get("package_probe") {
+            Some(Value::String(probe)) => Some(probe.clone()),
+            Some(_) => return Err("string field package_probe required".into()),
             None => None,
         },
         expect: render(root.get("expect").ok_or("expect missing")?),
