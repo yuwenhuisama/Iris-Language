@@ -1268,6 +1268,70 @@ impl SourceEvaluator {
         Ok(Value::Nil)
     }
 
+    /// Reads the stored-property names visible to the current transaction.
+    ///
+    /// `IRIS-V1-META-C119` implements a reflection operation ONCE and gives
+    /// `Class` the corresponding member by mixin, so `A.properties` and
+    /// `Reflection::Class.properties(A)` are two entry points to this one
+    /// implementation rather than two behaviours.
+    fn class_properties(&mut self, class: ClassId) -> Result<Value, EvaluationError> {
+        let selectors = self
+            .runtime
+            .registry()
+            .visible_properties(class)
+            .map_err(EvaluationError::Class)?;
+        let names = selectors
+            .into_iter()
+            .map(|selector| {
+                self.selectors
+                    .iter()
+                    .find_map(|(name, known)| (*known == selector).then(|| name.clone()))
+                    .map_or(Value::Nil, Value::Symbol)
+            })
+            .collect();
+        Ok(Value::Array(names))
+    }
+
+    /// Stages a stored property on the Class through a meta message.
+    ///
+    /// `IRIS-V1-META-C023` makes this reach the CURRENT transaction candidate,
+    /// so `IRIS-V1-TYPES-V207`'s inner read sees the staged property while an
+    /// external query still sees the old property set, and a rollback publishes
+    /// none of it.
+    fn meta_define_property(
+        &mut self,
+        class: ClassId,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
+        let [Value::Symbol(name), Value::Closure(block)] = arguments else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let body = self
+            .closures
+            .get(block)
+            .map(|record| record.body.clone())
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let declaration = MethodDeclaration {
+            decorators: Vec::new(),
+            impl_contract: None,
+            kind: MethodKind::Instance,
+            selector: name.clone(),
+            type_parameters: Vec::new(),
+            parameters: Vec::new(),
+            return_type: None,
+            visibility: iris_syntax::Visibility::Public,
+            body: Some(body),
+            is_override: false,
+        };
+        let initializer = self.register_body(declaration);
+        let selector = self.selector(&format!("@{name}"));
+        self.runtime
+            .registry_mut()
+            .publish_stored_property(class, selector, initializer)
+            .map_err(EvaluationError::Class)?;
+        Ok(Value::Nil)
+    }
+
     /// Reports whether a Class declares a class-level stored property.
     fn is_class_level_property(&mut self, class: ClassId, selector: &str) -> bool {
         let slot = self.selector(selector);
@@ -3650,6 +3714,17 @@ impl SourceEvaluator {
             Value::Class(class) if selector == "define_method" => {
                 self.meta_define_method(class, arguments)
             }
+            // C035 lets a transaction read its OWN candidate metadata after
+            // writes, while code outside it keeps observing the published
+            // revision until the commit. C036 makes candidate properties
+            // visible ONLY through such a read, never through an instance send.
+            Value::Class(class) if selector == "properties" => self.class_properties(class),
+            // C023 makes a structural meta message reach the current
+            // candidate, so a property staged here is visible to the rest of
+            // the transaction and published only if it commits.
+            Value::Class(class) if selector == "define_property" => {
+                self.meta_define_property(class, arguments)
+            }
             Value::Class(class) if selector == "ancestors" => self.ancestors(class),
             // IRIS-V1-TYPES-C076: a Class exposes `.type` metadata, and the Type
             // object it yields is deliberately NOT the Class object itself.
@@ -3970,6 +4045,27 @@ impl SourceEvaluator {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.ancestors(*target)
+            }
+            // C119 implements a reflection operation ONCE and gives `Class` the
+            // corresponding member by mixin, so this and `A.properties` are two
+            // entry points to one implementation rather than two behaviours.
+            ("Reflection::Class", "properties") => {
+                let [Value::Class(target)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.class_properties(*target)
+            }
+            ("Reflection::Class", "define_property") => {
+                let [Value::Class(target), rest @ ..] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.meta_define_property(*target, rest)
+            }
+            ("Reflection::Class", "define_method") => {
+                let [Value::Class(target), rest @ ..] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.meta_define_method(*target, rest)
             }
             _ => Err(EvaluationError::UnsupportedConstruct),
         }

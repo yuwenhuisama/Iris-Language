@@ -503,6 +503,30 @@ impl ClassRegistry {
             .and_then(|candidate| candidate.methods.get(&selector).copied())
     }
 
+    /// The stored-property selectors visible to the CURRENT transaction.
+    ///
+    /// `IRIS-V1-META-C035` lets the open block and its synchronous call chain
+    /// read their OWN candidate structural metadata after writes, while code
+    /// outside that transaction keeps observing the published active revision
+    /// until the commit. `IRIS-V1-META-C036` makes candidate properties visible
+    /// ONLY through such a transaction-aware read, never through an ordinary
+    /// instance send.
+    pub fn visible_properties(&self, class: ClassId) -> Result<Vec<crate::Selector>, ClassError> {
+        if let Some(candidate) = self.staged.get(&class) {
+            return Ok(candidate
+                .properties
+                .iter()
+                .map(crate::StoredProperty::selector)
+                .collect());
+        }
+        Ok(self
+            .active(class)?
+            .properties()
+            .iter()
+            .map(crate::StoredProperty::selector)
+            .collect())
+    }
+
     /// Reports whether `class` is currently staging a candidate.
     pub fn is_staging(&self, class: ClassId) -> bool {
         self.staged.contains_key(&class)

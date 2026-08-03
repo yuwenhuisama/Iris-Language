@@ -2863,3 +2863,39 @@ fn c039_raises_a_conflict_when_a_target_moved_past_its_base() {
     assert!(!published);
     assert_eq!(rendered(clean), "Array([Nil, Integer(IntegerValue(1))])");
 }
+
+#[test]
+fn c035_reads_the_candidate_inside_a_transaction_and_the_revision_outside() {
+    // IRIS-V1-META-C035 lets the open block read its OWN candidate structural
+    // metadata after writes, while code outside that transaction keeps
+    // observing the published active revision until the commit. C036 makes
+    // candidate properties visible ONLY through such a read. No property
+    // reflection existed at all, so neither half was observable.
+    let staged = "class A { public property x: Integer = 1 } \
+                  A.open() { |t| t.define_property(:y) { 2 }; t.properties }";
+    // A rollback publishes none of it, which is IRIS-V1-TYPES-V207.
+    let rolled_back = "class A { public property x: Integer = 1 } \
+                       try { A.open() { |t| t.define_property(:y) { 2 }; raise :boom } } \
+                       catch e { 0 }; A.properties";
+    // A committing open publishes it.
+    let committed = "class A { public property x: Integer = 1 } \
+                     A.open() { |t| t.define_property(:y) { 2 } }; A.properties";
+    // C119 implements the operation once and exposes it under both spellings.
+    let both = "class A { public property x: Integer = 1 } \
+                [A.properties, Reflection::Class.properties(A)]";
+
+    // When / Then
+    assert_eq!(rendered(staged), "Array([Symbol(\"@x\"), Symbol(\"@y\")])");
+    assert_eq!(
+        rendered(rolled_back),
+        "Array([Integer(IntegerValue(0)), Array([Symbol(\"@x\")])])"
+    );
+    assert_eq!(
+        rendered(committed),
+        "Array([Nil, Array([Symbol(\"@x\"), Symbol(\"@y\")])])"
+    );
+    assert_eq!(
+        rendered(both),
+        "Array([Array([Symbol(\"@x\")]), Array([Symbol(\"@x\")])])"
+    );
+}
