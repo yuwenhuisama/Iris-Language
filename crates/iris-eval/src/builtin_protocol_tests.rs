@@ -3006,3 +3006,37 @@ fn c076_combines_deny_origins_from_every_source() {
     assert_eq!(rendered(cannot_restore), "Symbol(\"MetaCapabilityError\")");
     assert_eq!(rendered(none), "Array([])");
 }
+
+#[test]
+fn c148_lets_a_stable_builtin_gain_behaviour_but_keep_its_identity() {
+    // IRIS-V1-RUNTIME-C148 lets a stable built-in Class compose Modules and
+    // gain compatible Methods on open, while C150 protects its superclass, and
+    // IRIS-V1-META-C081 requires the refusal to name the missing capability.
+    // The refusal was not catchable, so IRIS-V1-META-V359 could observe the
+    // behaviour half but not the protection half.
+    let behaviour = "open class Bool { public fun tag() -> Symbol { :ok } } \
+                     open class Integer { public fun tag() -> Symbol { :ok } } \
+                     [true.tag(), Integer(1).tag()]";
+    // The primitives keep their identity across the open.
+    let identity = "module Marker { } open class Nil mixin Marker { } \
+                    [nil same? nil, true same? true]";
+    // C150 refuses a superclass change on a protected built-in.
+    let protected = "class Other { } \
+                     [try { Reflection::Class.set_superclass(Nil, Other) } catch e { e }, \
+                     try { Reflection::Class.set_superclass(Bool, Other) } catch e { e }]";
+    // An ordinary Class is unaffected by that protection.
+    let ordinary = "class B { } class O { } \
+                    try { Reflection::Class.set_superclass(B, O) } catch e { e }";
+
+    // When / Then
+    assert_eq!(
+        rendered(behaviour),
+        "Array([Symbol(\"ok\"), Symbol(\"ok\")])"
+    );
+    assert_eq!(rendered(identity), "Array([Bool(true), Bool(true)])");
+    assert_eq!(
+        rendered(protected),
+        "Array([Symbol(\"MetaCapabilityError\"), Symbol(\"MetaCapabilityError\")])"
+    );
+    assert_eq!(rendered(ordinary), "Nil");
+}

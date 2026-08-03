@@ -1,0 +1,5 @@
+module Marker { }
+open class Nil mixin Marker { }
+open class Bool { public fun tag() -> Symbol { :ok } }
+open class Integer { public fun tag() -> Symbol { :ok } }
+class Other { }
