@@ -1376,6 +1376,22 @@ impl SourceEvaluator {
             .collect()
     }
 
+    /// The Symbol a Selector spells.
+    fn selector_symbol(&self, selector: Selector) -> Value {
+        self.selectors
+            .iter()
+            .find_map(|(name, known)| (*known == selector).then(|| Value::Symbol(name.clone())))
+            .unwrap_or(Value::Nil)
+    }
+
+    /// The Symbol a Module is named by.
+    fn module_symbol(&self, module: ModuleId) -> Value {
+        self.module_names
+            .iter()
+            .find_map(|(name, known)| (*known == module).then(|| Value::Symbol(name.clone())))
+            .unwrap_or(Value::Nil)
+    }
+
     /// Reports whether a Class declares a class-level stored property.
     fn is_class_level_property(&mut self, class: ClassId, selector: &str) -> bool {
         let slot = self.selector(selector);
@@ -3787,6 +3803,68 @@ impl SourceEvaluator {
             // revision until the commit. C036 makes candidate properties
             // visible ONLY through such a read, never through an instance send.
             Value::Class(class) if selector == "properties" => self.class_properties(class),
+            // C097 fixes the minimal Class reflection view. Each member reads
+            // the ACTIVE revision, so what a transaction staged is invisible
+            // until it commits, which is what C035 requires of code outside it.
+            Value::Class(class) if selector == "name" => Ok(self
+                .names
+                .iter()
+                .find_map(|(name, binding)| match binding.value() {
+                    Value::Class(bound) if bound == class => Some(Value::Symbol(name.clone())),
+                    _ => None,
+                })
+                .unwrap_or(Value::Nil)),
+            Value::Class(class) if selector == "methods" => {
+                let selectors: Vec<Selector> = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .methods()
+                    .keys()
+                    .copied()
+                    .collect();
+                Ok(Value::Array(
+                    selectors
+                        .into_iter()
+                        .map(|selector| self.selector_symbol(selector))
+                        .collect(),
+                ))
+            }
+            Value::Class(class) if selector == "modules" => {
+                let modules: Vec<iris_runtime::ModuleId> = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .modules()
+                    .to_vec();
+                Ok(Value::Array(
+                    modules
+                        .into_iter()
+                        .map(|module| self.module_symbol(module))
+                        .collect(),
+                ))
+            }
+            Value::Class(class) if selector == "contracts" => Ok(Value::Array(
+                self.class_contracts
+                    .get(&class)
+                    .into_iter()
+                    .flatten()
+                    .map(|contract| Value::Contract(*contract))
+                    .collect(),
+            )),
+            // C097 lists `active_revision` as a Revision view whose members
+            // include the revision NUMBER, which is what a commit advances.
+            Value::Class(class) if selector == "active_revision" => {
+                let number = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .number();
+                Ok(Value::Integer(iris_runtime::IntegerValue::from(number)))
+            }
             // V358 observes that a Contract written without `extends` has an
             // EMPTY parent list, so no implicit parent may appear. C043 forms
             // inheritance as a plain relation, which is what this reports.

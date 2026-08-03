@@ -3257,3 +3257,51 @@ fn c027_lets_an_escaping_closure_keep_a_body_local() {
         "Array([Integer(IntegerValue(7)), Integer(IntegerValue(9)), Array([])])"
     );
 }
+
+#[test]
+fn c097_exposes_the_minimal_class_reflection_view() {
+    // IRIS-V1-META-C097 fixes the minimal v1 reflection API. A Class view
+    // requires `name`, `methods`, `modules`, `contracts` and `active_revision`
+    // among others; only `properties` existed, so no row could observe what a
+    // Class actually holds.
+    let name = "class B { } B.name";
+    let methods = "class B { public fun show() -> Integer { 1 } } B.methods";
+    let modules = "module M { } class B mixin M { } B.modules";
+    let contracts = "contract C { } class B for C { } B.contracts";
+
+    // When / Then: `to_bool` is the root Method every Class carries, so a
+    // declared Method appears beside it rather than alone.
+    assert_eq!(rendered(name), "Symbol(\"B\")");
+    assert_eq!(
+        rendered(methods),
+        "Array([Symbol(\"to_bool\"), Symbol(\"show\")])"
+    );
+    assert_eq!(rendered(modules), "Array([Symbol(\"M\")])");
+    assert_eq!(rendered(contracts), "Array([Contract(ContractId(0))])");
+}
+
+#[test]
+fn c097_advances_the_active_revision_by_one_per_commit() {
+    // C097 lists `active_revision`, whose Revision view carries the revision
+    // NUMBER. IRIS-V1-META-V426 observes a committed open advancing it, and
+    // C022 makes each body ONE atomic publication, so a commit advances it by
+    // exactly one.
+    //
+    // The vector asserts the DIFFERENCE rather than an absolute number: a
+    // Class's baseline reflects how the kernel builds it, which is an
+    // implementation fact rather than a specified one.
+    let one_open = "class B { } let before = B.active_revision; \
+                    B.open() { |t| t.define_method(:a) { 1 } }; \
+                    B.active_revision - before";
+    let two_opens = "class B { } let before = B.active_revision; \
+                     B.open() { |t| t.define_method(:a) { 1 } }; \
+                     B.open() { |t| t.define_method(:b) { 2 } }; \
+                     B.active_revision - before";
+    // A body that publishes nothing leaves the revision alone.
+    let none = "class B { } let before = B.active_revision; B.active_revision - before";
+
+    // When / Then
+    assert!(rendered(one_open).ends_with("Integer(IntegerValue(1))])"));
+    assert!(rendered(two_opens).ends_with("Integer(IntegerValue(2))])"));
+    assert_eq!(rendered(none), "Integer(IntegerValue(0))");
+}
