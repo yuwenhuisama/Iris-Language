@@ -3,6 +3,7 @@
 mod json;
 mod model;
 mod observation;
+pub mod package_fixture;
 mod runner;
 mod runtime_observation;
 

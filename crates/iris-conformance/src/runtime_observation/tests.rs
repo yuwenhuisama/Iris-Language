@@ -7,6 +7,7 @@ fn record(source: &str, independent_sources: Vec<&str>, expect: &str) -> Record 
         source: source.into(),
         independent_sources: independent_sources.into_iter().map(str::to_owned).collect(),
         package_sources: vec![],
+        package_fixture: None,
         expect: expect.into(),
         tags: vec![],
     }

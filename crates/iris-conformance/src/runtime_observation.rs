@@ -13,6 +13,12 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
     if !record.independent_sources.is_empty() {
         return compare_independent_sources(record, expected);
     }
+    // Chapter 08 names an on-disk package tree rather than carrying its
+    // program inline, so the manifest and its ordered sources are read from
+    // the fixture directory and the load's initialized Modules are observed.
+    if let Some(fixture) = &record.package_fixture {
+        return compare_package_fixture(record, expected, fixture);
+    }
     // D-431 needs two packages sharing ONE runtime, unlike independent
     // sources, whose programs each run against a fresh runtime.
     if !record.package_sources.is_empty() {
@@ -23,6 +29,39 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
         };
     }
     compare_runtime_source(record, expected, runtime_source(record)?)
+}
+
+/// Loads an on-disk package fixture and compares what its load observed.
+///
+/// `IRIS-V1-META-C010` aborts the load on a missing or invalid manifest, and
+/// `IRIS-V1-META-C017` initializes in manifest-declared source order, so the
+/// observable is the ordered list of initialized Modules.
+fn compare_package_fixture(
+    record: &Record,
+    expected: &std::collections::BTreeMap<String, Value>,
+    fixture: &str,
+) -> Result<(), String> {
+    let directory = crate::model::Corpus::workspace()?
+        .0
+        .join("conformance/iris-v1")
+        .join(fixture);
+    let package = crate::package_fixture::load(&directory)?;
+    let outcome = iris_eval::load_package(&package.package_id, &package.sources);
+    match expected.get("error") {
+        Some(error) => values::compare_evaluated_error(
+            error,
+            outcome.map(|modules| {
+                RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect())
+            }),
+        ),
+        None => values::compare_evaluated(
+            expected,
+            outcome.map(|modules| {
+                RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect())
+            }),
+        ),
+    }
+    .map_err(|error| format!("{}: {error}", record.id))
 }
 
 fn compare_independent_sources(

@@ -14,8 +14,11 @@ fn main() -> ExitCode {
         [flag, chapter] if flag == "--chapter" && chapter == "TYPES" => {
             iris_conformance::Chapter::Types
         }
+        [flag, chapter] if flag == "--chapter" && chapter == "META" => {
+            iris_conformance::Chapter::Meta
+        }
         _ => {
-            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES");
+            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META");
             return ExitCode::from(2);
         }
     };
@@ -27,9 +30,12 @@ fn main() -> ExitCode {
             // RUNTIME ones do, so they share the runtime execution path.
             // TYPES vectors observe values, errors and diagnostics exactly as
             // RUNTIME and CONTROL ones do, so they share the same path.
+            // META vectors observe a package load's result the same way, so
+            // they share the runtime execution path too.
             iris_conformance::Chapter::Runtime
             | iris_conformance::Chapter::Control
-            | iris_conformance::Chapter::Types => iris_conformance::execute_runtime(&records),
+            | iris_conformance::Chapter::Types
+            | iris_conformance::Chapter::Meta => iris_conformance::execute_runtime(&records),
         }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
@@ -44,7 +50,8 @@ fn main() -> ExitCode {
                 ),
                 iris_conformance::Chapter::Runtime
                 | iris_conformance::Chapter::Control
-                | iris_conformance::Chapter::Types => {
+                | iris_conformance::Chapter::Types
+                | iris_conformance::Chapter::Meta => {
                     println!(
                         "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
                         report.passed,

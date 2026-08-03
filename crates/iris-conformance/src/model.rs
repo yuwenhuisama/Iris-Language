@@ -20,6 +20,12 @@ pub struct Record {
     /// and is NOT the same as `independent_sources`, whose programs each run
     /// against a fresh runtime.
     pub package_sources: Vec<(String, String)>,
+    /// The `fixtures/meta/...` directory this record loads, when it names one.
+    ///
+    /// Chapter 08 vectors name a concrete on-disk package tree rather than
+    /// carrying their program inline, which `IRIS-V1-META-C003` requires of a
+    /// publishable package.
+    pub package_fixture: Option<String>,
     pub expect: String,
     pub tags: Vec<String>,
 }
@@ -30,6 +36,7 @@ pub enum Chapter {
     Runtime,
     Control,
     Types,
+    Meta,
 }
 
 impl Chapter {
@@ -39,6 +46,7 @@ impl Chapter {
             Self::Runtime => "RUNTIME",
             Self::Control => "CONTROL",
             Self::Types => "TYPES",
+            Self::Meta => "META",
         }
     }
 }
@@ -104,6 +112,11 @@ fn load(path: &Path) -> Result<Record, String> {
         source: input_source(input)?,
         independent_sources: input_independent_sources(input)?,
         package_sources: input_package_sources(input)?,
+        package_fixture: match input.get("package_fixture") {
+            Some(Value::String(path)) => Some(path.clone()),
+            Some(_) => return Err("string field package_fixture required".into()),
+            None => None,
+        },
         expect: render(root.get("expect").ok_or("expect missing")?),
         tags,
     })
@@ -144,12 +157,13 @@ fn input_source(input: &std::collections::BTreeMap<String, Value>) -> Result<Str
     match input.get("source_text") {
         Some(Value::String(source)) => Ok(source.clone()),
         Some(_) => Err("string field source_text required".into()),
-        // Independent sources and package sources each carry their own
-        // programs, so neither needs a single `source_text` or a prose
-        // `fixture_ref`.
+        // Independent sources, package sources and an on-disk package fixture
+        // each carry their own programs, so none needs a single `source_text`
+        // or a prose `fixture_ref`.
         None => match input
             .get("independent_sources")
             .or_else(|| input.get("package_sources"))
+            .or_else(|| input.get("package_fixture"))
         {
             Some(_) => Ok(String::new()),
             None => string(input, "fixture_ref").map(str::to_owned),

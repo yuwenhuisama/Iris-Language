@@ -167,6 +167,56 @@ pub fn evaluate_packages(programs: &[(String, String)]) -> Result<RuntimeValue, 
     Ok(last)
 }
 
+/// Loads one package's ordered source files and reports its initialized Modules.
+///
+/// `IRIS-V1-META-C017` initializes a package in manifest-declared source order,
+/// and `IRIS-V1-META-C011` puts every executable statement inside a Module
+/// body, so what a package load OBSERVES is which Modules were initialized and
+/// in what order rather than a trailing expression value.
+///
+/// Each entry is a `(path, source)` pair in manifest order. A parse failure
+/// aborts the load, which `IRIS-V1-META-C010` requires of an invalid package.
+pub fn load_package(
+    package_id: &str,
+    sources: &[(String, String)],
+) -> Result<Vec<String>, EvaluationError> {
+    let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
+    let mut initialized = Vec::new();
+    for (_, source) in sources {
+        let parsed = parse(source);
+        if !parsed.program_accepted {
+            return Err(EvaluationError::ParseDiagnostic);
+        }
+        evaluator.enter_package(package_id, source);
+        // C011 keeps every executable statement inside a Module body, so a
+        // package source file is DECLARATIONS ONLY and yields no program
+        // value. That absence is the normal case here rather than a failure,
+        // which is what V415 means by "no top-level executable statement".
+        // The tolerance is limited to a file that HAS no statements, so an
+        // unsupported construct inside one is still reported.
+        let declarations_only = parsed.program.statements.is_empty();
+        match evaluator.program(&parsed.program) {
+            Ok(_) => {}
+            Err(EvaluationError::UnsupportedConstruct) if declarations_only => {}
+            Err(error) => return Err(error),
+        }
+        initialized.extend(declared_modules(&parsed.program));
+    }
+    Ok(initialized)
+}
+
+/// Names the Modules a program declares, in source order.
+fn declared_modules(program: &iris_syntax::Program) -> Vec<String> {
+    program
+        .declarations
+        .iter()
+        .filter_map(|entry| match entry {
+            iris_syntax::Declaration::Module(module) => Some(module.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Evaluates source and reports whether a named Class was published before failure.
 pub fn evaluate_with_class_publication(
     source: &str,
