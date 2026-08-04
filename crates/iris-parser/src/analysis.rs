@@ -909,6 +909,11 @@ impl Analyzer {
         // than the declaration it decorates. A decorator may be declared AFTER
         // its application, so the check runs once every declaration is
         // collected rather than at the application site.
+        // D-177 resolves declaration collection BEFORE scheduling a
+        // declarative open, so an `open class A` written ABOVE its origin is
+        // still an open of that origin. Checking markers during the ordered
+        // walk made the origin look like the replacement, which V437 observes.
+        self.check_deferred_override_markers(program);
         self.check_decorator_targets(program);
         self.check_decorator_determinism(program);
     }
@@ -1050,7 +1055,6 @@ impl Analyzer {
                         })
                         .collect(),
                 ));
-                self.check_override_markers(value, &declared);
                 self.declared_members.push((value.name.clone(), declared));
                 self.declared_mixins.push((
                     value.name.clone(),
@@ -1449,6 +1453,47 @@ impl Analyzer {
         });
         if cyclic {
             self.report("GENERIC_CONSTRAINT_CYCLE");
+        }
+    }
+
+    /// Runs the `override` marker check once every declaration is collected.
+    ///
+    /// `D-177` resolves declaration collection BEFORE scheduling a declarative
+    /// open, so source order does not decide which declaration is the origin.
+    /// An origin is checked against the declarations that PRECEDE it in
+    /// collection order, and a reopen against everything the origin declared.
+    fn check_deferred_override_markers(&mut self, program: &Program) {
+        let classes: Vec<&iris_syntax::ClassDeclaration> = program
+            .declarations
+            .iter()
+            .map(unwrap_export)
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Class(value) => Some(value),
+                _ => None,
+            })
+            .collect();
+        // Origins first, so a reopen written above its origin still sees the
+        // members that origin declares.
+        let ordered = classes
+            .iter()
+            .filter(|value| !value.reopen)
+            .chain(classes.iter().filter(|value| value.reopen));
+        self.declared_members.clear();
+        for value in ordered {
+            let declared: Vec<String> = value
+                .body
+                .iter()
+                .filter_map(|statement| match statement {
+                    Statement::Method(method)
+                        if matches!(method.kind, iris_syntax::MethodKind::Instance) =>
+                    {
+                        Some(method.selector.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+            self.check_override_markers(value, &declared);
+            self.declared_members.push((value.name.clone(), declared));
         }
     }
 
@@ -3273,6 +3318,23 @@ mod override_marker_tests {
         let fresh = "class Base { public fun a() -> Symbol { :a } } \
                      class Child extends Base { public fun b() -> Symbol { :b } }";
         assert!(codes(fresh).is_empty());
+    }
+
+    #[test]
+    fn d177_collects_declarations_before_scheduling_an_open() {
+        // D-177 resolves declaration collection BEFORE scheduling a declarative
+        // open, so an `open class A` written ABOVE its origin is still an open
+        // of that origin. Checking markers during the ordered walk made the
+        // ORIGIN look like the replacement, which V437 observes.
+        let open_first = "open class A { public override fun marker() -> Symbol { :open } } \
+                          class A { public fun marker() -> Symbol { :origin } }";
+        assert!(codes(open_first).is_empty());
+
+        // The marker is still required, so order does not excuse a silent
+        // replacement.
+        let unmarked = "open class A { public fun marker() -> Symbol { :open } } \
+                        class A { public fun marker() -> Symbol { :origin } }";
+        assert_eq!(codes(unmarked), ["IRIS-MEMBER-OVERRIDE-REQUIRED"]);
     }
 
     #[test]

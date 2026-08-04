@@ -1,0 +1,2 @@
+open class A { public override fun marker() -> String { "open" } }
+class A { public fun marker() -> String { "origin" } }
