@@ -440,6 +440,8 @@ IRIS-V1-TYPES-C096：可调用 Type 参数与其他所有泛型参数一样是�
 
 IRIS-V1-TYPES-C097：v1.21 勘误确定了逐闭合物化失败时抛出的诊断。IRIS-V1-TYPES-C066 要求失败的闭合 Class 物化丢弃候选状态且不发布任何内容，但未指明诊断，而 IRIS-V1-TYPES-V241 已要求 `TypeContractError`。因此，从逐闭合类级属性初始化器中逸出的异常报告为 `TypeContractError`，与 IRIS-V1-TYPES-C067 在同一物化路径上报告约束失败的方式一致。原始异常作为 cause 携带，因此初始化器自身的错误仍可观察。本条补充了实现无法回避的规则；它不改变 C066 丢弃的内容，C066 不撤销外部副作用的规定亦不变。
 
+IRIS-V1-TYPES-C098：v1.29 勘误确定了 IRIS-V1-TYPES-C045 与 `D-174` 所保护的祖先界限。当所提议的祖先关系丢弃了一个在 `D-173` 意义上携带静态脊事实的声明祖先——即携带声明的 Contract，或目标所依赖的 contract-visible 成员名与签名——则该事务性运行时超类变更**必须**在发布前以 `TypeContractError` 拒绝。不携带此类事实的声明祖先**不**受本条款保护，丢弃它将正常发布；对于自该祖先保留下来的方法，其后果由 `D-104` 与 IRIS-V1-RUNTIME-C015 所有，二者在反射调用入口抛出 `MethodBindingError`，而非拒绝该祖先变更。通过插入一个仍可抵达每一个受保护声明祖先的类来收窄祖先关系是允许的，因为它保留了全部静态子类型假设。`D-262` 所述的永久声明界限不变：本条款确定的是该界限**保护哪些**声明祖先，且不推翻任何已发布的结论。
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-TYPES-V018` | positive | 需要 compiler；需要 interpreter；需要 JIT；native 不适用 | Iris source fixture: `contract Named { fun name() -> String } class User for Named { impl fun name() -> String { "iris" } } let view = User.new() as Named; view..name()`. | 值 `"iris"`；Type `String`；checked view construction 和 explicit qualified dispatch 选择 `Named::name`。 | `D-233`, `D-234`, `D-236`, `D-237`, `D-239`, `D-278` |

@@ -4545,6 +4545,16 @@ impl SourceEvaluator {
             .registry()
             .require_meta_capability(target, Capability::Superclass)
             .map_err(EvaluationError::Class)?;
+        // D-174 makes a declared superclass an immutable nominal subtype fact
+        // rather than an unchecked writable property, and IRIS-V1-TYPES-C098
+        // fixes WHICH declared ancestors that bound protects: those carrying a
+        // static spine fact in the D-173 sense. Dropping one falsifies a static
+        // promise, which C045 requires be rejected BEFORE publication. V201
+        // observes that `Dog.type.subtype?(Animal.type)` still holds after the
+        // refusal.
+        if !self.preserves_protected_ancestry(target, superclass) {
+            return Err(EvaluationError::TypeContractError);
+        }
         let mut candidate = self
             .runtime
             .registry_mut()
@@ -4556,6 +4566,40 @@ impl SourceEvaluator {
             .publish(candidate)
             .map(|_| Value::Nil)
             .map_err(EvaluationError::Class)
+    }
+
+    /// Whether a proposed runtime superclass keeps every PROTECTED ancestor.
+    ///
+    /// `IRIS-V1-TYPES-C098` protects a declared ancestor that carries a static
+    /// spine fact in the `D-173` sense, which is the declared Contract set. An
+    /// ancestor carrying none is deliberately NOT protected: `D-104` and
+    /// `IRIS-V1-RUNTIME-C015` own that case and raise `MethodBindingError` at
+    /// reflective invocation entry instead, which is what `RUNTIME-V014`
+    /// observes. Inserting a Class that still reaches every protected ancestor
+    /// is permitted, since it preserves every static subtype assumption.
+    fn preserves_protected_ancestry(&self, target: ClassId, proposed: ClassId) -> bool {
+        let mut protected = Vec::new();
+        let mut walk = self.static_superclasses.get(&target).copied().flatten();
+        while let Some(ancestor) = walk {
+            if self
+                .class_contracts
+                .get(&ancestor)
+                .is_some_and(|contracts| !contracts.is_empty())
+            {
+                protected.push(ancestor);
+            }
+            walk = self.static_superclasses.get(&ancestor).copied().flatten();
+        }
+        protected.iter().all(|ancestor| {
+            let mut candidate = Some(proposed);
+            while let Some(class) = candidate {
+                if class == *ancestor {
+                    return true;
+                }
+                candidate = self.static_superclasses.get(&class).copied().flatten();
+            }
+            false
+        })
     }
 
     fn ancestors(&self, target: ClassId) -> Result<Value, EvaluationError> {

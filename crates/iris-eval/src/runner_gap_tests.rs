@@ -1582,3 +1582,40 @@ fn catch_binding_is_immutable() {
     // Then
     assert_eq!(result, Err(EvaluationError::ImmutableBinding));
 }
+
+#[test]
+fn c098_protects_only_a_declared_ancestor_carrying_a_static_spine_fact() {
+    // IRIS-V1-TYPES-C098 fixes WHICH declared ancestors the D-174 bound
+    // protects: those carrying a static spine fact in the D-173 sense. Dropping
+    // one falsifies a static promise and C045 requires refusal BEFORE
+    // publication, which V201 observes by requiring the subtype fact to hold.
+    let protected = "contract Walks { fun walk() } \
+                     class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+                     class Dog extends Animal { } \
+                     let refused = try { Reflection::Class.set_superclass(Dog, Object) } catch e { e }; \
+                     [refused, Dog.type.subtype?(Animal.type)]";
+    assert_eq!(
+        evaluate(protected),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("TypeContractError".into()),
+            RuntimeValue::Bool(true),
+        ]))
+    );
+
+    // An ancestor carrying no such fact is deliberately NOT protected: D-104
+    // and IRIS-V1-RUNTIME-C015 own that case and raise MethodBindingError at
+    // reflective invocation entry instead, which is what RUNTIME-V014 observes.
+    let unprotected = "class A { public fun m() -> Nil { nil } } \
+                       class B extends A { } class Other { } \
+                       try { Reflection::Class.set_superclass(B, Other) } catch e { e }";
+    assert_eq!(evaluate(unprotected), Ok(RuntimeValue::Nil));
+
+    // Narrowing ancestry by inserting a Class that still reaches every
+    // protected ancestor is permitted, since every static subtype assumption
+    // survives.
+    let narrowed = "contract Walks { fun walk() } \
+                    class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+                    class Mammal extends Animal { } class Dog extends Animal { } \
+                    try { Reflection::Class.set_superclass(Dog, Mammal) } catch e { e }";
+    assert_eq!(evaluate(narrowed), Ok(RuntimeValue::Nil));
+}

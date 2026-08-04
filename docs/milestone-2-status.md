@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.28 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.29 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -9,7 +9,7 @@
 ```
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 128, failed: 0, needs_subsystem: 5                                  (133 records, buckets sum 133)
-TYPES    passed: 72, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (72 records, buckets sum 72)
+TYPES    passed: 73, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (73 records, buckets sum 73)
 META     passed: 17, failed: 0, needs_subsystem: 0                                  (17 records, buckets sum 17)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
@@ -68,6 +68,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.25 | `META-C121` | The V343 rejection wording |
 | v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
 | v1.27 | `META-C124` | Corrected the decorator phase signatures |
+| v1.29 | `TYPES-C098` | Which declared ancestors the `D-174` superclass bound protects, resolving the V201/V014 conflict |
 | v1.28 | `META-C125` | The minimal `Plan` and `Transformation` members, `IRIS-DECORATOR-NONDETERMINISTIC` and `IRIS-DECORATOR-KIND` |
 
 ### Permanence exceptions
