@@ -630,6 +630,48 @@ impl SourceEvaluator {
             }
             class
         };
+        // D-207 opens a generic definition by building a candidate definition
+        // PLUS substituted candidate revisions for every already-interned
+        // closed construction, validating all of them as one transaction and
+        // rolling everything back on any closed failure. A reopen recorded no
+        // bounds at all, so a `where` clause added on open was never validated
+        // against the constructions that already exist. V234 observes the
+        // refusal leaving neither definition nor either closed revision changed.
+        if declaration.reopen && !declaration.constraints.is_empty() {
+            let previous = self.generic_bounds.get(&declaration.name).cloned();
+            self.generic_bounds.insert(
+                declaration.name.clone(),
+                (
+                    declaration.parameters.clone(),
+                    declaration.constraints.clone(),
+                ),
+            );
+            let existing: Vec<Vec<ClassId>> = self
+                .materialized_constructions
+                .iter()
+                .filter(|(target, _)| *target == class)
+                .map(|(_, arguments)| arguments.clone())
+                .collect();
+            for arguments in existing {
+                let written: Vec<iris_syntax::TypeExpression> = arguments
+                    .iter()
+                    .map(|argument| {
+                        iris_syntax::TypeExpression::Name(self.class_source_name(*argument))
+                    })
+                    .collect();
+                if let Err(error) = self.check_generic_bounds(&declaration.name, &written) {
+                    // The whole open fails, so the definition's bounds revert
+                    // and every closed revision is left exactly as published.
+                    match previous {
+                        Some(bounds) => {
+                            self.generic_bounds.insert(declaration.name.clone(), bounds)
+                        }
+                        None => self.generic_bounds.remove(&declaration.name),
+                    };
+                    return Err(error);
+                }
+            }
+        }
         let builtin = declaration.reopen && builtin(&declaration.name, &self.kernel).is_some();
         // C022 makes a Class body an executable construction transaction over a
         // CANDIDATE: success validates the complete candidate and publishes
@@ -1510,9 +1552,6 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[iris_syntax::TypeExpression],
     ) -> Result<(), EvaluationError> {
-        let Some(pending) = self.pending_class_properties.get(&class).cloned() else {
-            return Ok(());
-        };
         let mut normalized = Vec::new();
         for argument in arguments {
             let iris_syntax::TypeExpression::Name(argument) = argument else {
@@ -1523,10 +1562,18 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::NameError)?,
             );
         }
-        if !self
+        // D-207 revalidates every already-interned closed construction when the
+        // definition is opened, so interning is recorded for EVERY closed
+        // construction rather than only for one carrying per-closed
+        // initializers. Recording it inside the pending-properties guard left a
+        // property-less `Box<Integer>` invisible to that revalidation.
+        let first = self
             .materialized_constructions
-            .insert((class, normalized.clone()))
-        {
+            .insert((class, normalized.clone()));
+        let Some(pending) = self.pending_class_properties.get(&class).cloned() else {
+            return Ok(());
+        };
+        if !first {
             return Ok(());
         }
         let mut suffix = String::new();
@@ -4687,6 +4734,21 @@ impl SourceEvaluator {
             }
             false
         })
+    }
+
+    /// The source name a Class was declared under.
+    ///
+    /// `D-207` revalidates every already-interned closed construction when a
+    /// generic definition is opened, and the bound check reads WRITTEN Type
+    /// expressions, so a recorded argument must be spelled back.
+    fn class_source_name(&self, class: ClassId) -> String {
+        self.names
+            .iter()
+            .find_map(|(name, binding)| match binding.value {
+                Value::Class(bound) if bound == class => Some(name.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     fn ancestors(&self, target: ClassId) -> Result<Value, EvaluationError> {

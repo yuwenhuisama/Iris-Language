@@ -1670,3 +1670,30 @@ fn d212_withdraws_a_module_whose_initializer_raised() {
     let (_, published) = crate::evaluate_with_class_publication(succeeds, "M");
     assert!(published);
 }
+
+#[test]
+fn d207_revalidates_interned_closed_constructions_when_a_definition_opens() {
+    // D-207 opens a generic definition by building a candidate definition PLUS
+    // substituted candidate revisions for every already-interned closed
+    // construction, validating all of them as one transaction and rolling
+    // everything back on any closed failure. A reopen recorded no bounds, so a
+    // `where` clause added on open was never validated against the
+    // constructions that already exist.
+    let violated = "contract Show { fun show() -> Symbol } \
+                    class Str for Show { public impl fun show() -> Symbol { :s } } \
+                    class Box<T> { }; let a = Box<Str>; let b = Box<Integer>; \
+                    open class Box<T> where T: Show { }; [a, b]";
+    assert_eq!(evaluate(violated), Err(EvaluationError::TypeContractError));
+
+    // Every interned construction satisfying the added bound publishes.
+    let satisfied = "contract Show { fun show() -> Symbol } \
+                     class Str for Show { public impl fun show() -> Symbol { :s } } \
+                     class Box<T> { }; let a = Box<Str>; \
+                     open class Box<T> where T: Show { }; a";
+    assert!(evaluate(satisfied).is_ok());
+
+    // With no interned construction there is nothing to revalidate, so even an
+    // uninhabitable bound publishes; it fails later at materialization.
+    let none = "class Box<T> { }; open class Box<T> where T: Never { }; Box";
+    assert!(evaluate(none).is_ok());
+}
