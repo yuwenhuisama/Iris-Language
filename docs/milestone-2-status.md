@@ -167,6 +167,23 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 5. **`migrate_revision` and revision reactivation** for `V085`, and static rebinding rejection
    for `V111`.
 
+## META Chapter Status
+
+META reached 39 transcribed rows of 51. The remaining 12 need one of four
+subsystems that do not exist, each recorded in `docs/spec-defects-v1.md` where a
+row was partially transcribed:
+
+| Subsystem | Rows | What is missing |
+| --- | --- | --- |
+| Host grants | `V363`, `V421`, `V422` | ReflectionPolicy, manifest grants, `prelink` |
+| Package store and artifacts | `V357` | An active package store; V357's artifact bytes are never given |
+| Upgrade and async | `V353`, `V354`, `V355`, `V431` | Package upgrade, safepoint publication, `await` |
+| Cross-package static activation | `V346`, `V418`, `V427`, `V438` | `C045` DIRECT-IMPORT activation and `StaticType` member modelling |
+
+`ReflectionPolicy` remains the deferral the milestone plan already named, and it
+alone accounts for three of the twelve. The async and native surfaces are
+likewise outside this milestone.
+
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 
 - `ReflectionPolicy` permission enforcement
