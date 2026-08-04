@@ -80,6 +80,13 @@ pub(super) struct SourceEvaluator {
     /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
     /// that identity runtime-local rather than publishable.
     package: String,
+    /// Members added programmatically or by a conditional body branch.
+    ///
+    /// `IRIS-V1-META-C046` makes such additions DYNAMIC-ONLY, and `C047`
+    /// requires the dynamic-only status to be recorded rather than inferred.
+    /// V345 and V427 observe the reflected status.
+    dynamic_members: std::collections::HashSet<(ClassId, Selector)>,
+
     /// The current package's declared `api_major`.
     ///
     /// `D-242` makes major-version contract identity part of a named Contract
@@ -292,6 +299,7 @@ impl SourceEvaluator {
             globals: HashMap::new(),
             package: package.to_owned(),
             api_major: 1,
+            dynamic_members: std::collections::HashSet::new(),
             hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
@@ -735,7 +743,39 @@ impl SourceEvaluator {
         // class state merely because the transaction commits. They therefore
         // live in a scope of their own rather than in `self.names`.
         let mut body_locals: HashMap<String, Value> = HashMap::new();
-        for statement in &declaration.body {
+        // C022 makes a Class body an EXECUTABLE construction transaction, so a
+        // conditional branch is ordinary body control flow. A branch is
+        // flattened into the statement stream it guards, which is what lets
+        // `if cond { self.define_method(...) }` stage into the same candidate
+        // an unconditional call would. V345 and V427 observe the true branch.
+        // Each entry carries whether it came from a conditional branch, since
+        // C046 makes a CONDITIONAL body addition dynamic-only while an
+        // unconditional one is ordinary declarative API. Flattening alone would
+        // lose that distinction.
+        let mut pending: Vec<(&Statement, bool)> =
+            declaration.body.iter().rev().map(|s| (s, false)).collect();
+        while let Some((statement, conditional)) = pending.pop() {
+            if let Statement::If {
+                condition,
+                then_body,
+                else_body,
+            } = statement
+            {
+                // C046 makes a CONDITIONAL executable-body addition
+                // dynamic-only, so members staged from a branch are recorded
+                // as such before the branch runs.
+
+                let taken = self.expression(condition, &body_locals, Some(Value::Class(class)))?;
+                let chosen = if self.truthy(taken)? {
+                    Some(then_body)
+                } else {
+                    else_body.as_ref()
+                };
+                if let Some(chosen) = chosen {
+                    pending.extend(chosen.iter().rev().map(|s| (s, true)));
+                }
+                continue;
+            }
             match statement {
                 Statement::StoredProperty {
                     decorators,
@@ -814,6 +854,12 @@ impl SourceEvaluator {
                     // CANDIDATE rather than the published active revision.
                     if let Some(defined) = self.candidate_define_method(class, expression)? {
                         declared_in_body.push((MethodKind::Instance, defined));
+                        // C046: an addition made from a conditional branch is
+                        // dynamic-only, and C047 requires that status to be
+                        // RECORDED rather than re-derived later.
+                        if conditional {
+                            self.dynamic_members.insert((class, defined));
+                        }
                         continue;
                     }
                     self.expression(expression, &body_locals, Some(Value::Class(class)))?;
@@ -4239,6 +4285,28 @@ impl SourceEvaluator {
             // Contract `Dynamic<Object>`, and D-452 keeps body-local inference
             // out of signature metadata, so reflection reports what was
             // WRITTEN rather than what the body happens to produce.
+            // C097 lists `source` on the Method view, and C047 requires
+            // dynamic-only metadata to record the origin package, the revision
+            // and commit it entered at, and its static visibility status.
+            // C046 makes a programmatic or CONDITIONAL body addition
+            // dynamic-only, which V345 and V427 observe.
+            Value::Method(method) if selector == "source" => {
+                let MethodOwner::Class(owner) = method.owner() else {
+                    return Ok(Value::Symbol("dynamic-only".into()));
+                };
+                let dynamic = self.dynamic_members.contains(&(owner, method.selector()));
+                let revision = self
+                    .runtime
+                    .registry()
+                    .active(owner)
+                    .map_err(EvaluationError::Class)?;
+                Ok(Value::Array(vec![
+                    Value::Symbol(self.package.clone()),
+                    Value::Integer(revision.number().into()),
+                    Value::Integer(revision.commit_id().into()),
+                    Value::Symbol(if dynamic { "dynamic-only" } else { "static" }.into()),
+                ]))
+            }
             Value::Method(method) if selector == "parameters" || selector == "return_type" => {
                 let declaration = self
                     .bodies

@@ -1789,3 +1789,49 @@ fn c023_composition_changes_join_the_open_transaction() {
         ]))
     );
 }
+
+#[test]
+fn c046_marks_only_conditional_body_additions_dynamic_only() {
+    // C022 makes a Class body an executable construction transaction, but a
+    // conditional branch in one was an unsupported construct, so the whole
+    // fixture shape V345 and V427 use could not run at all.
+    let conditional = "class Box { if true { self.define_method(:extra) { :extra } } } \
+                       Box.new().extra()";
+    assert_eq!(
+        evaluate(conditional),
+        Ok(RuntimeValue::Symbol("extra".into()))
+    );
+
+    // C046 makes a CONDITIONAL addition dynamic-only and C047 requires that
+    // status to be recorded. An unconditional addition is ordinary declarative
+    // API, so the marker must come from the conditionality, not from
+    // define_method itself.
+    let marked = "class Box { if true { self.define_method(:extra) { :extra } } } \
+                  Reflection::Class.method(Box, :extra).source[3]";
+    assert_eq!(
+        evaluate(marked),
+        Ok(RuntimeValue::Symbol("dynamic-only".into()))
+    );
+
+    let unconditional = "class Box { self.define_method(:extra) { :extra } } \
+                         Reflection::Class.method(Box, :extra).source[3]";
+    assert_eq!(
+        evaluate(unconditional),
+        Ok(RuntimeValue::Symbol("static".into()))
+    );
+
+    // The false branch stages nothing, and an `else` branch is taken normally.
+    let not_taken = "class Box { if false { self.define_method(:extra) { :extra } } } \
+                     try { Box.new().extra() } catch e { e }";
+    assert_eq!(
+        evaluate(not_taken),
+        Ok(RuntimeValue::Symbol("MessageNotFound".into()))
+    );
+
+    let otherwise = "class Box { if false { 1 } else { self.define_method(:extra) { :other } } } \
+                     Box.new().extra()";
+    assert_eq!(
+        evaluate(otherwise),
+        Ok(RuntimeValue::Symbol("other".into()))
+    );
+}
