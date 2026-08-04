@@ -53,6 +53,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::RaiseSite(_)
         | Value::ArrayIterator(_)
         | Value::IterationDone
+        | Value::Transformation { .. }
         | Value::ExceptionContext(..)
         | Value::ContractView(_, _)
         | Value::Object(_)

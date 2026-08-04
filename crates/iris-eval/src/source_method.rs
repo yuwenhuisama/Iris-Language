@@ -66,6 +66,14 @@ pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {
             .class(iris_runtime::BuiltinClass::Float64)
             .ok()
             .map(Value::Class),
+        // C125 fixes `Transformation.empty` as the transformation of a
+        // decorator that changes nothing. The name itself denotes that empty
+        // transformation, and `empty` on it answers itself, so the minimal
+        // surface needs no separate Transformation class object.
+        "Transformation" => Some(Value::Transformation {
+            kind: "class",
+            staged: Vec::new(),
+        }),
         _ => None,
     }
 }

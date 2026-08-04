@@ -1,0 +1,4 @@
+package_id = "org.iris.v430"
+api_major = 1
+dependencies = ["org.iris.v430.trace"]
+sources = ["src/main.ir"]

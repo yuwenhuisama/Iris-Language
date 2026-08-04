@@ -736,6 +736,7 @@ impl Evaluator {
             | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
             | RuntimeValue::IterationDone
+            | RuntimeValue::Transformation { .. }
             | RuntimeValue::ExceptionContext(..)
             | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
@@ -786,6 +787,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",
+        RuntimeValue::Transformation { .. } => "Transformation",
     }
 }
 

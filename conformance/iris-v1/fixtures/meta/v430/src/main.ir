@@ -1,0 +1,2 @@
+import org.iris.v430.trace.AddsTrace
+@AddsTrace() class Box meta deny method_set { }

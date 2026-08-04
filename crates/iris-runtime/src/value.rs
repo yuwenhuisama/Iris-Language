@@ -184,6 +184,18 @@ pub enum Value {
     /// stay mutually distinct, so a Contract carries its own identity rather
     /// than reusing `ClassId` or `ModuleId`.
     Contract(ContractId),
+    /// A decorator `Transformation`, the candidate transformation C125 fixes.
+    ///
+    /// `IRIS-V1-META-C125` gives it a MINIMAL surface: `empty`, `kind` and
+    /// `add_method(selector, body)`. The staged Methods are carried as
+    /// `(selector, closure)` pairs so the runtime phase applies them through
+    /// the ordinary capability-checked publication path that
+    /// `IRIS-V1-META-C090` requires of a handwritten declaration, rather than
+    /// through a privileged back door of its own.
+    Transformation {
+        kind: &'static str,
+        staged: Vec<(String, ObjectId)>,
+    },
     /// An `Iteration.yield(value)` result carrying one yielded value.
     ///
     /// `IRIS-V1-COLLECTIONS-C013` makes it an immutable identity-less value that

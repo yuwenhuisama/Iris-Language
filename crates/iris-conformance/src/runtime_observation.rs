@@ -60,11 +60,24 @@ fn compare_package_fixture(
     }
     // A row that observes a Module member sends to it AFTER the load, since a
     // package source file is declarations only under `IRIS-V1-META-C011`.
-    let outcome = iris_eval::load_package_with_probe(
-        &package.package_id,
-        &package.sources,
-        record.package_probe.as_deref(),
-    )
+    // A fixture that declares dependencies loads the whole dependency-first
+    // tree, since C006 resolves dependencies BEFORE initialization and C017
+    // initializes a dependency before its dependent. A fixture without them
+    // takes the single-package path exactly as before.
+    let packages = package_tree(&directory, &package)?;
+    let outcome = if package.dependencies.is_empty() {
+        iris_eval::load_package_with_probe(
+            &package.package_id,
+            &package.sources,
+            record.package_probe.as_deref(),
+        )
+    } else {
+        let tree: Vec<(String, Vec<(String, String)>)> = packages
+            .into_iter()
+            .map(|package| (package.package_id, package.sources))
+            .collect();
+        iris_eval::load_package_tree(&tree, record.package_probe.as_deref())
+    }
     .map(|(modules, observed)| match observed {
         Some(value) => value,
         None => RuntimeValue::Array(modules.into_iter().map(RuntimeValue::Symbol).collect()),

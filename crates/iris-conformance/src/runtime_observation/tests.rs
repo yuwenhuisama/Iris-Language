@@ -238,7 +238,7 @@ fn error_and_side_effects_assert_a_failed_declaration_is_not_published() {
     let record = record(
         "class Base meta deny subclass { }; class Child extends Base { }",
         vec![],
-        "{\"error\":{\"code\":\"MetaOperationError\"},\"side_effects\":\"Child is not published.\"}",
+        "{\"error\":{\"code\":\"MetaCapabilityError\"},\"side_effects\":\"Child is not published.\"}",
     );
 
     // When

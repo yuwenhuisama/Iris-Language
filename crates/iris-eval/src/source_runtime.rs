@@ -1631,6 +1631,101 @@ impl SourceEvaluator {
             .registry_mut()
             .stage_decorators(class, transforms)
             .map_err(EvaluationError::Class)?;
+        for decorator in decorators {
+            self.run_decorator_transform(class, decorator)?;
+        }
+        Ok(())
+    }
+
+    /// Runs one decorator's RUNTIME transform phase against the target.
+    ///
+    /// `IRIS-V1-META-C124` gives the phase the signature
+    /// `transform(declaration, arguments, context)`, and `IRIS-V1-META-C125`
+    /// makes it return a `Transformation`. A decorator that declares no
+    /// `transform` contributes only the static metadata already staged, so it
+    /// is skipped rather than treated as an error.
+    fn run_decorator_transform(
+        &mut self,
+        class: ClassId,
+        decorator: &iris_syntax::Decorator,
+    ) -> Result<(), EvaluationError> {
+        let Some(decorator_class) = self.class_name(&decorator.name)? else {
+            return Ok(());
+        };
+        let selector = self.selector("transform");
+        let Ok(outcome) = self.runtime.registry().dispatch(decorator_class, selector) else {
+            return Ok(());
+        };
+        let iris_runtime::DispatchOutcome::Invoke(method) = outcome else {
+            return Ok(());
+        };
+        // C124 passes the target's C097 reflection view as `declaration` and
+        // the application-site arguments as `arguments`. The context is the
+        // third parameter and belongs to the runtime phase alone, since C088
+        // makes the static phase pure.
+        let mut arguments = Vec::new();
+        for argument in &decorator.arguments {
+            arguments.push(self.expression(argument, &HashMap::new(), None)?);
+        }
+        let receiver = Value::Object(self.construct(decorator_class, &[])?);
+        let produced = self.invoke_method(
+            method,
+            receiver,
+            &[
+                Value::Class(class),
+                Value::Array(arguments),
+                Value::Class(class),
+            ],
+        )?;
+        self.apply_transformation(class, produced)
+    }
+
+    /// Applies a `Transformation` a decorator's runtime phase returned.
+    ///
+    /// `IRIS-V1-META-C090` requires a generated Method to need the SAME
+    /// `method_set` capability a handwritten declaration needs, so each staged
+    /// Method is published through the ordinary capability-checked path rather
+    /// than a privileged route of its own. A `MetaCapabilityError` therefore
+    /// arises from the same check that governs source declarations.
+    fn apply_transformation(
+        &mut self,
+        class: ClassId,
+        produced: Value,
+    ) -> Result<(), EvaluationError> {
+        let Value::Transformation { staged, .. } = produced else {
+            // C125 fixes `Transformation.empty` as the transformation of a
+            // decorator that changes nothing, and a decorator returning
+            // anything else contributes no candidate change here.
+            return Ok(());
+        };
+        for (name, block) in staged {
+            let (parameters, body) = self
+                .closures
+                .get(&block)
+                .map(|record| (record.parameters.clone(), record.body.clone()))
+                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            let declaration = MethodDeclaration {
+                decorators: Vec::new(),
+                impl_contract: None,
+                kind: MethodKind::Instance,
+                selector: name,
+                type_parameters: Vec::new(),
+                parameters: parameters
+                    .iter()
+                    .map(|parameter| iris_syntax::Parameter {
+                        name: parameter.clone(),
+                        category: iris_syntax::ParameterCategory::Positional,
+                        annotation: None,
+                        default: None,
+                    })
+                    .collect(),
+                return_type: None,
+                visibility: iris_syntax::Visibility::Public,
+                body: Some(body),
+                is_override: false,
+            };
+            self.class_method(class, false, false, &declaration)?;
+        }
         Ok(())
     }
 
@@ -3716,6 +3811,29 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
         match receiver {
+            // C125 fixes the MINIMAL Transformation surface: `empty`, `kind`
+            // and `add_method(selector, body)`. The staged Methods are carried
+            // on the value so the runtime phase publishes them through the
+            // ordinary capability-checked path C090 requires, rather than
+            // mutating the target from here.
+            Value::Transformation { kind, ref staged } if selector == "empty" => {
+                let _ = staged;
+                Ok(Value::Transformation {
+                    kind,
+                    staged: Vec::new(),
+                })
+            }
+            Value::Transformation { kind, ref staged } if selector == "kind" => {
+                Ok(Value::Symbol(kind.into()))
+            }
+            Value::Transformation { kind, ref staged } if selector == "add_method" => {
+                let [Value::Symbol(name), Value::Closure(block)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let mut staged = staged.clone();
+                staged.push((name.clone(), *block));
+                Ok(Value::Transformation { kind, staged })
+            }
             // C098 reports actual visible ordinary slots on the receiver's
             // current active ordinary MRO, and MUST NOT invoke or consult
             // `method_missing`. Dispatch already distinguishes a selected
@@ -4973,6 +5091,7 @@ impl SourceEvaluator {
                         | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
                         | Value::IterationDone
+                        | Value::Transformation { .. }
                         | Value::ExceptionContext(..)
                         | Value::ContractView(_, _)
                         | Value::Object(_)
@@ -5018,6 +5137,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
+            | Value::Transformation { .. }
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
@@ -5321,6 +5441,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
+            | Value::Transformation { .. }
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
@@ -6090,6 +6211,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",
+        Value::Transformation { .. } => "Transformation",
     }
 }
 

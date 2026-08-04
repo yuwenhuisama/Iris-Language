@@ -100,6 +100,7 @@ impl ComparisonProtocol {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
+            | Value::Transformation { .. }
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
@@ -177,6 +178,7 @@ impl Truthiness {
                 | Value::RaiseSite(_)
                 | Value::ArrayIterator(_)
                 | Value::IterationDone
+                | Value::Transformation { .. }
                 | Value::ExceptionContext(..)
                 | Value::ContractView(_, _)
                 | Value::Object(_)
@@ -209,6 +211,7 @@ impl Truthiness {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::IterationDone
+            | Value::Transformation { .. }
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)

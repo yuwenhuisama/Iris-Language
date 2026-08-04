@@ -225,7 +225,8 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::ContractView(_, _)
         | RuntimeValue::Object(_)
         | RuntimeValue::BoundMethod(_)
-        | RuntimeValue::Method(_) => "{\"opaque\":true}".into(),
+        | RuntimeValue::Method(_)
+        | RuntimeValue::Transformation { .. } => "{\"opaque\":true}".into(),
     }
 }
 
@@ -255,6 +256,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",
+        RuntimeValue::Transformation { .. } => "Transformation",
     }
 }
 
@@ -282,10 +284,15 @@ fn error_code(error: &EvaluationError) -> String {
         | EvaluationError::LoopContinue(_)
         | EvaluationError::Return(_) => "ControlTargetError".into(),
         EvaluationError::Runtime(error) => kernel_error_code(error).into(),
+        // IRIS-V1-META-C125 and the V430 row fix this name as
+        // `MetaCapabilityError`, which is also what `catchable_name` already
+        // reports to Iris source. `MetaOperationError` appeared nowhere in the
+        // specification set and made an uncaught meta-capability failure
+        // observe a different name than a caught one.
         EvaluationError::Class(
             iris_runtime::ClassError::MetaCapabilityDenied { .. }
             | iris_runtime::ClassError::ProtectedSuperclass { .. },
-        ) => "MetaOperationError".into(),
+        ) => "MetaCapabilityError".into(),
         // IRIS-V1-CONTROL-C078 names this code, so a class-variable
         // redeclaration is distinguishable from any other Class failure.
         EvaluationError::Class(iris_runtime::ClassError::DuplicateClassVariable { .. }) => {
