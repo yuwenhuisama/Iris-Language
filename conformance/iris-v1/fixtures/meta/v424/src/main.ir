@@ -1,0 +1,3 @@
+contract Printable { fun show() -> Nil }
+module Tools { public fun help() -> Nil { nil } }
+class Box for Printable mixin Tools { public impl fun show() -> Nil { nil } }

@@ -92,6 +92,14 @@ impl StaticSpine {
         }
     }
 
+    /// The spine's own identity.
+    ///
+    /// `IRIS-V1-META-C097` lists `static_spine` on the Class reflection view,
+    /// which V424 reads.
+    pub const fn identity(self) -> u64 {
+        self.identity
+    }
+
     /// Sets the immutable origin policy before the Class is defined.
     pub const fn with_meta_capabilities(self, meta_capabilities: MetaCapabilities) -> Self {
         Self {

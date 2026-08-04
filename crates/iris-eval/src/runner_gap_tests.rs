@@ -1865,3 +1865,39 @@ fn c099_keeps_contract_slots_in_their_own_namespace() {
         Ok(RuntimeValue::Bool(false))
     );
 }
+
+#[test]
+fn c097_class_view_exposes_its_required_members() {
+    // C097 fixes the minimal Class reflection view. `package`, `static_spine`,
+    // `runtime_superclass`, `mro` and `meta_capabilities` were all missing, so
+    // V424 could reflect only part of the surface the clause requires.
+    // A denied `method_set` also forbids DECLARING a Method, so the denial
+    // fixture carries no members of its own.
+    let base = "class Box meta deny method_set { } ";
+
+    // C081 fixes the capability vocabulary and its reporting order, so the
+    // denied set is read through the same ordered accessor V360 observes.
+    assert_eq!(
+        evaluate(&format!("{base} Box.meta_capabilities")),
+        Ok(RuntimeValue::Array(vec![RuntimeValue::Symbol(
+            "method_set".into()
+        )]))
+    );
+
+    // A Class with no denials reports an empty set rather than the vocabulary.
+    assert_eq!(
+        evaluate("class Box { } Box.meta_capabilities"),
+        Ok(RuntimeValue::Array(Vec::new()))
+    );
+
+    // The Method view members C097 lists alongside `source`.
+    let method = "class Box { public fun show() -> Nil { nil } } \
+                  let m = Reflection::Class.method(Box, :show); [m.selector, m.visibility]";
+    assert_eq!(
+        evaluate(method),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("show".into()),
+            RuntimeValue::Symbol("public".into()),
+        ]))
+    );
+}

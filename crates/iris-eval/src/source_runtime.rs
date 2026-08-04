@@ -4167,6 +4167,45 @@ impl SourceEvaluator {
             // C097 fixes the minimal Class reflection view. Each member reads
             // the ACTIVE revision, so what a transaction staged is invisible
             // until it commits, which is what C035 requires of code outside it.
+            // C097 fixes the minimal Class reflection view. Each member reads
+            // the ACTIVE revision, so what a transaction staged stays
+            // invisible until it commits. V424 reflects the whole surface.
+            Value::Class(_) if selector == "package" => Ok(Value::Symbol(self.package.clone())),
+            Value::Class(class) if selector == "static_spine" => Ok(Value::Integer(
+                self.runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .static_spine()
+                    .identity()
+                    .into(),
+            )),
+            Value::Class(class) if selector == "runtime_superclass" => Ok(self
+                .runtime
+                .registry()
+                .active(class)
+                .map_err(EvaluationError::Class)?
+                .runtime_superclass()
+                .map_or(Value::Nil, Value::Class)),
+            Value::Class(class) if selector == "mro" => self.ancestors(class),
+            Value::Class(class) if selector == "meta_capabilities" => {
+                let revision = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?;
+                // C081 fixes the capability vocabulary and the order it is
+                // reported in, so the DENIED set is read through the same
+                // ordered accessor V360 already observes.
+                Ok(Value::Array(
+                    revision
+                        .meta_capabilities()
+                        .denied()
+                        .into_iter()
+                        .map(|capability| Value::Symbol(capability_name(capability).into()))
+                        .collect(),
+                ))
+            }
             Value::Class(class) if selector == "name" => Ok(self
                 .names
                 .iter()
@@ -4322,6 +4361,32 @@ impl SourceEvaluator {
             // and commit it entered at, and its static visibility status.
             // C046 makes a programmatic or CONDITIONAL body addition
             // dynamic-only, which V345 and V427 observe.
+            // C097 lists `selector`, `owner` and `visibility` on the Method
+            // view alongside `source`. V424 reflects `Box.method(:show)`.
+            Value::Method(method) if selector == "selector" => Ok(self
+                .selectors
+                .iter()
+                .find_map(|(name, known)| {
+                    (*known == method.selector()).then(|| Value::Symbol(name.clone()))
+                })
+                .unwrap_or(Value::Nil)),
+            Value::Method(method) if selector == "owner" => Ok(match method.owner() {
+                MethodOwner::Class(class) => Value::Class(class),
+                MethodOwner::Module(module) => self
+                    .module_names
+                    .iter()
+                    .find_map(|(name, known)| {
+                        (*known == module).then(|| Value::Symbol(name.clone()))
+                    })
+                    .unwrap_or(Value::Nil),
+            }),
+            Value::Method(method) if selector == "visibility" => {
+                Ok(Value::Symbol(match method.visibility() {
+                    iris_runtime::Visibility::Public => "public".into(),
+                    iris_runtime::Visibility::Protected => "protected".into(),
+                    iris_runtime::Visibility::Private => "private".into(),
+                }))
+            }
             Value::Method(method) if selector == "source" => {
                 let MethodOwner::Class(owner) = method.owner() else {
                     return Ok(Value::Symbol("dynamic-only".into()));
