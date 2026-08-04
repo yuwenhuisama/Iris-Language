@@ -3134,10 +3134,12 @@ fn c100_gives_raw_ivar_reflection_one_slot_vocabulary() {
     // had written.
     let written = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
                    [Reflection::Object.list_ivars(o), Reflection::Object.get_ivar(o, :@x)]";
-    // A name `list_ivars` reports feeds straight back in, with or without the
-    // sigil.
+    // A name `list_ivars` reports feeds straight back in. The sigil is
+    // REQUIRED: V362 makes a sigil-less name an
+    // InvalidInstanceVariableNameError, since it addresses an ordinary
+    // selector rather than instance state.
     let round_trip = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
-                      Reflection::Object.get_ivar(o, :x)";
+                      Reflection::Object.get_ivar(o, :@x)";
     // C100 removes an EXISTING slot and returns its old value.
     let removed = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
                    Reflection::Object.remove_ivar(o, :@x)";

@@ -4690,18 +4690,21 @@ impl SourceEvaluator {
                 self.list_ivars(target)
             }
             ("Reflection::Object", "get_ivar") => {
+                validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.get_ivar(target, name)
             }
             ("Reflection::Object", "set_ivar") => {
+                validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name), value] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.set_ivar(target, name, value.clone())
             }
             ("Reflection::Object", "remove_ivar") => {
+                validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
@@ -6731,6 +6734,22 @@ const fn compound_selector(operator: &iris_syntax::AssignmentOperator) -> Option
     }
 }
 
+/// Rejects a raw-ivar reflection name that is not an instance ivar.
+///
+/// `IRIS-V1-RUNTIME-C073` makes `@@name` a declared HIERARCHY binding cell
+/// rather than instance state, and a name with no `@` sigil is an ordinary
+/// selector, so neither addresses an ivar. `IRIS-V1-META-V362` requires
+/// `InvalidInstanceVariableNameError` for both.
+fn validate_ivar_name(argument: Option<&Value>) -> Result<(), EvaluationError> {
+    let Some(Value::Symbol(name)) = argument else {
+        return Ok(());
+    };
+    if name.starts_with("@@") || !name.starts_with('@') {
+        return Err(EvaluationError::InvalidInstanceVariableName);
+    }
+    Ok(())
+}
+
 /// The `IRIS-V1-META-C081` vocabulary name of one capability.
 const fn capability_name(capability: iris_runtime::Capability) -> &'static str {
     match capability {
@@ -6760,6 +6779,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
     let name = match error {
         EvaluationError::TypeContractError => "TypeContractError",
         EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN",
+        EvaluationError::InvalidInstanceVariableName => "InvalidInstanceVariableNameError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",

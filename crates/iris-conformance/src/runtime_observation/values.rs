@@ -278,6 +278,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ImportReplacementAuthorization => {
             "IRIS-IMPORT-REPLACEMENT-AUTHORIZATION".into()
         }
+        EvaluationError::InvalidInstanceVariableName => "InvalidInstanceVariableNameError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

@@ -81,6 +81,12 @@ pub enum EvaluationError {
     /// `IRIS-V1-META-C049` requires the import-site `override` marker before a
     /// direct import may replace an already merged static member.
     ImportReplacementAuthorization,
+    /// Raw ivar reflection was given a name that is not an instance ivar.
+    ///
+    /// `IRIS-V1-RUNTIME-C073` makes `@@name` a hierarchy binding cell rather
+    /// than an instance ivar, and a name with no `@` sigil is an ordinary
+    /// selector. `IRIS-V1-META-V362` names the error.
+    InvalidInstanceVariableName,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
