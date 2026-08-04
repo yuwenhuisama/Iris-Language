@@ -1,0 +1,3 @@
+module A { public fun rank() -> Symbol { :a } public fun bump() -> Integer { @x = 1; @x } }
+module B { public fun rank() -> Symbol { :b } public fun reach() -> Symbol { secret() } }
+class Host mixin A, B private { private fun secret() -> Symbol { :secret } }
