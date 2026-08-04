@@ -1987,3 +1987,37 @@ fn c049_grants_authorization_per_import_site() {
         Ok(Some(RuntimeValue::Symbol("first".into())))
     );
 }
+
+#[test]
+fn c046_accepts_a_contract_body_replacement_marked_impl_alone() {
+    // C046 writes BOTH modifiers only when the declaration also replaces an
+    // INHERITED or Module Method. A reopen passed requires_override
+    // unconditionally, so replacing a Class's OWN Contract implementation
+    // demanded `override impl` when C046 asks only for `impl`. V436's
+    // compatible body-only replacement is exactly that shape.
+    let compatible = "contract D { fun draw(n: Integer) -> String } \
+                      class C for D { public impl fun draw(n: Integer) -> String { \"old\" } } \
+                      open class C { public impl fun draw(n: Integer) -> String { \"new\" } } \
+                      C.new().draw(1)";
+    assert_eq!(evaluate(compatible), Ok(RuntimeValue::Text("new".into())));
+
+    // A Contract-VISIBLE signature change is still refused, so the relaxation
+    // does not weaken C045.
+    let incompatible = "contract D { fun draw(n: Integer) -> String } \
+                        class C for D { public impl fun draw(n: Integer) -> String { \"old\" } } \
+                        open class C { public impl fun draw(s: String) -> String { \"x\" } } C";
+    assert_eq!(
+        evaluate(incompatible),
+        Err(EvaluationError::TypeContractError)
+    );
+
+    // An ordinary member replacement still requires `override`.
+    let ordinary = "class C { public fun m() -> Symbol { :old } } \
+                    open class C { public fun m() -> Symbol { :new } } C";
+    assert!(matches!(
+        evaluate(ordinary),
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::OverrideRequired { .. }
+        ))
+    ));
+}

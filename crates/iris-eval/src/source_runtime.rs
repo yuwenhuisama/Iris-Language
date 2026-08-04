@@ -943,7 +943,13 @@ impl SourceEvaluator {
                 selector,
             }));
         }
-        if requires_override && replaces && !method.is_override {
+        // C046 writes BOTH modifiers only when the declaration also replaces an
+        // INHERITED or Module Method. A member marked `impl` that replaces the
+        // Class's own Contract implementation satisfies the same requirement it
+        // did before, so `impl` alone suffices and V436's compatible body-only
+        // replacement publishes.
+        let satisfies_contract = method.impl_contract.is_some();
+        if requires_override && replaces && !method.is_override && !satisfies_contract {
             return Err(EvaluationError::Class(ClassError::OverrideRequired {
                 class,
                 selector,

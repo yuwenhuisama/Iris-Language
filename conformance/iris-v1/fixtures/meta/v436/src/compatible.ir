@@ -1,0 +1,1 @@
+open class Canvas { public impl fun draw(n: Integer) -> String { "new" } }

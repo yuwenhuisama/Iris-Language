@@ -1,0 +1,3 @@
+package_id = "org.iris.v436"
+api_major = 1
+sources = ["src/main.ir", "src/compatible.ir"]
