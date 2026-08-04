@@ -100,6 +100,12 @@ pub struct ClassDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModuleDeclaration {
     pub decorators: Vec<Decorator>,
+    /// Whether the source wrote `open module`.
+    ///
+    /// `module_decl ::= "open"? "module" ...` admits the marker, and
+    /// `IRIS-V1-META-V416` loads an origin and an open revision of one Module
+    /// from two files of the same package.
+    pub reopen: bool,
     /// Whether the source wrote a `for` clause on this Module.
     ///
     /// `module_decl` admits no `class_for`, but `IRIS-V1-TYPES-V261` expects a

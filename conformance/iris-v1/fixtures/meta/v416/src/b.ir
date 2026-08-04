@@ -1,0 +1,1 @@
+open module P::M { public fun two() -> Integer { 2 } }

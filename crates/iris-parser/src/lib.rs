@@ -299,6 +299,13 @@ impl Parser {
                         program.entries.push(ProgramEntry::Declaration(declaration));
                     })
                 }
+                Some("open") if self.peek_next() == Some("module") => {
+                    self.module_declaration(decorators).map(|value| {
+                        let declaration = Declaration::Module(value);
+                        program.declarations.push(declaration.clone());
+                        program.entries.push(ProgramEntry::Declaration(declaration));
+                    })
+                }
                 Some("open") if self.peek_next() == Some("class") => {
                     self.class_declaration(decorators).map(|value| {
                         let declaration = Declaration::Class(value);
@@ -446,6 +453,7 @@ impl Parser {
     }
 
     fn module_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ModuleDeclaration> {
+        let reopen = self.consume("open");
         self.expect("module")?;
         let name = self.qualified_name()?;
         let parameters = self.generic_parameters();
@@ -493,6 +501,7 @@ impl Parser {
             }
         }
         Some(ModuleDeclaration {
+            reopen,
             decorators,
             contract_for,
             name,

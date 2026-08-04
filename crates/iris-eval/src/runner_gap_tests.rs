@@ -1735,3 +1735,21 @@ fn d242_makes_a_named_contract_type_hash_nominal() {
     let stable = "contract C { fun m() } C.hash() == C.hash()";
     assert_eq!(evaluate(stable), Ok(RuntimeValue::Bool(true)));
 }
+
+#[test]
+fn open_module_adds_members_to_the_existing_module() {
+    // `module_decl ::= "open"? "module" ...` admits the marker, but the parser
+    // never dispatched it, so `open module` failed to parse at all. An open
+    // revision adds members to the EXISTING Module rather than defining a
+    // second one, which V416 observes across two files of one package.
+    let source = "module M { public fun one() -> Integer { 1 } } \
+                  open module M { public fun two() -> Integer { 2 } } \
+                  [M.one(), M.two()]";
+    assert_eq!(
+        evaluate(source),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Integer(2_u8.into()),
+        ]))
+    );
+}

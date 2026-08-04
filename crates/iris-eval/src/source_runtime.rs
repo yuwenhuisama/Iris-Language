@@ -1965,18 +1965,38 @@ impl SourceEvaluator {
             }
         }
         let capabilities = meta_capabilities(&declaration.meta_deny)?;
-        let module = self
-            .runtime
-            .registry_mut()
-            .define_module_with_composition_edges(&components, capabilities)
-            .map_err(EvaluationError::Class)?;
-        self.module_names.insert(declaration.name.clone(), module);
-        let module_class = self
-            .runtime
-            .registry_mut()
-            .define_class(StaticSpine::new(1), None)
-            .map_err(EvaluationError::Class)?;
-        self.module_classes.insert(module, module_class);
+        // `module_decl` admits `open`, and an open revision adds members to the
+        // EXISTING Module rather than defining a second one. V416 loads an
+        // origin and an open revision from two files of one package and calls
+        // a member from each.
+        let existing = declaration
+            .reopen
+            .then(|| self.module_names.get(&declaration.name).copied())
+            .flatten();
+        let (module, module_class) = match existing {
+            Some(module) => {
+                let module_class = *self
+                    .module_classes
+                    .get(&module)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                (module, module_class)
+            }
+            None => {
+                let module = self
+                    .runtime
+                    .registry_mut()
+                    .define_module_with_composition_edges(&components, capabilities)
+                    .map_err(EvaluationError::Class)?;
+                self.module_names.insert(declaration.name.clone(), module);
+                let module_class = self
+                    .runtime
+                    .registry_mut()
+                    .define_class(StaticSpine::new(1), None)
+                    .map_err(EvaluationError::Class)?;
+                self.module_classes.insert(module, module_class);
+                (module, module_class)
+            }
+        };
         // Declarations are published BEFORE any executable statement runs, so a
         // top-level `f()` can call a helper declared later in the same body.
         // A single ordered pass would evaluate the call against a `main` that

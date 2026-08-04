@@ -1221,6 +1221,9 @@ impl Analyzer {
         let reopen = match declaration {
             iris_syntax::Declaration::Class(value) => value.reopen,
             iris_syntax::Declaration::Contract(value) => value.open,
+            // `module_decl` admits `open` too, and an open Module revision is
+            // no more a second declaration of the name than an open Class is.
+            iris_syntax::Declaration::Module(value) => value.reopen,
             _ => false,
         };
         if !reopen {
