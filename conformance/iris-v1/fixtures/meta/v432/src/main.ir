@@ -1,0 +1,5 @@
+class Base { }
+class Box extends Base {
+  public fun initialize() -> Nil { @born = Box.active_revision; nil }
+  public fun value() -> Integer { @born }
+}
