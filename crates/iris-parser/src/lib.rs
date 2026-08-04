@@ -2112,6 +2112,24 @@ mod decorator_application_tests {
     }
 
     #[test]
+    fn c124_admits_the_corrected_phase_signatures() {
+        // IRIS-V1-META-C092 gives a Decorator Contract "immutable declaration
+        // metadata PLUS a controlled transform context", which are two distinct
+        // inputs. C122 named only `declaration` and `arguments`, where
+        // `arguments` is C085's application-site argument list and is NOT that
+        // context. The v1.27 errata IRIS-V1-META-C124 supplies the context to
+        // the RUNTIME phase alone, since C088 makes the static phase pure.
+        let source = "contract ClassDecorator { \
+                        fun plan(declaration, arguments) \
+                        fun transform(declaration, arguments, context) } \
+                      class Stamp for ClassDecorator { \
+                        public impl fun plan(declaration, arguments) -> Nil { nil } \
+                        public impl fun transform(declaration, arguments, context) -> Nil { nil } } \
+                      @Stamp() class Box { }";
+        assert!(accepted(source));
+    }
+
+    #[test]
     fn c122_admits_the_decorator_contract_shape() {
         // IRIS-V1-META-C122 makes a decorator an ordinary Class declaring `for`
         // one of the five named Contracts, which IRIS-V1-TYPES-C044 requires

@@ -1,6 +1,6 @@
 # Iris v1 Specification Index
 
-Status: Iris v1.26, frozen semantics with owner-approved errata.
+Status: Iris v1.27, frozen semantics with owner-approved errata.
 
 IRIS-V1-TRACE-C013: This directory is the only home for formal Iris v1 specification artifacts. The approved semantic source is `spec/drafts/iris-language-specification.md`. Historical files under `legacy/Document/`, legacy scripts, old generated parser output, and existing implementation code are evidence only. They are not normative unless a frozen decision explicitly adopts a behavior.
 
