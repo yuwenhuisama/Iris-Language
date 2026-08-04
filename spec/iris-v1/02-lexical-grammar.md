@@ -330,7 +330,7 @@ declaration_or_statement ::= declaration | statement
 
 declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | shared_decl | let_decl
 decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
-decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
+decorator          ::= "@" qualified_type_name "(" call_argument_list? ")"
 import_decl        ::= "override"? "import" import_path import_alias? | "override"? "from" import_path "import" import_spec_list
 import_path        ::= package_qualified_name | qualified_type_name
 package_qualified_name ::= package_name "::" qualified_type_name
@@ -589,6 +589,8 @@ IRIS-V1-GRAMMAR-C067: The v1.22 errata admits a CLOSED generic name as a complet
 IRIS-V1-GRAMMAR-C068: The v1.23 errata adds `package_qualified_name ::= package_name "::" qualified_type_name` and `package_name ::= ordinary_name ("." ordinary_name)*`, and admits it as the path of `import_decl`. This supplies the syntax IRIS-V1-META-C013 already presupposes when it writes the supported forms as `import pkg::Module`, where IRIS-V1-META-C003 makes every publishable `pkg` a reverse-domain-style `package_id` such as `org.dep`. The dotted name is admitted ONLY as the package segment before `::` in an import path: `ordinary_name` is unchanged, `qualified_type_name` is unchanged, and a `.` elsewhere keeps its member-access meaning, so `a.b` remains a member read. An import path without a `::` continues to name a Module in the current package. IRIS-V1-META-C013's exclusion of wildcard and runtime-string imports is unchanged, and `*` is still admitted nowhere in an import path.
 
 IRIS-V1-GRAMMAR-C069: The v1.24 errata adds an optional `"override"` marker to the import forms, so `import_decl ::= "override"? "import" import_path import_alias? | "override"? "from" import_path "import" import_spec_list`. This supplies the placement IRIS-V1-META-C049 already presupposes when it requires "the language's accepted `override` import marker", and which D-230 left for later standardization. The marker authorizes the compatible replacements that import contributes, under IRIS-V1-META-C049 and D-230; it never authorizes signature or static-contract incompatibility, and IRIS-V1-META-C049's rejection of an unmarked replacement is unchanged. The marker precedes the keyword rather than sitting inside `import_spec`, because D-230 authorizes the replacements contributed by THAT IMPORTED EXTENSION rather than per name. `override` is already reserved under IRIS-V1-GRAMMAR-C013 and already appears in `method_decl`, so no token is added and same-module open override marking stays separate as D-230 requires.
+
+IRIS-V1-GRAMMAR-C070: The v1.26 errata widens the decorator application path to `decorator ::= "@" qualified_type_name "(" call_argument_list? ")"`, so a decorator declared in another Module is applied as `@D::Stamp()`. This supplies the reference IRIS-V1-META-C122 needs and which IRIS-V1-META-C013's import forms already presuppose for cross-Module use. No keyword is added and the reserved inventory of IRIS-V1-GRAMMAR-C013 is unchanged: a decorator is an ordinary Class under IRIS-V1-META-C122, so no declaration production is required and IRIS-V1-CONTROL-C014's three ordinary callable runtime kinds stay intact.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

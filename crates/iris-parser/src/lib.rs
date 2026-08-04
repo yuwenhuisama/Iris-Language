@@ -1562,20 +1562,46 @@ impl Parser {
         self.advance();
         Some(operator)
     }
+    /// Reports whether an `@` path is followed by a decorator argument list.
+    ///
+    /// `IRIS-V1-GRAMMAR-C070` admits a `qualified_type_name` here, so the path
+    /// may span several tokens. Scanning it before committing keeps a `@` that
+    /// begins something else from being consumed as a decorator.
+    fn decorator_arguments_follow(&self) -> bool {
+        let mut index = self.cursor + 1;
+        loop {
+            if !self
+                .tokens
+                .get(index)
+                .is_some_and(|token| is_identifier(&token.text))
+            {
+                return false;
+            }
+            index += 1;
+            match self.tokens.get(index).map(|token| token.text.as_str()) {
+                Some("(") => return true,
+                Some("::") => index += 1,
+                _ => return false,
+            }
+        }
+    }
+
     fn decorators(&mut self) -> Vec<Decorator> {
         let mut decorators = Vec::new();
+        // `IRIS-V1-GRAMMAR-C070` widens the application path to a
+        // `qualified_type_name`, so a decorator declared in another Module is
+        // applied as `@D::Stamp()`. The lookahead therefore scans the whole
+        // path before requiring the argument list, rather than assuming the
+        // name is one token.
         while self.check("@")
             && self
                 .tokens
                 .get(self.cursor + 1)
                 .is_some_and(|token| is_identifier(&token.text))
-            && self
-                .tokens
-                .get(self.cursor + 2)
-                .is_some_and(|token| token.text == "(")
+            && self.decorator_arguments_follow()
         {
             self.advance();
-            let Some(name) = self.name() else {
+            let Some(name) = self.qualified_name() else {
                 break;
             };
             if self.expect("(").is_none() {
@@ -2040,6 +2066,67 @@ mod import_override_marker_tests {
 
         // The unmarked forms still parse, which IRIS-V1-CONTROL-V351 depends on.
         assert!(parse("module S { const K = 5 } from S import K").program_accepted);
+    }
+}
+
+#[cfg(test)]
+mod decorator_application_tests {
+    use crate::parse;
+
+    fn accepted(source: &str) -> bool {
+        parse(source).program_accepted
+    }
+
+    fn identities(source: &str) -> Vec<String> {
+        parse(source)
+            .program
+            .declarations
+            .iter()
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Class(value) => Some(value),
+                _ => None,
+            })
+            .flat_map(|value| value.decorators.iter().map(|d| d.name.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn c070_applies_a_decorator_declared_in_another_module() {
+        // IRIS-V1-GRAMMAR-C070 widens the application path to a
+        // `qualified_type_name`, so a decorator declared elsewhere is applied
+        // as `@D::Stamp()`. The lookahead assumed the name was ONE token, so
+        // the qualified form did not parse and IRIS-V1-META-C122's Contracts
+        // could not be referenced across Modules.
+        assert_eq!(identities("@D::Stamp() class Box { }"), ["D::Stamp"]);
+        assert_eq!(identities("@A::B::Stamp() class Box { }"), ["A::B::Stamp"]);
+
+        // The simple form is unchanged, and so is a Method's own decorator.
+        assert_eq!(identities("@Stamp() class Box { }"), ["Stamp"]);
+        assert!(accepted(
+            "class B { @mdec() public fun m() -> Integer { 1 } }"
+        ));
+
+        // A `@` that begins something without an argument list is not consumed
+        // as a decorator.
+        assert!(!accepted("@D::Stamp class Box { }"));
+    }
+
+    #[test]
+    fn c122_admits_the_decorator_contract_shape() {
+        // IRIS-V1-META-C122 makes a decorator an ordinary Class declaring `for`
+        // one of the five named Contracts, which IRIS-V1-TYPES-C044 requires
+        // since only Classes declare conformance. No declaration production is
+        // needed, so IRIS-V1-CONTROL-C014's three callable kinds stay intact.
+        let source = "contract ClassDecorator { fun plan(d, a) fun transform(d, a) } \
+                      class Stamp for ClassDecorator { \
+                        public impl fun plan(d, a) -> Nil { nil } \
+                        public impl fun transform(d, a) -> Nil { nil } } \
+                      @Stamp() class Box { }";
+        assert!(accepted(source));
+
+        // The Contract names are ordinary declarations, so a user Class may
+        // still carry one until the built-ins are published.
+        assert!(accepted("class ClassDecorator { }"));
     }
 }
 

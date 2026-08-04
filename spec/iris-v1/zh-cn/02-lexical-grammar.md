@@ -330,7 +330,7 @@ declaration_or_statement ::= declaration | statement
 
 declaration        ::= decorated_declaration | import_decl | export_decl | type_alias_decl | global_decl | shared_decl | let_decl
 decorated_declaration ::= decorator* (class_decl | module_decl | contract_decl | method_decl | property_decl)
-decorator          ::= "@" ordinary_name "(" call_argument_list? ")"
+decorator          ::= "@" qualified_type_name "(" call_argument_list? ")"
 import_decl        ::= "override"? "import" import_path import_alias? | "override"? "from" import_path "import" import_spec_list
 import_path        ::= package_qualified_name | qualified_type_name
 package_qualified_name ::= package_name "::" qualified_type_name
@@ -589,6 +589,8 @@ IRIS-V1-GRAMMAR-C067：v1.22 勘误允许闭合泛型名作为完整表达式，
 IRIS-V1-GRAMMAR-C068：v1.23 勘误新增 `package_qualified_name ::= package_name "::" qualified_type_name` 与 `package_name ::= ordinary_name ("." ordinary_name)*`，并允许其作为 `import_decl` 的路径。这补充了 IRIS-V1-META-C013 已经预设的语法——该条将支持的形式写作 `import pkg::Module`，而 IRIS-V1-META-C003 使每个可发布的 `pkg` 都是形如 `org.dep` 的反向域名式 `package_id`。点分名称仅允许出现在导入路径中 `::` 之前的包段位置：`ordinary_name` 不变，`qualified_type_name` 不变，其他位置的 `.` 保持成员访问含义，因此 `a.b` 仍是成员读取。不含 `::` 的导入路径继续命名当前包中的 Module。IRIS-V1-META-C013 对通配符导入与运行时字符串导入的排除不变，`*` 在导入路径中的任何位置仍不被接纳。
 
 IRIS-V1-GRAMMAR-C069：v1.24 勘误为导入形式增加可选的 `"override"` 标记，因此 `import_decl ::= "override"? "import" import_path import_alias? | "override"? "from" import_path "import" import_spec_list`。这补充了 IRIS-V1-META-C049 已经预设的位置——该条要求使用「语言接受的 `override` 导入标记」，而 D-230 将其留待后续标准化。依据 IRIS-V1-META-C049 与 D-230，该标记授权此导入所贡献的兼容替换；它绝不授权签名或静态契约的不兼容，且 IRIS-V1-META-C049 对未标记替换的拒绝保持不变。标记置于关键字之前而非 `import_spec` 内部，因为 D-230 授权的是**该被导入扩展**所贡献的替换，而非逐名授权。`override` 依据 IRIS-V1-GRAMMAR-C013 已是保留字，且已出现在 `method_decl` 中，因此未新增 token，同模块 open 的 override 标记仍如 D-230 要求保持独立。
+
+IRIS-V1-GRAMMAR-C070：v1.26 勘误将装饰器应用路径放宽为 `decorator ::= "@" qualified_type_name "(" call_argument_list? ")"`，因此在另一 Module 中声明的装饰器以 `@D::Stamp()` 应用。这补充了 IRIS-V1-META-C122 所需的引用形式，也是 IRIS-V1-META-C013 的导入形式在跨 Module 使用时已经预设的。未新增关键字，IRIS-V1-GRAMMAR-C013 的保留字清单不变：依据 IRIS-V1-META-C122，装饰器是普通 Class，因此不需要声明产生式，IRIS-V1-CONTROL-C014 的三种普通可调用运行时种类保持不变。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
