@@ -1,0 +1,3 @@
+module A { public fun tag() -> Symbol { :a } }
+module B { public fun tag() -> Symbol { :b } }
+class Host mixin A, B { }

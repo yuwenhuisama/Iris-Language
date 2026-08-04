@@ -1753,3 +1753,39 @@ fn open_module_adds_members_to_the_existing_module() {
         ]))
     );
 }
+
+#[test]
+fn c023_composition_changes_join_the_open_transaction() {
+    // C023 targets the CURRENT transaction candidate, so a composition change
+    // JOINS an open transaction. Publishing directly advanced the active
+    // revision past the base every staged candidate recorded, so any
+    // composition change inside an open block failed the C039 base-revision
+    // check at commit with MetaTransactionConflictError.
+    let base = "module A { public fun tag() -> Symbol { :a } } \
+                module B { public fun tag() -> Symbol { :b } } \
+                class H mixin A, B { } ";
+
+    // The declared edge list is [A, B] and the last edge wins dispatch.
+    // Removing A and re-including it makes it [B, A], so A now wins.
+    let reordered =
+        format!("{base} H.open() {{ |t| t.remove_module(:A); t.add_module(:A) }}; H.new().tag()");
+    assert_eq!(
+        evaluate(&reordered),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Symbol("a".into()),
+        ]))
+    );
+
+    // D-175 recomputes MRO before commit and one Module holds one position in
+    // it, so including a Module already composed is a no-op. Appending a
+    // duplicate edge let a redundant `add_module` silently reorder dispatch.
+    let redundant = format!("{base} H.open() {{ |t| t.add_module(:A) }}; H.new().tag()");
+    assert_eq!(
+        evaluate(&redundant),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Symbol("b".into()),
+        ]))
+    );
+}

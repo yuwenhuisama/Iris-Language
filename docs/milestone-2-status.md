@@ -10,7 +10,7 @@
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 128, failed: 0, needs_subsystem: 5                                  (133 records, buckets sum 133)
 TYPES    passed: 78, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (78 records, buckets sum 78)
-META     passed: 20, failed: 0, needs_subsystem: 0                                  (20 records, buckets sum 20)
+META     passed: 21, failed: 0, needs_subsystem: 0                                  (21 records, buckets sum 21)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
@@ -170,7 +170,6 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 
 - `ReflectionPolicy` permission enforcement
-- programmatic `Module` include and removal
 - `Contract` obligations
 - generic `Module` arguments
 - any scheduling surface, which is also what `V013` and `V083` wait on

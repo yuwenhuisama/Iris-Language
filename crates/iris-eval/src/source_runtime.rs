@@ -4083,7 +4083,10 @@ impl SourceEvaluator {
                 };
                 self.reflective_invoke(*method, receiver.clone(), args)
             }
-            Value::Class(class) if selector == "remove_module" => {
+            // C023 targets the CURRENT transaction candidate, so a composition
+            // change JOINS an open transaction. V340 removes and re-includes a
+            // Module inside one open block, which needs both directions.
+            Value::Class(class) if selector == "remove_module" || selector == "add_module" => {
                 let [Value::Symbol(module)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
@@ -4091,7 +4094,8 @@ impl SourceEvaluator {
                     .module_names
                     .get(module)
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
-                self.remove_module(class, module).map(|()| Value::Nil)
+                self.recompose(class, module, selector == "add_module")
+                    .map(|()| Value::Nil)
             }
             Value::Class(class) if selector == "set_superclass" => {
                 let [Value::Class(superclass)] = arguments else {
@@ -4558,7 +4562,7 @@ impl SourceEvaluator {
                     .module_names
                     .get(module)
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
-                self.remove_module(*class, module).map(|()| Value::Nil)
+                self.recompose(*class, module, false).map(|()| Value::Nil)
             }
             ("Reflection::Class", "set_superclass") => {
                 let [Value::Class(target), Value::Class(superclass)] = arguments else {
@@ -4706,21 +4710,22 @@ impl SourceEvaluator {
         self.invoke_method(method, receiver, args)
     }
 
-    fn remove_module(&mut self, class: ClassId, module: ModuleId) -> Result<(), EvaluationError> {
+    /// Adds or removes one Module composition edge.
+    ///
+    /// `IRIS-V1-META-C023` targets the CURRENT transaction candidate, so this
+    /// JOINS an open transaction rather than publishing a revision of its own.
+    /// Publishing directly advanced the active revision past the base every
+    /// staged candidate recorded, so any composition change inside an open
+    /// block failed the `C039` base-revision check at commit.
+    fn recompose(
+        &mut self,
+        class: ClassId,
+        module: ModuleId,
+        include: bool,
+    ) -> Result<(), EvaluationError> {
         self.runtime
-            .registry()
-            .require_meta_capability(class, Capability::Modules)
-            .map_err(EvaluationError::Class)?;
-        let mut candidate = self
-            .runtime
             .registry_mut()
-            .open(class)
-            .map_err(EvaluationError::Class)?;
-        candidate.remove_module(module);
-        self.runtime
-            .registry_mut()
-            .publish(candidate)
-            .map(|_| ())
+            .recompose_candidate(class, module, include)
             .map_err(EvaluationError::Class)
     }
 

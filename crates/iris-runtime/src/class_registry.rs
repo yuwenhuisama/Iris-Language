@@ -550,6 +550,37 @@ impl ClassRegistry {
     /// publishes nothing here. Outside a transaction the change is its own
     /// candidate and publishes immediately, which is the pre-existing
     /// behaviour for a standalone reflective call.
+    /// Adds or removes one Module composition edge on the current candidate.
+    ///
+    /// `IRIS-V1-META-C023` targets the CURRENT transaction candidate, and
+    /// `D-175` recomputes MRO before commit, so an edge change joins the open
+    /// transaction rather than publishing a revision of its own.
+    /// `IRIS-V1-META-V340` observes the edge list reordering when a Module is
+    /// removed and re-included.
+    pub fn recompose_candidate(
+        &mut self,
+        class: ClassId,
+        module: crate::ModuleId,
+        include: bool,
+    ) -> Result<(), ClassError> {
+        self.require_meta_capability(class, crate::Capability::Modules)?;
+        self.mutate_candidate(class, |candidate| {
+            if include {
+                // D-175 recomputes MRO before commit, and one Module can hold
+                // only one position in it. Appending an edge that already
+                // exists produced a DUPLICATE entry, so a redundant
+                // `add_module` silently reordered dispatch. Including a Module
+                // already composed is therefore a no-op, and V340's reordering
+                // comes from the removal that precedes the re-inclusion.
+                if !candidate.modules.contains(&module) {
+                    candidate.add_module(module);
+                }
+            } else {
+                candidate.remove_module(module);
+            }
+        })
+    }
+
     pub(crate) fn mutate_candidate(
         &mut self,
         class: ClassId,
