@@ -70,6 +70,12 @@ pub enum EvaluationError {
     Symbol(String),
     /// A truthiness `to_bool` Method returned a value other than Bool.
     TypeContractError,
+    /// A programmatic open targeted a Contract or a closed generic Class.
+    ///
+    /// `IRIS-V1-META-C033` forbids both targets, and `IRIS-V1-META-V439`
+    /// requires the SAME `CLOSED_GENERIC_OPEN_FORBIDDEN` name the declarative
+    /// spelling reports statically, so the two entry points agree.
+    ClosedGenericOpenForbidden,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS

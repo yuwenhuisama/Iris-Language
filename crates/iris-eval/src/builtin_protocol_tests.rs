@@ -2792,8 +2792,12 @@ fn c033_and_c034_run_a_programmatic_open_transaction() {
         rendered(parameters),
         "Array([Nil, Integer(IntegerValue(2))])"
     );
-    assert_eq!(rendered(generic), "UnsupportedConstruct");
-    assert_eq!(rendered(closed), "UnsupportedConstruct");
+    // C033 forbids both targets, and V439 requires the same
+    // CLOSED_GENERIC_OPEN_FORBIDDEN name the declarative spelling reports
+    // statically, so the refusal is now that named error rather than a generic
+    // unsupported construct.
+    assert_eq!(rendered(generic), "ClosedGenericOpenForbidden");
+    assert_eq!(rendered(closed), "ClosedGenericOpenForbidden");
 }
 
 #[test]

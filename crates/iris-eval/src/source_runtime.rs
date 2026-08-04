@@ -1365,7 +1365,7 @@ impl SourceEvaluator {
         // C033 forbids targeting a Contract or a closed generic Class, so a
         // generic definition is refused rather than opened per construction.
         if self.generic_definitions.contains(&class) {
-            return Err(EvaluationError::UnsupportedConstruct);
+            return Err(EvaluationError::ClosedGenericOpenForbidden);
         }
         let block = *block;
         self.runtime
@@ -6759,6 +6759,7 @@ const fn capability_name(capability: iris_runtime::Capability) -> &'static str {
 fn catchable_name(error: &EvaluationError) -> Option<String> {
     let name = match error {
         EvaluationError::TypeContractError => "TypeContractError",
+        EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",

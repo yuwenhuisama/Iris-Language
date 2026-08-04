@@ -270,6 +270,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::UnsupportedConstruct => "UnsupportedConstruct".into(),
         EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
         EvaluationError::TypeContractError => "TypeContractError".into(),
+        // C033 forbids both targets and V439 requires the same name the
+        // declarative spelling reports statically.
+        EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
