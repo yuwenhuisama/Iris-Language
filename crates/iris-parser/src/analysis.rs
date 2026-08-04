@@ -26,6 +26,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         module_members: Vec::new(),
         declared_mixins: Vec::new(),
         declared_members: Vec::new(),
+        class_contracts: Vec::new(),
         decorator_kinds: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
@@ -359,6 +360,8 @@ struct Analyzer {
     /// members each declaration contributed. V350 and V351 observe the
     /// diagnostic.
     declared_members: Vec<(String, Vec<String>)>,
+    /// Each Class paired with the Contracts its declarations listed.
+    class_contracts: Vec<(String, Vec<String>)>,
     /// Each Class paired with the Modules it mixes in.
     declared_mixins: Vec<(String, Vec<String>)>,
     /// Each Module paired with the Method selectors it declares.
@@ -1036,6 +1039,17 @@ impl Analyzer {
                             .push((value.name.clone(), method.selector.clone()));
                     }
                 }
+                self.class_contracts.push((
+                    value.name.clone(),
+                    value
+                        .implements
+                        .iter()
+                        .filter_map(|target| match target {
+                            iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                ));
                 self.check_override_markers(value, &declared);
                 self.declared_members.push((value.name.clone(), declared));
                 self.declared_mixins.push((
@@ -1454,13 +1468,28 @@ impl Analyzer {
         // A Contract requirement this Class lists is an `impl` obligation, not
         // an `override` one, so those selectors are excluded here to keep one
         // member from reporting both diagnostics.
-        let contract_slots: Vec<String> = declaration
-            .implements
+        // A reopen states no `for` list of its own, so the Contracts the
+        // ORIGIN declared are consulted too. Without them a reopen replacing a
+        // Contract slot reported the override diagnostic, while V440 requires
+        // the `impl` one: the member is a conformance obligation regardless of
+        // which declaration of the Class names it.
+        let mut listed: Vec<String> = self
+            .class_contracts
             .iter()
-            .filter_map(|target| match target {
-                iris_syntax::TypeExpression::Name(name) => Some(name),
-                _ => None,
-            })
+            .filter(|(name, _)| *name == declaration.name)
+            .flat_map(|(_, contracts)| contracts.iter().cloned())
+            .collect();
+        listed.extend(
+            declaration
+                .implements
+                .iter()
+                .filter_map(|target| match target {
+                    iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                    _ => None,
+                }),
+        );
+        let contract_slots: Vec<String> = listed
+            .iter()
             .flat_map(|contract| {
                 self.contract_requirements
                     .iter()
@@ -1543,18 +1572,29 @@ impl Analyzer {
     /// observes. A member whose selector no listed Contract requires is an
     /// ordinary Method and is left alone.
     fn check_declared_conformance(&mut self, declaration: &iris_syntax::ClassDeclaration) {
-        let listed: Vec<&String> = declaration
-            .implements
+        // A reopen states no `for` list, but C045 keeps declared conformance
+        // immutable for the revision's static spine, so the obligation the
+        // ORIGIN declared still applies to a member the reopen contributes.
+        // V440 observes the `impl` diagnostic on exactly that shape.
+        let mut listed: Vec<String> = self
+            .class_contracts
             .iter()
-            .filter_map(|target| match target {
-                iris_syntax::TypeExpression::Name(name) => Some(name),
-                _ => None,
-            })
+            .filter(|(name, _)| *name == declaration.name)
+            .flat_map(|(_, contracts)| contracts.iter().cloned())
             .collect();
+        listed.extend(
+            declaration
+                .implements
+                .iter()
+                .filter_map(|target| match target {
+                    iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                    _ => None,
+                }),
+        );
         let required: Vec<String> = self
             .contract_requirements
             .iter()
-            .filter(|(contract, _)| listed.contains(&contract))
+            .filter(|(contract, _)| listed.contains(contract))
             .flat_map(|(_, selectors)| selectors.iter().cloned())
             .collect();
         if required.is_empty() {
@@ -3233,6 +3273,24 @@ mod override_marker_tests {
         let fresh = "class Base { public fun a() -> Symbol { :a } } \
                      class Child extends Base { public fun b() -> Symbol { :b } }";
         assert!(codes(fresh).is_empty());
+    }
+
+    #[test]
+    fn c045_carries_declared_conformance_onto_a_reopen() {
+        // C045 keeps declared Contract conformance immutable for the revision's
+        // static spine, and a reopen states no `for` list of its own. Without
+        // consulting the ORIGIN's list, a reopen replacing a Contract slot
+        // reported the override diagnostic, while V440 requires the `impl` one.
+        let reopened = "contract A { fun m(value: Object) -> String } \
+                        class Host for A { public impl fun m(value: Object) -> String { \"host\" } } \
+                        open class Host { public fun m(value: Object) -> String { \"x\" } }";
+        assert_eq!(codes(reopened), ["CONTRACT_IMPLEMENTATION_REQUIRES_IMPL"]);
+
+        // A reopen replacing a member that is NOT a Contract slot keeps the
+        // override diagnostic, so the two obligations stay distinguishable.
+        let ordinary = "class Host { public fun other() -> Nil { nil } } \
+                        open class Host { public fun other() -> Nil { nil } }";
+        assert_eq!(codes(ordinary), ["IRIS-MEMBER-OVERRIDE-REQUIRED"]);
     }
 
     #[test]
