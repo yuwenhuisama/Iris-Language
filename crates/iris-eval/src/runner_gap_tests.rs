@@ -1648,3 +1648,25 @@ fn d175_validates_a_contract_requirement_satisfied_by_a_mixed_in_member() {
                        class A for C { } open class A mixin Painter { } A.new().draw(1)";
     assert_eq!(evaluate(unannotated), Ok(RuntimeValue::Nil));
 }
+
+#[test]
+fn d212_withdraws_a_module_whose_initializer_raised() {
+    // D-212 fails a Module whose initializer raises and leaves its status
+    // `not_published`. The name is registered BEFORE the body runs so a
+    // declaration can reach the Module being defined, so a failed initializer
+    // must withdraw it rather than leave a half-initialized Module observable.
+    let source = "module M { shared class property first: Integer = 1 \
+                  raise :stop \
+                  shared class property second: Integer = 2 } M";
+    let (outcome, published) = crate::evaluate_with_class_publication(source, "M");
+    assert_eq!(
+        outcome,
+        Err(EvaluationError::Raised(RuntimeValue::Symbol("stop".into())))
+    );
+    assert!(!published, "a failed Module initializer publishes nothing");
+
+    // A Module whose body completes publishes normally.
+    let succeeds = "module M { shared class property first: Integer = 1 } M";
+    let (_, published) = crate::evaluate_with_class_publication(succeeds, "M");
+    assert!(published);
+}

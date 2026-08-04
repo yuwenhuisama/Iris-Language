@@ -383,7 +383,11 @@ pub fn evaluate_with_class_publication(
             Err(error) => return (Err(error), false),
         };
     let outcome = evaluator.program(&parsed.program);
-    let published = matches!(evaluator.class_name(class_name), Ok(Some(_)));
+    // D-212 leaves a Module whose initializer raised with status
+    // `not_published`, which V239 observes the same way a failed Class
+    // candidate is observed, so the name is looked up in either registry.
+    let published = matches!(evaluator.class_name(class_name), Ok(Some(_)))
+        || evaluator.module_published(class_name);
     (outcome, published)
 }
 

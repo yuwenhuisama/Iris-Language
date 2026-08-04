@@ -2046,6 +2046,15 @@ impl SourceEvaluator {
                     None => self.names.remove(&name),
                 };
             }
+            // D-212 fails a Module whose initializer raises and leaves its
+            // status `not_published`. The name is registered BEFORE the body
+            // runs so a declaration can reach the Module being defined, so a
+            // failed initializer must withdraw it rather than leave a
+            // half-initialized Module observable. V239 observes that neither
+            // shared property survives.
+            if result.is_err() {
+                self.module_names.remove(&declaration.name);
+            }
             result?;
         }
         // D-432 makes a `const` a declaration of the CURRENT module rather than
@@ -4926,6 +4935,16 @@ impl SourceEvaluator {
             return iris_runtime::ComposedType::Never;
         }
         build(atoms)
+    }
+
+    /// Whether a Module of this name reached publication.
+    ///
+    /// `D-212` fails a Module whose initializer raises and leaves its status
+    /// `not_published`, so V239 observes the ABSENCE of the Module rather than
+    /// a value. Module names are registered on successful initialization, so
+    /// the registry answers this directly.
+    pub(super) fn module_published(&self, name: &str) -> bool {
+        self.module_names.contains_key(name)
     }
 
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
