@@ -55,7 +55,11 @@ impl IntegerValue {
         }
     }
 
-    pub(crate) fn to_u64(&self) -> Option<u64> {
+    /// Returns the value as an unsigned 64-bit integer, or `None` when out of range.
+    ///
+    /// `D-241` composes a Contract-view hash from two `u64` component hashes,
+    /// so a public hash must be readable back as one.
+    pub fn to_u64(&self) -> Option<u64> {
         let (sign, digits) = self.0.to_u64_digits();
         match (sign, digits.as_slice()) {
             (Sign::NoSign, []) | (Sign::Plus, []) => Some(0),

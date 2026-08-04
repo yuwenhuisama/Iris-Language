@@ -205,7 +205,22 @@ pub fn load_package_with_probe(
     sources: &[(String, String)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_package_at_major(package_id, 1, sources, probe)
+}
+
+/// Loads one package at a declared `api_major`.
+///
+/// `D-242` makes major-version contract identity part of a named Contract
+/// Type's hash, so the manifest's major must reach the evaluator rather than
+/// being assumed. V260 observes `pkg@1::C` and `pkg@2::C` hashing differently.
+pub fn load_package_at_major(
+    package_id: &str,
+    api_major: u64,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
+    evaluator.enter_api_major(api_major);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a
     // cycle a LINK error, so the dependency graph is checked before any Module

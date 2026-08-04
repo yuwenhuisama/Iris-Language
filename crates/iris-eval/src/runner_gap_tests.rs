@@ -1697,3 +1697,41 @@ fn d207_revalidates_interned_closed_constructions_when_a_definition_opens() {
     let none = "class Box<T> { }; open class Box<T> where T: Never { }; Box";
     assert!(evaluate(none).is_ok());
 }
+
+#[test]
+fn d241_composes_a_contract_view_hash_from_its_components() {
+    // D-241 uses BLAKE3 derive-key mode with context
+    // `Iris Language v1 contract view hash` and input
+    // `receiver_public_hash_u64_le || contract_type_hash_u64_le`. The expected
+    // value below was computed INDEPENDENTLY from that specification rather
+    // than read back from this implementation.
+    let source = "contract C { fun m() } \
+                  class A for C { public impl fun m() -> Nil { nil } \
+                  public fun hash() -> Integer { 1 } } \
+                  (A.new() as C).hash()";
+    assert_eq!(
+        evaluate(source),
+        Ok(RuntimeValue::Integer(3192709805854531430_u64.into()))
+    );
+
+    // C032 forwards an ordinary `view.member()` to the receiver, but D-241
+    // gives the view its OWN hash, so `hash` must not forward: forwarding made
+    // a view hash equal to its receiver's and dropped the Contract component.
+    let distinct = "contract C { fun m() } \
+                    class A for C { public impl fun m() -> Nil { nil } } \
+                    let o = A.new(); (o as C).hash() != o.hash()";
+    assert_eq!(evaluate(distinct), Ok(RuntimeValue::Bool(true)));
+}
+
+#[test]
+fn d242_makes_a_named_contract_type_hash_nominal() {
+    // D-242 derives the hash from package identity, qualified name and major
+    // version, NOT from structural member shape, so two Contracts with
+    // identical declarations stay distinct.
+    let distinct = "contract C { fun m() } contract D { fun m() } C.hash() != D.hash()";
+    assert_eq!(evaluate(distinct), Ok(RuntimeValue::Bool(true)));
+
+    // The same Contract hashes stably within a runtime.
+    let stable = "contract C { fun m() } C.hash() == C.hash()";
+    assert_eq!(evaluate(stable), Ok(RuntimeValue::Bool(true)));
+}

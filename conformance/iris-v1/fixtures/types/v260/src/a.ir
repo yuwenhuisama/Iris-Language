@@ -1,0 +1,2 @@
+export contract C { fun m() }
+export contract D { fun m() }

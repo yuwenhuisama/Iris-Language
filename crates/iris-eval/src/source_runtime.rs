@@ -80,6 +80,12 @@ pub(super) struct SourceEvaluator {
     /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
     /// that identity runtime-local rather than publishable.
     package: String,
+    /// The current package's declared `api_major`.
+    ///
+    /// `D-242` makes major-version contract identity part of a named Contract
+    /// Type's hash, so `pkg@1::C` and `pkg@2::C` are distinct Types. It
+    /// defaults to 1 for source evaluated outside a package manifest.
+    api_major: u64,
     /// Origin Class names already declared by the D-178 hoisting pass.
     hoisted_origins: Vec<String>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
@@ -285,6 +291,7 @@ impl SourceEvaluator {
             bodies: HashMap::new(),
             globals: HashMap::new(),
             package: package.to_owned(),
+            api_major: 1,
             hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
             class_level_properties: HashMap::new(),
@@ -989,6 +996,15 @@ impl SourceEvaluator {
     pub(super) fn enter_package(&mut self, package: &str, source: &str) {
         self.package = package.to_owned();
         self.source = source.to_owned();
+    }
+
+    /// Records the current package's declared `api_major`.
+    ///
+    /// `D-242` derives a named Contract Type's hash partly from major-version
+    /// contract identity, so a package loaded at a different major produces
+    /// different Contract Type hashes, which is what V260 observes.
+    pub(super) fn enter_api_major(&mut self, api_major: u64) {
+        self.api_major = api_major;
     }
 
     /// Reports whether the published revision of a named Class holds a slot.
@@ -4230,6 +4246,29 @@ impl SourceEvaluator {
             // FORWARDED to the receiver. Only `..member()` selects the
             // Contract-qualified slot, so this must not report a missing
             // message on the view itself.
+            // D-241 gives the view its OWN public hash, composed from the
+            // receiver's public hash and the Contract Type hash, so `hash` is
+            // the one selector that must not simply forward: forwarding made a
+            // view hash equal to its receiver's and lost the Contract
+            // component entirely.
+            Value::ContractView(receiver, contract)
+                if selector == "hash" && arguments.is_empty() =>
+            {
+                let receiver = receiver.as_ref().clone();
+                let receiver_hash = self.send(receiver, "hash", &[])?;
+                let Value::Integer(receiver_hash) = receiver_hash else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let contract_hash = self.contract_type_hash(contract)?;
+                Ok(Value::Integer(iris_runtime::contract_view_hash(
+                    receiver_hash
+                        .to_u64()
+                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                    contract_hash
+                        .to_u64()
+                        .ok_or(EvaluationError::UnsupportedConstruct)?,
+                )))
+            }
             Value::ContractView(receiver, _) => self.send(*receiver, selector, arguments),
             // C065's lookahead does not consume the `.type`, so a reified Type
             // arrives here already normalized and answers `.type` as itself.
@@ -4751,6 +4790,28 @@ impl SourceEvaluator {
             .unwrap_or_default()
     }
 
+    /// The `D-242` public hash of a statically named Contract Type.
+    ///
+    /// The hash derives from canonical package identity, the fully qualified
+    /// Contract name and major-version contract identity, so two Contracts
+    /// with identical declarations stay distinct and moving one between
+    /// packages changes its Type identity.
+    fn contract_type_hash(
+        &self,
+        contract: iris_runtime::ContractId,
+    ) -> Result<iris_runtime::IntegerValue, EvaluationError> {
+        let name = self
+            .contract_names
+            .iter()
+            .find_map(|(name, known)| (*known == contract).then(|| name.clone()))
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        Ok(iris_runtime::contract_type_hash(
+            &self.package,
+            &name,
+            self.api_major,
+        ))
+    }
+
     fn ancestors(&self, target: ClassId) -> Result<Value, EvaluationError> {
         let mro = self
             .runtime
@@ -5237,6 +5298,14 @@ impl SourceEvaluator {
             && let Value::ExceptionContext(identity, ..) = &receiver
         {
             return Ok(Value::Integer(identity.raw().into()));
+        }
+        // D-242 makes a named Contract Type's hash nominal, so a Contract
+        // answers it directly rather than through structural member shape.
+        if selector == "hash"
+            && arguments.is_empty()
+            && let Value::Contract(contract) = &receiver
+        {
+            return Ok(Value::Integer(self.contract_type_hash(*contract)?));
         }
         if matches!(selector, "==" | "!=")
             && matches!(

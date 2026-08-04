@@ -36,5 +36,8 @@ pub use protocol::{
     TruthinessMethod,
 };
 pub use runtime::{ConstructionError, ExecutionError, Runtime};
-pub use stable_hash::{StableHashError, numeric_hash, numeric_public_hash, public_hash};
+pub use stable_hash::{
+    StableHashError, contract_type_hash, contract_view_hash, numeric_hash, numeric_public_hash,
+    public_hash,
+};
 pub use value::{ComposedType, IntegerValue, TypeAtom, Value};

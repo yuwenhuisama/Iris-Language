@@ -6,6 +6,11 @@ use crate::{IntegerValue, NumericValue, Value};
 
 const NUMERIC_CONTEXT: &str = "Iris Language v1 stable numeric hash";
 const SINGLETON_CONTEXT: &str = "Iris Language v1 stable singleton hash";
+/// `D-241` fixes this exact ASCII context for the Contract-view public hash.
+const CONTRACT_VIEW_CONTEXT: &str = "Iris Language v1 contract view hash";
+/// `D-242` derives a statically named Contract Type's hash from nominal
+/// identity rather than structural member shape.
+const CONTRACT_TYPE_CONTEXT: &str = "Iris Language v1 contract type hash";
 
 /// A failure from the stable public hash contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,6 +79,37 @@ pub fn numeric_public_hash(value: &NumericValue) -> Result<u64, StableHashError>
 
 fn singleton_hash(tag: u8) -> u64 {
     digest_hash(SINGLETON_CONTEXT, &[tag])
+}
+
+/// The public hash of a statically named Contract Type.
+///
+/// `D-242` derives this from canonical package identity, the fully qualified
+/// Contract name, and major-version contract identity, NOT from structural
+/// member shape or runtime allocation. Two Contracts with identical
+/// declarations therefore stay distinct, and moving a Contract between
+/// packages changes its Type identity and hash.
+pub fn contract_type_hash(package: &str, qualified_name: &str, api_major: u64) -> IntegerValue {
+    let mut input = Vec::new();
+    input.extend_from_slice(&(package.len() as u64).to_le_bytes());
+    input.extend_from_slice(package.as_bytes());
+    input.extend_from_slice(&(qualified_name.len() as u64).to_le_bytes());
+    input.extend_from_slice(qualified_name.as_bytes());
+    input.extend_from_slice(&api_major.to_le_bytes());
+    IntegerValue::from(digest_hash(CONTRACT_TYPE_CONTEXT, &input))
+}
+
+/// The public hash of a Contract view.
+///
+/// `D-241` uses BLAKE3 derive-key mode with the exact ASCII context
+/// `Iris Language v1 contract view hash` and input
+/// `receiver_public_hash_u64_le || contract_type_hash_u64_le`, reduced by the
+/// same first-eight-bytes little-endian rule every other public hash uses.
+/// Stability inherits its components rather than being asserted here.
+pub fn contract_view_hash(receiver: u64, contract_type: u64) -> IntegerValue {
+    let mut input = [0_u8; 16];
+    input[..8].copy_from_slice(&receiver.to_le_bytes());
+    input[8..].copy_from_slice(&contract_type.to_le_bytes());
+    IntegerValue::from(digest_hash(CONTRACT_VIEW_CONTEXT, &input))
 }
 
 fn digest_hash(context: &str, input: &[u8]) -> u64 {
