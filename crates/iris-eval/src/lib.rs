@@ -76,6 +76,11 @@ pub enum EvaluationError {
     /// requires the SAME `CLOSED_GENERIC_OPEN_FORBIDDEN` name the declarative
     /// spelling reports statically, so the two entry points agree.
     ClosedGenericOpenForbidden,
+    /// Two direct imports replaced one member without authorization.
+    ///
+    /// `IRIS-V1-META-C049` requires the import-site `override` marker before a
+    /// direct import may replace an already merged static member.
+    ImportReplacementAuthorization,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -232,6 +237,7 @@ pub fn load_package_at_major(
     // cycle a LINK error, so the dependency graph is checked before any Module
     // body runs rather than after a half-initialized package is published.
     reject_import_cycles(sources)?;
+    reject_unauthorized_replacements(sources)?;
     for (_, source) in sources {
         let parsed = parse(source);
         if !parsed.program_accepted {
@@ -325,6 +331,54 @@ pub fn load_package_tree(
 /// and requires a dependency or initialization cycle to be a compile or link
 /// error. The graph is per SOURCE FILE, since that is what a package's manifest
 /// orders and what an `import` in one file names in another.
+/// Rejects two extensions replacing one member without import authorization.
+///
+/// `IRIS-V1-META-C049` requires import-site replacement authorization before a
+/// direct import may replace an already merged static member, and `D-230`
+/// authorizes only the replacements the source marked. `IRIS-V1-META-V349`
+/// observes the link-phase diagnostic when two compatible extensions contribute
+/// the same member and no import carries the `override` marker.
+fn reject_unauthorized_replacements(sources: &[(String, String)]) -> Result<(), EvaluationError> {
+    let mut authorized = false;
+    // `(class, selector)` pairs contributed by a REOPEN, since an origin
+    // declaration establishes a member rather than replacing one.
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    for (_, source) in sources {
+        let parsed = parse(source);
+        if !parsed.program_accepted {
+            return Err(EvaluationError::ParseDiagnostic);
+        }
+        for declaration in &parsed.program.declarations {
+            match declaration {
+                iris_syntax::Declaration::Import(value) if value.replacement_authorized => {
+                    authorized = true;
+                }
+                iris_syntax::Declaration::Class(value) if value.reopen => {
+                    for statement in &value.body {
+                        if let iris_syntax::Statement::Method(method) = statement {
+                            replacements.push((value.name.clone(), method.selector.clone()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if authorized {
+        return Ok(());
+    }
+    // One extension establishes a member; a SECOND replacing the same one is
+    // what needs authorization.
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for entry in replacements {
+        if seen.contains(&entry) {
+            return Err(EvaluationError::ImportReplacementAuthorization);
+        }
+        seen.push(entry);
+    }
+    Ok(())
+}
+
 fn reject_import_cycles(sources: &[(String, String)]) -> Result<(), EvaluationError> {
     let mut declares: Vec<(usize, Vec<String>)> = Vec::new();
     let mut imports: Vec<(usize, Vec<String>)> = Vec::new();

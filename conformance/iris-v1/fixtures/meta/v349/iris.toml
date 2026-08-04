@@ -1,0 +1,3 @@
+package_id = "org.iris.v349"
+api_major = 1
+sources = ["src/main.ir", "src/first.ir", "src/second.ir"]

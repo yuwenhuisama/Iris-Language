@@ -1,2 +1,1 @@
-override import org.iris.v347.first
 open class Base { public override fun tag() -> Symbol { :second } }

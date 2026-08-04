@@ -1901,3 +1901,49 @@ fn c097_class_view_exposes_its_required_members() {
         ]))
     );
 }
+
+#[test]
+fn c049_requires_import_authorization_for_a_second_replacement() {
+    // C049 requires import-site replacement authorization before a direct
+    // import may replace an already merged static member, and D-230 authorizes
+    // only the replacements the source marked. One extension ESTABLISHES the
+    // member; a second replacing the same one is what needs the marker.
+    let base = (
+        "main".to_owned(),
+        "class Base { public fun tag() -> Symbol { :base } }".to_owned(),
+    );
+    let first = (
+        "first".to_owned(),
+        "open class Base { public override fun tag() -> Symbol { :first } }".to_owned(),
+    );
+    let unauthorized = (
+        "second".to_owned(),
+        "open class Base { public override fun tag() -> Symbol { :second } }".to_owned(),
+    );
+    let authorized = (
+        "second".to_owned(),
+        "override import org.x.first \
+         open class Base { public override fun tag() -> Symbol { :second } }"
+            .to_owned(),
+    );
+
+    let refused = crate::load_package_with_probe(
+        "org.x",
+        &[base.clone(), first.clone(), unauthorized],
+        Some("Base.new().tag()"),
+    );
+    assert_eq!(
+        refused.err(),
+        Some(EvaluationError::ImportReplacementAuthorization)
+    );
+
+    let accepted = crate::load_package_with_probe(
+        "org.x",
+        &[base, first, authorized],
+        Some("Base.new().tag()"),
+    );
+    assert_eq!(
+        accepted.map(|(_, observed)| observed),
+        Ok(Some(RuntimeValue::Symbol("second".into())))
+    );
+}

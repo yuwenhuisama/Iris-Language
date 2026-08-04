@@ -273,6 +273,11 @@ fn error_code(error: &EvaluationError) -> String {
         // C033 forbids both targets and V439 requires the same name the
         // declarative spelling reports statically.
         EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN".into(),
+        // C049 requires import-site replacement authorization; V349 names the
+        // link-phase diagnostic.
+        EvaluationError::ImportReplacementAuthorization => {
+            "IRIS-IMPORT-REPLACEMENT-AUTHORIZATION".into()
+        }
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
