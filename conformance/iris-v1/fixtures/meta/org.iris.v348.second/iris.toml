@@ -1,0 +1,4 @@
+package_id = "org.iris.v348.second"
+api_major = 1
+dependencies = ["org.iris.v348.first"]
+sources = ["src/second.ir"]

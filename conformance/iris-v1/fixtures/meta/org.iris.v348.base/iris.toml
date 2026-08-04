@@ -1,0 +1,3 @@
+package_id = "org.iris.v348.base"
+api_major = 1
+sources = ["src/base.ir"]

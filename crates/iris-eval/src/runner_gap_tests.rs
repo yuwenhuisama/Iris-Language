@@ -1947,3 +1947,43 @@ fn c049_requires_import_authorization_for_a_second_replacement() {
         Ok(Some(RuntimeValue::Symbol("second".into())))
     );
 }
+
+#[test]
+fn c049_grants_authorization_per_import_site() {
+    // C049 authorizes a replacement at the IMPORT SITE, so a marker in one
+    // source cannot authorize a DIFFERENT source's replacement. A single global
+    // flag let the first extension's marker cover the second's unmarked one.
+    let base = (
+        "base".to_owned(),
+        "class Base { public fun tag() -> Symbol { :base } }".to_owned(),
+    );
+    let first = (
+        "first".to_owned(),
+        "override import org.x.base \
+         open class Base { public override fun tag() -> Symbol { :first } }"
+            .to_owned(),
+    );
+    let unmarked_second = (
+        "second".to_owned(),
+        "open class Base { public override fun tag() -> Symbol { :second } }".to_owned(),
+    );
+
+    let refused = crate::load_package_with_probe(
+        "org.x",
+        &[base.clone(), first.clone(), unmarked_second],
+        Some("Base.new().tag()"),
+    );
+    assert_eq!(
+        refused.err(),
+        Some(EvaluationError::ImportReplacementAuthorization),
+        "one source's marker must not authorize another source's replacement"
+    );
+
+    // The FIRST reopen of a member establishes it, so a single marked
+    // extension over an origin needs no prior authorization.
+    let single = crate::load_package_with_probe("org.x", &[base, first], Some("Base.new().tag()"));
+    assert_eq!(
+        single.map(|(_, observed)| observed),
+        Ok(Some(RuntimeValue::Symbol("first".into())))
+    );
+}

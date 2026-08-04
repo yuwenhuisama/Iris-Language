@@ -1,0 +1,2 @@
+override import org.iris.v348.base.Base
+open class Base { public override fun tag() -> Symbol { :first } }

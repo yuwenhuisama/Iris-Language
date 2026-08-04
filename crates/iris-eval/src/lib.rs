@@ -291,6 +291,15 @@ pub fn load_package_tree(
     };
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(entry)?;
     let mut initialized = Vec::new();
+    // C049 authorizes a replacement at the IMPORT site, so a second extension
+    // contributed by a DIFFERENT package needs the marker exactly as one in the
+    // same package does. Checking per package let a cross-package replacement
+    // through unauthorized, which V348's tamper exposed.
+    let across_tree: Vec<(String, String)> = packages
+        .iter()
+        .flat_map(|(_, sources)| sources.iter().cloned())
+        .collect();
+    reject_unauthorized_replacements(&across_tree)?;
     for (package_id, sources) in packages {
         // C017 makes Module initialization an acyclic deterministic DAG within
         // a package too, so each package's own graph is checked before any of
@@ -339,42 +348,41 @@ pub fn load_package_tree(
 /// observes the link-phase diagnostic when two compatible extensions contribute
 /// the same member and no import carries the `override` marker.
 fn reject_unauthorized_replacements(sources: &[(String, String)]) -> Result<(), EvaluationError> {
-    let mut authorized = false;
-    // `(class, selector)` pairs contributed by a REOPEN, since an origin
-    // declaration establishes a member rather than replacing one.
-    let mut replacements: Vec<(String, String)> = Vec::new();
+    // `(class, selector)` pairs an earlier source already contributed. The
+    // FIRST reopen of a member establishes it here; a later one replaces it.
+    let mut established: Vec<(String, String)> = Vec::new();
     for (_, source) in sources {
         let parsed = parse(source);
         if !parsed.program_accepted {
             return Err(EvaluationError::ParseDiagnostic);
         }
+        // Authorization is granted at THIS source's own import site, so a
+        // marker in one file cannot authorize another file's replacement.
+        let authorized = parsed.program.declarations.iter().any(|declaration| {
+            matches!(
+                declaration,
+                iris_syntax::Declaration::Import(value) if value.replacement_authorized
+            )
+        });
+        let mut contributed: Vec<(String, String)> = Vec::new();
         for declaration in &parsed.program.declarations {
-            match declaration {
-                iris_syntax::Declaration::Import(value) if value.replacement_authorized => {
-                    authorized = true;
-                }
-                iris_syntax::Declaration::Class(value) if value.reopen => {
-                    for statement in &value.body {
-                        if let iris_syntax::Statement::Method(method) = statement {
-                            replacements.push((value.name.clone(), method.selector.clone()));
-                        }
+            let iris_syntax::Declaration::Class(value) = declaration else {
+                continue;
+            };
+            if !value.reopen {
+                continue;
+            }
+            for statement in &value.body {
+                if let iris_syntax::Statement::Method(method) = statement {
+                    let entry = (value.name.clone(), method.selector.clone());
+                    if established.contains(&entry) && !authorized {
+                        return Err(EvaluationError::ImportReplacementAuthorization);
                     }
+                    contributed.push(entry);
                 }
-                _ => {}
             }
         }
-    }
-    if authorized {
-        return Ok(());
-    }
-    // One extension establishes a member; a SECOND replacing the same one is
-    // what needs authorization.
-    let mut seen: Vec<(String, String)> = Vec::new();
-    for entry in replacements {
-        if seen.contains(&entry) {
-            return Err(EvaluationError::ImportReplacementAuthorization);
-        }
-        seen.push(entry);
+        established.extend(contributed);
     }
     Ok(())
 }
