@@ -1,0 +1,1 @@
+class Base { public fun tag() -> Symbol { :base } }
