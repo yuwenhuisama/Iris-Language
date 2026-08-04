@@ -3333,3 +3333,29 @@ fn c098_reports_a_visible_slot_without_consulting_method_missing() {
     assert_eq!(rendered(fallback), "Bool(false)");
     assert_eq!(rendered(qualified), "Bool(false)");
 }
+
+#[test]
+fn c086_reports_applied_decorators_in_written_order() {
+    // IRIS-V1-META-C086 executes multiple decorators in WRITTEN top-to-bottom
+    // order, and IRIS-V1-META-V431 observes that order through reflection. The
+    // applied identities were staged onto the candidate already but nothing
+    // could read them back.
+    let one = "@first() class Box { } Box.decorators";
+    let ordered = "@first() @second() class Box { } Box.decorators";
+    // Reversing the source order reverses the report, so the vector observes
+    // the WRITTEN order rather than any implementation order.
+    let reversed = "@second() @first() class Box { } Box.decorators";
+    let none = "class Box { } Box.decorators";
+
+    // When / Then
+    assert_eq!(rendered(one), "Array([Symbol(\"first\")])");
+    assert_eq!(
+        rendered(ordered),
+        "Array([Symbol(\"first\"), Symbol(\"second\")])"
+    );
+    assert_eq!(
+        rendered(reversed),
+        "Array([Symbol(\"second\"), Symbol(\"first\")])"
+    );
+    assert_eq!(rendered(none), "Array([])");
+}

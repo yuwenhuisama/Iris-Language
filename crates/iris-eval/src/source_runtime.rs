@@ -3869,6 +3869,24 @@ impl SourceEvaluator {
                         .collect(),
                 ))
             }
+            // C086 executes multiple decorators in WRITTEN top-to-bottom order,
+            // and IRIS-V1-META-V431 observes that order through reflection, so
+            // the applied identities are reported in the order they were staged
+            // rather than in any implementation order.
+            Value::Class(class) if selector == "decorators" => {
+                let identities: Vec<String> = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .decorators()
+                    .iter()
+                    .map(|decorator| decorator.identity().to_owned())
+                    .collect();
+                Ok(Value::Array(
+                    identities.into_iter().map(Value::Symbol).collect(),
+                ))
+            }
             Value::Class(class) if selector == "contracts" => Ok(Value::Array(
                 self.class_contracts
                     .get(&class)
