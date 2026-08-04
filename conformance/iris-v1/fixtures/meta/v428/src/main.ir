@@ -1,0 +1,5 @@
+contract ModuleDecorator { fun plan(declaration, arguments) }
+class AsModule for ModuleDecorator {
+  public impl fun plan(declaration, arguments) -> Nil { nil }
+}
+@AsModule() class Box { }

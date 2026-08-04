@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.20 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.28 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -10,7 +10,7 @@
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 128, failed: 0, needs_subsystem: 5                                  (133 records, buckets sum 133)
 TYPES    passed: 72, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (72 records, buckets sum 72)
-META     passed: 14, failed: 0, needs_subsystem: 0                                  (14 records, buckets sum 14)
+META     passed: 15, failed: 0, needs_subsystem: 0                                  (15 records, buckets sum 15)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
@@ -60,6 +60,15 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.7 | — | Amended two vector rows whose frozen text was unsatisfiable |
 | v1.8 | — | Moved the approved semantic source into `spec/drafts/` and repointed its references |
 | v1.9 | — | Moved `Document/` under `legacy/` and repointed its 151 references |
+| v1.10–v1.20 | — | Published; rows not transcribed into this table at the time |
+| v1.21 | `TYPES-C097` | A per-closed materialization failure raises `TypeContractError` |
+| v1.22 | `GRAMMAR-C067` | A bare closed generic is a complete expression |
+| v1.23 | `GRAMMAR-C068` | A dotted package path in an import |
+| v1.24 | `GRAMMAR-C069` | The `override` import marker |
+| v1.25 | `META-C121` | The V343 rejection wording |
+| v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
+| v1.27 | `META-C124` | Corrected the decorator phase signatures |
+| v1.28 | `META-C125` | The minimal `Plan` and `Transformation` members, `IRIS-DECORATOR-NONDETERMINISTIC` and `IRIS-DECORATOR-KIND` |
 
 ### Permanence exceptions
 

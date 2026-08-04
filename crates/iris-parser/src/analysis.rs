@@ -22,6 +22,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         generic_classes: Vec::new(),
         class_method_arities: Vec::new(),
         declared_superclasses: Vec::new(),
+        decorator_kinds: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
         requirement_signatures: Vec::new(),
@@ -347,6 +348,13 @@ struct Analyzer {
     ///
     /// This is GROUNDWORK: no check consumes it yet.
     declared_superclasses: Vec<(String, String)>,
+    /// Each decorator Class paired with the Decorator Contract it declares.
+    ///
+    /// `IRIS-V1-META-C122` makes a decorator a Class declaring `for` one of the
+    /// five Contracts, one per target category fixed by `IRIS-V1-META-C085`, so
+    /// the declared Contract IS the category its transformation targets.
+    /// `IRIS-V1-META-C125` rejects a mismatch as `IRIS-DECORATOR-KIND`.
+    decorator_kinds: Vec<(String, String)>,
 }
 
 impl Analyzer {
@@ -877,6 +885,51 @@ impl Analyzer {
                 ProgramEntry::Declaration(declaration) => self.declaration(declaration),
             }
         }
+        // C125 rejects a decorator whose Contract targets a different category
+        // than the declaration it decorates. A decorator may be declared AFTER
+        // its application, so the check runs once every declaration is
+        // collected rather than at the application site.
+        self.check_decorator_targets(program);
+    }
+
+    /// Rejects a decorator applied to a category its Contract does not target.
+    ///
+    /// `IRIS-V1-META-C122` names one Decorator Contract per target category, so
+    /// applying a `ClassDecorator` to a Method is a category mismatch.
+    /// `IRIS-V1-META-C125` reports it as `IRIS-DECORATOR-KIND`, and C086 and
+    /// C091 already require the target to retain no candidate.
+    fn check_decorator_targets(&mut self, program: &Program) {
+        let applications: Vec<(String, &'static str)> = program
+            .declarations
+            .iter()
+            .flat_map(|declaration| {
+                let (decorators, category) = match declaration {
+                    iris_syntax::Declaration::Class(value) => (&value.decorators, "class"),
+                    iris_syntax::Declaration::Module(value) => (&value.decorators, "module"),
+                    iris_syntax::Declaration::Contract(value) => (&value.decorators, "contract"),
+                    _ => return Vec::new(),
+                };
+                decorators
+                    .iter()
+                    .map(|decorator| (decorator.name.clone(), category))
+                    .collect()
+            })
+            .collect();
+        for (applied, category) in applications {
+            let Some((_, contract)) = self
+                .decorator_kinds
+                .iter()
+                .find(|(name, _)| *name == applied)
+            else {
+                // A decorator this pass never saw declared contributes no
+                // category, so the application is left alone rather than
+                // rejected on incomplete information.
+                continue;
+            };
+            if decorator_target(contract) != Some(category) {
+                self.report("IRIS-DECORATOR-KIND");
+            }
+        }
     }
 
     fn declaration(&mut self, declaration: &iris_syntax::Declaration) {
@@ -899,6 +952,18 @@ impl Analyzer {
                 if let Some(iris_syntax::TypeExpression::Name(parent)) = &value.extends {
                     self.declared_superclasses
                         .push((value.name.clone(), parent.clone()));
+                }
+                // C122 names one Decorator Contract per target category, so a
+                // Class declaring `for ClassDecorator` targets a Class and
+                // nothing else. Recording the edge is what lets an application
+                // site check the category it decorates.
+                for target in &value.implements {
+                    if let iris_syntax::TypeExpression::Name(contract) = target
+                        && decorator_target(contract).is_some()
+                    {
+                        self.decorator_kinds
+                            .push((value.name.clone(), contract.clone()));
+                    }
                 }
                 // D-196 needs the arities each Class Method accepts in order to
                 // intersect them across a union's members.
@@ -2853,6 +2918,69 @@ mod nominal_groundwork_tests {
         assert!(
             codes("class A { public fun m() -> Integer { 1 } } class B extends A { }").is_empty()
         );
+    }
+}
+
+/// The declaration category a Decorator Contract targets.
+///
+/// `IRIS-V1-META-C122` names one Contract per target fixed by
+/// `IRIS-V1-META-C085`, so the mapping is total and closed.
+const fn decorator_target(contract: &str) -> Option<&'static str> {
+    match contract.as_bytes() {
+        b"ClassDecorator" => Some("class"),
+        b"ModuleDecorator" => Some("module"),
+        b"ContractDecorator" => Some("contract"),
+        b"MethodDecorator" => Some("method"),
+        b"PropertyDecorator" => Some("property"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod decorator_kind_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c125_rejects_a_decorator_targeting_another_category() {
+        // IRIS-V1-META-C122 names one Decorator Contract per target category
+        // fixed by C085, so a Class declaring `for ModuleDecorator` targets a
+        // Module. Applying it to a Class is the category mismatch C125 reports
+        // as IRIS-DECORATOR-KIND, and C086 and C091 already require the target
+        // to retain no candidate.
+        let mismatched = "contract ModuleDecorator { fun plan(d, a) } \
+                          class AsModule for ModuleDecorator { \
+                            public impl fun plan(d, a) -> Nil { nil } } \
+                          @AsModule() class Box { }";
+        assert_eq!(codes(mismatched), ["IRIS-DECORATOR-KIND"]);
+
+        // The matching Contract is accepted.
+        let matched = "contract ClassDecorator { fun plan(d, a) } \
+                       class Stamp for ClassDecorator { \
+                         public impl fun plan(d, a) -> Nil { nil } } \
+                       @Stamp() class Box { }";
+        assert!(codes(matched).is_empty());
+
+        // A decorator this pass never saw declared contributes no category, so
+        // the application is left alone rather than rejected on incomplete
+        // information.
+        assert!(codes("@Unknown() class Box { }").is_empty());
+
+        // The decorator may be declared AFTER its application, which is why the
+        // check runs once every declaration is collected.
+        let later = "@AsModule() class Box { } \
+                     contract ModuleDecorator { fun plan(d, a) } \
+                     class AsModule for ModuleDecorator { \
+                       public impl fun plan(d, a) -> Nil { nil } }";
+        assert_eq!(codes(later), ["IRIS-DECORATOR-KIND"]);
     }
 }
 
