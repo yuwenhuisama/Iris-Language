@@ -2021,3 +2021,41 @@ fn c046_accepts_a_contract_body_replacement_marked_impl_alone() {
         ))
     ));
 }
+
+#[test]
+fn c095_returns_a_filtered_immutable_reflection_view() {
+    // C095 returns PERMISSION-FILTERED IMMUTABLE metadata, but `methods`
+    // returned a mutable Array listing private members too.
+    let filtered = "class Box { public fun show() -> Nil { nil } \
+                    private fun hide() -> Nil { nil } } Box.methods";
+    assert_eq!(
+        evaluate(filtered),
+        Ok(RuntimeValue::ReadonlyArray(vec![
+            RuntimeValue::Symbol("to_bool".into()),
+            RuntimeValue::Symbol("show".into()),
+        ]))
+    );
+
+    // `append` routes by SYNTAX before its receiver is evaluated, so a view
+    // held in a BINDING bypassed the send guard and reported a type failure
+    // rather than the mutation refusal D-142 requires.
+    let bound = "class Box { public fun show() -> Nil { nil } } \
+                 let view = Box.methods; try { view.append(:x) } catch e { e }";
+    assert_eq!(
+        evaluate(bound),
+        Ok(RuntimeValue::Symbol("ReadonlyMutationError".into()))
+    );
+
+    // An ordinary Array binding still appends.
+    let ordinary = "mut a = [1]; a.append(2); a";
+    assert_eq!(
+        evaluate(ordinary),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Array(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Integer(2_u8.into()),
+            ]),
+        ]))
+    );
+}

@@ -1,0 +1,4 @@
+class Box {
+  public fun show() -> Nil { nil }
+  private fun hide() -> Nil { nil }
+}

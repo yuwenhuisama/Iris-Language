@@ -3280,7 +3280,9 @@ fn c097_exposes_the_minimal_class_reflection_view() {
     assert_eq!(rendered(name), "Symbol(\"B\")");
     assert_eq!(
         rendered(methods),
-        "Array([Symbol(\"to_bool\"), Symbol(\"show\")])"
+        // C095 returns permission-filtered IMMUTABLE metadata, so the view is
+        // read-only rather than an Array a caller could mutate.
+        "ReadonlyArray([Symbol(\"to_bool\"), Symbol(\"show\")])"
     );
     assert_eq!(rendered(modules), "Array([Symbol(\"M\")])");
     assert_eq!(rendered(contracts), "Array([Contract(ContractId(0))])");

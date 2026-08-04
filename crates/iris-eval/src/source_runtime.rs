@@ -4221,16 +4221,23 @@ impl SourceEvaluator {
                 })
                 .unwrap_or(Value::Nil)),
             Value::Class(class) if selector == "methods" => {
-                let selectors: Vec<Selector> = self
-                    .runtime
-                    .registry()
-                    .active(class)
-                    .map_err(EvaluationError::Class)?
+                // C095 returns PERMISSION-FILTERED IMMUTABLE metadata, so a
+                // private member is withheld and the result is a read-only view
+                // rather than an ordinary Array a caller could mutate. V423
+                // observes both halves.
+                let registry = self.runtime.registry();
+                let revision = registry.active(class).map_err(EvaluationError::Class)?;
+                let selectors: Vec<Selector> = revision
                     .methods()
-                    .keys()
-                    .copied()
+                    .iter()
+                    .filter(|(_, method)| {
+                        registry.method_by_id(**method).is_none_or(|method| {
+                            matches!(method.visibility(), iris_runtime::Visibility::Public)
+                        })
+                    })
+                    .map(|(selector, _)| *selector)
                     .collect();
-                Ok(Value::Array(
+                Ok(Value::ReadonlyArray(
                     selectors
                         .into_iter()
                         .map(|selector| self.selector_symbol(selector))
@@ -5658,6 +5665,14 @@ impl SourceEvaluator {
             .names
             .get_mut(name)
             .ok_or(EvaluationError::UnsupportedConstruct)?;
+        // D-142 forbids inserting into a runtime-owned read-only view, and
+        // C095 makes a reflection view one. `append` routes by SYNTAX, so a
+        // view held in a BINDING reached this path instead of the send guard
+        // and reported a type failure rather than the mutation refusal. V423
+        // observes the refusal through exactly that binding.
+        if matches!(binding.value, Value::ReadonlyArray(_)) {
+            return Err(EvaluationError::ReadonlyMutation);
+        }
         let Value::Array(values) = &mut binding.value else {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         };
@@ -6786,6 +6801,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::TypeContractError => "TypeContractError",
         EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN",
         EvaluationError::InvalidInstanceVariableName => "InvalidInstanceVariableNameError",
+        // V423 catches the refusal and reads the surviving view, so the
+        // mutation refusal must be an ordinary catchable Iris error.
+        EvaluationError::ReadonlyMutation => "ReadonlyMutationError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",
