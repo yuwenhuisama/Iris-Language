@@ -1619,3 +1619,32 @@ fn c098_protects_only_a_declared_ancestor_carrying_a_static_spine_fact() {
                     try { Reflection::Class.set_superclass(Dog, Mammal) } catch e { e }";
     assert_eq!(evaluate(narrowed), Ok(RuntimeValue::Nil));
 }
+
+#[test]
+fn d175_validates_a_contract_requirement_satisfied_by_a_mixed_in_member() {
+    // D-175 recomputes MRO and verifies declared Contract requirements BEFORE
+    // commit, so a requirement satisfied by a MIXED-IN Module member is checked
+    // too. D-173 puts the contract-visible SIGNATURE in the static spine, so
+    // `draw(String)` conflicts with a declared `draw(Integer)` even though the
+    // arities agree, which V202 observes.
+    let conflicting = "contract C { fun draw(n: Integer) -> Nil } \
+                       module Painter { public fun draw(s: String) -> Nil { nil } } \
+                       class A for C { } open class A mixin Painter { } A";
+    assert_eq!(
+        evaluate(conflicting),
+        Err(EvaluationError::TypeContractError)
+    );
+
+    // A composed member whose signature matches publishes normally.
+    let matching = "contract C { fun draw(n: Integer) -> Nil } \
+                    module Painter { public fun draw(n: Integer) -> Nil { nil } } \
+                    class A for C { } open class A mixin Painter { } A.new().draw(1)";
+    assert_eq!(evaluate(matching), Ok(RuntimeValue::Nil));
+
+    // An unannotated parameter position states nothing and is left alone rather
+    // than treated as a mismatch.
+    let unannotated = "contract C { fun draw(n: Integer) -> Nil } \
+                       module Painter { public fun draw(n) -> Nil { nil } } \
+                       class A for C { } open class A mixin Painter { } A.new().draw(1)";
+    assert_eq!(evaluate(unannotated), Ok(RuntimeValue::Nil));
+}

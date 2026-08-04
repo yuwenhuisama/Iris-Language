@@ -144,6 +144,15 @@ pub(super) struct SourceEvaluator {
     /// return Type and not its arity alone.
     contract_requirement_returns:
         HashMap<(iris_runtime::ContractId, String), iris_syntax::TypeExpression>,
+    /// The parameter Types each Contract requirement declares, when it wrote them.
+    ///
+    /// `D-173` makes the contract-visible member SIGNATURE part of the static
+    /// spine, not its arity and return Type alone, so a `draw(String)` that
+    /// satisfies a declared `draw(Integer)` is an incompatible replacement
+    /// `IRIS-V1-TYPES-C045` forbids. V202 observes it through a mixed-in
+    /// Module, where the arities match and only the parameter Type differs.
+    contract_requirement_parameters:
+        HashMap<(iris_runtime::ContractId, String), Vec<Option<iris_syntax::TypeExpression>>>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
     /// Each generic Class name paired with its parameters and `where` bounds.
     ///
@@ -287,6 +296,7 @@ impl SourceEvaluator {
             contract_requirements: HashMap::new(),
             contract_requirement_arities: HashMap::new(),
             contract_requirement_returns: HashMap::new(),
+            contract_requirement_parameters: HashMap::new(),
             class_contracts: HashMap::new(),
             generic_bounds: HashMap::new(),
             qualified_methods: HashMap::new(),
@@ -489,6 +499,28 @@ impl SourceEvaluator {
                     .registry_mut()
                     .publish(candidate)
                     .map_err(EvaluationError::Class)?;
+                // D-175 recomputes MRO and verifies declared Contract
+                // requirements BEFORE commit, and any false static promise
+                // preserves the Class. Composing on reopen published the new
+                // MRO before the body ran, so a Module whose `draw(String)`
+                // conflicts with the declared `draw(Integer)` slipped past the
+                // body's own validation. V202 observes the refusal together
+                // with the prior MRO and conformance staying published.
+                if let Err(error) = self.validate_candidate_contracts(class) {
+                    let mut rollback = self
+                        .runtime
+                        .registry_mut()
+                        .open(class)
+                        .map_err(EvaluationError::Class)?;
+                    for edge in &mixins {
+                        rollback.remove_module(edge.module());
+                    }
+                    self.runtime
+                        .registry_mut()
+                        .publish(rollback)
+                        .map_err(EvaluationError::Class)?;
+                    return Err(error);
+                }
             }
             if !declaration.meta_deny.is_empty() {
                 return Err(EvaluationError::Class(ClassError::MetaCapabilityDenied {
@@ -978,6 +1010,24 @@ impl SourceEvaluator {
                 {
                     return Err(EvaluationError::TypeContractError);
                 }
+                // D-173 puts the contract-visible SIGNATURE in the static
+                // spine, so a member whose parameter Type differs from the
+                // requirement is an incompatible replacement even when the
+                // arities agree. An unannotated position states nothing and is
+                // left alone rather than treated as a mismatch.
+                if let Some(required) = self
+                    .contract_requirement_parameters
+                    .get(&(contract, requirement.clone()))
+                    && required.len() == declaration.parameters.len()
+                    && required.iter().zip(&declaration.parameters).any(
+                        |(required, actual)| match (required, actual.annotation.as_ref()) {
+                            (Some(required), Some(actual)) => required != actual,
+                            _ => false,
+                        },
+                    )
+                {
+                    return Err(EvaluationError::TypeContractError);
+                }
             }
         }
         Ok(())
@@ -994,14 +1044,34 @@ impl SourceEvaluator {
         selector: Selector,
     ) -> Option<&MethodDeclaration> {
         let registry = self.runtime.registry();
-        let method = registry.staged_method(class, selector).or_else(|| {
-            registry
-                .active(class)
-                .ok()?
-                .methods()
-                .get(&selector)
-                .copied()
-        })?;
+        let method = registry
+            .staged_method(class, selector)
+            .or_else(|| {
+                registry
+                    .active(class)
+                    .ok()?
+                    .methods()
+                    .get(&selector)
+                    .copied()
+            })
+            // D-175 recomputes MRO and verifies declared Contract requirements
+            // before commit, so a requirement satisfied by a MIXED-IN Module
+            // member must be checked too. Reading only the Class's own method
+            // table let a Module whose `draw(String)` conflicts with the
+            // declared `draw(Integer)` compose silently, which V202 observes.
+            .or_else(|| {
+                registry
+                    .active(class)
+                    .ok()?
+                    .mro()
+                    .iter()
+                    .find_map(|entry| match entry {
+                        iris_runtime::MroEntry::Module(module) => registry
+                            .module_method(*module, selector)
+                            .map(|method| method.id()),
+                        iris_runtime::MroEntry::Class(_) => None,
+                    })
+            })?;
         let method = registry.method_by_id(method)?;
         self.bodies.get(&method.body().raw())
     }
@@ -1795,6 +1865,14 @@ impl SourceEvaluator {
             {
                 self.contract_requirement_arities
                     .insert((contract, method.selector.clone()), method.parameters.len());
+                self.contract_requirement_parameters.insert(
+                    (contract, method.selector.clone()),
+                    method
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.annotation.clone())
+                        .collect(),
+                );
                 if let Some(returns) = &method.return_type {
                     self.contract_requirement_returns
                         .insert((contract, method.selector.clone()), returns.clone());

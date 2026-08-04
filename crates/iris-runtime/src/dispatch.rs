@@ -369,7 +369,12 @@ impl crate::ClassRegistry {
         self.methods.get(&id).copied()
     }
 
-    pub(crate) fn module_method(&self, module: ModuleId, selector: Selector) -> Option<Method> {
+    /// Resolves a selector against one mixed-in Module's own members.
+    ///
+    /// `D-175` verifies declared Contract requirements against the recomposed
+    /// MRO before commit, so a requirement satisfied by a MIXED-IN member is
+    /// reachable for validation rather than only through dispatch.
+    pub fn module_method(&self, module: ModuleId, selector: Selector) -> Option<Method> {
         self.modules.method(module, selector)
     }
     /// Resolves an ordinary selector through the Class's active stored MRO.
