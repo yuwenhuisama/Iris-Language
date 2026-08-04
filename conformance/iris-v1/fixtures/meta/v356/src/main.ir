@@ -1,0 +1,5 @@
+class Account {
+  shared class property built: Integer = 0
+  public fun initialize() -> Nil { Account.built = Account.built + 1; @balance = 10; nil }
+  public fun balance() -> Integer { @balance }
+}
