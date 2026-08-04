@@ -1,0 +1,6 @@
+module Counter { }
+class Tracked {
+  public fun initialize() -> Nil { @constructed = 1; nil }
+  public fun migrate_revision(source, target) -> Symbol { :migrated }
+}
+class Untracked { }
