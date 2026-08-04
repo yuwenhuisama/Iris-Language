@@ -22,6 +22,10 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         generic_classes: Vec::new(),
         class_method_arities: Vec::new(),
         declared_superclasses: Vec::new(),
+        overriding_members: Vec::new(),
+        module_members: Vec::new(),
+        declared_mixins: Vec::new(),
+        declared_members: Vec::new(),
         decorator_kinds: Vec::new(),
         generic_constraints: Vec::new(),
         declared_conformance: Vec::new(),
@@ -348,6 +352,19 @@ struct Analyzer {
     ///
     /// This is GROUNDWORK: no check consumes it yet.
     declared_superclasses: Vec<(String, String)>,
+    /// Each Class paired with the instance Method selectors it declares.
+    ///
+    /// `IRIS-V1-META-C049` requires `override` on a member REPLACING an
+    /// inherited or Module-provided one, so checking a replacement needs the
+    /// members each declaration contributed. V350 and V351 observe the
+    /// diagnostic.
+    declared_members: Vec<(String, Vec<String>)>,
+    /// Each Class paired with the Modules it mixes in.
+    declared_mixins: Vec<(String, Vec<String>)>,
+    /// Each Module paired with the Method selectors it declares.
+    module_members: Vec<(String, Vec<String>)>,
+    /// Every `override` marked member, as `(owner, selector)`.
+    overriding_members: Vec<(String, String)>,
     /// Each decorator Class paired with the Decorator Contract it declares.
     ///
     /// `IRIS-V1-META-C122` makes a decorator a Class declaring `for` one of the
@@ -994,6 +1011,47 @@ impl Analyzer {
                     self.declared_superclasses
                         .push((value.name.clone(), parent.clone()));
                 }
+                // C049 requires `override` on a member replacing an inherited
+                // or Module-provided one. A reopen contributes members to the
+                // SAME name, so both origin and open declarations accumulate
+                // here and the check below compares against what was declared
+                // before this declaration ran.
+                let declared: Vec<String> = value
+                    .body
+                    .iter()
+                    .filter_map(|statement| match statement {
+                        Statement::Method(method)
+                            if matches!(method.kind, iris_syntax::MethodKind::Instance) =>
+                        {
+                            Some(method.selector.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                for statement in &value.body {
+                    if let Statement::Method(method) = statement
+                        && method.is_override
+                    {
+                        self.overriding_members
+                            .push((value.name.clone(), method.selector.clone()));
+                    }
+                }
+                self.check_override_markers(value, &declared);
+                self.declared_members.push((value.name.clone(), declared));
+                self.declared_mixins.push((
+                    value.name.clone(),
+                    value
+                        .mixins
+                        .iter()
+                        .filter_map(|mixin| match &mixin.target {
+                            iris_syntax::TypeExpression::Name(name)
+                            | iris_syntax::TypeExpression::Generic { name, .. } => {
+                                Some(name.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                ));
                 // C122 names one Decorator Contract per target category, so a
                 // Class declaring `for ClassDecorator` targets a Class and
                 // nothing else. Recording the edge is what lets an application
@@ -1055,6 +1113,20 @@ impl Analyzer {
                 if !value.contract_for.is_empty() {
                     self.report("CONTRACT_FOR_CLASS_ONLY");
                 }
+                // C049 counts a Module-PROVIDED member as one a composing
+                // Class replaces, so the Module's own members are recorded for
+                // the override check to consult.
+                self.module_members.push((
+                    value.name.clone(),
+                    value
+                        .body
+                        .iter()
+                        .filter_map(|statement| match statement {
+                            Statement::Method(method) => Some(method.selector.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                ));
                 (&value.name, Some(&value.body))
             }
             // An import publishes its local name; an export republishes what it
@@ -1360,6 +1432,103 @@ impl Analyzer {
         });
         if cyclic {
             self.report("GENERIC_CONSTRAINT_CYCLE");
+        }
+    }
+
+    /// Rejects a member replacing an inherited or composed one without `override`.
+    ///
+    /// `IRIS-V1-META-C049` requires the marker on a member REPLACING an
+    /// inherited or Module-provided member, so a Class or reopen that silently
+    /// takes over an existing selector is rejected. `IRIS-V1-META-V350`
+    /// observes the reopen case and `V351` the inherited and composed ones.
+    /// A member satisfying a declared Contract requirement is left to
+    /// `check_declared_conformance`, which reports the `impl` marker instead.
+    fn check_override_markers(
+        &mut self,
+        declaration: &iris_syntax::ClassDeclaration,
+        declared: &[String],
+    ) {
+        // A Contract requirement this Class lists is an `impl` obligation, not
+        // an `override` one, so those selectors are excluded here to keep one
+        // member from reporting both diagnostics.
+        let contract_slots: Vec<String> = declaration
+            .implements
+            .iter()
+            .filter_map(|target| match target {
+                iris_syntax::TypeExpression::Name(name) => Some(name),
+                _ => None,
+            })
+            .flat_map(|contract| {
+                self.contract_requirements
+                    .iter()
+                    .filter(move |(name, _)| name == contract)
+                    .flat_map(|(_, selectors)| selectors.iter().cloned())
+            })
+            .collect();
+        let mut inherited: Vec<String> = Vec::new();
+        // Members contributed to this same name by an earlier declaration,
+        // which is what a reopen replaces.
+        for (owner, members) in &self.declared_members {
+            if *owner == declaration.name {
+                inherited.extend(members.iter().cloned());
+            }
+        }
+        // Members reached through the declared superclass chain.
+        let mut ancestor = declaration
+            .extends
+            .as_ref()
+            .and_then(|target| match target {
+                iris_syntax::TypeExpression::Name(name) => Some(name.clone()),
+                _ => None,
+            });
+        let mut seen: Vec<String> = Vec::new();
+        while let Some(class) = ancestor {
+            if seen.contains(&class) {
+                break;
+            }
+            seen.push(class.clone());
+            for (owner, members) in &self.declared_members {
+                if *owner == class {
+                    inherited.extend(members.iter().cloned());
+                }
+            }
+            ancestor = self
+                .declared_superclasses
+                .iter()
+                .find(|(child, _)| *child == class)
+                .map(|(_, parent)| parent.clone());
+        }
+        // Members a composed Module provides.
+        for mixin in &declaration.mixins {
+            let (iris_syntax::TypeExpression::Name(module)
+            | iris_syntax::TypeExpression::Generic { name: module, .. }) = &mixin.target
+            else {
+                continue;
+            };
+            for (owner, members) in &self.module_members {
+                if owner == module {
+                    inherited.extend(members.iter().cloned());
+                }
+            }
+        }
+        for statement in &declaration.body {
+            let Statement::Method(method) = statement else {
+                continue;
+            };
+            if method.is_override
+                || method.body.is_none()
+                || !matches!(method.kind, iris_syntax::MethodKind::Instance)
+                || contract_slots.contains(&method.selector)
+                || !inherited.contains(&method.selector)
+            {
+                continue;
+            }
+            // A selector this declaration itself declares twice is a duplicate
+            // rather than a replacement, and has its own diagnostic.
+            if declared.iter().filter(|s| **s == method.selector).count() > 1 {
+                continue;
+            }
+            self.report("IRIS-MEMBER-OVERRIDE-REQUIRED");
         }
     }
 
@@ -3019,6 +3188,61 @@ fn expression_reads_global(expression: &Expression) -> bool {
             callee, arguments, ..
         } => expression_reads_global(callee) || arguments.iter().any(expression_reads_global),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod override_marker_tests {
+    use crate::{analyze, parse};
+
+    fn codes(source: &str) -> Vec<&'static str> {
+        let parsed = parse(source);
+        assert!(parsed.program_accepted, "source must parse: {source}");
+        analyze(&parsed.program)
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
+    }
+
+    #[test]
+    fn c049_requires_override_on_every_replacement_source() {
+        // C049 requires `override` on a member REPLACING an inherited or
+        // Module-provided one. V350 observes the reopen case.
+        let reopened = "class Box { public fun tag() -> Symbol { :old } } \
+                        open class Box { public fun tag() -> Symbol { :new } }";
+        assert_eq!(codes(reopened), ["IRIS-MEMBER-OVERRIDE-REQUIRED"]);
+
+        // V351 observes the inherited and the composed cases.
+        let inherited = "class Base { public fun tag() -> Symbol { :b } } \
+                         class Child extends Base { public fun tag() -> Symbol { :c } }";
+        assert_eq!(codes(inherited), ["IRIS-MEMBER-OVERRIDE-REQUIRED"]);
+
+        let composed = "module M { public fun tag() -> Symbol { :m } } \
+                        class C mixin M { public fun tag() -> Symbol { :c } }";
+        assert_eq!(codes(composed), ["IRIS-MEMBER-OVERRIDE-REQUIRED"]);
+
+        // The marker satisfies the requirement.
+        let marked = "class Base { public fun tag() -> Symbol { :b } } \
+                      class Child extends Base { public override fun tag() -> Symbol { :c } }";
+        assert!(codes(marked).is_empty());
+
+        // A member replacing nothing is an ordinary declaration.
+        let fresh = "class Base { public fun a() -> Symbol { :a } } \
+                     class Child extends Base { public fun b() -> Symbol { :b } }";
+        assert!(codes(fresh).is_empty());
+    }
+
+    #[test]
+    fn c049_leaves_a_contract_slot_to_the_impl_diagnostic() {
+        // A member satisfying a declared Contract requirement is an `impl`
+        // obligation, not an `override` one. Reporting both would make one
+        // member carry two diagnostics for a single missing marker.
+        let contract_slot = "contract C { fun tag() -> Symbol } \
+                             class A for C { public fun tag() -> Symbol { :a } }";
+        assert_eq!(
+            codes(contract_slot),
+            ["CONTRACT_IMPLEMENTATION_REQUIRES_IMPL"]
+        );
     }
 }
 

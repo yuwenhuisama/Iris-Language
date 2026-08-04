@@ -1,0 +1,2 @@
+class Box { public fun tag() -> Symbol { :old } }
+open class Box { public fun tag() -> Symbol { :new } }

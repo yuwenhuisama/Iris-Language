@@ -1,0 +1,3 @@
+module Helper { public fun tag() -> Symbol { :module } }
+class Base { public fun tag() -> Symbol { :base } }
+class Child extends Base mixin Helper { public fun tag() -> Symbol { :child } }
