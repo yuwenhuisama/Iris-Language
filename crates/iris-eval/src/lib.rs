@@ -87,6 +87,12 @@ pub enum EvaluationError {
     /// than an instance ivar, and a name with no `@` sigil is an ordinary
     /// selector. `IRIS-V1-META-V362` names the error.
     InvalidInstanceVariableName,
+    /// A lock selected two implementations of one package at one API major.
+    ///
+    /// `IRIS-V1-META-C006` requires an EXACT selection and one identity per
+    /// `(package_id, api_major)`, so two entries unifying to that pair have no
+    /// single Type identity. `IRIS-V1-META-V352` names the link failure.
+    PackageVersionUnification,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -254,6 +260,19 @@ pub fn load_resolved_package(
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     evaluator.enter_api_major(api_major);
+    // C006 makes `(package_id, api_major)` one identity, so a lock selecting
+    // two implementations of that pair cannot be unified and fails the LINK
+    // before any Module body runs. V352 observes that no hidden identity is
+    // created in its place.
+    for (index, (name, major, ..)) in locked.iter().enumerate() {
+        if locked
+            .iter()
+            .skip(index + 1)
+            .any(|(other, other_major, ..)| other == name && other_major == major)
+        {
+            return Err(EvaluationError::PackageVersionUnification);
+        }
+    }
     evaluator.enter_package_resolution(version, locked);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a

@@ -2059,3 +2059,63 @@ fn c095_returns_a_filtered_immutable_reflection_view() {
         ]))
     );
 }
+
+#[test]
+fn c006_refuses_a_lock_selecting_one_package_twice_at_one_major() {
+    // C006 makes `(package_id, api_major)` ONE identity, so a lock selecting
+    // two implementations of that pair has no single Type identity and fails
+    // the LINK before any Module body runs.
+    let sources = [("main".to_owned(), "module Main { }".to_owned())];
+    let clashing = vec![
+        (
+            "org.token".to_owned(),
+            1_u64,
+            "1.2.0".to_owned(),
+            "b3:a".to_owned(),
+        ),
+        (
+            "org.token".to_owned(),
+            1_u64,
+            "1.2.1".to_owned(),
+            "b3:b".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        crate::load_resolved_package("org.x", 1, None, clashing, &sources, None).err(),
+        Some(EvaluationError::PackageVersionUnification)
+    );
+
+    // Two MAJORS of one package are distinct identities and unify fine.
+    let majors = vec![
+        (
+            "org.token".to_owned(),
+            1_u64,
+            "1.2.0".to_owned(),
+            "b3:a".to_owned(),
+        ),
+        (
+            "org.token".to_owned(),
+            2_u64,
+            "2.0.0".to_owned(),
+            "b3:b".to_owned(),
+        ),
+    ];
+    assert!(crate::load_resolved_package("org.x", 1, None, majors, &sources, None).is_ok());
+
+    // Two DIFFERENT packages at one major are unrelated identities.
+    let distinct = vec![
+        (
+            "org.token".to_owned(),
+            1_u64,
+            "1.2.0".to_owned(),
+            "b3:a".to_owned(),
+        ),
+        (
+            "org.other".to_owned(),
+            1_u64,
+            "1.2.1".to_owned(),
+            "b3:b".to_owned(),
+        ),
+    ];
+    assert!(crate::load_resolved_package("org.x", 1, None, distinct, &sources, None).is_ok());
+}
