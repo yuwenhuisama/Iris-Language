@@ -1,0 +1,4 @@
+package_id = "org.iris.v429"
+api_major = 1
+dependencies = ["org.iris.v429.stamp"]
+sources = ["src/main.ir"]

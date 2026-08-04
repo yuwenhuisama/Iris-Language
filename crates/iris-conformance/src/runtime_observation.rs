@@ -50,7 +50,12 @@ fn compare_package_fixture(
     // sources are collected through the same diagnostics collector every other
     // chapter uses rather than being loaded.
     if let Some(diagnostics) = expected.get("diagnostics") {
-        return compare_package_diagnostics(diagnostics, &package)
+        // A decorator may be DECLARED in a dependency and applied here, so the
+        // whole dependency-first tree is gathered rather than this package
+        // alone. `IRIS-V1-META-C017` makes that order normative, and a fixture
+        // without dependencies yields exactly the single package it did before.
+        let packages = package_tree(&directory, &package)?;
+        return compare_package_diagnostics(diagnostics, &packages)
             .map_err(|error| format!("{}: {error}", record.id));
     }
     // A row that observes a Module member sends to it AFTER the load, since a
@@ -77,9 +82,28 @@ fn compare_package_fixture(
 /// stating a static rejection observes the codes its files report rather than
 /// any loaded value. The codes from every source are gathered in manifest
 /// order, since `IRIS-V1-META-C017` makes that order normative.
+/// The fixture's packages, ordered dependencies-first.
+///
+/// `IRIS-V1-META-C006` resolves dependencies BEFORE initialization, so a
+/// fixture that declares them is loaded as a tree whose members sit beside it
+/// under a shared root and are named by `package_id`.
+fn package_tree(
+    directory: &std::path::Path,
+    package: &crate::package_fixture::Package,
+) -> Result<Vec<crate::package_fixture::Package>, String> {
+    if package.dependencies.is_empty() {
+        return Ok(vec![package.clone()]);
+    }
+    let (root, entry) = directory
+        .parent()
+        .zip(directory.file_name().and_then(std::ffi::OsStr::to_str))
+        .ok_or_else(|| format!("package fixture {} has no parent root", directory.display()))?;
+    crate::package_fixture::load_tree(root, entry)
+}
+
 fn compare_package_diagnostics(
     expected: &Value,
-    package: &crate::package_fixture::Package,
+    packages: &[crate::package_fixture::Package],
 ) -> Result<(), String> {
     let Value::Array(entries) = expected else {
         return Err("diagnostics expectation must be an array".into());
@@ -89,7 +113,7 @@ fn compare_package_diagnostics(
         .map(|entry| string(object(entry)?, "code").map(str::to_owned))
         .collect::<Result<Vec<_>, String>>()?;
     let mut actual = Vec::new();
-    for (_, source) in &package.sources {
+    for (_, source) in packages.iter().flat_map(|package| &package.sources) {
         actual.extend(
             crate::runner::diagnostics(source)
                 .into_iter()

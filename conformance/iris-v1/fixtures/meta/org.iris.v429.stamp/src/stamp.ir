@@ -1,0 +1,5 @@
+contract ClassDecorator { fun plan(declaration, arguments) }
+global mut $tick: Integer = 0
+export class Stamp for ClassDecorator {
+  public impl fun plan(declaration, arguments) -> Integer { $tick }
+}

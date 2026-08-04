@@ -1,0 +1,3 @@
+package_id = "org.iris.v429.stamp"
+api_major = 1
+sources = ["src/stamp.ir"]

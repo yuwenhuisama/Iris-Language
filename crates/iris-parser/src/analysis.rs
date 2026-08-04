@@ -890,6 +890,46 @@ impl Analyzer {
         // its application, so the check runs once every declaration is
         // collected rather than at the application site.
         self.check_decorator_targets(program);
+        self.check_decorator_determinism(program);
+    }
+
+    /// Rejects a static decorator plan that reads a non-whitelisted input.
+    ///
+    /// `IRIS-V1-META-C088` fixes determinism as an ALLOWED-input whitelist:
+    /// the decorator identity, arguments, immutable declaration metadata,
+    /// direct imports, package metadata and explicitly tracked configuration.
+    /// That makes a violation decidable, and mutable global process state is
+    /// named as forbidden. `IRIS-V1-META-C125` reports it as
+    /// `IRIS-DECORATOR-NONDETERMINISTIC` at phase static, and C087 requires
+    /// the rejection to precede the runtime phase, so no transform runs and
+    /// the target is never published.
+    fn check_decorator_determinism(&mut self, program: &Program) {
+        let violations: usize = program
+            .declarations
+            .iter()
+            .map(unwrap_export)
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Class(value) => Some(value),
+                _ => None,
+            })
+            .filter(|value| {
+                // Only a decorator Class has a static phase to constrain.
+                self.decorator_kinds
+                    .iter()
+                    .any(|(name, _)| name == &value.name)
+            })
+            .flat_map(|value| &value.body)
+            .filter_map(|statement| match statement {
+                iris_syntax::Statement::Method(method) if method.selector == "plan" => {
+                    method.body.as_ref()
+                }
+                _ => None,
+            })
+            .filter(|body| body.iter().any(statement_reads_global))
+            .count();
+        for _ in 0..violations {
+            self.report("IRIS-DECORATOR-NONDETERMINISTIC");
+        }
     }
 
     /// Rejects a decorator applied to a category its Contract does not target.
@@ -902,6 +942,7 @@ impl Analyzer {
         let applications: Vec<(String, &'static str)> = program
             .declarations
             .iter()
+            .map(unwrap_export)
             .flat_map(|declaration| {
                 let (decorators, category) = match declaration {
                     iris_syntax::Declaration::Class(value) => (&value.decorators, "class"),
@@ -2936,6 +2977,51 @@ const fn decorator_target(contract: &str) -> Option<&'static str> {
     }
 }
 
+/// The declaration an `export` wraps, or the declaration itself.
+///
+/// `IRIS-V1-META-C011` makes a package source declarations only, and a
+/// decorator a dependency publishes is written `export class`. Both C125
+/// checks scan whole programs rather than recursing like `declaration`, so an
+/// exported decorator would otherwise be invisible to them.
+fn unwrap_export(declaration: &iris_syntax::Declaration) -> &iris_syntax::Declaration {
+    match declaration {
+        iris_syntax::Declaration::Export(value) => match value.as_ref() {
+            iris_syntax::ExportDeclaration::Declaration(inner) => inner.as_ref(),
+            iris_syntax::ExportDeclaration::Names(_) => declaration,
+        },
+        _ => declaration,
+    }
+}
+
+/// Whether a Statement reads mutable global process state.
+///
+/// `IRIS-V1-META-C088` names such state as outside the whitelist of inputs a
+/// static plan may read. Only reads reachable in this pass are reported; the
+/// StaticType contract that a wrong rejection is far worse than a missed one
+/// applies here too, so an indirect read through a call is left alone rather
+/// than guessed at.
+fn statement_reads_global(statement: &iris_syntax::Statement) -> bool {
+    match statement {
+        iris_syntax::Statement::Expression(expression) => expression_reads_global(expression),
+        iris_syntax::Statement::Return(Some(expression)) => expression_reads_global(expression),
+        _ => false,
+    }
+}
+
+/// Whether an Expression reads mutable global process state.
+fn expression_reads_global(expression: &Expression) -> bool {
+    match expression {
+        Expression::GlobalVar(_) => true,
+        Expression::Member { receiver, .. } | Expression::Index { receiver, .. } => {
+            expression_reads_global(receiver)
+        }
+        Expression::Call {
+            callee, arguments, ..
+        } => expression_reads_global(callee) || arguments.iter().any(expression_reads_global),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod decorator_kind_tests {
     use crate::{analyze, parse};
@@ -2947,6 +3033,49 @@ mod decorator_kind_tests {
             .into_iter()
             .map(|diagnostic| diagnostic.code)
             .collect()
+    }
+
+    #[test]
+    fn c125_rejects_a_static_plan_reading_non_whitelisted_input() {
+        // IRIS-V1-META-C088 fixes determinism as an ALLOWED-input whitelist,
+        // which makes a violation decidable, and names mutable global process
+        // state as forbidden. C125 reports it as IRIS-DECORATOR-NONDETERMINISTIC.
+        let reads_global = "contract ClassDecorator { fun plan(d, a) } \
+                            global mut $tick: Integer = 0 \
+                            class Stamp for ClassDecorator { \
+                              public impl fun plan(d, a) -> Integer { $tick } }";
+        assert_eq!(codes(reads_global), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
+
+        // A plan confined to whitelisted inputs is accepted.
+        let pure = "contract ClassDecorator { fun plan(d, a) } \
+                    class Stamp for ClassDecorator { \
+                      public impl fun plan(d, a) -> Integer { 0 } }";
+        assert!(codes(pure).is_empty());
+
+        // Only a decorator Class has a static phase to constrain, so an
+        // ordinary Class reading a global is left alone.
+        let ordinary = "global mut $tick: Integer = 0 \
+                        class Plain { public fun plan(d, a) -> Integer { $tick } }";
+        assert!(codes(ordinary).is_empty());
+    }
+
+    #[test]
+    fn c125_sees_a_decorator_a_dependency_exports() {
+        // C011 makes a package source declarations only, so a decorator a
+        // dependency publishes is written `export class`. Both C125 checks scan
+        // whole programs rather than recursing, so without unwrapping the
+        // export an imported decorator would be invisible to them.
+        let exported = "contract ClassDecorator { fun plan(d, a) } \
+                        global mut $tick: Integer = 0 \
+                        export class Stamp for ClassDecorator { \
+                          public impl fun plan(d, a) -> Integer { $tick } }";
+        assert_eq!(codes(exported), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
+
+        let exported_mismatch = "contract ModuleDecorator { fun plan(d, a) } \
+                                 export class AsModule for ModuleDecorator { \
+                                   public impl fun plan(d, a) -> Nil { nil } } \
+                                 @AsModule() class Box { }";
+        assert_eq!(codes(exported_mismatch), ["IRIS-DECORATOR-KIND"]);
     }
 
     #[test]

@@ -1,0 +1,2 @@
+import org.iris.v429.stamp.Stamp
+@Stamp() class Box { }
