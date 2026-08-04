@@ -3359,3 +3359,26 @@ fn c086_reports_applied_decorators_in_written_order() {
     );
     assert_eq!(rendered(none), "Array([])");
 }
+
+#[test]
+fn c026_does_not_capture_a_body_local_in_a_declared_method() {
+    // IRIS-V1-META-C026 makes a Method declared in an executable Class body NOT
+    // close over that body's locals, and IRIS-V1-CONTROL-C011 makes an
+    // unresolved bare name raise OR diagnose `NameError`. The v1.25 errata
+    // IRIS-V1-META-C121 settles which branch V343 observes: the declaration is
+    // ACCEPTED and the read raises when the Method runs.
+    let captures = "class Box { let local = 1; public fun value() -> Integer { local } \
+                    public fun plain() -> Integer { 2 } } \
+                    [try { Box.new().value() } catch e { e }, Box.new().plain()]";
+    // C121 also settles publication: not capturing is C026's specified outcome
+    // rather than a failure, so the Class publishes normally.
+    let published = "class Box { let local = 1; public fun value() -> Integer { local } } 1";
+
+    // When / Then: the sibling Method that reads nothing answers normally,
+    // which is what distinguishes a missing capture from a broken declaration.
+    assert_eq!(
+        rendered(captures),
+        "Array([Symbol(\"NameError\"), Integer(IntegerValue(2))])"
+    );
+    assert_eq!(rendered(published), "Integer(IntegerValue(1))");
+}

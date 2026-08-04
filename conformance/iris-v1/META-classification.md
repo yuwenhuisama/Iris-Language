@@ -1,7 +1,7 @@
 # META chapter classification
 
-`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 13 are
-committed here; the remaining 38 are NOT yet transcribed and are bucketed below
+`spec/iris-v1/08-modules-metaprogramming.md` states 51 vector rows. 14 are
+committed here; the remaining 37 are NOT yet transcribed and are bucketed below
 by what actually blocks each one.
 
 Every row names a concrete on-disk fixture, `fixtures/meta/vNNN/iris.toml` for
@@ -47,6 +47,8 @@ such a field stays blocked below.
 
 | `V426` | positive | executable | `IRIS-V1-META-C097` exposes `active_revision`, and `C022` makes each body ONE atomic publication, so a committed `Box.open` advances the revision by exactly one and its defined selector answers. The vector asserts the DIFFERENCE rather than an absolute number: a Class's baseline reflects how the kernel builds it, which is an implementation fact rather than a specified one. The row also lists an audit diff, which needs the Revision view's audit data and is recorded rather than asserted. |
 
+| `V343` | positive | executable | `IRIS-V1-META-C026` makes a declared Method NOT close over its body's locals, and the v1.25 errata `IRIS-V1-META-C121` settles which `IRIS-V1-CONTROL-C011` branch this observes: the declaration is ACCEPTED and the read raises `NameError` when the Method runs, while a sibling Method reading nothing answers normally. |
+
 ## Blocked
 
 | Blocker | Rows | Why |
@@ -57,4 +59,4 @@ such a field stays blocked below.
 | Reflection views | `V416`, `V424`, `V425`, `V432` | `IRIS-V1-META-C100` and `C107` expose `Reflection::Object` ivar APIs and package-scoped reflection whose authorization is ambient to the executing package. The reflection surface these rows read does not exist. `V416` additionally needs `open module P::M` across two files in one package. | `V425`'s ordinary `respond_to?` half now works and is pinned by tests, including that a receiver defining `method_missing` still answers false; the row stays blocked on `respond_to_contract?`, since the Contract VIEW spelling `receiver..selector` parses but reports `UnsupportedConstruct` when called.
 | Cross-package import | `V346`, `V347`, `V348`, `V349`, `V418`, `V438` | Multi-package LOADING exists: a fixture tree resolves `dependencies` per `IRIS-V1-META-C006`, orders dependencies before dependents per `C017`, aborts on a missing or cyclic dependency per `C007`, and loads the ordered packages onto ONE runtime, so a consumer reaches what its dependency exported. The facade spellings `export import` and `export from` parse, and the v1.24 errata `IRIS-V1-GRAMMAR-C069` supplies the `C049` `override` marker. What blocks all six is ACTIVATION, and probing corrected where that lives. `IRIS-V1-META-C045` is the governing clause, not `C016` alone: cross-Module static visibility requires `export open ...` AND each consumer directly importing the extension Module, with transitive imports and re-exports never activating. `C019` then makes direct import SOURCE ORDER decide override order, and `C048` allows a later import to replace an earlier member only on complete static-signature compatibility. All of that is a STATIC gate, so it belongs in the analyser rather than the evaluator: today an `open class` takes effect globally and immediately, and removing a consumer's import does not deactivate it. `V346` and `V438` observe `IRIS-STATIC-MEMBER-NOT-FOUND`, which appears ONLY in vector rows and in no clause, and which needs static member-existence checking that does not exist at all -- `A.new().nothing()` is equally undiagnosed, the same blocker `IRIS-V1-TYPES-V208` carries. |
 | Decorators | `V429`, `V431` | `IRIS-V1-META-C001` owns decorators, whose static plan and application order have no implementation. | Probed the whole bucket: `decorator` is only ever APPLIED. `@first() class Box { }` parses and stages the identity, and `Class.decorators` now reports applied identities in the WRITTEN order `IRIS-V1-META-C086` fixes, but the grammar has NO decorator DEFINITION production -- `decorator_decl` appears zero times in chapter 02 -- so a decorator body cannot be written. Every row needs one: `V428`'s decorator returns a Module candidate, `V429`'s static plan reads `Clock.now()`, `V430`'s generates a Method, `V431`'s receives declaration metadata and a runtime transform context. That missing production is a `TRACE-C019` candidate rather than an implementation gap.
-| Other | `V343`, `V350`, `V433`, `V440` | Each depends on one of the above: `V343` and `V440` on candidate validation, `V350` on module composition authorization, `V433` on revision migration. |
+| Other | `V350`, `V433`, `V440` | Each depends on one of the above: `V440` on candidate validation, `V350` on module composition authorization, `V433` on revision migration. |

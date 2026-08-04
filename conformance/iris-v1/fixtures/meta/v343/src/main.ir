@@ -1,0 +1,5 @@
+class Box {
+  let local = 1
+  public fun value() -> Integer { local }
+  public fun plain() -> Integer { 2 }
+}
