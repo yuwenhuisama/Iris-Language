@@ -21,6 +21,16 @@ pub struct Package {
     pub package_id: String,
     /// The manifest's `api_major`.
     pub api_major: u32,
+    /// The manifest's `version`, when it declares one.
+    ///
+    /// `IRIS-V1-META-C003` lists the field and `IRIS-V1-META-V420` reflects the
+    /// resolved package identity, so it is retained rather than ignored.
+    pub version: Option<String>,
+    /// Each locked dependency as `(package_id, api_major, version, digest)`.
+    ///
+    /// `IRIS-V1-META-C006` requires an EXACT selection, which `iris.lock`
+    /// records. V420 reflects the selected dependency.
+    pub locked: Vec<(String, u32, String, String)>,
     /// Each ordered source entry as `(relative path, contents)`.
     ///
     /// `IRIS-V1-META-C017` initializes in manifest-declared source order, so
@@ -53,11 +63,19 @@ pub fn load(directory: &Path) -> Result<Package, String> {
                 .map_err(|error| format!("{}: {error}", path.display()))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // C006 requires an EXACT dependency selection, which `iris.lock` records
+    // beside the manifest. A fixture without one simply locks nothing.
+    let locked = match std::fs::read_to_string(directory.join("iris.lock")) {
+        Ok(contents) => parse_lock(&contents)?,
+        Err(_) => Vec::new(),
+    };
     Ok(Package {
         package_id: manifest.package_id,
         api_major: manifest.api_major,
         sources,
         dependencies: manifest.dependencies,
+        version: manifest.version,
+        locked,
     })
 }
 
@@ -104,6 +122,7 @@ struct Manifest {
     api_major: u32,
     sources: Vec<String>,
     dependencies: Vec<String>,
+    version: Option<String>,
 }
 
 /// Parses the manifest subset chapter 08 vectors observe.
@@ -117,6 +136,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
     let mut api_major = None;
     let mut sources = Vec::new();
     let mut dependencies = Vec::new();
+    let mut version = None;
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or_default().trim();
         if line.is_empty() || line.starts_with('[') {
@@ -141,6 +161,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
             // C006 requires the selection to be exact, so a bare package name
             // is the already-selected result rather than a range to resolve.
             "dependencies" => dependencies = parse_array(value)?,
+            "version" => version = Some(value.trim_matches('"').to_owned()),
             // A manifest key this loader does not model is IGNORED rather than
             // rejected, so a fixture may carry the version, dependency or
             // permission fields `C003` lists without this pretending to honour
@@ -153,7 +174,59 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
         api_major: api_major.ok_or("manifest declares no api_major")?,
         sources,
         dependencies,
+        version,
     })
+}
+
+/// Parses `iris.lock` entries of the form
+/// `package_id = { api_major = 2, version = "2.1.4", digest = "b3:dep214" }`.
+///
+/// `IRIS-V1-META-C006` makes the selection EXACT, so every field is required
+/// and a malformed entry is reported rather than silently skipped.
+fn parse_lock(contents: &str) -> Result<Vec<(String, u32, String, String)>, String> {
+    let mut locked = Vec::new();
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (name, rest) = line
+            .split_once('=')
+            .ok_or_else(|| format!("lock entry expects `name = {{ ... }}`: {line}"))?;
+        let body = rest
+            .trim()
+            .strip_prefix('{')
+            .and_then(|rest| rest.strip_suffix('}'))
+            .ok_or_else(|| format!("lock entry expects a table: {line}"))?;
+        let mut api_major = None;
+        let mut version = None;
+        let mut digest = None;
+        for field in body.split(',') {
+            let Some((key, value)) = field.split_once('=') else {
+                continue;
+            };
+            let value = value.trim().trim_matches('"');
+            match key.trim() {
+                "api_major" => {
+                    api_major = Some(
+                        value
+                            .parse::<u32>()
+                            .map_err(|error| format!("lock api_major: {error}"))?,
+                    );
+                }
+                "version" => version = Some(value.to_owned()),
+                "digest" => digest = Some(value.to_owned()),
+                _ => {}
+            }
+        }
+        locked.push((
+            name.trim().to_owned(),
+            api_major.ok_or_else(|| format!("lock entry declares no api_major: {line}"))?,
+            version.ok_or_else(|| format!("lock entry declares no version: {line}"))?,
+            digest.ok_or_else(|| format!("lock entry declares no digest: {line}"))?,
+        ));
+    }
+    Ok(locked)
 }
 
 fn parse_array(value: &str) -> Result<Vec<String>, String> {

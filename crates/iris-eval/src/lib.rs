@@ -236,8 +236,25 @@ pub fn load_package_at_major(
     sources: &[(String, String)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_resolved_package(package_id, api_major, None, Vec::new(), sources, probe)
+}
+
+/// Loads one package together with the identity a lock file already resolved.
+///
+/// `IRIS-V1-META-C006` makes the dependency selection EXACT, so a recorded
+/// selection is carried in rather than re-resolved, and `IRIS-V1-META-V420`
+/// observes it without any resolver fetch occurring.
+pub fn load_resolved_package(
+    package_id: &str,
+    api_major: u64,
+    version: Option<String>,
+    locked: Vec<(String, u64, String, String)>,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     evaluator.enter_api_major(api_major);
+    evaluator.enter_package_resolution(version, locked);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a
     // cycle a LINK error, so the dependency graph is checked before any Module

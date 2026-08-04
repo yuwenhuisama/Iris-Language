@@ -28,6 +28,8 @@ fn it_loads_a_manifest_and_its_ordered_sources() {
                 ("src/b.ir".into(), "module B { }".into()),
             ],
             dependencies: vec![],
+            version: None,
+            locked: Vec::new(),
         })
     );
     let _ = std::fs::remove_dir_all(&directory);
@@ -61,9 +63,10 @@ fn a_missing_or_incomplete_manifest_aborts_the_load() {
 
 #[test]
 fn an_unmodelled_manifest_key_is_ignored_rather_than_honoured() {
-    // C003 also lists dependency, permission and native-artifact fields. This
-    // loader does not model them, so carrying one must neither fail the load
-    // nor look like support for it.
+    // C003 also lists permission and native-artifact fields. This loader does
+    // not model them, so carrying one must neither fail the load nor look like
+    // support for it. `version` IS modelled now, since V420 reflects the
+    // resolved package identity, so it is retained rather than ignored.
     let directory = tempdir("extra-keys");
     write(
         &directory,
@@ -79,6 +82,8 @@ fn an_unmodelled_manifest_key_is_ignored_rather_than_honoured() {
             api_major: 1,
             sources: vec![],
             dependencies: vec![],
+            version: Some("1.2.3".into()),
+            locked: Vec::new(),
         })
     );
     let _ = std::fs::remove_dir_all(&directory);

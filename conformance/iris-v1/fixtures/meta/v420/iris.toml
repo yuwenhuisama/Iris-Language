@@ -1,0 +1,4 @@
+package_id = "org.iris.v420"
+api_major = 1
+version = "1.2.3"
+sources = ["src/main.ir"]

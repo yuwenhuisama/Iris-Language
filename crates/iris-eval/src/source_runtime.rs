@@ -80,6 +80,16 @@ pub(super) struct SourceEvaluator {
     /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
     /// that identity runtime-local rather than publishable.
     package: String,
+    /// The current package's declared `version`, when its manifest states one.
+    ///
+    /// `IRIS-V1-META-C003` lists the field and `IRIS-V1-META-V420` reflects the
+    /// resolved package identity.
+    package_version: Option<String>,
+    /// Each locked dependency as `(package_id, api_major, version, digest)`.
+    ///
+    /// `IRIS-V1-META-C006` requires an EXACT selection, and V420 reflects the
+    /// selected dependency without any resolver fetch occurring.
+    locked_dependencies: Vec<(String, u64, String, String)>,
     /// Members added programmatically or by a conditional body branch.
     ///
     /// `IRIS-V1-META-C046` makes such additions DYNAMIC-ONLY, and `C047`
@@ -299,6 +309,8 @@ impl SourceEvaluator {
             globals: HashMap::new(),
             package: package.to_owned(),
             api_major: 1,
+            package_version: None,
+            locked_dependencies: Vec::new(),
             dynamic_members: std::collections::HashSet::new(),
             hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
@@ -1057,6 +1069,20 @@ impl SourceEvaluator {
     /// different Contract Type hashes, which is what V260 observes.
     pub(super) fn enter_api_major(&mut self, api_major: u64) {
         self.api_major = api_major;
+    }
+
+    /// Records the resolved package identity and its locked dependencies.
+    ///
+    /// `IRIS-V1-META-C006` makes the dependency selection EXACT, so what a lock
+    /// file already resolved is carried in rather than re-resolved. V420
+    /// reflects both without any resolver fetch occurring.
+    pub(super) fn enter_package_resolution(
+        &mut self,
+        version: Option<String>,
+        locked: Vec<(String, u64, String, String)>,
+    ) {
+        self.package_version = version;
+        self.locked_dependencies = locked;
     }
 
     /// Reports whether the published revision of a named Class holds a slot.
@@ -4696,6 +4722,30 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
         match (namespace, selector) {
+            // C097 gives a package a reflection view, and C006 makes the
+            // dependency selection exact. V420 reads the resolved identity and
+            // the selected dependency the lock file recorded.
+            ("Reflection::Package", "identity") => Ok(Value::Array(vec![
+                Value::Symbol(self.package.clone()),
+                Value::Integer(self.api_major.into()),
+            ])),
+            ("Reflection::Package", "version") => Ok(self
+                .package_version
+                .clone()
+                .map_or(Value::Nil, Value::Symbol)),
+            ("Reflection::Package", "dependencies") => Ok(Value::ReadonlyArray(
+                self.locked_dependencies
+                    .iter()
+                    .map(|(name, major, version, digest)| {
+                        Value::Array(vec![
+                            Value::Symbol(name.clone()),
+                            Value::Integer((*major).into()),
+                            Value::Symbol(version.clone()),
+                            Value::Symbol(digest.clone()),
+                        ])
+                    })
+                    .collect(),
+            )),
             ("Reflection::Object", "list_ivars") => {
                 let [target] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
