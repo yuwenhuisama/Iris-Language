@@ -1835,3 +1835,33 @@ fn c046_marks_only_conditional_body_additions_dynamic_only() {
         Ok(RuntimeValue::Symbol("other".into()))
     );
 }
+
+#[test]
+fn c099_keeps_contract_slots_in_their_own_namespace() {
+    // C099 gives qualified Contract slots their OWN probe and forbids merging
+    // the ordinary and qualified namespaces. Its receiver is a Contract VIEW,
+    // so the Contract answers `view(Class)` to produce one.
+    let base = "contract Named { fun name() -> Symbol } \
+                class Box for Named { public impl fun name() -> Symbol { :box } \
+                public fun method_missing(s) -> Nil { raise :called } } ";
+
+    // C098 forbids consulting method_missing as a probe, so a Class defining
+    // it still answers false for a member it does not have.
+    assert_eq!(
+        evaluate(&format!("{base} Box.new().respond_to?(:ghost)")),
+        Ok(RuntimeValue::Bool(false))
+    );
+
+    assert_eq!(
+        evaluate(&format!(
+            "{base} Named.view(Box).respond_to_contract?(:name)"
+        )),
+        Ok(RuntimeValue::Bool(true))
+    );
+    assert_eq!(
+        evaluate(&format!(
+            "{base} Named.view(Box).respond_to_contract?(:ghost)"
+        )),
+        Ok(RuntimeValue::Bool(false))
+    );
+}

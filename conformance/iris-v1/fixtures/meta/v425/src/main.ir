@@ -1,0 +1,5 @@
+contract Named { fun name() -> Symbol }
+class Box for Named {
+  public impl fun name() -> Symbol { :box }
+  public fun method_missing(s) -> Nil { raise :called }
+}

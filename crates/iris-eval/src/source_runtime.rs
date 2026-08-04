@@ -4247,6 +4247,38 @@ impl SourceEvaluator {
             // V358 observes that a Contract written without `extends` has an
             // EMPTY parent list, so no implicit parent may appear. C043 forms
             // inheritance as a plain relation, which is what this reports.
+            // C099 gives qualified Contract slots their OWN probe,
+            // `respond_to_contract?`, and forbids merging the ordinary and
+            // qualified namespaces. Its receiver is a Contract VIEW, so the
+            // Contract answers `view(Class)` to produce one. V425 observes both.
+            Value::Contract(contract) if selector == "view" => {
+                let [Value::Class(class)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                Ok(Value::ContractView(
+                    Box::new(Value::Class(*class)),
+                    contract,
+                ))
+            }
+            Value::ContractView(ref target, contract) if selector == "respond_to_contract?" => {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let Value::Class(class) = target.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let (class, name) = (*class, name.clone());
+                let selector_id = self.selector(&name);
+                // A qualified slot answers directly; C047 also lets ONE
+                // unqualified `impl` member satisfy a same-name requirement,
+                // so both routes count as responding.
+                let qualified =
+                    self.qualified_methods
+                        .contains_key(&(class, contract, selector_id));
+                Ok(Value::Bool(
+                    qualified || self.satisfies_unqualified(class, contract, &name),
+                ))
+            }
             Value::Contract(contract) if selector == "parents" => Ok(Value::Array(
                 self.contract_parents
                     .get(&contract)
