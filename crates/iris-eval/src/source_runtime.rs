@@ -80,6 +80,13 @@ pub(super) struct SourceEvaluator {
     /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
     /// that identity runtime-local rather than publishable.
     package: String,
+    /// The Class object naming `ExceptionContext`, once source has named it.
+    ///
+    /// `IRIS-V1-CONTROL-C080` makes it a NAMEABLE built-in Class so the getter
+    /// replacement `C065` and `D-143` already authorize has an entry point.
+    /// It is created on first mention rather than at startup, so a program that
+    /// never names it publishes no extra Class.
+    exception_context_class: Option<ClassId>,
     /// The current package's declared `version`, when its manifest states one.
     ///
     /// `IRIS-V1-META-C003` lists the field and `IRIS-V1-META-V420` reflects the
@@ -309,6 +316,7 @@ impl SourceEvaluator {
             globals: HashMap::new(),
             package: package.to_owned(),
             api_major: 1,
+            exception_context_class: None,
             package_version: None,
             locked_dependencies: Vec::new(),
             dynamic_members: std::collections::HashSet::new(),
@@ -488,9 +496,14 @@ impl SourceEvaluator {
             }
         }
         let class = if declaration.reopen {
-            let class = self
-                .class_name(&declaration.name)?
-                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            // C080 makes `ExceptionContext` a NAMEABLE built-in Class, so a
+            // reopen of it resolves to the Class whose getters an ordinary
+            // property read consults.
+            let class = match self.class_name(&declaration.name)? {
+                Some(class) => class,
+                None if declaration.name == "ExceptionContext" => self.exception_context_class()?,
+                None => return Err(EvaluationError::UnsupportedConstruct),
+            };
             if self.is_builtin_class(class) && declaration.extends.is_some() {
                 let replacement = self
                     .kernel
@@ -4164,6 +4177,26 @@ impl SourceEvaluator {
             // C023 targets the CURRENT transaction candidate, so a composition
             // change JOINS an open transaction. V340 removes and re-includes a
             // Module inside one open block, which needs both directions.
+            // C099 supplies the SPELLING the refusal needs to be observable.
+            // C045 makes declared Contract conformance immutable for a
+            // revision's static spine, so the attempt is rejected BEFORE
+            // publication and the target keeps its conformance. V200 observes
+            // that `A` still conforms to `C` afterwards.
+            Value::Class(class) if selector == "remove_contract" => {
+                let [Value::Contract(contract)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let declared = self
+                    .class_contracts
+                    .get(&class)
+                    .is_some_and(|contracts| contracts.contains(contract));
+                if declared {
+                    return Err(EvaluationError::TypeContractError);
+                }
+                // Removing a Contract the Class never declared changes no
+                // static spine fact, so it is a no-op rather than a refusal.
+                Ok(Value::Nil)
+            }
             Value::Class(class) if selector == "remove_module" || selector == "add_module" => {
                 let [Value::Symbol(module)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -4795,6 +4828,17 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
                 self.recompose(*class, module, false).map(|()| Value::Nil)
             }
+            ("Reflection::Class", "remove_contract") => {
+                let [Value::Class(target), Value::Contract(contract)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                // C119 makes the two entry points ONE implementation.
+                self.send(
+                    Value::Class(*target),
+                    "remove_contract",
+                    &[Value::Contract(*contract)],
+                )
+            }
             ("Reflection::Class", "set_superclass") => {
                 let [Value::Class(target), Value::Class(superclass)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -5326,6 +5370,29 @@ impl SourceEvaluator {
         self.module_names.contains_key(name)
     }
 
+    /// The Class object naming `ExceptionContext`, creating it on first use.
+    ///
+    /// `IRIS-V1-CONTROL-C080` makes it a nameable built-in Class so the getter
+    /// replacement `C065` and `D-143` authorize has an entry point. It carries
+    /// no members of its own: an unreplaced getter still reads the protected
+    /// payload, which is what keeps the replacement confined to ordinary reads.
+    fn exception_context_class(&mut self) -> Result<ClassId, EvaluationError> {
+        if let Some(class) = self.exception_context_class {
+            return Ok(class);
+        }
+        let object = self
+            .kernel
+            .class(iris_runtime::BuiltinClass::Object)
+            .map_err(EvaluationError::Runtime)?;
+        let class = self
+            .runtime
+            .registry_mut()
+            .define_class(StaticSpine::new(1), Some(object))
+            .map_err(EvaluationError::Class)?;
+        self.exception_context_class = Some(class);
+        Ok(class)
+    }
+
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
         match self.names.get(name) {
             Some(Binding {
@@ -5422,6 +5489,23 @@ impl SourceEvaluator {
         // IRIS-V1-CONTROL-C057 owns the cause, so both are ordinary reads on
         // the context rather than dispatched sends.
         if let Value::ExceptionContext(_, value, cause, suppressed, sites, location) = &receiver {
+            // C080 lets a public getter be REPLACED for ordinary property
+            // reads. A replacement is an ordinary Method on the named Class, so
+            // it is consulted before the payload read below. D-143 keeps the
+            // protected records unreachable from here: the runtime reads the
+            // payload directly and never dispatches, so a replacement changes
+            // only what ordinary source sees.
+            if let Some(class) = self.exception_context_class
+                && arguments.is_empty()
+            {
+                let written = self.selector(selector);
+                if let Ok(iris_runtime::DispatchOutcome::Invoke(method)) =
+                    self.runtime.registry().dispatch(class, written)
+                    && self.bodies.contains_key(&method.body().raw())
+                {
+                    return self.invoke_method(method, receiver.clone(), &[]);
+                }
+            }
             match selector {
                 // D-159 makes the context payload readable but never
                 // assignable, so the setter selectors are rejected rather than

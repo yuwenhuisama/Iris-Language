@@ -442,6 +442,8 @@ IRIS-V1-TYPES-C097：v1.21 勘误确定了逐闭合物化失败时抛出的诊�
 
 IRIS-V1-TYPES-C098：v1.29 勘误确定了 IRIS-V1-TYPES-C045 与 `D-174` 所保护的祖先界限。当所提议的祖先关系丢弃了一个在 `D-173` 意义上携带静态脊事实的声明祖先——即携带声明的 Contract，或目标所依赖的 contract-visible 成员名与签名——则该事务性运行时超类变更**必须**在发布前以 `TypeContractError` 拒绝。不携带此类事实的声明祖先**不**受本条款保护，丢弃它将正常发布；对于自该祖先保留下来的方法，其后果由 `D-104` 与 IRIS-V1-RUNTIME-C015 所有，二者在反射调用入口抛出 `MethodBindingError`，而非拒绝该祖先变更。通过插入一个仍可抵达每一个受保护声明祖先的类来收窄祖先关系是允许的，因为它保留了全部静态子类型假设。`D-262` 所述的永久声明界限不变：本条款确定的是该界限**保护哪些**声明祖先，且不推翻任何已发布的结论。
 
+IRIS-V1-TYPES-C099：v1.30 勘误确定了**尝试**从类移除已声明 Contract 的拼写。事务候选**可以**以 `remove_contract(contract)` 发起该尝试，其反射形式为 `Reflection::Class.remove_contract(target, contract)`；依 IRIS-V1-META-C119，它与类级入口是**同一个**实现，正如 `set_superclass` 那样。该尝试是 IRIS-V1-META-C023 意义上的候选变更，因此作用于**当前**事务候选。IRIS-V1-TYPES-C045 使已声明的 Contract 遵从对某一修订的静态脊而言**不可变**，故该尝试**必须**在发布**前**以 `TypeContractError` 拒绝，且目标**必须**保留其已声明 Contract 集合、其活动修订与其遵从关系。本条款仅提供使该拒绝**可被观测**所需的**拼写**；它不授予移除已声明 Contract 的任何能力，也不推翻任何已发布的结论。不同的已声明 Contract 集合需要通过显式的类演化系统创建不同的类修订或声明，这正是 `D-173` 已有的规定。
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-TYPES-V018` | positive | 需要 compiler；需要 interpreter；需要 JIT；native 不适用 | Iris source fixture: `contract Named { fun name() -> String } class User for Named { impl fun name() -> String { "iris" } } let view = User.new() as Named; view..name()`. | 值 `"iris"`；Type `String`；checked view construction 和 explicit qualified dispatch 选择 `Named::name`。 | `D-233`, `D-234`, `D-236`, `D-237`, `D-239`, `D-278` |

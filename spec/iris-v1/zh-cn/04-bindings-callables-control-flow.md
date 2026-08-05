@@ -437,6 +437,8 @@ IRIS-V1-CONTROL-C078：v1.15 勘误为那些冻结文本以散文描述拒绝但
 
 IRIS-V1-CONTROL-C079：v1.15 勘误定义三个记录 Type，它们是 IRIS-V1-CONTROL-C065 与 `D-473` 已要求 `ExceptionContext` 暴露、却从未规定其成员的类型。本条款仅定义 Type：它不改变任何传播、清理或链接行为。`SourceLocation` 是不可变、无标识的值，具有只读的 `path: String`、`line: Integer`、`column: Integer`，其中 `line` 与 `column` 从 1 开始计数。`StackFrame` 是不可变、无标识的值，具有只读的 `callable_name: Symbol` 与 `location: SourceLocation`。`RaiseSite` 是不可变、无标识的值，具有只读的 `location: SourceLocation`，记录一次裸 `raise` 在 `D-155` 下继续传播的位置。三者均按结构比较与哈希，这与 IRIS-V1-CONTROL-C067 保持基于标识的 `ExceptionContext` 不同：命名同一可调用体且位于同一位置的两个栈帧相等。`original_stack` 按原始 raise 处由内向外排序，`re_raise_sites` 保持 `D-155` 已要求的出现顺序。两个集合均不可由用户构造，这与 IRIS-V1-CONTROL-C066 禁止伪造传播元数据一致。
 
+IRIS-V1-CONTROL-C080：v1.30 勘误确定了执行 IRIS-V1-CONTROL-C065 与 `D-143` 已授权的 getter 替换所经由的表面。`ExceptionContext` 是**可命名的**内建类，既可作为普通名字解析，也可作为反射目标，因此其公开 getter **可以**通过 IRIS-V1-META-C022 的事务模型替换，与任何其他类成员完全一样。替换或移除一个公开 getter **仅**影响普通属性读取。运行时展开、诊断、原生桥接与未捕获格式化**必须**继续读取受保护的内部记录；任何 getter 替换都无法触及或伪造它们，这是 `C065` 与 `D-143` 已有的要求。这些记录所暴露的集合依 `D-142` 仍为只读，因此替换改变的只是普通读取所返回的值，而绝不改变运行时自身所观测到的内容。本条款命名的是一个**已存在**的类，不推翻任何已发布的结论；IRIS-V1-CONTROL-C066 继续禁止伪造传播元数据。
+
 ## 控制覆盖向量
 
 IRIS-V1-CONTROL-C073: 下列向量是带有具体源输入和预期控制观察的规范性可追溯向量。

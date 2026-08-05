@@ -2162,3 +2162,64 @@ fn c045_activates_a_static_extension_only_for_a_direct_importer() {
         "without a direct import the member is not activated"
     );
 }
+
+#[test]
+fn c080_confines_a_getter_replacement_to_ordinary_reads() {
+    // C065 and D-143 both authorize replacing a public ExceptionContext getter,
+    // but the Class was not nameable, so the replacement had no entry point.
+    let fixture = "mut n = 0; \
+        class It { public fun next() { n = n + 1; \
+          if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+          public fun close() { raise :close } } \
+        class S { public fun iterator() { It.new() } } ";
+
+    // The replacement changes what an ordinary read returns.
+    let replaced = format!(
+        "{fixture} open class ExceptionContext {{ public fun suppressed() -> Array {{ [] }} }} \
+         try {{ for x in S.new() {{ raise :body }} }} catch v, c {{ [c.suppressed, c.value] }}"
+    );
+    assert_eq!(
+        evaluate(&replaced),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Array(Vec::new()),
+            RuntimeValue::Symbol("body".into()),
+        ]))
+    );
+
+    // The same fixture WITHOUT the replacement still sees the protected
+    // record, so the replacement changed the ordinary read and nothing else.
+    let intact = format!(
+        "{fixture} try {{ for x in S.new() {{ raise :body }} }} \
+         catch v, c {{ [c.suppressed[0].value, c.value] }}"
+    );
+    assert_eq!(
+        evaluate(&intact),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("close".into()),
+            RuntimeValue::Symbol("body".into()),
+        ]))
+    );
+}
+
+#[test]
+fn c099_refuses_removing_a_declared_contract() {
+    // C099 supplies the SPELLING the refusal needs to be observable; C045 makes
+    // declared conformance immutable, so the attempt is refused before commit
+    // and the target keeps its conformance.
+    let declared = "contract C { fun m() -> Nil } \
+                    class A for C { public impl fun m() -> Nil { nil } } \
+                    let refused = try { A.remove_contract(C) } catch e { e }; \
+                    [refused, A.active_revision]";
+    assert_eq!(
+        evaluate(declared),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("TypeContractError".into()),
+            RuntimeValue::Integer(3_u8.into()),
+        ]))
+    );
+
+    // Removing a Contract the Class never declared changes no static spine
+    // fact, so it is a no-op rather than a refusal.
+    let undeclared = "contract C { fun m() -> Nil } class A { } A.remove_contract(C)";
+    assert_eq!(evaluate(undeclared), Ok(RuntimeValue::Nil));
+}
