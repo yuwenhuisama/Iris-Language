@@ -37,7 +37,7 @@ pub use protocol::{
 };
 pub use runtime::{ConstructionError, ExecutionError, Runtime};
 pub use stable_hash::{
-    StableHashError, contract_type_hash, contract_view_hash, numeric_hash, numeric_public_hash,
-    public_hash,
+    StableHashError, artifact_digest, contract_type_hash, contract_view_hash, numeric_hash,
+    numeric_public_hash, public_hash,
 };
 pub use value::{ComposedType, IntegerValue, TypeAtom, Value};

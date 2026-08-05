@@ -100,6 +100,12 @@ pub enum EvaluationError {
     /// its static members. `IRIS-V1-META-V346`, `V418` and `V438` name the
     /// diagnostic.
     StaticMemberNotFound,
+    /// A rollback artifact was missing, inaccessible, or failed its digest.
+    ///
+    /// `IRIS-V1-META-C066` and `D-271` verify the stored digest before
+    /// reconstruction and publish nothing on failure, never substituting
+    /// current or approximate source. `IRIS-V1-META-V357` names the error.
+    RevisionArtifactUnavailable,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -265,6 +271,25 @@ pub fn load_resolved_package(
     sources: &[(String, String)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_resolved_package_with_artifact(
+        package_id, api_major, version, locked, None, sources, probe,
+    )
+}
+
+/// Loads one package together with the audit artifact a rollback resolves.
+///
+/// `IRIS-V1-META-C066` resolves the exact artifact through the package store
+/// and verifies its digest before reconstruction, which `IRIS-V1-META-V357`
+/// observes.
+pub fn load_resolved_package_with_artifact(
+    package_id: &str,
+    api_major: u64,
+    version: Option<String>,
+    locked: Vec<(String, u64, String, String)>,
+    artifact: Option<(String, String, String)>,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     evaluator.enter_api_major(api_major);
     // C006 makes `(package_id, api_major)` one identity, so a lock selecting
@@ -281,6 +306,7 @@ pub fn load_resolved_package(
         }
     }
     evaluator.enter_package_resolution(version, locked);
+    evaluator.enter_artifact(artifact);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a
     // cycle a LINK error, so the dependency graph is checked before any Module

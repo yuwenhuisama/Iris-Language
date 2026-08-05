@@ -1,0 +1,1 @@
+class Owner { public fun status() -> Symbol { :ok } }

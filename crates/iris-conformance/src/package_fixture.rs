@@ -31,6 +31,11 @@ pub struct Package {
     /// `IRIS-V1-META-C006` requires an EXACT selection, which `iris.lock`
     /// records. V420 reflects the selected dependency.
     pub locked: Vec<(String, u32, String, String)>,
+    /// The audit artifact beside the manifest, as `(locator, digest, source)`.
+    ///
+    /// `D-271` retains an immutable locator PLUS a cryptographic digest, and
+    /// `IRIS-V1-META-C126` scopes the digest to the artifact's SOURCE bytes.
+    pub artifact: Option<(String, String, String)>,
     /// Each ordered source entry as `(relative path, contents)`.
     ///
     /// `IRIS-V1-META-C017` initializes in manifest-declared source order, so
@@ -69,6 +74,12 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         Ok(contents) => parse_lock(&contents)?,
         Err(_) => Vec::new(),
     };
+    // C066 resolves the exact artifact through the package store; the fixture
+    // stores it beside the manifest. A fixture without one carries none.
+    let artifact = match std::fs::read_to_string(directory.join("artifact.json")) {
+        Ok(contents) => Some(parse_artifact(&contents)?),
+        Err(_) => None,
+    };
     Ok(Package {
         package_id: manifest.package_id,
         api_major: manifest.api_major,
@@ -76,6 +87,7 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         dependencies: manifest.dependencies,
         version: manifest.version,
         locked,
+        artifact,
     })
 }
 
@@ -183,6 +195,44 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
 ///
 /// `IRIS-V1-META-C006` makes the selection EXACT, so every field is required
 /// and a malformed entry is reported rather than silently skipped.
+/// Parses the audit artifact's `locator`, `digest` and `source` fields.
+///
+/// `D-271` retains a locator PLUS a digest, and `IRIS-V1-META-C126` scopes the
+/// digest to the SOURCE bytes, so all three are required and a malformed
+/// artifact is reported rather than silently ignored.
+fn parse_artifact(contents: &str) -> Result<(String, String, String), String> {
+    let field = |name: &str| -> Result<String, String> {
+        let key = format!("\"{name}\":");
+        let start = contents
+            .find(&key)
+            .ok_or_else(|| format!("artifact declares no {name}"))?
+            + key.len();
+        let rest = contents[start..].trim_start();
+        let rest = rest
+            .strip_prefix('"')
+            .ok_or_else(|| format!("artifact {name} expects a string"))?;
+        let mut value = String::new();
+        let mut escaped = false;
+        for character in rest.chars() {
+            if escaped {
+                value.push(match character {
+                    'n' => '\n',
+                    other => other,
+                });
+                escaped = false;
+                continue;
+            }
+            match character {
+                '\\' => escaped = true,
+                '"' => return Ok(value),
+                other => value.push(other),
+            }
+        }
+        Err(format!("artifact {name} is unterminated"))
+    };
+    Ok((field("locator")?, field("digest")?, field("source")?))
+}
+
 fn parse_lock(contents: &str) -> Result<Vec<(String, u32, String, String)>, String> {
     let mut locked = Vec::new();
     for line in contents.lines() {

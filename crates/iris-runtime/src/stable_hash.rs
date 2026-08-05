@@ -98,6 +98,17 @@ pub fn contract_type_hash(package: &str, qualified_name: &str, api_major: u64) -
     IntegerValue::from(digest_hash(CONTRACT_TYPE_CONTEXT, &input))
 }
 
+/// The hex BLAKE3-256 digest of an audit artifact's source bytes.
+///
+/// `IRIS-V1-META-C126` scopes a lightweight audit record's digest to the
+/// referenced artifact's SOURCE bytes and not its locator, which is what lets a
+/// locator-only change preserve the digest while a source change alters all 32
+/// bytes. This is the plain hash, not the derive-key mode the public value
+/// hashes use, since it identifies an artifact rather than an Iris value.
+pub fn artifact_digest(source: &[u8]) -> String {
+    blake3::hash(source).to_hex().to_string()
+}
+
 /// The public hash of a Contract view.
 ///
 /// `D-241` uses BLAKE3 derive-key mode with the exact ASCII context

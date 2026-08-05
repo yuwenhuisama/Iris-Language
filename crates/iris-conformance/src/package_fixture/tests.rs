@@ -30,6 +30,7 @@ fn it_loads_a_manifest_and_its_ordered_sources() {
             dependencies: vec![],
             version: None,
             locked: Vec::new(),
+            artifact: None,
         })
     );
     let _ = std::fs::remove_dir_all(&directory);
@@ -84,6 +85,7 @@ fn an_unmodelled_manifest_key_is_ignored_rather_than_honoured() {
             dependencies: vec![],
             version: Some("1.2.3".into()),
             locked: Vec::new(),
+            artifact: None,
         })
     );
     let _ = std::fs::remove_dir_all(&directory);

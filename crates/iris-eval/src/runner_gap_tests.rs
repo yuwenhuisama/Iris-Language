@@ -2223,3 +2223,29 @@ fn c099_refuses_removing_a_declared_contract() {
     let undeclared = "contract C { fun m() -> Nil } class A { } A.remove_contract(C)";
     assert_eq!(evaluate(undeclared), Ok(RuntimeValue::Nil));
 }
+
+#[test]
+fn c126_scopes_the_artifact_digest_to_source_bytes() {
+    // C126 scopes a lightweight audit record's digest to the referenced
+    // artifact's SOURCE bytes and not its locator, which is what lets V357's
+    // locator-only variant preserve the digest while a source change alters it.
+    let source = "class Owner {\n  public fun status() -> Symbol { :ok } \n}\n";
+    let digest = iris_runtime::artifact_digest(source.as_bytes());
+
+    // The digest is a property of the bytes alone, so hashing them twice agrees
+    // and any change to them changes the result.
+    assert_eq!(digest, iris_runtime::artifact_digest(source.as_bytes()));
+    let changed = source.replace(":ok", ":changed");
+    let other = iris_runtime::artifact_digest(changed.as_bytes());
+    assert_ne!(digest, other);
+
+    // V357 requires a source change to alter the FULL 32-byte digest, so no
+    // byte may survive.
+    let retained = digest
+        .as_bytes()
+        .chunks(2)
+        .zip(other.as_bytes().chunks(2))
+        .filter(|(left, right)| left == right)
+        .count();
+    assert_eq!(retained, 0, "a source change must alter all 32 bytes");
+}

@@ -66,7 +66,7 @@ fn compare_package_fixture(
     // takes the single-package path exactly as before.
     let packages = package_tree(&directory, &package)?;
     let outcome = if package.dependencies.is_empty() {
-        iris_eval::load_resolved_package(
+        iris_eval::load_resolved_package_with_artifact(
             &package.package_id,
             u64::from(package.api_major),
             package.version.clone(),
@@ -82,6 +82,7 @@ fn compare_package_fixture(
                     )
                 })
                 .collect(),
+            package.artifact.clone(),
             &package.sources,
             record.package_probe.as_deref(),
         )

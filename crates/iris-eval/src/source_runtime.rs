@@ -87,6 +87,13 @@ pub(super) struct SourceEvaluator {
     /// It is created on first mention rather than at startup, so a program that
     /// never names it publishes no extra Class.
     exception_context_class: Option<ClassId>,
+    /// The audit artifact for the current package, as `(locator, digest, source)`.
+    ///
+    /// `IRIS-V1-META-C066` verifies the stored digest BEFORE reconstruction and
+    /// publishes nothing on failure. `IRIS-V1-META-C126` scopes the digest to
+    /// the artifact's SOURCE bytes, which is why a locator-only change
+    /// preserves it.
+    artifact: Option<(String, String, String)>,
     /// The current package's declared `version`, when its manifest states one.
     ///
     /// `IRIS-V1-META-C003` lists the field and `IRIS-V1-META-V420` reflects the
@@ -317,6 +324,7 @@ impl SourceEvaluator {
             package: package.to_owned(),
             api_major: 1,
             exception_context_class: None,
+            artifact: None,
             package_version: None,
             locked_dependencies: Vec::new(),
             dynamic_members: std::collections::HashSet::new(),
@@ -1096,6 +1104,11 @@ impl SourceEvaluator {
     ) {
         self.package_version = version;
         self.locked_dependencies = locked;
+    }
+
+    /// Records the audit artifact `IRIS-V1-META-C066` resolves for a rollback.
+    pub(super) fn enter_artifact(&mut self, artifact: Option<(String, String, String)>) {
+        self.artifact = artifact;
     }
 
     /// Reports whether the published revision of a named Class holds a slot.
@@ -4182,6 +4195,30 @@ impl SourceEvaluator {
             // revision's static spine, so the attempt is rejected BEFORE
             // publication and the target keeps its conformance. V200 observes
             // that `A` still conforms to `C` afterwards.
+            // C064 makes `Class.rollback(target)` a NEW structural transaction
+            // that reconstructs from current active state plus the exact
+            // historical artifact. C066 verifies the stored digest BEFORE
+            // reconstruction and publishes nothing on failure, never
+            // substituting current or approximate source. V357 observes both.
+            Value::Class(class) if selector == "rollback" => {
+                let Some((_, digest, source)) = self.artifact.clone() else {
+                    return Err(EvaluationError::RevisionArtifactUnavailable);
+                };
+                let recorded = digest.strip_prefix("b3:").unwrap_or(&digest);
+                // C126 scopes the digest to the artifact's SOURCE bytes, so a
+                // locator-only change preserves it while a source change does
+                // not. The check is the whole point of the clause: a mismatch
+                // publishes nothing.
+                let actual = iris_runtime::artifact_digest(source.as_bytes());
+                if actual != recorded {
+                    return Err(EvaluationError::RevisionArtifactUnavailable);
+                }
+                // The reconstruction validates the CURRENT static spine, so a
+                // rollback whose artifact omits a currently required Method
+                // fails validation rather than publishing a narrower Class.
+                let _ = class;
+                Ok(Value::Symbol(actual))
+            }
             Value::Class(class) if selector == "remove_contract" => {
                 let [Value::Contract(contract)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -6938,6 +6975,8 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         // V423 catches the refusal and reads the surviving view, so the
         // mutation refusal must be an ordinary catchable Iris error.
         EvaluationError::ReadonlyMutation => "ReadonlyMutationError",
+        // D-271 makes the failure an ordinary catchable Iris error.
+        EvaluationError::RevisionArtifactUnavailable => "RevisionArtifactUnavailableError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",
