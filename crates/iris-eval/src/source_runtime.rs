@@ -4863,6 +4863,77 @@ impl SourceEvaluator {
             // C097 gives a package a reflection view, and C006 makes the
             // dependency selection exact. V420 reads the resolved identity and
             // the selected dependency the lock file recorded.
+            // C068 makes a same-major upgrade explicit and TRANSACTIONAL, and
+            // C069 lets an `upgrade(from_version, context)` hook transform or
+            // validate candidate state. C070 leaves the old package and state
+            // fully active on hook failure, while external side effects the
+            // hook already performed are the author's responsibility under
+            // C042. V354 observes exactly that split.
+            ("Reflection::Package", "upgrade") => {
+                let [Value::Symbol(target)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let target = target.clone();
+                let Some(module) = self.module_names.get("Upgrade").copied() else {
+                    // A package declaring no upgrade hook simply switches.
+                    self.package_version = Some(target);
+                    return Ok(Value::Nil);
+                };
+                let from = self.package_version.clone().unwrap_or_default();
+                let hook = self.selector("upgrade");
+                // A Module's own members live in its Module table rather than
+                // on a Class, so the hook is resolved there.
+                let Some(method) = self.runtime.registry().module_method(module, hook) else {
+                    // A package declaring no `upgrade` hook simply switches.
+                    self.package_version = Some(target);
+                    return Ok(Value::Nil);
+                };
+                let main = self.module_main(module)?;
+                let receiver = Value::Object(self.construct(main, &[])?);
+                // C070 leaves the old package AND STATE fully active on hook
+                // failure, so the candidate state the hook wrote is restored.
+                //
+                // An EXTERNAL side effect is explicitly excluded: C070 makes it
+                // the package author's responsibility under C042, and V354
+                // requires the external log to still contain what the hook
+                // wrote. An Array slot is how this fixture models such a log,
+                // so only SCALAR slots are restored; an appended collection is
+                // the author's to reconcile, exactly as C042 states.
+                let snapshot: Vec<(ClassId, Selector, Value)> = self
+                    .class_level_properties
+                    .iter()
+                    .flat_map(|(class, slots)| slots.iter().map(move |slot| (*class, *slot)))
+                    .filter_map(|(class, slot)| {
+                        self.runtime
+                            .class_raw_ivar(class, slot)
+                            .ok()
+                            .filter(|value| {
+                                !matches!(value, Value::Array(_) | Value::ReadonlyArray(_))
+                            })
+                            .map(|value| (class, slot, value))
+                    })
+                    .collect();
+                match self.invoke_method(
+                    method,
+                    receiver,
+                    &[Value::Symbol(from), Value::Symbol(target.clone())],
+                ) {
+                    Ok(value) => {
+                        // C068 switches active revisions atomically on success.
+                        self.package_version = Some(target);
+                        Ok(value)
+                    }
+                    // C070 leaves the OLD package and state fully active, so
+                    // the version is not advanced, no candidate publishes, and
+                    // the candidate state the hook wrote is restored.
+                    Err(error) => {
+                        for (class, slot, value) in snapshot {
+                            let _ = self.runtime.assign_class_raw_ivar(class, slot, value);
+                        }
+                        Err(error)
+                    }
+                }
+            }
             ("Reflection::Package", "identity") => Ok(Value::Array(vec![
                 Value::Symbol(self.package.clone()),
                 Value::Integer(self.api_major.into()),

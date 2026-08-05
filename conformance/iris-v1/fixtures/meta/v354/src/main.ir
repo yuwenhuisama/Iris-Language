@@ -1,0 +1,11 @@
+class Ledger {
+  shared class property log: Array = []
+  shared class property counter: Integer = 4
+}
+module Upgrade {
+  public fun upgrade(older, newer) -> Symbol {
+    Ledger.log.append(:"migration-start")
+    Ledger.counter = 9
+    raise :MigrationStop
+  }
+}

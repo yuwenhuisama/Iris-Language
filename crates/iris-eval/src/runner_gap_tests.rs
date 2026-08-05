@@ -2249,3 +2249,48 @@ fn c126_scopes_the_artifact_digest_to_source_bytes() {
         .count();
     assert_eq!(retained, 0, "a source change must alter all 32 bytes");
 }
+
+#[test]
+fn c070_leaves_the_old_package_active_when_an_upgrade_hook_fails() {
+    // C068 makes a same-major upgrade transactional and C069 lets an
+    // `upgrade(from_version, context)` hook validate candidate state. C070
+    // leaves the old package AND STATE fully active when the hook fails, while
+    // C042 makes external side effects the author's responsibility.
+    let source = concat!(
+        "class Ledger { shared class property log: Array = [] ",
+        "shared class property counter: Integer = 4 } ",
+        "module Upgrade { public fun upgrade(older, newer) -> Symbol { ",
+        r#"Ledger.log.append(:"migration-start"); "#,
+        "Ledger.counter = 9; raise :MigrationStop } }"
+    );
+    let probe = concat!(
+        r#"let refused = try { Reflection::Package.upgrade(:"1.0.1") } catch e { e }; "#,
+        "[refused, Reflection::Package.version(), Ledger.counter, Ledger.log]"
+    );
+    let outcome = crate::load_resolved_package_with_artifact(
+        crate::PackageResolution {
+            package_id: "org.x",
+            api_major: 1,
+            version: Some("1.0.0".into()),
+            locked: Vec::new(),
+            artifact: None,
+            permissions: &[],
+            grants: Vec::new(),
+        },
+        &[("main".to_owned(), source.to_owned())],
+        Some(probe),
+    );
+    assert_eq!(
+        outcome.map(|(_, observed)| observed),
+        Ok(Some(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("MigrationStop".into()),
+            // The version never advances, and the counter the hook wrote is
+            // restored, since both are candidate state.
+            RuntimeValue::Symbol("1.0.0".into()),
+            RuntimeValue::Integer(4_u8.into()),
+            // The external log the hook already wrote SURVIVES, which is the
+            // half C070 hands to the package author rather than undoing.
+            RuntimeValue::Array(vec![RuntimeValue::Symbol("migration-start".into())]),
+        ])))
+    );
+}
