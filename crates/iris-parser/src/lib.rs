@@ -944,6 +944,12 @@ impl Parser {
                 }
             }
             self.expect(")")?;
+            // `parameter_sequence` fixes the channel ORDER: positionals, then
+            // positional rest, then keywords, then keyword rest, then block.
+            // V007 names a positional written AFTER a keyword.
+            if !Self::parameters_in_channel_order(&parameters) {
+                self.error("PARSE_BAD_PARAMETER_ORDER");
+            }
             let return_type = if self.consume("-") {
                 self.expect(">")?;
                 Some(self.type_expression()?)
@@ -1265,6 +1271,34 @@ impl Parser {
         } else {
             Some(Pattern::Alternatives(values))
         }
+    }
+
+    /// Whether a parameter list follows the `parameter_sequence` channel order.
+    ///
+    /// The grammar fixes the order as required and optional positionals, then
+    /// positional rest, then required and optional keywords, then keyword rest,
+    /// then the block parameter. A parameter belonging to an EARLIER channel
+    /// than one already seen is out of order, which `IRIS-V1-GRAMMAR-V007`
+    /// observes for a positional written after a `key` parameter.
+    fn parameters_in_channel_order(parameters: &[Parameter]) -> bool {
+        const fn channel(category: ParameterCategory) -> u8 {
+            match category {
+                ParameterCategory::Positional => 0,
+                ParameterCategory::Rest => 1,
+                ParameterCategory::Keyword => 2,
+                ParameterCategory::KeywordRest => 3,
+                ParameterCategory::Block => 4,
+            }
+        }
+        let mut highest = 0;
+        for parameter in parameters {
+            let channel = channel(parameter.category);
+            if channel < highest {
+                return false;
+            }
+            highest = channel;
+        }
+        true
     }
 
     /// Parses one parameter with the category `IRIS-V1-CONTROL-C023` assigns.

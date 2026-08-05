@@ -16,9 +16,27 @@ pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(),
             .iter()
             .map(|entry| string(object(entry)?, "code").map(str::to_owned))
             .collect::<Result<Vec<_>, String>>()?;
-        let actual = diagnostics(&record.source)
-            .iter()
-            .map(|value| value.code.clone())
+        // Lexical diagnostics do not accumulate across a whole source: lexing
+        // reports the first and stops. A row naming several INDEPENDENT
+        // malformed inputs therefore states them as independent sources, and
+        // the codes are gathered across all of them in order.
+        let sources: Vec<&str> = if record.independent_sources.is_empty() {
+            vec![record.source.as_str()]
+        } else {
+            record
+                .independent_sources
+                .iter()
+                .map(String::as_str)
+                .collect()
+        };
+        let actual = sources
+            .into_iter()
+            .flat_map(|source| {
+                diagnostics(source)
+                    .into_iter()
+                    .map(|value| value.code)
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
         if !expected.iter().all(|code| actual.contains(code)) {
             return Err(format!(

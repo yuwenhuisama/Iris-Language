@@ -3354,6 +3354,26 @@ mod override_marker_tests {
     }
 
     #[test]
+    fn parameter_sequence_fixes_the_channel_order() {
+        // `parameter_sequence` orders the channels: positionals, positional
+        // rest, keywords, keyword rest, block. V007 names a positional written
+        // AFTER a keyword.
+        let parsed = parse("module M { public fun f(key x: T, y: T) -> Nil {} }");
+        assert!(!parsed.program_accepted);
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "PARSE_BAD_PARAMETER_ORDER")
+        );
+
+        // Every channel in order is accepted, so the check rejects ORDER rather
+        // than the presence of a keyword or block parameter.
+        let ordered = parse("module M { public fun f(y: T, *r: T, key x: T, &b: T) -> Nil {} }");
+        assert!(ordered.program_accepted, "{:?}", ordered.diagnostics);
+    }
+
+    #[test]
     fn c037_rejects_a_lexical_await_inside_a_transaction_body() {
         // ASYNC-C018 rejects an `await` LEXICALLY inside an open transaction
         // body BEFORE execution, so the check is lexical rather than dynamic.

@@ -11,7 +11,7 @@ RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential:
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
 META     passed: 51, failed: 0, needs_subsystem: 0                                  (51 records, buckets sum 51)
-GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
+GRAMMAR  passed: 29, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (44 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -180,19 +180,23 @@ than in the chapter's vector TABLE, so a table-driven count missed them.
 | Chapter | Transcribed | Rows |
 | --- | --- | --- |
 | RUNTIME | 109 | 109 |
-| GRAMMAR | 41 | 48 |
+| GRAMMAR | 44 | 48 |
 | CONTROL | 134 | 134 |
 | TYPES | 79 | 80 |
 | META | 51 | 51 |
-| **Total** | **414** | **422** |
+| **Total** | **417** | **422** |
 
 Four chapters are complete. The eight open rows are:
 
-- `GRAMMAR-V001`, `V002`, `V004`-`V007`: lexical and parse inventory vectors.
-  `V001` expects "exactly 48 reserved keywords" while `IRIS-V1-GRAMMAR-C013`
-  fixes the count at 49 after the v1.1 `typeof` errata, so the row and the
-  clause it cites disagree and the row needs an owner ruling before it can be
-  transcribed against either number.
+- `GRAMMAR-V005`, `V006`, `V007` are transcribed. `V007` needed
+  `PARSE_BAD_PARAMETER_ORDER`, which the grammar's `parameter_sequence`
+  requires and nothing enforced.
+- `GRAMMAR-V001`, `V002`, `V004` remain: inventory vectors that enumerate the
+  keyword, operator and longest-match token sets. `V001` expects "exactly 48
+  reserved keywords" while `IRIS-V1-GRAMMAR-C013` fixes the count at 49 after
+  the v1.1 `typeof` errata, so the row and the clause it cites disagree and the
+  row needs an owner ruling before it can be transcribed against either
+  number.
 - `GRAMMAR-V008`: recorded in `docs/spec-defects-v1.md` since milestone 1 as
   having no defining row in chapter 02.
 - `TYPES-V208`: blocked on static member-existence checking, recorded.
