@@ -36,6 +36,18 @@ pub struct Package {
     /// `D-271` retains an immutable locator PLUS a cryptographic digest, and
     /// `IRIS-V1-META-C126` scopes the digest to the artifact's SOURCE bytes.
     pub artifact: Option<(String, String, String)>,
+    /// Each permission the manifest requests, as `(name, scope, required)`.
+    ///
+    /// `IRIS-V1-META-C003` lists permission requests as a manifest field, and
+    /// `IRIS-V1-META-V421` observes a load refused for an ungranted REQUIRED
+    /// request before any Module body runs.
+    pub permissions: Vec<(String, String, bool)>,
+    /// Each permission the Host granted, as `(name, scope)`.
+    ///
+    /// `IRIS-V1-META-C103` scopes a grant to a package or Class, and `C104`
+    /// stops grants flowing through callers, so the grant set is a property of
+    /// the loaded package rather than of any caller.
+    pub grants: Vec<(String, String)>,
     /// Each ordered source entry as `(relative path, contents)`.
     ///
     /// `IRIS-V1-META-C017` initializes in manifest-declared source order, so
@@ -80,6 +92,12 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         Ok(contents) => Some(parse_artifact(&contents)?),
         Err(_) => None,
     };
+    // A Host grant fixture sits beside the manifest, since C103 makes the
+    // grant a HOST decision rather than something the package can declare.
+    let grants = match std::fs::read_to_string(directory.join("iris.grants")) {
+        Ok(contents) => parse_grants(&contents),
+        Err(_) => Vec::new(),
+    };
     Ok(Package {
         package_id: manifest.package_id,
         api_major: manifest.api_major,
@@ -88,6 +106,8 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         version: manifest.version,
         locked,
         artifact,
+        permissions: manifest.permissions,
+        grants,
     })
 }
 
@@ -135,6 +155,7 @@ struct Manifest {
     sources: Vec<String>,
     dependencies: Vec<String>,
     version: Option<String>,
+    permissions: Vec<(String, String, bool)>,
 }
 
 /// Parses the manifest subset chapter 08 vectors observe.
@@ -149,6 +170,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
     let mut sources = Vec::new();
     let mut dependencies = Vec::new();
     let mut version = None;
+    let mut permissions = Vec::new();
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or_default().trim();
         if line.is_empty() || line.starts_with('[') {
@@ -174,6 +196,14 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
             // is the already-selected result rather than a range to resolve.
             "dependencies" => dependencies = parse_array(value)?,
             "version" => version = Some(value.trim_matches('"').to_owned()),
+            // C003 lists permission requests. `required` refuses the load when
+            // ungranted; `optional` simply stays ungranted.
+            "permissions.required" => {
+                permissions.extend(parse_permissions(value, true)?);
+            }
+            "permissions.optional" => {
+                permissions.extend(parse_permissions(value, false)?);
+            }
             // A manifest key this loader does not model is IGNORED rather than
             // rejected, so a fixture may carry the version, dependency or
             // permission fields `C003` lists without this pretending to honour
@@ -187,6 +217,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
         sources,
         dependencies,
         version,
+        permissions,
     })
 }
 
@@ -200,6 +231,33 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
 /// `D-271` retains a locator PLUS a digest, and `IRIS-V1-META-C126` scopes the
 /// digest to the SOURCE bytes, so all three are required and a malformed
 /// artifact is reported rather than silently ignored.
+/// Parses `["name@scope", ...]` permission requests.
+///
+/// `IRIS-V1-META-C103` scopes a grant, so a request carries the scope it asks
+/// for and an unscoped request is recorded with an empty scope.
+fn parse_permissions(value: &str, required: bool) -> Result<Vec<(String, String, bool)>, String> {
+    Ok(parse_array(value)?
+        .into_iter()
+        .map(|entry| match entry.split_once('@') {
+            Some((name, scope)) => (name.to_owned(), scope.to_owned(), required),
+            None => (entry, String::new(), required),
+        })
+        .collect())
+}
+
+/// Parses one `name@scope` Host grant per line.
+fn parse_grants(contents: &str) -> Vec<(String, String)> {
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| match line.split_once('@') {
+            Some((name, scope)) => (name.to_owned(), scope.to_owned()),
+            None => (line.to_owned(), String::new()),
+        })
+        .collect()
+}
+
 fn parse_artifact(contents: &str) -> Result<(String, String, String), String> {
     let field = |name: &str| -> Result<String, String> {
         let key = format!("\"{name}\":");

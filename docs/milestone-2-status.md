@@ -10,7 +10,7 @@
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
-META     passed: 44, failed: 0, needs_subsystem: 0                                  (44 records, buckets sum 44)
+META     passed: 46, failed: 0, needs_subsystem: 0                                  (46 records, buckets sum 46)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
@@ -188,7 +188,6 @@ likewise outside this milestone.
 
 Deliberately deferred to a later milestone, unchanged from the milestone plan:
 
-- `ReflectionPolicy` permission enforcement
 - `Contract` obligations
 - generic `Module` arguments
 - any scheduling surface, which is also what `V013` and `V083` wait on

@@ -67,22 +67,26 @@ fn compare_package_fixture(
     let packages = package_tree(&directory, &package)?;
     let outcome = if package.dependencies.is_empty() {
         iris_eval::load_resolved_package_with_artifact(
-            &package.package_id,
-            u64::from(package.api_major),
-            package.version.clone(),
-            package
-                .locked
-                .iter()
-                .map(|(name, major, version, digest)| {
-                    (
-                        name.clone(),
-                        u64::from(*major),
-                        version.clone(),
-                        digest.clone(),
-                    )
-                })
-                .collect(),
-            package.artifact.clone(),
+            iris_eval::PackageResolution {
+                package_id: &package.package_id,
+                api_major: u64::from(package.api_major),
+                version: package.version.clone(),
+                locked: package
+                    .locked
+                    .iter()
+                    .map(|(name, major, version, digest)| {
+                        (
+                            name.clone(),
+                            u64::from(*major),
+                            version.clone(),
+                            digest.clone(),
+                        )
+                    })
+                    .collect(),
+                artifact: package.artifact.clone(),
+                permissions: &package.permissions,
+                grants: package.grants.clone(),
+            },
             &package.sources,
             record.package_probe.as_deref(),
         )

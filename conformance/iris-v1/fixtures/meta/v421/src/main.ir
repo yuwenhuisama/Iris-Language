@@ -1,0 +1,2 @@
+class Box { }
+module Main { public fun run() -> Array { Reflection::Object.list_ivars(Box.new()) } }

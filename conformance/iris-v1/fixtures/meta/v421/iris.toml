@@ -1,0 +1,5 @@
+package_id = "org.iris.v421"
+api_major = 1
+permissions.required = ["filesystem.read@fixtures/data/"]
+permissions.optional = ["reflection.inspect@org.target::Box"]
+sources = ["src/main.ir"]

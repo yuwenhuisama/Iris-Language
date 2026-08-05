@@ -106,6 +106,18 @@ pub enum EvaluationError {
     /// reconstruction and publish nothing on failure, never substituting
     /// current or approximate source. `IRIS-V1-META-V357` names the error.
     RevisionArtifactUnavailable,
+    /// A required manifest permission was not granted by the Host.
+    ///
+    /// `IRIS-V1-META-C003` lists permission requests, and `IRIS-V1-META-V421`
+    /// refuses the load BEFORE any Module body runs when a REQUIRED one is
+    /// ungranted.
+    PermissionDenied,
+    /// A reflection call was made without the granted operation or scope.
+    ///
+    /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently,
+    /// `C103` scopes each grant, and `C104` stops grants flowing through
+    /// callers, stack frames or Host process privilege.
+    ReflectionAccess,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -272,8 +284,40 @@ pub fn load_resolved_package(
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     load_resolved_package_with_artifact(
-        package_id, api_major, version, locked, None, sources, probe,
+        PackageResolution {
+            package_id,
+            api_major,
+            version,
+            locked,
+            artifact: None,
+            permissions: &[],
+            grants: Vec::new(),
+        },
+        sources,
+        probe,
     )
+}
+
+/// Everything a manifest, lock file and Host grant set already resolved.
+///
+/// `IRIS-V1-META-C006` makes the dependency selection exact, `C003` lists the
+/// manifest fields, and `C103` makes the grant a Host decision, so a load
+/// CARRIES these facts rather than recomputing them.
+pub struct PackageResolution<'a> {
+    /// The manifest's `package_id`.
+    pub package_id: &'a str,
+    /// The manifest's `api_major`.
+    pub api_major: u64,
+    /// The manifest's `version`, when it declares one.
+    pub version: Option<String>,
+    /// Each locked dependency as `(package_id, api_major, version, digest)`.
+    pub locked: Vec<(String, u64, String, String)>,
+    /// The audit artifact, as `(locator, digest, source)`.
+    pub artifact: Option<(String, String, String)>,
+    /// Each requested permission as `(name, scope, required)`.
+    pub permissions: &'a [(String, String, bool)],
+    /// Each Host grant as `(name, scope)`.
+    pub grants: Vec<(String, String)>,
 }
 
 /// Loads one package together with the audit artifact a rollback resolves.
@@ -282,14 +326,33 @@ pub fn load_resolved_package(
 /// and verifies its digest before reconstruction, which `IRIS-V1-META-V357`
 /// observes.
 pub fn load_resolved_package_with_artifact(
-    package_id: &str,
-    api_major: u64,
-    version: Option<String>,
-    locked: Vec<(String, u64, String, String)>,
-    artifact: Option<(String, String, String)>,
+    resolution: PackageResolution<'_>,
     sources: &[(String, String)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    let PackageResolution {
+        package_id,
+        api_major,
+        version,
+        locked,
+        artifact,
+        permissions,
+        grants,
+    } = resolution;
+    // C003 lists permission requests, and V421 refuses the load BEFORE Main
+    // executes when a REQUIRED one is ungranted. An OPTIONAL request simply
+    // stays ungranted, which the reflection gate then observes.
+    for (name, scope, required) in permissions {
+        if !required {
+            continue;
+        }
+        let granted = grants.iter().any(|(held, held_scope)| {
+            held == name && (held_scope.is_empty() || held_scope == scope)
+        });
+        if !granted {
+            return Err(EvaluationError::PermissionDenied);
+        }
+    }
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(package_id)?;
     evaluator.enter_api_major(api_major);
     // C006 makes `(package_id, api_major)` one identity, so a lock selecting
@@ -307,6 +370,7 @@ pub fn load_resolved_package_with_artifact(
     }
     evaluator.enter_package_resolution(version, locked);
     evaluator.enter_artifact(artifact);
+    evaluator.enter_grants(grants);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a
     // cycle a LINK error, so the dependency graph is checked before any Module

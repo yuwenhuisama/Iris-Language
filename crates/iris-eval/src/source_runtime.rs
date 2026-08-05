@@ -87,6 +87,13 @@ pub(super) struct SourceEvaluator {
     /// It is created on first mention rather than at startup, so a program that
     /// never names it publishes no extra Class.
     exception_context_class: Option<ClassId>,
+    /// Each permission the Host granted, as `(name, scope)`.
+    ///
+    /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently, and
+    /// `C103` scopes each grant to a package or Class. `C104` stops a grant
+    /// flowing through callers, stack frames or Host process privilege, so the
+    /// set is a property of the RUNNING package alone.
+    grants: Vec<(String, String)>,
     /// The audit artifact for the current package, as `(locator, digest, source)`.
     ///
     /// `IRIS-V1-META-C066` verifies the stored digest BEFORE reconstruction and
@@ -324,6 +331,7 @@ impl SourceEvaluator {
             package: package.to_owned(),
             api_major: 1,
             exception_context_class: None,
+            grants: Vec::new(),
             artifact: None,
             package_version: None,
             locked_dependencies: Vec::new(),
@@ -1109,6 +1117,66 @@ impl SourceEvaluator {
     /// Records the audit artifact `IRIS-V1-META-C066` resolves for a rollback.
     pub(super) fn enter_artifact(&mut self, artifact: Option<(String, String, String)>) {
         self.artifact = artifact;
+    }
+
+    /// Records the Host grants in force for the running package.
+    pub(super) fn enter_grants(&mut self, grants: Vec<(String, String)>) {
+        self.grants = grants;
+    }
+
+    /// Rejects a reflection call the running package was not granted.
+    ///
+    /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently, `C103`
+    /// checks the granted scope against the TARGET, and `C104` stops a grant
+    /// flowing through callers, receiver owners, stack frames or Host process
+    /// privilege. `IRIS-V1-META-V421` observes inspect working only for the
+    /// scoped Class, and `V363` observes an ungranted caller refused.
+    fn require_reflection(
+        &mut self,
+        operation: &str,
+        target: Option<&Value>,
+    ) -> Result<(), EvaluationError> {
+        let class = match target {
+            Some(Value::Object(object)) => self.runtime.class_of(*object).ok(),
+            Some(Value::Class(class)) => Some(*class),
+            _ => None,
+        };
+        if self.reflection_granted(operation, class) {
+            return Ok(());
+        }
+        Err(EvaluationError::ReflectionAccess)
+    }
+
+    /// Whether a reflection operation is granted for `target`.
+    ///
+    /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently, so
+    /// neither implies the other. `C103` checks the granted SCOPE against the
+    /// target, and `C104` stops the grant flowing from anywhere else, so only
+    /// the running package's own grants are consulted.
+    ///
+    /// A fixture declaring NO grants at all is ungated, which keeps every row
+    /// authored before Host grants existed behaving exactly as it did.
+    fn reflection_granted(&self, operation: &str, target: Option<ClassId>) -> bool {
+        if self.grants.is_empty() {
+            return true;
+        }
+        let requested = format!("reflection.{operation}");
+        self.grants.iter().any(|(name, scope)| {
+            if *name != requested {
+                return false;
+            }
+            if scope.is_empty() {
+                return true;
+            }
+            // C103 scopes a grant to selected package IDs or Classes, so a
+            // scoped grant matches only the named target.
+            let named = scope.rsplit("::").next().unwrap_or(scope);
+            target.is_some_and(|class| {
+                self.names.iter().any(|(bound, binding)| {
+                    bound == named && matches!(binding.value, Value::Class(known) if known == class)
+                })
+            })
+        })
     }
 
     /// Reports whether the published revision of a named Class holds a slot.
@@ -4817,12 +4885,14 @@ impl SourceEvaluator {
                     .collect(),
             )),
             ("Reflection::Object", "list_ivars") => {
+                self.require_reflection("inspect", arguments.first())?;
                 let [target] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 self.list_ivars(target)
             }
             ("Reflection::Object", "get_ivar") => {
+                self.require_reflection("inspect", arguments.first())?;
                 validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -4830,6 +4900,7 @@ impl SourceEvaluator {
                 self.get_ivar(target, name)
             }
             ("Reflection::Object", "set_ivar") => {
+                self.require_reflection("mutate", arguments.first())?;
                 validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name), value] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -4837,6 +4908,7 @@ impl SourceEvaluator {
                 self.set_ivar(target, name, value.clone())
             }
             ("Reflection::Object", "remove_ivar") => {
+                self.require_reflection("mutate", arguments.first())?;
                 validate_ivar_name(arguments.get(1))?;
                 let [target, Value::Symbol(name)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -6977,6 +7049,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::ReadonlyMutation => "ReadonlyMutationError",
         // D-271 makes the failure an ordinary catchable Iris error.
         EvaluationError::RevisionArtifactUnavailable => "RevisionArtifactUnavailableError",
+        // C102 and C103 make an ungranted or out-of-scope reflection call an
+        // ordinary catchable Iris error; V363 and V421 observe it.
+        EvaluationError::ReflectionAccess => "ReflectionAccessError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",

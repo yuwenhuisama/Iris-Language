@@ -1,0 +1,9 @@
+class Box { }
+class Other { }
+module Main {
+  public fun run() -> Array {
+    let scoped = Reflection::Object.list_ivars(Box.new())
+    let denied = try { Reflection::Object.list_ivars(Other.new()) } catch e { e }
+    [scoped, denied]
+  }
+}

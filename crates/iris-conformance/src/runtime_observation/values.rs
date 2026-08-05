@@ -288,6 +288,10 @@ fn error_code(error: &EvaluationError) -> String {
         // C066 and D-271 verify the stored digest before reconstruction;
         // V357 names the failure.
         EvaluationError::RevisionArtifactUnavailable => "RevisionArtifactUnavailableError".into(),
+        // C003 refuses a load whose REQUIRED permission is ungranted; C102 and
+        // C103 refuse an ungranted or out-of-scope reflection call.
+        EvaluationError::PermissionDenied => "PermissionDenied".into(),
+        EvaluationError::ReflectionAccess => "ReflectionAccessError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
