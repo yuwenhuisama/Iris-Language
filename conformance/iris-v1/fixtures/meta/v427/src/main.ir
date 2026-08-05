@@ -1,0 +1,8 @@
+import org.iris.v427.box.Box
+module Main {
+  public fun run() -> Array {
+    let value = Box.new().extra()
+    let marked = Reflection::Class.method(Box, :extra).source[3]
+    [value, marked]
+  }
+}

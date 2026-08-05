@@ -1,0 +1,1 @@
+export class Box { if true { self.define_method(:extra) { :extra } } }

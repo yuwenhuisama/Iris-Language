@@ -1,0 +1,2 @@
+export class A { }
+export open class A { public fun static_extra() -> String { "static" } }

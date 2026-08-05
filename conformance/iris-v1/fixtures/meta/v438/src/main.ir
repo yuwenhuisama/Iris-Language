@@ -1,0 +1,9 @@
+import org.iris.v438.ext.A
+module Main {
+  public fun run() -> Array {
+    let statically = A.new().static_extra()
+    A.open() { |t| t.define_method(:dynamic_extra) { "dynamic" } }
+    let d: Dynamic<A> = A.new()
+    [statically, d.dynamic_extra()]
+  }
+}

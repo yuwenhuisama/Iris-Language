@@ -1,0 +1,4 @@
+package_id = "org.iris.v427"
+api_major = 1
+dependencies = ["org.iris.v427.box"]
+sources = ["src/main.ir"]

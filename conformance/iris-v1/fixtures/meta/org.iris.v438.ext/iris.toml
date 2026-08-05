@@ -1,0 +1,3 @@
+package_id = "org.iris.v438.ext"
+api_major = 1
+sources = ["src/ext.ir"]
