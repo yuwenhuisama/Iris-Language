@@ -1,0 +1,15 @@
+class A { public fun value() -> Symbol { :old } }
+class B { public fun value() -> Symbol { :old } }
+module Main {
+  public fun run() -> Array {
+    let entered = A.new().value()
+    let retained = Reflection::Class.method(A, :value)
+    A.open() { |ta|
+      ta.define_method(:value) { :new }
+      B.open() { |tb| tb.define_method(:value) { :new } }
+    }
+    let resumed = [A.new().value(), B.new().value()]
+    let held = Reflection::Class.invoke(retained, A.new(), [])
+    [entered, resumed, held, A.active_revision, B.active_revision]
+  }
+}
