@@ -170,6 +170,33 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 5. **`migrate_revision` and revision reactivation** for `V085`, and static rebinding rejection
    for `V111`.
 
+## Corpus Accounting
+
+The five chapters this milestone covers hold 422 vector rows, not the 415 an
+earlier count in this document used. That figure omitted seven GRAMMAR rows
+(`V001`, `V002`, `V004`-`V008`) which are stated in chapter 02 as prose rather
+than in the chapter's vector TABLE, so a table-driven count missed them.
+
+| Chapter | Transcribed | Rows |
+| --- | --- | --- |
+| RUNTIME | 109 | 109 |
+| GRAMMAR | 41 | 48 |
+| CONTROL | 134 | 134 |
+| TYPES | 79 | 80 |
+| META | 51 | 51 |
+| **Total** | **414** | **422** |
+
+Four chapters are complete. The eight open rows are:
+
+- `GRAMMAR-V001`, `V002`, `V004`-`V007`: lexical and parse inventory vectors.
+  `V001` expects "exactly 48 reserved keywords" while `IRIS-V1-GRAMMAR-C013`
+  fixes the count at 49 after the v1.1 `typeof` errata, so the row and the
+  clause it cites disagree and the row needs an owner ruling before it can be
+  transcribed against either number.
+- `GRAMMAR-V008`: recorded in `docs/spec-defects-v1.md` since milestone 1 as
+  having no defining row in chapter 02.
+- `TYPES-V208`: blocked on static member-existence checking, recorded.
+
 ## META Chapter Status
 
 META reached 39 transcribed rows of 51. The remaining 12 need one of four
