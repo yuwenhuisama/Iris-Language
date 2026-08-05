@@ -1,0 +1,4 @@
+package_id = "org.iris.v346"
+api_major = 1
+dependencies = ["org.iris.v346.ext"]
+sources = ["src/main.ir"]

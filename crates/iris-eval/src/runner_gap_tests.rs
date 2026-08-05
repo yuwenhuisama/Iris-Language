@@ -2119,3 +2119,46 @@ fn c006_refuses_a_lock_selecting_one_package_twice_at_one_major() {
     ];
     assert!(crate::load_resolved_package("org.x", 1, None, distinct, &sources, None).is_ok());
 }
+
+#[test]
+fn c045_activates_a_static_extension_only_for_a_direct_importer() {
+    // C045 requires `export open ...` PLUS a DIRECT import for cross-Module
+    // static visibility, and forbids transitive imports and re-exports from
+    // activating such a member. V346 is the direct importer, V418 the facade.
+    let ext = (
+        "org.x.ext".to_owned(),
+        vec![(
+            "ext".to_owned(),
+            "export class Base { } \
+             export open class Base { public fun tag() -> Symbol { :tag } }"
+                .to_owned(),
+        )],
+    );
+
+    let direct = (
+        "org.x".to_owned(),
+        vec![(
+            "main".to_owned(),
+            "import org.x.ext.Base \
+             module Main { public fun run() -> Symbol { Base.new().tag() } }"
+                .to_owned(),
+        )],
+    );
+    assert!(
+        crate::load_package_tree(&[ext.clone(), direct], Some("Main.run()")).is_ok(),
+        "a direct importer activates the member"
+    );
+
+    let facade_only = (
+        "org.x".to_owned(),
+        vec![(
+            "main".to_owned(),
+            "module Main { public fun run() -> Symbol { Base.new().tag() } }".to_owned(),
+        )],
+    );
+    assert_eq!(
+        crate::load_package_tree(&[ext, facade_only], Some("Main.run()")).err(),
+        Some(EvaluationError::StaticMemberNotFound),
+        "without a direct import the member is not activated"
+    );
+}

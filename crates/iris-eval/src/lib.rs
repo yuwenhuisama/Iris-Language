@@ -93,6 +93,13 @@ pub enum EvaluationError {
     /// `(package_id, api_major)`, so two entries unifying to that pair have no
     /// single Type identity. `IRIS-V1-META-V352` names the link failure.
     PackageVersionUnification,
+    /// A consumer used a static extension member it did not directly import.
+    ///
+    /// `IRIS-V1-META-C045` requires each consumer to DIRECTLY import an
+    /// extension Module; transitive imports and re-exports MUST NOT activate
+    /// its static members. `IRIS-V1-META-V346`, `V418` and `V438` name the
+    /// diagnostic.
+    StaticMemberNotFound,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -342,6 +349,9 @@ pub fn load_package_tree(
         .flat_map(|(_, sources)| sources.iter().cloned())
         .collect();
     reject_unauthorized_replacements(&across_tree)?;
+    // C045 activates a cross-Module static extension member only for a
+    // consumer that DIRECTLY imports it; a facade re-export must not.
+    reject_unactivated_static_members(packages)?;
     for (package_id, sources) in packages {
         // C017 makes Module initialization an acyclic deterministic DAG within
         // a package too, so each package's own graph is checked before any of
@@ -389,6 +399,160 @@ pub fn load_package_tree(
 /// authorizes only the replacements the source marked. `IRIS-V1-META-V349`
 /// observes the link-phase diagnostic when two compatible extensions contribute
 /// the same member and no import carries the `override` marker.
+/// Rejects use of a static extension member the consumer never directly imported.
+///
+/// `IRIS-V1-META-C045` lets a top-level unconditional member in a declarative
+/// open extend static API inside the DEFINING Module, and requires
+/// `export open ...` plus a DIRECT import for cross-Module static visibility.
+/// Transitive imports and re-exports MUST NOT activate such a member, which is
+/// what distinguishes a facade consumer from a direct importer.
+fn reject_unactivated_static_members(
+    packages: &[(String, Vec<(String, String)>)],
+) -> Result<(), EvaluationError> {
+    // Each exported open contribution as `(package_id, class, selector)`.
+    let mut exported: Vec<(String, String, String)> = Vec::new();
+    for (package_id, sources) in packages {
+        for (_, source) in sources {
+            let parsed = parse(source);
+            if !parsed.program_accepted {
+                return Err(EvaluationError::ParseDiagnostic);
+            }
+            for declaration in &parsed.program.declarations {
+                let iris_syntax::Declaration::Export(value) = declaration else {
+                    continue;
+                };
+                let iris_syntax::ExportDeclaration::Declaration(inner) = value.as_ref() else {
+                    continue;
+                };
+                let iris_syntax::Declaration::Class(class) = inner.as_ref() else {
+                    continue;
+                };
+                if !class.reopen {
+                    continue;
+                }
+                for statement in &class.body {
+                    if let iris_syntax::Statement::Method(method) = statement {
+                        exported.push((
+                            package_id.clone(),
+                            class.name.clone(),
+                            method.selector.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    if exported.is_empty() {
+        return Ok(());
+    }
+    // A consumer activates an extension only by naming its package in an
+    // import of its own. A re-export names the FACADE, not the extension.
+    for (package_id, sources) in packages {
+        for (_, source) in sources {
+            let parsed = parse(source);
+            if !parsed.program_accepted {
+                return Err(EvaluationError::ParseDiagnostic);
+            }
+            let imports: Vec<String> = parsed
+                .program
+                .declarations
+                .iter()
+                .filter_map(|declaration| match declaration {
+                    iris_syntax::Declaration::Import(value) => Some(value.target.clone()),
+                    _ => None,
+                })
+                .collect();
+            for (owner, class, selector) in &exported {
+                if owner == package_id {
+                    continue;
+                }
+                let activated = imports.iter().any(|target| target.starts_with(owner));
+                if activated {
+                    continue;
+                }
+                if uses_member(&parsed.program, class, selector) {
+                    return Err(EvaluationError::StaticMemberNotFound);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a program calls `selector` on a receiver spelled as `class`.
+///
+/// Only a use this pass can SEE structurally is reported: a call whose callee
+/// is `<class>...<selector>`. A receiver reached indirectly is left alone,
+/// since the `StaticType` contract holds here too and a wrong rejection is far
+/// worse than a missed one.
+fn uses_member(program: &iris_syntax::Program, class: &str, selector: &str) -> bool {
+    fn mentions(expression: &iris_syntax::Expression, class: &str) -> bool {
+        match expression {
+            iris_syntax::Expression::Name(name) => name == class,
+            iris_syntax::Expression::Member { receiver, .. }
+            | iris_syntax::Expression::Index { receiver, .. } => mentions(receiver, class),
+            iris_syntax::Expression::Call { callee, .. } => mentions(callee, class),
+            _ => false,
+        }
+    }
+    fn in_expression(expression: &iris_syntax::Expression, class: &str, selector: &str) -> bool {
+        match expression {
+            iris_syntax::Expression::Call {
+                callee, arguments, ..
+            } => {
+                let hit = matches!(
+                    callee.as_ref(),
+                    iris_syntax::Expression::Member { receiver, selector: written }
+                        if written == selector && mentions(receiver, class)
+                );
+                hit || in_expression(callee, class, selector)
+                    || arguments
+                        .iter()
+                        .any(|argument| in_expression(argument, class, selector))
+            }
+            iris_syntax::Expression::Member {
+                receiver,
+                selector: written,
+            } => {
+                (written == selector && mentions(receiver, class))
+                    || in_expression(receiver, class, selector)
+            }
+            iris_syntax::Expression::Array(values) => values
+                .iter()
+                .any(|value| in_expression(value, class, selector)),
+            _ => false,
+        }
+    }
+    fn in_statement(statement: &iris_syntax::Statement, class: &str, selector: &str) -> bool {
+        match statement {
+            iris_syntax::Statement::Expression(expression)
+            | iris_syntax::Statement::Binding {
+                value: expression, ..
+            } => in_expression(expression, class, selector),
+            iris_syntax::Statement::Method(method) => method
+                .body
+                .iter()
+                .flatten()
+                .any(|inner| in_statement(inner, class, selector)),
+            _ => false,
+        }
+    }
+    program
+        .statements
+        .iter()
+        .any(|statement| in_statement(statement, class, selector))
+        || program.declarations.iter().any(|declaration| {
+            let (iris_syntax::Declaration::Class(iris_syntax::ClassDeclaration { body, .. })
+            | iris_syntax::Declaration::Module(iris_syntax::ModuleDeclaration { body, .. })) =
+                declaration
+            else {
+                return false;
+            };
+            body.iter()
+                .any(|statement| in_statement(statement, class, selector))
+        })
+}
+
 fn reject_unauthorized_replacements(sources: &[(String, String)]) -> Result<(), EvaluationError> {
     // `(class, selector)` pairs an earlier source already contributed. The
     // FIRST reopen of a member establishes it here; a later one replaces it.

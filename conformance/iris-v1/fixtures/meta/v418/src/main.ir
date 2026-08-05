@@ -1,0 +1,2 @@
+import org.iris.v418.facade.Facade
+module Main { public fun run() -> Symbol { Thing.new().tag() } }

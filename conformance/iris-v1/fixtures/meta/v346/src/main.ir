@@ -1,0 +1,2 @@
+import org.iris.v346.ext.Base
+module Main { public fun run() -> Symbol { Base.new().tag() } }

@@ -1,0 +1,4 @@
+package_id = "org.iris.v418"
+api_major = 1
+dependencies = ["org.iris.v418.facade"]
+sources = ["src/main.ir"]

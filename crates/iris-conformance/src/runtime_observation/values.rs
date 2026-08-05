@@ -282,6 +282,9 @@ fn error_code(error: &EvaluationError) -> String {
         // C006 makes `(package_id, api_major)` one identity; V352 names the
         // link failure when a lock selects two implementations of that pair.
         EvaluationError::PackageVersionUnification => "PackageVersionUnificationError".into(),
+        // C045 requires a DIRECT import to activate a static extension member;
+        // V346, V418 and V438 name the diagnostic.
+        EvaluationError::StaticMemberNotFound => "IRIS-STATIC-MEMBER-NOT-FOUND".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

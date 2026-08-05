@@ -1,0 +1,2 @@
+export class Thing { }
+export open class Thing { public fun tag() -> Symbol { :tag } }

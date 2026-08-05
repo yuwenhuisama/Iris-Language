@@ -1,0 +1,2 @@
+import org.iris.v418.ext.Thing
+export module Facade { public fun name() -> Symbol { :facade } }
