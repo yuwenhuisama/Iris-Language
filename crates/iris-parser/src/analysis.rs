@@ -3354,6 +3354,26 @@ mod override_marker_tests {
     }
 
     #[test]
+    fn c019_and_c023_classify_contextual_tokens() {
+        // C019 admits a selector SUFFIX before `=` in a setter selector, naming
+        // both `ready?=` and `value!=`, and forbids changing the expression
+        // meaning of `!=`. Only `?=` was recognised.
+        assert!(
+            parse("class A { public property fun value!=(v: T) -> Nil { nil } }").program_accepted
+        );
+        assert!(
+            parse("class A { public property fun ready?=(v: T) -> Nil { nil } }").program_accepted
+        );
+        let inequality = parse("let a = 1; let b = 2; a != b");
+        assert!(inequality.program_accepted);
+
+        // C023 starts a Regex literal only where a PRIMARY expression is
+        // expected; in continuation position a slash stays division.
+        assert!(parse("let r = /x/").program_accepted);
+        assert!(parse("let a = 6; let b = 2; a / b").program_accepted);
+    }
+
+    #[test]
     fn parameter_sequence_fixes_the_channel_order() {
         // `parameter_sequence` orders the channels: positionals, positional
         // rest, keywords, keyword rest, block. V007 names a positional written

@@ -1809,6 +1809,12 @@ impl Parser {
         value.chars().next().is_some_and(|character| {
             character.is_ascii_digit() || character == '\'' || character == '"'
         }) || matches!(value, "nil" | "true" | "false")
+            // C023 makes a slash start a Regex literal ONLY where a primary
+            // expression is expected. This is reached from `primary`, which is
+            // exactly such a position, so a slash here is a literal rather than
+            // the division C023 assigns to continuation positions. The lexer
+            // already produced one token for the whole literal.
+            || (value.starts_with('/') && value.len() > 1)
     }
     fn expect(&mut self, expected: &str) -> Option<()> {
         if self.consume(expected) {

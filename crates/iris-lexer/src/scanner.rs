@@ -369,8 +369,17 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 }
                 Ok(None) => {
                     let end = identifier_end(bytes, index);
-                    let kind = if bytes.get(end) == Some(&b'?') && bytes.get(end + 1) == Some(&b'=')
-                    {
+                    // C019 admits a selector SUFFIX before `=` in a setter
+                    // selector, naming both `ready?=` and `value!=`. Only `?=`
+                    // was recognised, so `value!=` lexed as `value` plus the
+                    // inequality operator and could not be declared.
+                    //
+                    // `!==` is NOT a setter selector: that is `value!` compared
+                    // with `==`, so the byte after `=` must not be another `=`.
+                    let suffixed = matches!(bytes.get(end), Some(&b'?') | Some(&b'!'))
+                        && bytes.get(end + 1) == Some(&b'=')
+                        && bytes.get(end + 2) != Some(&b'=');
+                    let kind = if suffixed {
                         TokenKind::SetterSelector
                     } else if keyword(&bytes[index..end]) {
                         TokenKind::Keyword
