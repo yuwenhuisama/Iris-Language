@@ -3354,6 +3354,22 @@ mod override_marker_tests {
     }
 
     #[test]
+    fn c016_lexes_the_match_operators() {
+        // C016 lists `=~` and `!~` among the fixed expression operator
+        // spellings, and `relational_expr` places them with the other
+        // relational operators. Without them `=~` lexed as assignment plus
+        // bitwise not, and `!~` failed to lex at all.
+        assert!(parse("let a = 1; let b = 2; a =~ b").program_accepted);
+        assert!(parse("let a = 1; let b = 2; a !~ b").program_accepted);
+
+        // The spellings they used to be confused with still parse as
+        // themselves.
+        assert!(parse("let a = 1; let b = 2; a != b").program_accepted);
+        assert!(parse("let a = 1; let b = 2; a = b").program_accepted);
+        assert!(parse("let a = 1; let b = ~a").program_accepted);
+    }
+
+    #[test]
     fn c019_and_c023_classify_contextual_tokens() {
         // C019 admits a selector SUFFIX before `=` in a setter selector, naming
         // both `ready?=` and `value!=`, and forbids changing the expression

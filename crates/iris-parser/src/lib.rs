@@ -106,6 +106,8 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         TokenKind::RangeInclusive | TokenKind::RangeExclusive => 3,
         TokenKind::ContractView
         | TokenKind::BangEqual
+        | TokenKind::MatchTilde
+        | TokenKind::NotMatchTilde
         | TokenKind::LessEqual
         | TokenKind::GreaterEqual
         | TokenKind::LeftShift

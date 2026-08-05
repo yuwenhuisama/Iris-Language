@@ -11,7 +11,7 @@ RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential:
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
 META     passed: 51, failed: 0, needs_subsystem: 0                                  (51 records, buckets sum 51)
-GRAMMAR  passed: 30, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (45 records)
+GRAMMAR  passed: 31, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (46 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -180,11 +180,11 @@ than in the chapter's vector TABLE, so a table-driven count missed them.
 | Chapter | Transcribed | Rows |
 | --- | --- | --- |
 | RUNTIME | 109 | 109 |
-| GRAMMAR | 45 | 48 |
+| GRAMMAR | 46 | 48 |
 | CONTROL | 134 | 134 |
 | TYPES | 79 | 80 |
 | META | 51 | 51 |
-| **Total** | **418** | **422** |
+| **Total** | **419** | **422** |
 
 Four chapters are complete. The eight open rows are:
 
@@ -194,8 +194,9 @@ Four chapters are complete. The eight open rows are:
 - `GRAMMAR-V004` is transcribed. It needed two parser gaps closed: a Regex
   literal had no primary production, and the lexer recognised `?=` but not `!=`
   as a setter selector, both of which `IRIS-V1-GRAMMAR-C019` and `C023` require.
-- `GRAMMAR-V001` and `V002` remain: inventory vectors that enumerate the
-  keyword and operator sets. `V001` expects "exactly 48
+- `GRAMMAR-V002` is transcribed. It needed `=~` and `!~`, two of C016's fixed
+  spellings that the lexer never produced.
+- `GRAMMAR-V001` remains. It expects "exactly 48
   reserved keywords" while `IRIS-V1-GRAMMAR-C013` fixes the count at 49 after
   the v1.1 `typeof` errata, so the row and the clause it cites disagree and the
   row needs an owner ruling before it can be transcribed against either

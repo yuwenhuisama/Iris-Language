@@ -555,6 +555,10 @@ pub enum BinaryOperator {
     Greater,
     GreaterEqual,
     Compare,
+    /// `=~`, the match operator `IRIS-V1-GRAMMAR-C016` lists.
+    Match,
+    /// `!~`, the negated match operator.
+    NotMatch,
     RegexMatches,
     RegexDoesNotMatch,
     Is,
@@ -562,7 +566,9 @@ pub enum BinaryOperator {
     AsOptional,
     Equal,
     NotEqual,
-    NamedInfix { selector: String },
+    NamedInfix {
+        selector: String,
+    },
     Identity,
     LogicalAnd,
     LogicalOr,

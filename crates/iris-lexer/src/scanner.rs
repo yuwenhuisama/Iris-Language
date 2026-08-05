@@ -13,6 +13,8 @@ pub enum TokenKind {
     ContractView,
     HashOpen,
     BangEqual,
+    MatchTilde,
+    NotMatchTilde,
     LessThan,
     LessEqual,
     Spaceship,
@@ -203,6 +205,19 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 offset,
                 true,
             ),
+            // C016 lists `=~` and `!~` among the fixed expression operator
+            // spellings. Without them `=~` lexed as assignment plus bitwise
+            // not, and `!~` failed to lex at all.
+            b'=' if bytes.get(index + 1) == Some(&b'~') => {
+                push(&mut tokens, TokenKind::MatchTilde, offset);
+                advance(&mut index, 2, &mut position);
+                expression_start = true;
+            }
+            b'!' if bytes.get(index + 1) == Some(&b'~') => {
+                push(&mut tokens, TokenKind::NotMatchTilde, offset);
+                advance(&mut index, 2, &mut position);
+                expression_start = true;
+            }
             b'!' if bytes.get(index + 1) == Some(&b'=') => {
                 push(&mut tokens, TokenKind::BangEqual, offset);
                 advance(&mut index, 2, &mut position);

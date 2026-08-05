@@ -484,7 +484,10 @@ impl Parser {
             "^" => (8, Associativity::Left),
             "|" => (7, Associativity::Left),
             "..=" | "..<" => (6, Associativity::NonAssociative),
-            "<" | "<=" | ">" | ">=" | "<=>" | "is" | "as" | "as?" => {
+            // C016 lists `=~` and `!~` among the fixed spellings, and
+            // `relational_expr` places them with the other relational
+            // operators.
+            "<" | "<=" | ">" | ">=" | "<=>" | "=~" | "!~" | "is" | "as" | "as?" => {
                 (5, Associativity::NonAssociative)
             }
             "==" | "!=" => (4, Associativity::NonAssociative),
@@ -518,6 +521,8 @@ impl Parser {
             ">" => BinaryOperator::Greater,
             ">=" => BinaryOperator::GreaterEqual,
             "<=>" => BinaryOperator::Compare,
+            "=~" => BinaryOperator::Match,
+            "!~" => BinaryOperator::NotMatch,
             "is" => BinaryOperator::Is,
             "as" => BinaryOperator::As,
             "as?" => BinaryOperator::AsOptional,

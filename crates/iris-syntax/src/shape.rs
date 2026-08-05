@@ -366,6 +366,8 @@ const fn binary_precedence(operator: &BinaryOperator) -> u8 {
         | BinaryOperator::Greater
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Compare
+        | BinaryOperator::Match
+        | BinaryOperator::NotMatch
         | BinaryOperator::RegexMatches
         | BinaryOperator::RegexDoesNotMatch
         | BinaryOperator::Is
@@ -397,6 +399,8 @@ const fn binary_operator(operator: &BinaryOperator) -> &'static str {
         BinaryOperator::Greater => ">",
         BinaryOperator::GreaterEqual => ">=",
         BinaryOperator::Compare => "<=>",
+        BinaryOperator::Match => "=~",
+        BinaryOperator::NotMatch => "!~",
         BinaryOperator::RegexMatches => "=~",
         BinaryOperator::RegexDoesNotMatch => "!~",
         BinaryOperator::Is => "is",
@@ -426,6 +430,8 @@ const fn structural_operator(operator: &BinaryOperator) -> &'static str {
         | BinaryOperator::Greater
         | BinaryOperator::GreaterEqual
         | BinaryOperator::Compare
+        | BinaryOperator::Match
+        | BinaryOperator::NotMatch
         | BinaryOperator::RegexMatches
         | BinaryOperator::RegexDoesNotMatch
         | BinaryOperator::Is
