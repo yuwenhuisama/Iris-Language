@@ -421,7 +421,7 @@ bitwise_and_expr   ::= shift_expr ("&" shift_expr)*
 shift_expr         ::= additive_expr (("<<" | ">>") additive_expr)*
 additive_expr      ::= multiplicative_expr (("+" | "-") multiplicative_expr)*
 multiplicative_expr ::= unary_expr (("*" | "/") unary_expr)*
-unary_expr         ::= ("+" | "-" | "~" | "!") unary_expr | exponent_expr
+unary_expr         ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr
 exponent_expr      ::= postfix_expr ("**" unary_expr)?
 postfix_expr       ::= primary_expr postfix_part*
 postfix_part       ::= call_suffix | index_suffix | property_suffix | contract_view_suffix | trailing_block
@@ -591,6 +591,8 @@ IRIS-V1-GRAMMAR-C068: The v1.23 errata adds `package_qualified_name ::= package_
 IRIS-V1-GRAMMAR-C069: The v1.24 errata adds an optional `"override"` marker to the import forms, so `import_decl ::= "override"? "import" import_path import_alias? | "override"? "from" import_path "import" import_spec_list`. This supplies the placement IRIS-V1-META-C049 already presupposes when it requires "the language's accepted `override` import marker", and which D-230 left for later standardization. The marker authorizes the compatible replacements that import contributes, under IRIS-V1-META-C049 and D-230; it never authorizes signature or static-contract incompatibility, and IRIS-V1-META-C049's rejection of an unmarked replacement is unchanged. The marker precedes the keyword rather than sitting inside `import_spec`, because D-230 authorizes the replacements contributed by THAT IMPORTED EXTENSION rather than per name. `override` is already reserved under IRIS-V1-GRAMMAR-C013 and already appears in `method_decl`, so no token is added and same-module open override marking stays separate as D-230 requires.
 
 IRIS-V1-GRAMMAR-C070: The v1.26 errata widens the decorator application path to `decorator ::= "@" qualified_type_name "(" call_argument_list? ")"`, so a decorator declared in another Module is applied as `@D::Stamp()`. This supplies the reference IRIS-V1-META-C122 needs and which IRIS-V1-META-C013's import forms already presuppose for cross-Module use. No keyword is added and the reserved inventory of IRIS-V1-GRAMMAR-C013 is unchanged: a decorator is an ordinary Class under IRIS-V1-META-C122, so no declaration production is required and IRIS-V1-CONTROL-C014's three ordinary callable runtime kinds stay intact.
+
+IRIS-V1-GRAMMAR-C071: The v1.32 errata supplies the production for the `await` operator that IRIS-V1-ASYNC-C008 and IRIS-V1-META-C037 already presuppose. `unary_expr ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr`. The operand is a `unary_expr`, so `await` binds tighter than every binary operator and looser than a postfix call, making `await f()` an await of the call's result rather than a call on an awaited callee. This clause supplies SYNTAX only: the awaited type is owned by IRIS-V1-ASYNC-C008, suspension by C013, and the transaction prohibition by IRIS-V1-META-C037 and IRIS-V1-ASYNC-C018, none of which this clause changes.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

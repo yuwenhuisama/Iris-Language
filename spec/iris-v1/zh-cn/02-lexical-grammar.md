@@ -592,6 +592,8 @@ IRIS-V1-GRAMMAR-C069：v1.24 勘误为导入形式增加可选的 `"override"` �
 
 IRIS-V1-GRAMMAR-C070：v1.26 勘误将装饰器应用路径放宽为 `decorator ::= "@" qualified_type_name "(" call_argument_list? ")"`，因此在另一 Module 中声明的装饰器以 `@D::Stamp()` 应用。这补充了 IRIS-V1-META-C122 所需的引用形式，也是 IRIS-V1-META-C013 的导入形式在跨 Module 使用时已经预设的。未新增关键字，IRIS-V1-GRAMMAR-C013 的保留字清单不变：依据 IRIS-V1-META-C122，装饰器是普通 Class，因此不需要声明产生式，IRIS-V1-CONTROL-C014 的三种普通可调用运行时种类保持不变。
 
+IRIS-V1-GRAMMAR-C071：v1.32 勘误提供 IRIS-V1-ASYNC-C008 与 IRIS-V1-META-C037 已然预设的 `await` 运算符产生式。`unary_expr ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr`。其操作数为 `unary_expr`，因此 `await` 的结合力强于任何二元运算符、弱于后缀调用，使 `await f()` 表示等待该调用的结果，而非在被等待的被调方上发起调用。本条款**仅**提供语法：被等待类型由 IRIS-V1-ASYNC-C008 所有，挂起由 C013 所有，事务内禁止由 IRIS-V1-META-C037 与 IRIS-V1-ASYNC-C018 所有，本条款均不改变。
+
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-GRAMMAR-V003`| 正向 |需要解释器；需要 JIT；原生不适用 | Iris 来源：`2 ** 3 ** 2; -2 ** 2; 2 ** -3`。 | 解析形状为 `2 ** (3 ** 2)`、`-(2 ** 2)` 和 `2 ** (-3)`；求幂是右结合的，并且比一元否定结合得更紧密。 | `D-033` |

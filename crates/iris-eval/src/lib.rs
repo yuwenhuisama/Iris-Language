@@ -118,6 +118,13 @@ pub enum EvaluationError {
     /// `C103` scopes each grant, and `C104` stops grants flowing through
     /// callers, stack frames or Host process privilege.
     ReflectionAccess,
+    /// A transaction body attempted to suspend.
+    ///
+    /// `IRIS-V1-META-C037` makes an open or revision transaction body
+    /// non-suspending and raises `MetaTransactionError` on a DYNAMIC violation;
+    /// `IRIS-V1-ASYNC-C018` owns the async reason. `IRIS-V1-META-V431` observes
+    /// an `await` in a decorator transform.
+    MetaTransactionSuspension,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -850,6 +857,10 @@ impl Evaluator {
 
     fn expression(&mut self, expression: &Expression) -> Result<Evaluated, EvaluationError> {
         match expression {
+            // The literal-only evaluator never runs a transaction body, so an
+            // `await` here is simply outside this evaluator's scope. C037's
+            // prohibition is enforced statically and in the source runtime.
+            Expression::Await(_) => Err(EvaluationError::UnsupportedConstruct),
             // A keyword argument is meaningless outside a call the literal
             // evaluator cannot make, so it is routed rather than evaluated.
             Expression::KeywordArgument { .. }
@@ -1240,9 +1251,12 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         return true;
     }
     match expression {
+        // C037's prohibition lives in the source runtime, which is the only
+        // evaluator that runs a transaction body.
+        Expression::Await(_)
         // A Closure needs the heap the literal evaluator does not have.
         // A keyword argument binds by name, which only the source runtime does.
-        Expression::Closure { .. }
+        | Expression::Closure { .. }
         | Expression::Hash(_)
         | Expression::If { .. }
         | Expression::KeywordArgument { .. }

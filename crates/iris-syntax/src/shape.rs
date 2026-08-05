@@ -103,6 +103,8 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             (format!("{name}<{} arguments>", arguments.len()), 17)
         }
         Expression::ReifiedType(_) => ("(type)".into(), 17),
+        // C071 binds `await` at unary precedence, which is 14 here.
+        Expression::Await(operand) => (format!("await {}", source_shape(operand, 14)), 14),
         Expression::Hash(entries) => (format!("%{{{} entries}}", entries.len()), 17),
         Expression::Closure { parameters, .. } => {
             (format!("{{|{}| ...}}", parameters.join(", ")), 17)
@@ -203,6 +205,7 @@ fn structural_shape(expression: &Expression) -> String {
             format!("closed_generic({name}, {})", arguments.len())
         }
         Expression::ReifiedType(_) => "reified_type".into(),
+        Expression::Await(operand) => format!("await({})", structural_shape(operand)),
         Expression::Closure { parameters, .. } => format!("closure({})", parameters.join(", ")),
         Expression::Hash(entries) => format!("hash({})", entries.len()),
         Expression::Symbol(value) => format!("symbol({value})"),

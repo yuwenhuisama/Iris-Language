@@ -26,6 +26,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         module_members: Vec::new(),
         declared_mixins: Vec::new(),
         declared_members: Vec::new(),
+        transaction_depth: 0,
         class_contracts: Vec::new(),
         decorator_kinds: Vec::new(),
         generic_constraints: Vec::new(),
@@ -360,6 +361,12 @@ struct Analyzer {
     /// members each declaration contributed. V350 and V351 observe the
     /// diagnostic.
     declared_members: Vec<(String, Vec<String>)>,
+    /// How many open or revision transaction bodies enclose the current node.
+    ///
+    /// `IRIS-V1-META-C037` makes such a body non-suspending and
+    /// `IRIS-V1-ASYNC-C018` rejects an `await` LEXICALLY inside one before
+    /// execution, so the check is lexical rather than dynamic.
+    transaction_depth: usize,
     /// Each Class paired with the Contracts its declarations listed.
     class_contracts: Vec<(String, Vec<String>)>,
     /// Each Class paired with the Modules it mixes in.
@@ -1967,6 +1974,17 @@ impl Analyzer {
 
     fn expression(&mut self, expression: &Expression, control: Control) {
         match expression {
+            // C037 makes an open or revision transaction body non-suspending
+            // and says STATIC violations are compile errors; ASYNC-C018 says an
+            // `await` LEXICALLY inside such a body must be rejected BEFORE
+            // execution. V355 observes the diagnostic and that no candidate
+            // starts.
+            Expression::Await(operand) => {
+                if self.transaction_depth > 0 {
+                    self.report("IRIS-TRANSACTION-SUSPENSION");
+                }
+                self.expression(operand, control);
+            }
             Expression::Assignment { left, right, .. } => {
                 self.expression(right, control);
                 // `D-426`: a bare `name = expr` only ASSIGNS an existing mutable
@@ -2022,6 +2040,18 @@ impl Analyzer {
                 type_arguments,
                 arguments,
             } => {
+                // C037 makes an open or revision transaction body
+                // non-suspending, and ASYNC-C018 rejects an `await` LEXICALLY
+                // inside one before execution. The body is the Closure argument
+                // of an `open` call, so the walk of that argument is what
+                // carries the transaction depth. V355 observes the diagnostic.
+                let transactional = matches!(
+                    callee.as_ref(),
+                    Expression::Member { selector, .. } if selector == "open"
+                );
+                if transactional {
+                    self.transaction_depth += 1;
+                }
                 // C060 gives every Method application FIXED FULL ARITY: a
                 // missing trailing type argument is an arity error and never
                 // means `Object` or an inferred default. V230 names the code.
@@ -2050,6 +2080,9 @@ impl Analyzer {
                 self.expression(callee, control);
                 for argument in arguments {
                     self.expression(argument, control);
+                }
+                if transactional {
+                    self.transaction_depth -= 1;
                 }
             }
             Expression::Index { receiver, index } => {
@@ -3318,6 +3351,22 @@ mod override_marker_tests {
         let fresh = "class Base { public fun a() -> Symbol { :a } } \
                      class Child extends Base { public fun b() -> Symbol { :b } }";
         assert!(codes(fresh).is_empty());
+    }
+
+    #[test]
+    fn c037_rejects_a_lexical_await_inside_a_transaction_body() {
+        // ASYNC-C018 rejects an `await` LEXICALLY inside an open transaction
+        // body BEFORE execution, so the check is lexical rather than dynamic.
+        // V355 observes the diagnostic and that no candidate starts.
+        let inside = "class A { } module M { public fun ready() -> Symbol { :r } \
+                      public fun run() -> Nil { A.open() { |t| await M.ready() } } }";
+        assert_eq!(codes(inside), ["IRIS-TRANSACTION-SUSPENSION"]);
+
+        // Outside a transaction body the operator is not this clause's concern;
+        // suspension itself is chapter 07's surface.
+        let outside = "module M { public fun ready() -> Symbol { :r } \
+                       public fun run() -> Symbol { await M.ready() } }";
+        assert!(codes(outside).is_empty());
     }
 
     #[test]

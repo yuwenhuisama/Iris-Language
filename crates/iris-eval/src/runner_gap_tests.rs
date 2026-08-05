@@ -2294,3 +2294,33 @@ fn c070_leaves_the_old_package_active_when_an_upgrade_hook_fails() {
         ])))
     );
 }
+
+#[test]
+fn c037_refuses_suspension_inside_a_transaction_body() {
+    // C037 makes an open or revision transaction body non-suspending, with
+    // STATIC violations as compile errors and DYNAMIC ones raising
+    // MetaTransactionError. ASYNC-C018 owns the async reason. Both halves are
+    // observed: V355 the static one, V431 the dynamic one.
+    let dynamic = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class Slow for ClassDecorator { ",
+        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
+        "await Transformation.empty } } ",
+        "@Slow() class Box { } Box"
+    );
+    assert_eq!(
+        evaluate(dynamic),
+        Err(EvaluationError::MetaTransactionSuspension)
+    );
+
+    // A transform that does not suspend publishes normally, so the refusal
+    // comes from the suspension rather than from running a transform at all.
+    let ordinary = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class Ok for ClassDecorator { ",
+        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
+        "Transformation.empty } } ",
+        "@Ok() class Box { } Box.new()"
+    );
+    assert!(evaluate(ordinary).is_ok());
+}

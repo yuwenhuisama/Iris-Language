@@ -1,0 +1,12 @@
+contract ClassDecorator { fun transform(declaration, arguments, context) }
+class First for ClassDecorator {
+  public impl fun transform(declaration, arguments, context) -> Transformation {
+    Transformation.empty.add_method(:first) { :first }
+  }
+}
+class Second for ClassDecorator {
+  public impl fun transform(declaration, arguments, context) -> Transformation {
+    Transformation.empty.add_method(:second) { :second }
+  }
+}
+@First() @Second() class Box { }

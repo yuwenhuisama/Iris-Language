@@ -62,6 +62,15 @@ impl Parser {
     }
 
     fn prefix(&mut self) -> Option<Expression> {
+        // C071 binds `await` at `unary_expr`, so its operand is a unary
+        // expression: tighter than any binary operator, looser than a postfix
+        // call, making `await f()` an await of the call's result.
+        if self.peek() == Some("await") {
+            self.advance();
+            return self
+                .expression(14)
+                .map(|operand| Expression::Await(Box::new(operand)));
+        }
         let unary = match self.peek() {
             Some("+") => Some(UnaryOperator::Plus),
             Some("-") => Some(UnaryOperator::Negate),

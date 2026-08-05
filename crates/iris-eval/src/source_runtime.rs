@@ -1973,6 +1973,11 @@ impl SourceEvaluator {
             arguments.push(self.expression(argument, &HashMap::new(), None)?);
         }
         let receiver = Value::Object(self.construct(decorator_class, &[])?);
+        // C022 makes the target's construction an executable transaction and
+        // C037 makes a transaction body non-suspending, so the transform runs
+        // WITH the target as the open transaction and an `await` inside it
+        // raises MetaTransactionError. V431 observes that nothing publishes.
+        let previous_open = self.open_target.replace(class);
         let produced = self.invoke_method(
             method,
             receiver,
@@ -1981,7 +1986,9 @@ impl SourceEvaluator {
                 Value::Array(arguments),
                 Value::Class(class),
             ],
-        )?;
+        );
+        self.open_target = previous_open;
+        let produced = produced?;
         self.apply_transformation(class, produced)
     }
 
@@ -3231,6 +3238,19 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         match expression {
+            // C037 makes a transaction body non-suspending and raises
+            // `MetaTransactionError` on a DYNAMIC violation; ASYNC-C018 owns
+            // the async reason. V431 observes an `await` reached inside a
+            // decorator transform, which publishes nothing.
+            //
+            // Outside a transaction, suspension is chapter 07's own surface and
+            // is deliberately NOT given a placeholder meaning here.
+            Expression::Await(_) => {
+                if self.open_target.is_some() {
+                    return Err(EvaluationError::MetaTransactionSuspension);
+                }
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             // IRIS-V1-CONTROL-C026 evaluates a keyword argument in place with
             // the positionals, so the value is produced here and the name is
             // carried to the binding step.
@@ -7160,6 +7180,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         // C102 and C103 make an ungranted or out-of-scope reflection call an
         // ordinary catchable Iris error; V363 and V421 observe it.
         EvaluationError::ReflectionAccess => "ReflectionAccessError",
+        EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",
         EvaluationError::ArgumentError => "ArgumentError",

@@ -420,6 +420,12 @@ pub enum Expression {
         name: String,
         arguments: Vec<TypeExpression>,
     },
+    /// `await expr`, the suspension operator.
+    ///
+    /// `IRIS-V1-GRAMMAR-C071` binds it at `unary_expr`, so `await f()` awaits
+    /// the CALL's result. `IRIS-V1-META-C037` and `IRIS-V1-ASYNC-C018` forbid
+    /// it inside an open or revision transaction body.
+    Await(Box<Expression>),
     Name(String),
     Literal(String),
     Symbol(String),

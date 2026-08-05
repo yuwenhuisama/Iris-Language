@@ -1,0 +1,5 @@
+class A { public fun value() -> Symbol { :old } }
+module Main {
+  public fun ready() -> Symbol { :ready }
+  public fun run() -> Nil { A.open() { |t| await Main.ready() } }
+}

@@ -292,6 +292,8 @@ fn error_code(error: &EvaluationError) -> String {
         // C103 refuse an ungranted or out-of-scope reflection call.
         EvaluationError::PermissionDenied => "PermissionDenied".into(),
         EvaluationError::ReflectionAccess => "ReflectionAccessError".into(),
+        // C037 raises MetaTransactionError on a dynamic suspension attempt.
+        EvaluationError::MetaTransactionSuspension => "MetaTransactionError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

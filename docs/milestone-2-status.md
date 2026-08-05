@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.31 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.32 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -10,7 +10,7 @@
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
-META     passed: 49, failed: 0, needs_subsystem: 0                                  (49 records, buckets sum 49)
+META     passed: 51, failed: 0, needs_subsystem: 0                                  (51 records, buckets sum 51)
 GRAMMAR  passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (41 records)
 ```
 
@@ -68,6 +68,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.25 | `META-C121` | The V343 rejection wording |
 | v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
 | v1.27 | `META-C124` | Corrected the decorator phase signatures |
+| v1.32 | `GRAMMAR-C071` | The `await` production three clauses already presupposed |
 | v1.31 | `META-C126` | The audit digest scope, and the withdrawal of V357's unreproducible constant |
 | v1.30 | `TYPES-C099`, `CONTROL-C080` | The `remove_contract` spelling, and naming `ExceptionContext` so its getters can be replaced |
 | v1.29 | `TYPES-C098` | Which declared ancestors the `D-174` superclass bound protects, resolving the V201/V014 conflict |
