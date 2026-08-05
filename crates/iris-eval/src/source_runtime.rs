@@ -4863,6 +4863,43 @@ impl SourceEvaluator {
             // C097 gives a package a reflection view, and C006 makes the
             // dependency selection exact. V420 reads the resolved identity and
             // the selected dependency the lock file recorded.
+            // C020 lets permission-controlled `Package.load(id, version)`
+            // dynamically load a package and return a `Dynamic<Module>`
+            // bounded handle, and forbids it from retroactively adding names,
+            // Types or static extensions to an already compiled namespace.
+            // V422 observes both: the handle works and `Plugin` never enters
+            // Main's lexical namespace.
+            ("Reflection::Package", "load") => {
+                let ([Value::Symbol(id)] | [Value::Symbol(id), _]) = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                // C020 makes the load PERMISSION-CONTROLLED and C072 routes
+                // every package meta path through the same capability check.
+                // The grant is `package.load`, not a reflection grant, so it is
+                // checked directly: reusing `reflection_granted` accepted any
+                // unscoped grant and let an ungranted load through.
+                //
+                // A fixture declaring NO grants at all is ungated, matching how
+                // every other grant check treats a pre-grants fixture.
+                if !self.grants.is_empty()
+                    && !self.grants.iter().any(|(name, _)| name == "package.load")
+                {
+                    return Err(EvaluationError::ReflectionAccess);
+                }
+                // The handle names the prelinked Module WITHOUT publishing it
+                // into the caller's namespace, which is the whole point of
+                // C020's `MUST NOT retroactively add names` requirement.
+                let prelinked = id.rsplit("::").next().unwrap_or(id).to_owned();
+                match self.module_names.get(&prelinked).copied() {
+                    Some(module) => Ok(Value::Symbol(
+                        self.module_names
+                            .iter()
+                            .find_map(|(name, known)| (*known == module).then(|| name.clone()))
+                            .unwrap_or(prelinked),
+                    )),
+                    None => Err(EvaluationError::NameError),
+                }
+            }
             // C068 makes a same-major upgrade explicit and TRANSACTIONAL, and
             // C069 lets an `upgrade(from_version, context)` hook transform or
             // validate candidate state. C070 leaves the old package and state

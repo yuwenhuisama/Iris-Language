@@ -95,7 +95,11 @@ fn compare_package_fixture(
             .into_iter()
             .map(|package| (package.package_id, package.sources))
             .collect();
-        iris_eval::load_package_tree(&tree, record.package_probe.as_deref())
+        iris_eval::load_package_tree_with_grants(
+            &tree,
+            package.grants.clone(),
+            record.package_probe.as_deref(),
+        )
     }
     .map(|(modules, observed)| match observed {
         Some(value) => value,

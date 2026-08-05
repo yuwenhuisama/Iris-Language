@@ -425,10 +425,24 @@ pub fn load_package_tree(
     packages: &[(String, Vec<(String, String)>)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_package_tree_with_grants(packages, Vec::new(), probe)
+}
+
+/// Loads ordered packages onto ONE runtime under the entry package's grants.
+///
+/// `IRIS-V1-META-C103` scopes a grant to the package that holds it and `C104`
+/// stops it flowing, so the ENTRY package's grants govern the probe. A tree
+/// loaded without grants is ungated, exactly as a single package is.
+pub fn load_package_tree_with_grants(
+    packages: &[(String, Vec<(String, String)>)],
+    grants: Vec<(String, String)>,
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
     let Some((entry, _)) = packages.last() else {
         return Ok((Vec::new(), None));
     };
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package(entry)?;
+    evaluator.enter_grants(grants);
     let mut initialized = Vec::new();
     // C049 authorizes a replacement at the IMPORT site, so a second extension
     // contributed by a DIFFERENT package needs the marker exactly as one in the

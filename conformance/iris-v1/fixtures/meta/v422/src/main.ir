@@ -1,0 +1,6 @@
+module Main {
+  public fun run() -> Array {
+    let handle = Reflection::Package.load(:"org.dynamic::Plugin")
+    [handle, Plugin.tag()]
+  }
+}
