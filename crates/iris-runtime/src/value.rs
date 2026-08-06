@@ -1,6 +1,8 @@
 use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::{BoundMethod, ClassId, ContractId, Method, ObjectId};
 
@@ -113,6 +115,101 @@ impl From<u64> for IntegerValue {
 }
 
 /// A runtime value independent of the heap's storage representation.
+/// A shared, mutable Array body with the `IRIS-V1-COLLECTIONS-C026` version.
+///
+/// `C003` makes `Array<T>` identity-bearing, so this is a HANDLE: cloning it
+/// shares one element sequence rather than copying it. `C026` additionally
+/// requires that every length-changing or element-replacing operation increment
+/// a content version so an active iterator can detect the change and raise
+/// `ConcurrentModificationError` on its next advance.
+#[derive(Clone, Debug)]
+pub struct ArrayRef(Rc<RefCell<ArrayBody>>);
+
+/// The elements and content version behind an [`ArrayRef`].
+#[derive(Debug)]
+pub struct ArrayBody {
+    elements: Vec<Value>,
+    version: u64,
+}
+
+impl ArrayRef {
+    /// Creates a new Array holding `elements`, at content version zero.
+    #[must_use]
+    pub fn new(elements: Vec<Value>) -> Self {
+        Self(Rc::new(RefCell::new(ArrayBody {
+            elements,
+            version: 0,
+        })))
+    }
+
+    /// Reads the current elements.
+    #[must_use]
+    pub fn elements(&self) -> Vec<Value> {
+        self.0.borrow().elements.clone()
+    }
+
+    /// Returns the current element count.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.borrow().elements.len()
+    }
+
+    /// Returns whether the Array currently holds no elements.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Reads the element at `index`, if any.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<Value> {
+        self.0.borrow().elements.get(index).cloned()
+    }
+
+    /// Returns the current `C026` content version.
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.0.borrow().version
+    }
+
+    /// Returns whether two handles denote the SAME Array.
+    ///
+    /// `C003` makes Array identity-bearing, so this is the `same?` question and
+    /// is deliberately distinct from element-sequence equality.
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Mutates the elements, incrementing the `C026` content version.
+    ///
+    /// Every length-changing or element-replacing operation goes through here,
+    /// so no such operation can forget to invalidate active iterators.
+    pub fn mutate<T>(&self, change: impl FnOnce(&mut Vec<Value>) -> T) -> T {
+        let mut body = self.0.borrow_mut();
+        let outcome = change(&mut body.elements);
+        body.version = body.version.saturating_add(1);
+        outcome
+    }
+}
+
+/// `C026` compares the current element SEQUENCE, not Array identity, so two
+/// distinct Arrays holding equal elements in order are equal.
+impl PartialEq for ArrayRef {
+    fn eq(&self, other: &Self) -> bool {
+        if self.same(other) {
+            return true;
+        }
+        self.0.borrow().elements == other.0.borrow().elements
+    }
+}
+
+impl FromIterator<Value> for ArrayRef {
+    fn from_iter<I: IntoIterator<Item = Value>>(elements: I) -> Self {
+        Self::new(elements.into_iter().collect())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     /// The singleton nil value.
@@ -126,7 +223,12 @@ pub enum Value {
     /// An IEEE-754 binary64 value.
     Float64(f64),
     /// A literal Iris Array.
-    Array(Vec<Value>),
+    ///
+    /// `IRIS-V1-COLLECTIONS-C003` classifies `Array<T>` as IDENTITY-BEARING
+    /// with a mutable element sequence, so two bindings to one Array observe
+    /// each other's mutations. The elements therefore live behind a shared
+    /// handle rather than being copied on every bind, pass and read.
+    Array(ArrayRef),
     /// A runtime-owned `ReadonlyArray` view.
     ///
     /// `IRIS-V1-CONTROL-D-142` lets user code iterate and copy a suppressed
