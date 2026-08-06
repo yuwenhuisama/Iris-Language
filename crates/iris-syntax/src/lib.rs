@@ -306,6 +306,12 @@ pub enum CatchBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodDeclaration {
     pub decorators: Vec<Decorator>,
+    /// Whether the source wrote the `async` modifier.
+    ///
+    /// `IRIS-V1-ASYNC-C003` makes an async Method return `Task<T>` rather than
+    /// `T`, and `C012` starts its body synchronously until the first
+    /// incomplete `await`.
+    pub is_async: bool,
     pub is_override: bool,
     /// The Contract this member satisfies, from `impl` or `impl C::member`.
     ///

@@ -2360,3 +2360,32 @@ fn c072_makes_a_yielding_callable_a_generator() {
         ]))
     );
 }
+
+#[test]
+fn c003_and_c012_make_an_async_call_return_a_started_task() {
+    // C003 makes an async Method return Task<T> rather than T, and C012 makes
+    // creating the Task and starting its initial run ONE call operation, so
+    // the body has already run when the caller receives the Task.
+    let started = "mut ran = false \
+                   class A { public async fun f() -> Integer { ran = true; 1 } } \
+                   let t = A.new().f(); ran";
+    assert_eq!(evaluate(started), Ok(RuntimeValue::Bool(true)));
+
+    // C013 continues synchronously on an already-complete Awaitable, and a
+    // Task may be awaited more than once with the same result.
+    let awaited = "class A { public async fun f() -> Integer { 7 } } \
+                   let t = A.new().f(); [await t, await t]";
+    assert_eq!(
+        evaluate(awaited),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(7_u8.into()),
+            RuntimeValue::Integer(7_u8.into()),
+        ]))
+    );
+
+    // C016 propagates a captured failure to the awaiter rather than at
+    // invocation, since invocation only starts the body.
+    let failed = "class A { public async fun f() -> Integer { raise :boom } } \
+                  let t = A.new().f(); try { await t } catch e { e }";
+    assert_eq!(evaluate(failed), Ok(RuntimeValue::Symbol("boom".into())));
+}

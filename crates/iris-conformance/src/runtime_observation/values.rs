@@ -221,6 +221,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::RaiseSite(_)
         | RuntimeValue::ArrayIterator(_)
         | RuntimeValue::Generator(_)
+        | RuntimeValue::Task(_)
         | RuntimeValue::IterationDone
         | RuntimeValue::ExceptionContext(..)
         | RuntimeValue::ContractView(_, _)
@@ -253,6 +254,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::Generator(..)
+        | RuntimeValue::Task(..)
         | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",

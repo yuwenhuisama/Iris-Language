@@ -153,6 +153,13 @@ pub(super) struct SourceEvaluator {
     /// delivered, NOT a captured native stack. `IRIS-V1-ASYNC-C011` leaves
     /// ordinary evaluation untouched, which is why nothing else changes.
     generators: HashMap<iris_runtime::ObjectId, GeneratorBody>,
+    /// Each Task's completion, once it has one.
+    ///
+    /// `IRIS-V1-ASYNC-C012` starts an async body SYNCHRONOUSLY and runs it
+    /// until it completes, raises, or reaches the first incomplete `await`.
+    /// With no external IO in v1 there is nothing to be incomplete, so a Task
+    /// created here is already complete and `C013` continues synchronously.
+    tasks: HashMap<iris_runtime::ObjectId, Result<Value, Box<EvaluationError>>>,
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
@@ -424,6 +431,7 @@ impl SourceEvaluator {
             invocation_depth: 0,
             array_iterators: HashMap::new(),
             generators: HashMap::new(),
+            tasks: HashMap::new(),
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
@@ -728,6 +736,7 @@ impl SourceEvaluator {
                 )
                 .map_err(EvaluationError::Class)?;
             let body = self.register_body(MethodDeclaration {
+                is_async: false,
                 decorators: Vec::new(),
                 is_override: false,
                 impl_contract: None,
@@ -1448,6 +1457,7 @@ impl SourceEvaluator {
             return Err(EvaluationError::UnsupportedConstruct);
         };
         let declaration = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             impl_contract: None,
             kind: MethodKind::Instance,
@@ -1670,6 +1680,7 @@ impl SourceEvaluator {
             .map(|record| (record.parameters.clone(), record.body.clone()))
             .ok_or(EvaluationError::UnsupportedConstruct)?;
         let declaration = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             impl_contract: None,
             kind: MethodKind::Instance,
@@ -1737,6 +1748,7 @@ impl SourceEvaluator {
             .map(|record| record.body.clone())
             .ok_or(EvaluationError::UnsupportedConstruct)?;
         let declaration = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             impl_contract: None,
             kind: MethodKind::Instance,
@@ -1949,6 +1961,7 @@ impl SourceEvaluator {
         initializer: Expression,
     ) -> Result<(), EvaluationError> {
         let getter = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             is_override: false,
             impl_contract: None,
@@ -1963,6 +1976,7 @@ impl SourceEvaluator {
             )))]),
         };
         let setter = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             is_override: false,
             impl_contract: None,
@@ -1989,6 +2003,7 @@ impl SourceEvaluator {
             })]),
         };
         let initializer = MethodDeclaration {
+            is_async: false,
             decorators: Vec::new(),
             is_override: false,
             impl_contract: None,
@@ -2118,6 +2133,7 @@ impl SourceEvaluator {
                 .map(|record| (record.parameters.clone(), record.body.clone()))
                 .ok_or(EvaluationError::UnsupportedConstruct)?;
             let declaration = MethodDeclaration {
+                is_async: false,
                 decorators: Vec::new(),
                 impl_contract: None,
                 kind: MethodKind::Instance,
@@ -3374,11 +3390,26 @@ impl SourceEvaluator {
                 };
                 Err(EvaluationError::GeneratorYield(yielded, index))
             }
-            Expression::Await(_) => {
+            Expression::Await(operand) => {
+                // C037 makes a transaction body non-suspending; ASYNC-C018
+                // owns the async reason for the prohibition.
                 if self.open_target.is_some() {
                     return Err(EvaluationError::MetaTransactionSuspension);
                 }
-                Err(EvaluationError::UnsupportedConstruct)
+                let awaited = self.expression(operand, locals, receiver)?;
+                let Value::Task(identity) = awaited else {
+                    // C008 types `await expr` through `Awaitable<T>`; only
+                    // `Task<T>` implements it in v1.
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                // C013 continues SYNCHRONOUSLY on an already-complete
+                // Awaitable without enqueueing a continuation for fairness.
+                match self.tasks.get(&identity).cloned() {
+                    Some(Ok(value)) => Ok(value),
+                    // C016 propagates the captured failure to the awaiter.
+                    Some(Err(error)) => Err(*error),
+                    None => Err(EvaluationError::UnsupportedConstruct),
+                }
             }
             // IRIS-V1-CONTROL-C026 evaluates a keyword argument in place with
             // the positionals, so the value is produced here and the name is
@@ -6087,6 +6118,7 @@ impl SourceEvaluator {
                         | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
                         | Value::Generator(_)
+                        | Value::Task(_)
                         | Value::IterationDone
                         | Value::Transformation { .. }
                         | Value::ExceptionContext(..)
@@ -6134,6 +6166,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::Generator(_)
+            | Value::Task(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -6447,6 +6480,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::Generator(_)
+            | Value::Task(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -7113,6 +7147,7 @@ impl SourceEvaluator {
         };
         let parameters = declaration.parameters.clone();
         let return_type = declaration.return_type.clone();
+        let is_async = declaration.is_async;
         // A bodyless C062 requirement declares an obligation and supplies NO
         // implementation, so invoking one is not a call that can run. It cannot
         // reach here through a Contract, which is never instantiated, but a
@@ -7127,6 +7162,19 @@ impl SourceEvaluator {
         // body is therefore not executed here at all.
         if body_yields(&body) {
             return Ok(self.new_generator(body, locals, receiver));
+        }
+        // C003 makes an async Method return `Task<T>` rather than `T`, and
+        // C012 makes creating the Task and starting this initial run ONE call
+        // operation. The body therefore runs now, and the Task records what it
+        // produced.
+        if is_async {
+            let outcome = match self.block(&body, &locals, Some(receiver)) {
+                Err(EvaluationError::Return(value)) => Ok(value),
+                result => result,
+            };
+            let identity = self.next_context_identity();
+            self.tasks.insert(identity, outcome.map_err(Box::new));
+            return Ok(Value::Task(identity));
         }
         let result = match self.block(&body, &locals, Some(receiver)) {
             Err(EvaluationError::Return(value)) => Ok(value),
@@ -7289,6 +7337,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
         Value::ArrayIterator(..) | Value::Generator(..) | Value::IterationDone => "Iteration",
+        Value::Task(..) => "Task",
         Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",

@@ -144,6 +144,12 @@ pub enum Value {
     StackFrame(String, Box<Value>),
     /// A `RaiseSite` record: the location a bare `raise` continued from.
     RaiseSite(Box<Value>),
+    /// A `Task<T>`, produced by invoking an async callable.
+    ///
+    /// `IRIS-V1-ASYNC-C006` makes it identity-bearing and gives it
+    /// runtime-local equality and hash, so its identity does not depend on the
+    /// eventual result, the exception, or its scheduler queue position.
+    Task(ObjectId),
     /// A generator, produced by invoking a callable containing `yield`.
     ///
     /// `IRIS-V1-GRAMMAR-C072` makes it an `Iterator<T>` satisfying

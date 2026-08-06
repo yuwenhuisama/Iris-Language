@@ -902,6 +902,9 @@ impl Parser {
         if visibility.is_none() {
             visibility = self.method_visibility();
         }
+        // `method_decl` places `async` after `impl` and before the level
+        // marker, and C003 makes it change the invocation RESULT to `Task<T>`.
+        let is_async = self.consume("async");
         // C064 admits `shared? ("class"|"module")? property`, so a Class-level
         // marker may precede `property` as well as `fun`. Consuming `class`
         // unconditionally would swallow the marker and then fail to see the
@@ -968,6 +971,7 @@ impl Parser {
                 None
             };
             return Some(Statement::Method(MethodDeclaration {
+                is_async,
                 decorators,
                 is_override,
                 impl_contract,

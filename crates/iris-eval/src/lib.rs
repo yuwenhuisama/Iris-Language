@@ -1155,6 +1155,7 @@ impl Evaluator {
             | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
             | RuntimeValue::Generator(_)
+            | RuntimeValue::Task(_)
             | RuntimeValue::IterationDone
             | RuntimeValue::Transformation { .. }
             | RuntimeValue::ExceptionContext(..)
@@ -1203,6 +1204,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::Generator(..)
+        | RuntimeValue::Task(..)
         | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
