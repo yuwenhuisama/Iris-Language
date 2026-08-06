@@ -433,6 +433,12 @@ pub enum Value {
     /// nested traversals of one Array use distinct Iterator objects as `C037`
     /// requires of the collection iterators generally.
     ArrayIterator(ObjectId),
+    /// A live cursor over one Hash.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C037` makes nested traversals use DISTINCT Iterator
+    /// objects and denies any hidden current-iterator context, so each cursor
+    /// is its own identity-bearing object rather than state on the Hash.
+    HashIterator(ObjectId),
     /// A literal Iris `Hash<K,V>`.
     ///
     /// `IRIS-V1-COLLECTIONS-C033` leaves iteration order UNSPECIFIED, and

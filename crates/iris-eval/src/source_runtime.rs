@@ -69,6 +69,30 @@ struct ArrayCursor {
     fail_fast: bool,
 }
 
+/// A live cursor over a shared Hash body.
+///
+/// `IRIS-V1-COLLECTIONS-C034` makes traversal fail-fast for STRUCTURAL change
+/// only, so the cursor compares the structural version and an ordinary value
+/// update does not disturb it.
+///
+/// The keys are snapshotted at `iterator()` time to give the cursor a stable
+/// walk order, which `C033` leaves unspecified but which must at least not
+/// revisit or skip entries within one traversal. Each key is re-read from the
+/// live body when yielded, so `C035`'s "an entry not yet yielded observes the
+/// latest value" holds.
+#[derive(Debug)]
+struct HashCursor {
+    entries: HashRef,
+    keys: Vec<Value>,
+    position: usize,
+    expected_version: u64,
+    /// The key most recently yielded, which `C036` `remove_current` removes.
+    yielded: Option<Value>,
+    /// Whether the most recent yield has already been consumed by a removal,
+    /// which `C036` permits at most once per successful yield.
+    removed_current: bool,
+}
+
 /// Applies one `IRIS-V1-COLLECTIONS-C040` Array growth operation in place.
 ///
 /// `C024` names append and insert the EXPLICIT growth operations. `insert`
@@ -238,6 +262,11 @@ pub(super) struct SourceEvaluator {
     /// Live Array cursors: the shared body, the next position, and the
     /// `IRIS-V1-COLLECTIONS-C026` content version the cursor expects.
     array_iterators: HashMap<iris_runtime::ObjectId, ArrayCursor>,
+    /// Live Hash cursors, keyed by the iterator's own identity.
+    ///
+    /// `C037` denies any hidden current-iterator context, so each cursor is
+    /// reached only through the Iterator object that owns it.
+    hash_iterators: HashMap<iris_runtime::ObjectId, HashCursor>,
     /// Each live generator as its body, bound locals, receiver and progress.
     ///
     /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body, so
@@ -529,6 +558,7 @@ impl SourceEvaluator {
             remaining_steps: STEP_BUDGET,
             invocation_depth: 0,
             array_iterators: HashMap::new(),
+            hash_iterators: HashMap::new(),
             generators: HashMap::new(),
             tasks: HashMap::new(),
             names: HashMap::new(),
@@ -6298,6 +6328,82 @@ impl SourceEvaluator {
             self.array_iterators.insert(identity, cursor);
             return Ok(Value::ArrayIterator(identity));
         }
+        if let Value::Hash(entries) = &receiver
+            && selector == "iterator"
+            && arguments.is_empty()
+        {
+            let identity = self.next_context_identity();
+            let cursor = HashCursor {
+                keys: entries.entries().into_iter().map(|(key, _)| key).collect(),
+                expected_version: entries.version(),
+                entries: entries.clone(),
+                position: 0,
+                yielded: None,
+                removed_current: false,
+            };
+            self.hash_iterators.insert(identity, cursor);
+            return Ok(Value::HashIterator(identity));
+        }
+        if let Value::HashIterator(identity) = &receiver {
+            let identity = *identity;
+            match selector {
+                "next" if arguments.is_empty() => {
+                    let Some(cursor) = self.hash_iterators.get_mut(&identity) else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    // C034 fails fast on STRUCTURAL change only, so a value
+                    // update for an existing key leaves the cursor usable.
+                    if cursor.entries.version() != cursor.expected_version {
+                        return Err(EvaluationError::ConcurrentModification);
+                    }
+                    loop {
+                        let Some(key) = cursor.keys.get(cursor.position).cloned() else {
+                            cursor.yielded = None;
+                            return Ok(Value::IterationDone);
+                        };
+                        cursor.position += 1;
+                        // C035 makes a not-yet-yielded entry observe the LATEST
+                        // value, so the value is read now rather than at
+                        // `iterator()` time.
+                        let Some(value) = cursor.entries.get(&key) else {
+                            // The key left through this cursor's own
+                            // `remove_current`, which C036 says must not make
+                            // this iterator fail fast.
+                            continue;
+                        };
+                        cursor.yielded = Some(key.clone());
+                        cursor.removed_current = false;
+                        // C035 yields each entry as a two-element Tuple<K,V>.
+                        return Ok(Value::IterationYield(Box::new(Value::Tuple(vec![
+                            key, value,
+                        ]))));
+                    }
+                }
+                // C036 removes exactly the most recently yielded entry, at most
+                // once per successful yield, and updates THIS cursor's expected
+                // version so it alone does not fail fast.
+                "remove_current" if arguments.is_empty() => {
+                    let Some(cursor) = self.hash_iterators.get_mut(&identity) else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    let Some(key) = cursor.yielded.clone() else {
+                        return Err(EvaluationError::IteratorState);
+                    };
+                    if cursor.removed_current {
+                        return Err(EvaluationError::IteratorState);
+                    }
+                    if cursor.entries.version() != cursor.expected_version {
+                        return Err(EvaluationError::ConcurrentModification);
+                    }
+                    cursor.entries.remove(&key);
+                    cursor.expected_version = cursor.entries.version();
+                    cursor.removed_current = true;
+                    return Ok(Value::Nil);
+                }
+                "close" if arguments.is_empty() => return Ok(Value::Nil),
+                _ => {}
+            }
+        }
         // C072 makes a generator an Iterator satisfying C011, so it answers
         // `iterator`, `next` and `close` exactly as any other Iterator does.
         // C006 makes a Task an identity-bearing object, so it answers
@@ -6557,6 +6663,7 @@ impl SourceEvaluator {
                         | Value::StackFrame(..)
                         | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
+                        | Value::HashIterator(_)
                         | Value::Generator(_)
                         | Value::Task(_)
                         | Value::Range(..)
@@ -6607,6 +6714,7 @@ impl SourceEvaluator {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::HashIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
             | Value::Range(..)
@@ -6815,6 +6923,7 @@ impl SourceEvaluator {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::HashIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
             | Value::Range(..)
@@ -7685,7 +7794,10 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
-        Value::ArrayIterator(..) | Value::Generator(..) | Value::IterationDone => "Iteration",
+        Value::ArrayIterator(..)
+        | Value::HashIterator(..)
+        | Value::Generator(..)
+        | Value::IterationDone => "Iteration",
         Value::Task(..) => "Task",
         Value::Range(..) => "Range",
         Value::ExceptionContext(..) => "ExceptionContext",

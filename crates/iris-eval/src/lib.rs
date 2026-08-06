@@ -1195,6 +1195,7 @@ impl Evaluator {
             | RuntimeValue::StackFrame(..)
             | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
+            | RuntimeValue::HashIterator(_)
             | RuntimeValue::Generator(_)
             | RuntimeValue::Task(_)
             | RuntimeValue::Range(..)
@@ -1246,6 +1247,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
+        | RuntimeValue::HashIterator(..)
         | RuntimeValue::Generator(..)
         | RuntimeValue::Task(..)
         | RuntimeValue::Range(..)

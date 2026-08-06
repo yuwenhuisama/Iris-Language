@@ -240,6 +240,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::StackFrame(..)
         | RuntimeValue::RaiseSite(_)
         | RuntimeValue::ArrayIterator(_)
+        | RuntimeValue::HashIterator(_)
         | RuntimeValue::Generator(_)
         | RuntimeValue::Task(_)
         | RuntimeValue::Range(..)
@@ -275,6 +276,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
+        | RuntimeValue::HashIterator(..)
         | RuntimeValue::Generator(..)
         | RuntimeValue::Task(..)
         | RuntimeValue::Range(..)

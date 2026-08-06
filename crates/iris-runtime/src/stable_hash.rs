@@ -84,6 +84,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::StackFrame(..)
         | Value::RaiseSite(_)
         | Value::ArrayIterator(_)
+        | Value::HashIterator(_)
         | Value::Generator(_)
         | Value::Task(_)
         | Value::Transformation { .. }
