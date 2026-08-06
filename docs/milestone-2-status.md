@@ -98,7 +98,19 @@ Each changed only a spelling or an unsatisfiable assertion, never a name, argume
 
 ## Defects Found Without Vector Coverage
 
-Three real defects surfaced through probing rather than through the corpus.
+Real defects surfaced through probing rather than through the corpus.
+
+- **Array and Hash are not identity-bearing.** `IRIS-V1-COLLECTIONS-C003`
+  classifies `Array<T>` and `Hash<K,V>` as *identity-bearing* with mutable
+  contents, alongside `MutableString` and `ByteArray`. The runtime stores them
+  as by-value `Value::Array(Vec<Value>)` and `Value::Hash(Vec<(Value, Value)>)`,
+  so every binding, argument pass and field read COPIES. `mut b = a;
+  b.append(3)` leaves `a` unchanged, and the same holds for element writes and
+  for Hash insertion through an alias. NOT yet fixed; see below.
+- **The conformance runner mis-decoded non-ASCII JSON.** Its reader used
+  `char::from(byte)`, decoding each UTF-8 byte as Latin-1 and splitting every
+  multi-byte scalar. No vector could state a non-ASCII expectation. Fixed in
+  `d2211ca`.
 
 - **Construction swallowed a raise.** `A.new()` returned an instance even when `initialize` raised. Fixed in `28acea8`.
 - **Self-sends from `initialize` failed.** Construction moved the runtime out of the evaluator before running the initializer, so a nested send resolved against an empty runtime; a separate path then erased the failure into a raise of `nil`. Fixed in `39c576e`. This regressed in `28acea8`.
