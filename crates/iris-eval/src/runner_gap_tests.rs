@@ -2501,3 +2501,33 @@ fn c009_resolves_negative_indexes_and_unary_operators() {
         Ok(RuntimeValue::Nil)
     );
 }
+
+#[test]
+fn c024_writes_use_negative_resolution_and_raise_index_error() {
+    // C024 gives an Array write the same C009 negative resolution a read uses,
+    // but an out-of-range WRITE raises IndexError where a read answers nil.
+    // The write path used raw to_usize and a Type error for both.
+    // The write answers nil per C024 and the following read observes it, so
+    // the program yields both values.
+    assert_eq!(
+        evaluate("class Z { } mut a = [1,2,3]; a[-1] = 9; a[2]"),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(9_u8.into()),
+            RuntimeValue::Integer(9_u8.into()),
+        ]))
+    );
+    assert_eq!(
+        evaluate("class Z { } mut a = [1,2,3]; a[9] = 1"),
+        Err(EvaluationError::IndexError)
+    );
+    assert_eq!(
+        evaluate("class Z { } mut a = [1,2,3]; a[-9] = 1"),
+        Err(EvaluationError::IndexError)
+    );
+
+    // The read half is unchanged: out of range still answers nil.
+    assert_eq!(
+        evaluate("class Z { } let a = [1,2,3]; a[9]"),
+        Ok(RuntimeValue::Nil)
+    );
+}

@@ -4303,10 +4303,12 @@ impl SourceEvaluator {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
-                let position = position
-                    .to_usize()
+                // C024 resolves a write index with the same C009 negative
+                // support a read uses, but an out-of-range WRITE raises
+                // IndexError rather than answering nil.
+                let position = resolve_index(position, values.len())
                     .filter(|position| *position < values.len())
-                    .ok_or(EvaluationError::Runtime(iris_runtime::KernelError::Type))?;
+                    .ok_or(EvaluationError::IndexError)?;
                 values[position] = value.clone();
                 Ok(Value::Array(values))
             }
@@ -7610,6 +7612,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         // ordinary catchable Iris error; V363 and V421 observe it.
         EvaluationError::ReflectionAccess => "ReflectionAccessError",
         EvaluationError::IteratorState => "IteratorStateError",
+        EvaluationError::IndexError => "IndexError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

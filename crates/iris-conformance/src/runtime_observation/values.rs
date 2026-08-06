@@ -306,6 +306,7 @@ fn error_code(error: &EvaluationError) -> String {
         // since C015 forbids a source-level blocking wait.
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError".into(),
         EvaluationError::IteratorState => "IteratorStateError".into(),
+        EvaluationError::IndexError => "IndexError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

@@ -145,6 +145,12 @@ pub enum EvaluationError {
     /// `IRIS-V1-COLLECTIONS-C014` raises it for `Iteration.done.value`, and
     /// `C020` for invalid Iterator sequencing generally.
     IteratorState,
+    /// An indexed write resolved outside the receiver's valid range.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C009` returns `nil` for an out-of-range READ but
+    /// raises `IndexError` for an out-of-range scalar WRITE, and `C024` repeats
+    /// that for Array specifically.
+    IndexError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
