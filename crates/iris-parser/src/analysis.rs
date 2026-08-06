@@ -27,6 +27,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
         declared_mixins: Vec::new(),
         declared_members: Vec::new(),
         transaction_depth: 0,
+        async_depth: 0,
         class_contracts: Vec::new(),
         decorator_kinds: Vec::new(),
         generic_constraints: Vec::new(),
@@ -367,6 +368,11 @@ struct Analyzer {
     /// `IRIS-V1-ASYNC-C018` rejects an `await` LEXICALLY inside one before
     /// execution, so the check is lexical rather than dynamic.
     transaction_depth: usize,
+    /// How many async callable bodies enclose the current node.
+    ///
+    /// `IRIS-V1-ASYNC-C003` and `C004` give `await` meaning only inside an
+    /// async Method or async Closure, which `IRIS-V1-ASYNC-V007` observes.
+    async_depth: usize,
     /// Each Class paired with the Contracts its declarations listed.
     class_contracts: Vec<(String, Vec<String>)>,
     /// Each Class paired with the Modules it mixes in.
@@ -1963,8 +1969,17 @@ impl Analyzer {
                 }
                 // A bodyless C062 requirement has no statements to analyse; it
                 // declares an obligation rather than an implementation.
+                //
+                // C003 gives `await` meaning only inside an async body, so the
+                // walk of THIS body carries whether it is one.
+                if declaration.is_async {
+                    self.async_depth += 1;
+                }
                 for statement in declaration.body.iter().flatten() {
                     self.statement(statement, Control::callable());
+                }
+                if declaration.is_async {
+                    self.async_depth -= 1;
                 }
                 self.check_return_annotation(declaration);
                 self.check_async_result(declaration);
@@ -1995,6 +2010,12 @@ impl Analyzer {
             Expression::Await(operand) => {
                 if self.transaction_depth > 0 {
                     self.report("IRIS-TRANSACTION-SUSPENSION");
+                }
+                // C003 and C004 give `await` meaning only inside an async
+                // Method or async Closure, so V007 rejects its placement
+                // anywhere else before execution.
+                if self.async_depth == 0 {
+                    self.report("AWAIT_OUTSIDE_ASYNC");
                 }
                 self.expression(operand, control);
             }
@@ -3439,13 +3460,20 @@ mod override_marker_tests {
         // V355 observes the diagnostic and that no candidate starts.
         let inside = "class A { } module M { public fun ready() -> Symbol { :r } \
                       public fun run() -> Nil { A.open() { |t| await M.ready() } } }";
-        assert_eq!(codes(inside), ["IRIS-TRANSACTION-SUSPENSION"]);
+        // The same `await` is also outside any async body, so C003's
+        // placement rule reports too. Both refusals are correct and independent.
+        assert_eq!(
+            codes(inside),
+            ["IRIS-TRANSACTION-SUSPENSION", "AWAIT_OUTSIDE_ASYNC"]
+        );
 
         // Outside a transaction body the operator is not this clause's concern;
         // suspension itself is chapter 07's surface.
         let outside = "module M { public fun ready() -> Symbol { :r } \
                        public fun run() -> Symbol { await M.ready() } }";
-        assert!(codes(outside).is_empty());
+        // Outside a transaction the suspension rule does not apply, but the
+        // placement rule still does: `run` is not async.
+        assert_eq!(codes(outside), ["AWAIT_OUTSIDE_ASYNC"]);
     }
 
     #[test]

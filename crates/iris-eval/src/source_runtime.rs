@@ -3398,9 +3398,11 @@ impl SourceEvaluator {
                 }
                 let awaited = self.expression(operand, locals, receiver)?;
                 let Value::Task(identity) = awaited else {
-                    // C008 types `await expr` through `Awaitable<T>`; only
-                    // `Task<T>` implements it in v1.
-                    return Err(EvaluationError::UnsupportedConstruct);
+                    // C008 types `await expr` through `Awaitable<T>` and only
+                    // `Task<T>` implements it in v1, so an operand that is not
+                    // one is a Type failure and NOT a suspension. V008 observes
+                    // that nothing suspends.
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
                 // C013 continues SYNCHRONOUSLY on an already-complete
                 // Awaitable without enqueueing a continuation for fairness.
