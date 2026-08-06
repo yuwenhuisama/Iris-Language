@@ -3225,7 +3225,10 @@ fn c064_appends_to_a_class_level_storage_slot() {
     // class-level Array could be READ and never appended to.
     let module_slot = "module S { shared class property e: Array = [] } S.e.append(1); S.e";
     let class_slot = "class C { shared class property e: Array = [] } C.e.append(1); C.e";
-    // A slot that is not an Array is a type failure, not a silent no-op.
+    // A slot that is not an Array does not answer `append` at all, and now
+    // reports the ORDINARY message failure: C003 identity made `append` a
+    // plain send, so the receiver is the Integer itself rather than a slot the
+    // old syntax-routed path had to type-check by hand.
     let wrong_type = "module S { shared class property e: Integer = 1 } S.e.append(1)";
     // An ordinary lexical binding is unaffected.
     let binding = "let a = []; a.append(1); a";
@@ -3239,7 +3242,10 @@ fn c064_appends_to_a_class_level_storage_slot() {
         rendered(class_slot),
         "Array([Nil, Array([Integer(IntegerValue(1))])])"
     );
-    assert_eq!(rendered(wrong_type), "Runtime(Type)");
+    assert_eq!(
+        rendered(wrong_type),
+        "MessageNotFound { receiver_class: \"Integer\", selector: \"append\" }"
+    );
     assert_eq!(
         rendered(binding),
         "Array([Nil, Array([Integer(IntegerValue(1))])])"

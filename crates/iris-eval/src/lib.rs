@@ -5,7 +5,9 @@ mod source_runtime;
 
 use iris_lexer::{Literal, convert_literals};
 use iris_parser::parse;
-use iris_runtime::{BuiltinClass, Kernel, KernelError, NativeSelector, Value as RuntimeValue};
+use iris_runtime::{
+    ArrayRef, BuiltinClass, Kernel, KernelError, NativeSelector, Value as RuntimeValue,
+};
 use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 
 /// Observable literal values supported by the Iris v1 grammar vectors.
@@ -154,9 +156,13 @@ pub enum EvaluationError {
     /// `Hash#fetch` was given a key the Hash does not hold.
     ///
     /// `IRIS-V1-COLLECTIONS-C029` makes `hash[key]` answer `nil` for an absent
-    /// key while `fetch(key)` RAISES, which is the whole difference between
-    /// them.
+    /// key while `fetch(key)` RAISES.
     KeyError,
+    /// An active iterator advanced after its collection changed structurally.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C026` and `C034` make traversal FAIL-FAST rather
+    /// than silently yielding stale or skipped elements.
+    ConcurrentModification,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -235,7 +241,7 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     match values.as_slice() {
         [] => Err(EvaluationError::UnsupportedConstruct),
         [value] => Ok(value.clone()),
-        _ => Ok(RuntimeValue::Array(values)),
+        _ => Ok(RuntimeValue::Array(ArrayRef::new(values))),
     }
 }
 
@@ -915,7 +921,7 @@ impl Evaluator {
                         .and_then(|value| self.value(value))
                 })
                 .collect::<Result<Vec<_>, _>>()
-                .map(RuntimeValue::Array)
+                .map(|values| RuntimeValue::Array(ArrayRef::new(values)))
                 .map(Evaluated::Value),
             Expression::Grouped(expression) => self.expression(expression),
             Expression::Member { receiver, selector } => match self.expression(receiver)? {
@@ -1366,7 +1372,7 @@ pub fn evaluate_literals(source: &str) -> Result<Value, EvaluationError> {
 
 #[cfg(test)]
 mod evaluator_bridge_tests {
-    use iris_runtime::{MethodBody, NativeSelector, Value as RuntimeValue, Visibility};
+    use iris_runtime::{ArrayRef, MethodBody, NativeSelector, Value as RuntimeValue, Visibility};
 
     use super::evaluate;
 
@@ -1381,11 +1387,11 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer((-3_i8).into()),
                 RuntimeValue::Integer((-3_i8).into()),
                 RuntimeValue::Integer(2_u8.into()),
-            ]))
+            ])))
         );
     }
 
@@ -1400,11 +1406,11 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Integer((-1_i8).into()),
                 RuntimeValue::Integer((-1_i8).into()),
-            ]))
+            ])))
         );
     }
 
@@ -1419,7 +1425,12 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![RuntimeValue::Bool(true); 3]))
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
+                RuntimeValue::Bool(
+                    true
+                );
+                3
+            ])))
         );
     }
 
@@ -1498,10 +1509,10 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(6_u8.into()),
                 RuntimeValue::Integer(6_u8.into()),
-            ]))
+            ])))
         );
     }
 
@@ -1577,11 +1588,11 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer((-1_i8).into()),
                 RuntimeValue::Integer((-2_i8).into()),
                 RuntimeValue::Integer(2_u8.into()),
-            ]))
+            ])))
         );
     }
 
@@ -1597,7 +1608,7 @@ mod evaluator_bridge_tests {
         assert!(matches!(
             result,
             Ok(RuntimeValue::Array(values))
-                if matches!(values.as_slice(), [RuntimeValue::Float64(value), RuntimeValue::Float32(other)] if value.is_nan() && other.is_nan())
+                if matches!(values.elements().as_slice(), [RuntimeValue::Float64(value), RuntimeValue::Float32(other)] if value.is_nan() && other.is_nan())
         ));
     }
 
@@ -1630,12 +1641,12 @@ mod evaluator_bridge_tests {
         // Then
         assert_eq!(
             result,
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(0_u8.into()),
                 RuntimeValue::Integer((-1_i8).into()),
                 RuntimeValue::Integer((-1_i8).into()),
                 RuntimeValue::Integer(0_u8.into()),
-            ]))
+            ])))
         );
     }
 
@@ -1651,7 +1662,7 @@ mod evaluator_bridge_tests {
         assert!(matches!(
             result,
             Ok(RuntimeValue::Array(values))
-                if matches!(values.as_slice(), [RuntimeValue::Float32(nan), RuntimeValue::Float64(infinity), RuntimeValue::Float64(negative_infinity)] if nan.is_nan() && infinity.is_infinite() && infinity.is_sign_positive() && negative_infinity.is_infinite() && negative_infinity.is_sign_negative())
+                if matches!(values.elements().as_slice(), [RuntimeValue::Float32(nan), RuntimeValue::Float64(infinity), RuntimeValue::Float64(negative_infinity)] if nan.is_nan() && infinity.is_infinite() && infinity.is_sign_positive() && negative_infinity.is_infinite() && negative_infinity.is_sign_negative())
         ));
     }
 
@@ -1684,7 +1695,7 @@ mod evaluator_bridge_tests {
         assert!(matches!(
             result,
             Ok(RuntimeValue::Array(values))
-                if matches!(values.as_slice(), [RuntimeValue::Float32(value), RuntimeValue::Float64(other)] if value.is_nan() && other.is_nan())
+                if matches!(values.elements().as_slice(), [RuntimeValue::Float32(value), RuntimeValue::Float64(other)] if value.is_nan() && other.is_nan())
         ));
     }
 

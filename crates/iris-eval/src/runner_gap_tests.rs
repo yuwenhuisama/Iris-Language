@@ -1,6 +1,6 @@
 use iris_runtime::{
-    BuiltinClass, ClassId, Kernel, KernelError, MethodBody, NativeSelector, Runtime, Selector,
-    StaticSpine, Value as RuntimeValue, Visibility,
+    ArrayRef, BuiltinClass, ClassId, Kernel, KernelError, MethodBody, NativeSelector, Runtime,
+    Selector, StaticSpine, Value as RuntimeValue, Visibility,
 };
 
 use super::{EvaluationError, evaluate};
@@ -167,11 +167,11 @@ fn class_method_slot_operations_follow_d448_alias_remove_and_undef_rules() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("local".into()),
             RuntimeValue::Symbol("base_g".into()),
             RuntimeValue::Symbol("missing".into()),
-        ]))
+        ])))
     );
 }
 
@@ -207,13 +207,13 @@ fn reflection_object_ivar_operations_are_layered_under_reflection_object() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Symbol("value".into()),
-            RuntimeValue::Array(vec![RuntimeValue::Symbol("@x".into())]),
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol("@x".into())])),
             RuntimeValue::Symbol("value".into()),
             RuntimeValue::Nil,
-        ]))
+        ])))
     );
 }
 
@@ -228,11 +228,11 @@ fn reflection_class_and_class_mixin_share_method_and_module_operations() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("module".into()),
             RuntimeValue::Symbol("module".into()),
             RuntimeValue::Nil,
-        ]))
+        ])))
     );
 }
 
@@ -247,25 +247,25 @@ fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             // These ids are ALLOCATION ORDER, not identities the spec fixes:
             // declared Classes are numbered after the builtin ones, so adding a
             // builtin Class shifts every declared id. What the row asserts is
             // the ANCESTOR RELATIONSHIP, `B` then its current superclass then
             // `Object`, which the ids below spell out positionally.
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Class(ClassId::new(8)),
                 RuntimeValue::Class(ClassId::new(9)),
                 RuntimeValue::Class(ClassId::new(0))
-            ]),
+            ])),
             RuntimeValue::Nil,
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Class(ClassId::new(8)),
                 RuntimeValue::Class(ClassId::new(7)),
                 RuntimeValue::Class(ClassId::new(0))
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }
 
@@ -347,7 +347,10 @@ fn qualified_expression_sends_reach_reflection_and_nested_module_members() {
     let module_result = evaluate(module);
 
     // Then
-    assert_eq!(reflection_result, Ok(RuntimeValue::Array(vec![])));
+    assert_eq!(
+        reflection_result,
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![])))
+    );
     assert_eq!(module_result, Ok(RuntimeValue::Symbol("f".into())));
 }
 
@@ -385,27 +388,27 @@ fn reflection_operations_are_reachable_through_every_public_entry_point() {
     // Then
     assert_eq!(
         object_result,
-        Ok(RuntimeValue::Array(vec![
-            RuntimeValue::Array(vec![RuntimeValue::Symbol("@x".into())]),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol("@x".into())])),
             RuntimeValue::Symbol("value".into()),
             RuntimeValue::Symbol("value".into()),
             RuntimeValue::Symbol("value".into()),
-        ]))
+        ])))
     );
     assert_eq!(
         class_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("m".into()),
             RuntimeValue::Symbol("m".into()),
             RuntimeValue::Nil,
-        ]))
+        ])))
     );
     assert_eq!(
         module_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("m".into()),
             RuntimeValue::Symbol("m".into()),
-        ]))
+        ])))
     );
 }
 
@@ -451,11 +454,11 @@ fn sends_not_equal_for_nan_and_ordinary_operands() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(true),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
 }
 
@@ -471,10 +474,10 @@ fn array_append_mutates_an_unannotated_binding_in_order() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("a".into()),
             RuntimeValue::Symbol("b".into()),
-        ]))
+        ])))
     );
 }
 
@@ -489,13 +492,13 @@ fn array_literal_append_grows_in_order_and_returns_nil() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Symbol("a".into()),
                 RuntimeValue::Symbol("b".into()),
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }
 
@@ -510,14 +513,14 @@ fn array_append_accumulates_through_try_catch_and_finally() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("handled".into()),
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Symbol("try".into()),
                 RuntimeValue::Symbol("catch".into()),
                 RuntimeValue::Symbol("finally".into()),
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }
 
@@ -672,12 +675,12 @@ fn conditional_expressions_return_values_in_bindings_and_arrays() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("yes".into()),
             RuntimeValue::Symbol("no".into()),
             RuntimeValue::Nil,
             RuntimeValue::Symbol("second".into()),
-        ]))
+        ])))
     );
 }
 
@@ -694,11 +697,13 @@ fn conditional_expressions_are_evaluated_in_standalone_array_elements() {
     assert_eq!(
         results,
         [
-            Ok(RuntimeValue::Array(vec![RuntimeValue::Symbol("y".into())])),
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
+                RuntimeValue::Symbol("y".into())
+            ]))),
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Symbol("y".into()),
-            ])),
+            ]))),
         ]
     );
 }
@@ -716,11 +721,11 @@ fn conditional_expressions_use_to_bool_once_and_preserve_statement_behavior() {
     assert_eq!(
         results,
         [
-            Ok(RuntimeValue::Array(vec![
+            Ok(RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Symbol("no".into()),
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Symbol("no".into()),
-            ])),
+            ]))),
             Ok(RuntimeValue::Symbol("yes".into())),
         ]
     );
@@ -746,10 +751,10 @@ fn source_if_uses_truthiness_and_keeps_branches_scoped() {
     assert_eq!(non_bool_result, Err(EvaluationError::TypeContractError));
     assert_eq!(
         skipped_branch_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("selected".into()),
             RuntimeValue::Integer(0_u8.into()),
-        ]))
+        ])))
     );
     // IRIS-V1-CONTROL-C011 makes an unresolved bare name a `NameError`, which
     // is what reading a branch-local binding from outside its branch produces.
@@ -767,10 +772,10 @@ fn source_open_class_preserves_identity_and_updates_existing_instances() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(true),
             RuntimeValue::Integer(2_u8.into()),
-        ]))
+        ])))
     );
 }
 
@@ -809,11 +814,11 @@ fn bound_method_captured_before_reopen_keeps_original_method() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(true),
             RuntimeValue::Symbol("old".into()),
             RuntimeValue::Symbol("new".into()),
-        ]))
+        ])))
     );
 }
 
@@ -828,10 +833,10 @@ fn reopen_adding_method_preserves_existing_methods() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("old".into()),
             RuntimeValue::Symbol("added".into()),
-        ]))
+        ])))
     );
 }
 
@@ -1026,10 +1031,10 @@ fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("get".into()),
             RuntimeValue::Symbol("set".into()),
-        ]))
+        ])))
     );
 }
 
@@ -1056,11 +1061,11 @@ fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(2_u8.into()),
             RuntimeValue::Integer(1_u8.into()),
-            RuntimeValue::Array(vec![RuntimeValue::Integer(2_u8.into())]),
-        ]))
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Integer(2_u8.into())])),
+        ])))
     );
 }
 
@@ -1075,11 +1080,11 @@ fn class_property_setter_records_without_creating_an_implicit_backing_slot() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Float64(2.0),
             RuntimeValue::Float64(3.0),
-            RuntimeValue::Array(vec![RuntimeValue::Float64(3.0)]),
-        ]))
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Float64(3.0)])),
+        ])))
     );
 }
 
@@ -1129,10 +1134,10 @@ fn ordinary_instance_state_assignment_still_creates_a_raw_ivar() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(2_u8.into()),
             RuntimeValue::Integer(2_u8.into()),
-        ]))
+        ])))
     );
 }
 
@@ -1165,10 +1170,10 @@ fn raw_ivar_read_returns_nil_without_materializing_value_receiver_state() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Nil
-        ]))
+        ])))
     );
 }
 
@@ -1512,11 +1517,11 @@ fn builtin_to_bool_methods_dispatch_per_c094() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
 }
 
@@ -1551,10 +1556,10 @@ fn method_assignment_updates_an_enclosing_mutable_binding() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(2_u8.into()),
             RuntimeValue::Integer(2_u8.into()),
-        ]))
+        ])))
     );
 }
 
@@ -1596,10 +1601,10 @@ fn c098_protects_only_a_declared_ancestor_carrying_a_static_spine_fact() {
                      [refused, Dog.type.subtype?(Animal.type)]";
     assert_eq!(
         evaluate(protected),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("TypeContractError".into()),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
 
     // An ancestor carrying no such fact is deliberately NOT protected: D-104
@@ -1747,10 +1752,10 @@ fn open_module_adds_members_to_the_existing_module() {
                   [M.one(), M.two()]";
     assert_eq!(
         evaluate(source),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
             RuntimeValue::Integer(2_u8.into()),
-        ]))
+        ])))
     );
 }
 
@@ -1771,10 +1776,10 @@ fn c023_composition_changes_join_the_open_transaction() {
         format!("{base} H.open() {{ |t| t.remove_module(:A); t.add_module(:A) }}; H.new().tag()");
     assert_eq!(
         evaluate(&reordered),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Symbol("a".into()),
-        ]))
+        ])))
     );
 
     // D-175 recomputes MRO before commit and one Module holds one position in
@@ -1783,10 +1788,10 @@ fn c023_composition_changes_join_the_open_transaction() {
     let redundant = format!("{base} H.open() {{ |t| t.add_module(:A) }}; H.new().tag()");
     assert_eq!(
         evaluate(&redundant),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Symbol("b".into()),
-        ]))
+        ])))
     );
 }
 
@@ -1879,15 +1884,15 @@ fn c097_class_view_exposes_its_required_members() {
     // denied set is read through the same ordered accessor V360 observes.
     assert_eq!(
         evaluate(&format!("{base} Box.meta_capabilities")),
-        Ok(RuntimeValue::Array(vec![RuntimeValue::Symbol(
-            "method_set".into()
-        )]))
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("method_set".into())
+        ])))
     );
 
     // A Class with no denials reports an empty set rather than the vocabulary.
     assert_eq!(
         evaluate("class Box { } Box.meta_capabilities"),
-        Ok(RuntimeValue::Array(Vec::new()))
+        Ok(RuntimeValue::Array(ArrayRef::new(Vec::new())))
     );
 
     // The Method view members C097 lists alongside `source`.
@@ -1895,10 +1900,10 @@ fn c097_class_view_exposes_its_required_members() {
                   let m = Reflection::Class.method(Box, :show); [m.selector, m.visibility]";
     assert_eq!(
         evaluate(method),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("show".into()),
             RuntimeValue::Symbol("public".into()),
-        ]))
+        ])))
     );
 }
 
@@ -2050,13 +2055,13 @@ fn c095_returns_a_filtered_immutable_reflection_view() {
     let ordinary = "mut a = [1]; a.append(2); a";
     assert_eq!(
         evaluate(ordinary),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Integer(2_u8.into()),
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }
 
@@ -2180,10 +2185,10 @@ fn c080_confines_a_getter_replacement_to_ordinary_reads() {
     );
     assert_eq!(
         evaluate(&replaced),
-        Ok(RuntimeValue::Array(vec![
-            RuntimeValue::Array(Vec::new()),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Array(ArrayRef::new(Vec::new())),
             RuntimeValue::Symbol("body".into()),
-        ]))
+        ])))
     );
 
     // The same fixture WITHOUT the replacement still sees the protected
@@ -2194,10 +2199,10 @@ fn c080_confines_a_getter_replacement_to_ordinary_reads() {
     );
     assert_eq!(
         evaluate(&intact),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("close".into()),
             RuntimeValue::Symbol("body".into()),
-        ]))
+        ])))
     );
 }
 
@@ -2212,10 +2217,10 @@ fn c099_refuses_removing_a_declared_contract() {
                     [refused, A.active_revision]";
     assert_eq!(
         evaluate(declared),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("TypeContractError".into()),
             RuntimeValue::Integer(3_u8.into()),
-        ]))
+        ])))
     );
 
     // Removing a Contract the Class never declared changes no static spine
@@ -2282,7 +2287,7 @@ fn c070_leaves_the_old_package_active_when_an_upgrade_hook_fails() {
     );
     assert_eq!(
         outcome.map(|(_, observed)| observed),
-        Ok(Some(RuntimeValue::Array(vec![
+        Ok(Some(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("MigrationStop".into()),
             // The version never advances, and the counter the hook wrote is
             // restored, since both are candidate state.
@@ -2290,8 +2295,10 @@ fn c070_leaves_the_old_package_active_when_an_upgrade_hook_fails() {
             RuntimeValue::Integer(4_u8.into()),
             // The external log the hook already wrote SURVIVES, which is the
             // half C070 hands to the package author rather than undoing.
-            RuntimeValue::Array(vec![RuntimeValue::Symbol("migration-start".into())]),
-        ])))
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol(
+                "migration-start".into()
+            )])),
+        ]))))
     );
 }
 
@@ -2334,12 +2341,12 @@ fn c072_makes_a_yielding_callable_a_generator() {
                    let g = G.new().each(); [g.next(), g.next(), g.next()]";
     assert_eq!(
         evaluate(stepped),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::IterationYield(Box::new(RuntimeValue::Integer(1_u8.into()))),
             RuntimeValue::IterationYield(Box::new(RuntimeValue::Integer(2_u8.into()))),
             // C013 returns the same done singleton on every later call.
             RuntimeValue::IterationDone,
-        ]))
+        ])))
     );
 
     // C011 and C012 drive `for` through iterator()/next(), so a generator is
@@ -2350,14 +2357,14 @@ fn c072_makes_a_yielding_callable_a_generator() {
                   seen";
     assert_eq!(
         evaluate(driven),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
-            RuntimeValue::Array(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Integer(2_u8.into()),
                 RuntimeValue::Integer(3_u8.into()),
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }
 
@@ -2377,10 +2384,10 @@ fn c003_and_c012_make_an_async_call_return_a_started_task() {
                    let t = A.new().f(); [await t, await t]";
     assert_eq!(
         evaluate(awaited),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(7_u8.into()),
             RuntimeValue::Integer(7_u8.into()),
-        ]))
+        ])))
     );
 
     // C016 propagates a captured failure to the awaiter rather than at
@@ -2432,10 +2439,10 @@ fn c032_and_c033_close_a_using_resource_exactly_once() {
                   let v = using(R.new()) { 7 }; [v, closed]";
     assert_eq!(
         evaluate(normal),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(7_u8.into()),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
 
     // C033: a raising block stays PRIMARY and the close failure is appended to
@@ -2445,10 +2452,10 @@ fn c032_and_c033_close_a_using_resource_exactly_once() {
                       catch v, c { [v, c.suppressed[0].value] }";
     assert_eq!(
         evaluate(both_raise),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("blockfail".into()),
             RuntimeValue::Symbol("closefail".into()),
-        ]))
+        ])))
     );
 
     // C033: a close failure after a NORMAL block becomes primary, and no block
@@ -2511,10 +2518,10 @@ fn c024_writes_use_negative_resolution_and_raise_index_error() {
     // the program yields both values.
     assert_eq!(
         evaluate("class Z { } mut a = [1,2,3]; a[-1] = 9; a[2]"),
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(9_u8.into()),
             RuntimeValue::Integer(9_u8.into()),
-        ]))
+        ])))
     );
     assert_eq!(
         evaluate("class Z { } mut a = [1,2,3]; a[9] = 1"),

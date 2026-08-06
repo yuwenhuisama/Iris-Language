@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use iris_runtime::{
-    Capability, ClassError, ClassId, ClassRevision, ComparisonSlot, CompositionEdge,
+    ArrayRef, Capability, ClassError, ClassId, ClassRevision, ComparisonSlot, CompositionEdge,
     DispatchContext, DispatchError, DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody,
     MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError,
     TruthinessMethod, Value,
@@ -54,49 +54,52 @@ fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<us
     length.checked_sub(magnitude)
 }
 
+/// A live cursor over a shared Array body.
+///
+/// `IRIS-V1-COLLECTIONS-C026` requires an active iterator to raise
+/// `ConcurrentModificationError` on its next advance once the Array changes
+/// structurally, so the cursor keeps the SHARED body and the version it expects
+/// rather than a private copy of the elements.
+#[derive(Debug)]
+struct ArrayCursor {
+    values: ArrayRef,
+    position: usize,
+    expected_version: u64,
+    /// A `D-142` read-only view cannot be mutated, so its cursor never fails.
+    fail_fast: bool,
+}
+
 /// Applies one `IRIS-V1-COLLECTIONS-C040` Array growth operation in place.
 ///
-/// `C024` names append and insert the EXPLICIT growth operations and makes a
-/// scalar write raise `IndexError` out of range. `insert` resolves its position
-/// through `C009` negative indexing and accepts the end position so an element
-/// can be added after the last one. Each operation answers `nil`.
+/// `C024` names append and insert the EXPLICIT growth operations. `insert`
+/// resolves its position through `C009` negative indexing and accepts the end
+/// position so an element can be added after the last one. Each answers `nil`.
 fn apply_array_mutation(
     values: &mut Vec<Value>,
     selector: &str,
     arguments: &[Value],
-    value: Option<&Value>,
 ) -> Result<Value, EvaluationError> {
-    match selector {
-        "append" => values.push(value.ok_or(EvaluationError::UnsupportedConstruct)?.clone()),
-        "clear" => values.clear(),
+    match (selector, arguments) {
+        ("append", [value]) => values.push(value.clone()),
+        ("clear", []) => values.clear(),
         // `delete` removes the FIRST element equal to the argument. C026 fixes
         // Array equality as the in-order element comparison, which is what the
         // derived value equality already performs.
-        "delete" => {
-            let target = value.ok_or(EvaluationError::UnsupportedConstruct)?;
+        ("delete", [target]) => {
             if let Some(position) = values.iter().position(|held| held == target) {
                 values.remove(position);
             }
         }
-        "insert" => {
-            let [index, _] = arguments else {
-                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
-            };
-            let Value::Integer(index) = index else {
-                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
-            };
+        ("insert", [Value::Integer(index), value]) => {
             // The end position is a valid insertion point, so the length itself
             // resolves even though it is out of range for a READ.
             let position = resolve_index(index, values.len()).ok_or(EvaluationError::IndexError)?;
             if position > values.len() {
                 return Err(EvaluationError::IndexError);
             }
-            values.insert(
-                position,
-                value.ok_or(EvaluationError::UnsupportedConstruct)?.clone(),
-            );
+            values.insert(position, value.clone());
         }
-        _ => return Err(EvaluationError::UnsupportedConstruct),
+        _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity)),
     }
     Ok(Value::Nil)
 }
@@ -230,7 +233,9 @@ pub(super) struct SourceEvaluator {
     ///
     /// The cursor must ADVANCE across `next()` calls, so its position lives
     /// here rather than inside the Value, which is copied on every send.
-    array_iterators: HashMap<iris_runtime::ObjectId, (Vec<Value>, usize)>,
+    /// Live Array cursors: the shared body, the next position, and the
+    /// `IRIS-V1-COLLECTIONS-C026` content version the cursor expects.
+    array_iterators: HashMap<iris_runtime::ObjectId, ArrayCursor>,
     /// Each live generator as its body, bound locals, receiver and progress.
     ///
     /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body, so
@@ -676,7 +681,7 @@ impl SourceEvaluator {
         match values.as_slice() {
             [] => Err(EvaluationError::UnsupportedConstruct),
             [value] => Ok(value.clone()),
-            _ => Ok(Value::Array(values)),
+            _ => Ok(Value::Array(ArrayRef::new(values))),
         }
     }
 
@@ -2193,7 +2198,7 @@ impl SourceEvaluator {
             receiver,
             &[
                 Value::Class(class),
-                Value::Array(arguments),
+                Value::Array(ArrayRef::new(arguments)),
                 Value::Class(class),
             ],
         );
@@ -2916,8 +2921,8 @@ impl SourceEvaluator {
                 if values.len() != elements.len() {
                     return Ok(false);
                 }
-                for (element, value) in elements.iter().zip(values) {
-                    if !self.pattern_matches(element, value, bound)? {
+                for (element, value) in elements.iter().zip(values.elements()) {
+                    if !self.pattern_matches(element, &value, bound)? {
                         return Ok(false);
                     }
                 }
@@ -2971,6 +2976,13 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Option<Value>, EvaluationError> {
         match (receiver, selector, arguments) {
+            // C024 names append and insert the EXPLICIT growth operations.
+            // These mutate the SHARED body, so every other binding, parameter
+            // and field naming the same Array observes the change, and the
+            // C026 content version moves so active iterators fail fast.
+            (Value::Array(values), "append" | "insert" | "delete" | "clear", _) => values
+                .mutate(|elements| apply_array_mutation(elements, selector, arguments))
+                .map(Some),
             // C029: `fetch` RAISES for an absent key where `[]` answers nil.
             (Value::Hash(entries), "fetch", [key]) => entries
                 .iter()
@@ -3706,7 +3718,7 @@ impl SourceEvaluator {
                 .iter()
                 .map(|value| self.expression(value, locals, receiver.clone()))
                 .collect::<Result<Vec<_>, _>>()
-                .map(Value::Array),
+                .map(|values| Value::Array(ArrayRef::new(values))),
             // A `try` in expression position runs the same evaluator the
             // statement form uses, so the two can never disagree on ordering,
             // handler selection, or which clause supplies the result.
@@ -3765,7 +3777,9 @@ impl SourceEvaluator {
                 // V358 observes that a Module written without `mixin` has an
                 // EMPTY edge list, so no implicit composition edge may appear.
                 if selector == "modules" {
-                    return Ok(Value::Array(self.module_component_names(module)));
+                    return Ok(Value::Array(ArrayRef::new(
+                        self.module_component_names(module),
+                    )));
                 }
                 let module_class = *self
                     .module_classes
@@ -3905,12 +3919,6 @@ impl SourceEvaluator {
                         let target = self.expression(target, locals, receiver)?;
                         self.send(target, selector, &arguments)
                     }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(selector.as_str(), "append" | "insert" | "delete" | "clear") => {
-                        self.mutate_array_binding(target, selector, &arguments, locals)
-                    }
                     Expression::Name(name) if name == "super" => {
                         self.super_send(receiver, &arguments, None)
                     }
@@ -3963,7 +3971,11 @@ impl SourceEvaluator {
                             else {
                                 return Err(EvaluationError::UnsupportedConstruct);
                             };
-                            return self.reflective_invoke(*method, receiver.clone(), args);
+                            return self.reflective_invoke(
+                                *method,
+                                receiver.clone(),
+                                &args.elements(),
+                            );
                         }
                         let selector_name = selector.clone();
                         let selector = self.selector(&selector_name);
@@ -4383,14 +4395,19 @@ impl SourceEvaluator {
         match &target {
             // C010 slices unit-forward, clamps effective bounds, and C025 makes
             // an Array slice an INDEPENDENT snapshot rather than a view.
-            Value::Array(values) | Value::ReadonlyArray(values)
-                if matches!(index, Value::Range(..)) =>
-            {
+            Value::Array(_) | Value::ReadonlyArray(_) if matches!(index, Value::Range(..)) => {
                 let Value::Range(start, end, inclusive) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
+                let values = match &target {
+                    Value::Array(values) => values.elements(),
+                    Value::ReadonlyArray(values) => values.clone(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
                 let span = slice_bounds(start, end, *inclusive, values.len());
-                Ok(Value::Array(values.get(span).unwrap_or_default().to_vec()))
+                Ok(Value::Array(ArrayRef::new(
+                    values.get(span).unwrap_or_default().to_vec(),
+                )))
             }
             // C044 indexes a String in Unicode SCALAR units, so a multi-byte
             // scalar counts once and a slice cuts on scalar boundaries.
@@ -4413,9 +4430,14 @@ impl SourceEvaluator {
                     .and_then(|position| scalars.get(position))
                     .map_or(Value::Nil, |scalar| Value::Text(scalar.to_string())))
             }
-            Value::Array(values) | Value::ReadonlyArray(values) => {
+            Value::Array(_) | Value::ReadonlyArray(_) => {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let values = match &target {
+                    Value::Array(values) => values.elements(),
+                    Value::ReadonlyArray(values) => values.clone(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
                 // C009 resolves a NEGATIVE index as `length + index` in the
                 // receiver's unit, and a read outside the resolved range
@@ -4446,7 +4468,7 @@ impl SourceEvaluator {
         value: Value,
     ) -> Result<Value, EvaluationError> {
         match target {
-            Value::Array(mut values) => {
+            Value::Array(values) => {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
@@ -4456,7 +4478,7 @@ impl SourceEvaluator {
                 let position = resolve_index(position, values.len())
                     .filter(|position| *position < values.len())
                     .ok_or(EvaluationError::IndexError)?;
-                values[position] = value.clone();
+                values.mutate(|elements| elements[position] = value.clone());
                 Ok(Value::Array(values))
             }
             Value::Hash(mut entries) => {
@@ -4653,7 +4675,7 @@ impl SourceEvaluator {
                 let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
-                self.reflective_invoke(*method, receiver.clone(), args)
+                self.reflective_invoke(*method, receiver.clone(), &args.elements())
             }
             // C023 targets the CURRENT transaction candidate, so a composition
             // change JOINS an open transaction. V340 removes and re-includes a
@@ -4974,12 +4996,12 @@ impl SourceEvaluator {
                     .registry()
                     .active(owner)
                     .map_err(EvaluationError::Class)?;
-                Ok(Value::Array(vec![
+                Ok(Value::Array(ArrayRef::new(vec![
                     Value::Symbol(self.package.clone()),
                     Value::Integer(revision.number().into()),
                     Value::Integer(revision.commit_id().into()),
                     Value::Symbol(if dynamic { "dynamic-only" } else { "static" }.into()),
-                ]))
+                ])))
             }
             Value::Method(method) if selector == "parameters" || selector == "return_type" => {
                 let declaration = self
@@ -5059,7 +5081,7 @@ impl SourceEvaluator {
                         members.iter().map(|atom| self.reflect_atom(atom)).collect()
                     }
                 };
-                Ok(Value::Array(members))
+                Ok(Value::Array(ArrayRef::new(members)))
             }
             Value::Type(left, _) if selector == "subtype?" => {
                 let [Value::Type(right, _)] = arguments else {
@@ -5406,10 +5428,10 @@ impl SourceEvaluator {
                     }
                 }
             }
-            ("Reflection::Package", "identity") => Ok(Value::Array(vec![
+            ("Reflection::Package", "identity") => Ok(Value::Array(ArrayRef::new(vec![
                 Value::Symbol(self.package.clone()),
                 Value::Integer(self.api_major.into()),
-            ])),
+            ]))),
             ("Reflection::Package", "version") => Ok(self
                 .package_version
                 .clone()
@@ -5418,12 +5440,12 @@ impl SourceEvaluator {
                 self.locked_dependencies
                     .iter()
                     .map(|(name, major, version, digest)| {
-                        Value::Array(vec![
+                        Value::Array(ArrayRef::new(vec![
                             Value::Symbol(name.clone()),
                             Value::Integer((*major).into()),
                             Value::Symbol(version.clone()),
                             Value::Symbol(digest.clone()),
-                        ])
+                        ]))
                     })
                     .collect(),
             )),
@@ -5468,7 +5490,7 @@ impl SourceEvaluator {
                 let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
-                self.reflective_invoke(*method, receiver.clone(), args)
+                self.reflective_invoke(*method, receiver.clone(), &args.elements())
             }
             ("Reflection::Class", "remove_module") => {
                 let [Value::Class(class), Value::Symbol(module)] = arguments else {
@@ -6233,12 +6255,29 @@ impl SourceEvaluator {
         // IRIS-V1-COLLECTIONS-C011 makes Array iterable, and C012 drives `for`
         // through `iterator()` then repeated `next()`. Each call allocates a
         // fresh cursor so nested traversals of one Array stay independent.
-        if let Value::Array(values) | Value::ReadonlyArray(values) = &receiver
+        if matches!(receiver, Value::Array(_) | Value::ReadonlyArray(_))
             && selector == "iterator"
             && arguments.is_empty()
         {
             let identity = self.next_context_identity();
-            self.array_iterators.insert(identity, (values.clone(), 0));
+            let cursor = match &receiver {
+                // A D-142 read-only view cannot be mutated at all, so its
+                // cursor is detached and never fails fast.
+                Value::ReadonlyArray(values) => ArrayCursor {
+                    values: ArrayRef::new(values.clone()),
+                    position: 0,
+                    expected_version: 0,
+                    fail_fast: false,
+                },
+                Value::Array(values) => ArrayCursor {
+                    expected_version: values.version(),
+                    values: values.clone(),
+                    position: 0,
+                    fail_fast: true,
+                },
+                _ => return Err(EvaluationError::UnsupportedConstruct),
+            };
+            self.array_iterators.insert(identity, cursor);
             return Ok(Value::ArrayIterator(identity));
         }
         // C072 makes a generator an Iterator satisfying C011, so it answers
@@ -6267,15 +6306,20 @@ impl SourceEvaluator {
         if let Value::ArrayIterator(identity) = &receiver {
             match selector {
                 "next" if arguments.is_empty() => {
-                    let Some((values, position)) = self.array_iterators.get_mut(identity) else {
+                    let Some(cursor) = self.array_iterators.get_mut(identity) else {
                         return Err(EvaluationError::UnsupportedConstruct);
                     };
-                    let Some(value) = values.get(*position).cloned() else {
+                    // C026 makes an active Array iterator fail fast on its next
+                    // advance once the Array's content version has moved.
+                    if cursor.fail_fast && cursor.values.version() != cursor.expected_version {
+                        return Err(EvaluationError::ConcurrentModification);
+                    }
+                    let Some(value) = cursor.values.get(cursor.position) else {
                         // C013 returns the same `Iteration.done` singleton on
                         // every call after exhaustion.
                         return Ok(Value::IterationDone);
                     };
-                    *position += 1;
+                    cursor.position += 1;
                     return Ok(Value::IterationYield(Box::new(value)));
                 }
                 "close" if arguments.is_empty() => return Ok(Value::Nil),
@@ -6321,7 +6365,12 @@ impl SourceEvaluator {
         // spellings the chapter never gives.
         if arguments.is_empty() {
             match (&receiver, selector) {
-                (Value::Array(values) | Value::ReadonlyArray(values), "length") => {
+                (Value::ReadonlyArray(values), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(values.len()).unwrap_or_default().into(),
+                    ));
+                }
+                (Value::Array(values), "length") => {
                     return Ok(Value::Integer(
                         u64::try_from(values.len()).unwrap_or_default().into(),
                     ));
@@ -6345,7 +6394,10 @@ impl SourceEvaluator {
                         u64::try_from(text.len()).unwrap_or_default().into(),
                     ));
                 }
-                (Value::Array(values) | Value::ReadonlyArray(values), "empty?") => {
+                (Value::ReadonlyArray(values), "empty?") => {
+                    return Ok(Value::Bool(values.is_empty()));
+                }
+                (Value::Array(values), "empty?") => {
                     return Ok(Value::Bool(values.is_empty()));
                 }
                 (Value::Hash(entries), "empty?") => {
@@ -6538,125 +6590,6 @@ impl SourceEvaluator {
             .map_err(|_| iris_runtime::ConstructionError::InstanceState { class })
             .map_err(EvaluationError::Construction)
             .map(|()| receiver)
-    }
-
-    fn mutate_array_binding(
-        &mut self,
-        target: &Expression,
-        selector: &str,
-        arguments: &[Value],
-        locals: &HashMap<String, Value>,
-    ) -> Result<Value, EvaluationError> {
-        // `append` and `delete` take one argument, `insert` takes an index and
-        // an element, and `clear` takes none. The first argument is what the
-        // class-level slot path needs to mirror the binding path.
-        let value = match (selector, arguments) {
-            ("append" | "delete", [value]) => Some(value.clone()),
-            ("insert", [_, value]) => Some(value.clone()),
-            ("clear", []) => None,
-            _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity)),
-        };
-        let Expression::Name(name) = target else {
-            // `IRIS-V1-TYPES-C064` puts class-level storage on the Class or
-            // Module object, so `S.e.append(x)` names a SLOT rather than a
-            // lexical binding. Routing `append` by syntax reached only the
-            // binding form, so a class-level Array could be READ but never
-            // appended to.
-            if let Some(appended) =
-                self.mutate_class_level_slot(target, selector, arguments, value.as_ref(), locals)?
-            {
-                return Ok(appended);
-            }
-            // `append` is routed by SYNTAX before the receiver is evaluated, so
-            // a runtime-owned read-only view would otherwise never reach the
-            // send path that rejects mutation. D-142 forbids the append itself,
-            // whatever the receiver expression looks like.
-            let receiver = self.expression(target, locals, None)?;
-            if matches!(receiver, Value::ReadonlyArray(_)) {
-                return Err(EvaluationError::ReadonlyMutation);
-            }
-            return Err(EvaluationError::UnsupportedConstruct);
-        };
-        if locals.contains_key(name) {
-            return Err(EvaluationError::UnsupportedConstruct);
-        }
-        let binding = self
-            .names
-            .get_mut(name)
-            .ok_or(EvaluationError::UnsupportedConstruct)?;
-        // D-142 forbids inserting into a runtime-owned read-only view, and
-        // C095 makes a reflection view one. `append` routes by SYNTAX, so a
-        // view held in a BINDING reached this path instead of the send guard
-        // and reported a type failure rather than the mutation refusal. V423
-        // observes the refusal through exactly that binding.
-        if matches!(binding.value, Value::ReadonlyArray(_)) {
-            return Err(EvaluationError::ReadonlyMutation);
-        }
-        let Value::Array(values) = &mut binding.value else {
-            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
-        };
-        apply_array_mutation(values, selector, arguments, value.as_ref())
-    }
-
-    /// Applies an Array growth operation to a class-level slot `Owner.slot`.
-    ///
-    /// `IRIS-V1-TYPES-C064` puts class-level storage on the Class or Module
-    /// OBJECT rather than on an instance, so `S.e` is a slot read through a
-    /// singleton accessor. These operations are routed by syntax before the
-    /// receiver is evaluated, so without this the slot could be read and never
-    /// mutated.
-    ///
-    /// Returns `None` when the target is not such a slot, leaving the ordinary
-    /// rejection in place.
-    fn mutate_class_level_slot(
-        &mut self,
-        target: &Expression,
-        selector: &str,
-        arguments: &[Value],
-        value: Option<&Value>,
-        locals: &HashMap<String, Value>,
-    ) -> Result<Option<Value>, EvaluationError> {
-        let Expression::Member {
-            receiver: owner,
-            selector: slot_name,
-        } = target
-        else {
-            return Ok(None);
-        };
-        let Expression::Name(owner) = owner.as_ref() else {
-            return Ok(None);
-        };
-        if locals.contains_key(owner) {
-            return Ok(None);
-        }
-        // A Module name evaluates to a Symbol, so its backing Class is found
-        // through the Module registry rather than through the evaluated value.
-        let class = match self.module_names.get(owner).copied() {
-            Some(module) => self.module_classes.get(&module).copied(),
-            None => match self.names.get(owner).map(Binding::value) {
-                Some(Value::Class(class)) => Some(class),
-                _ => None,
-            },
-        };
-        let Some(class) = class else {
-            return Ok(None);
-        };
-        if !self.is_class_level_property(class, slot_name) {
-            return Ok(None);
-        }
-        let slot = self.selector(slot_name);
-        let current = self
-            .runtime
-            .class_raw_ivar(class, slot)
-            .map_err(EvaluationError::Construction)?;
-        let Value::Array(mut values) = current else {
-            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
-        };
-        apply_array_mutation(&mut values, selector, arguments, value)?;
-        self.runtime
-            .assign_class_raw_ivar(class, slot, Value::Array(values))
-            .map_err(EvaluationError::Construction)?;
-        Ok(Some(Value::Nil))
     }
 
     /// Allocates a fresh identity for one propagation event.
@@ -7254,7 +7187,7 @@ impl SourceEvaluator {
             Value::Object(object),
             &[
                 Value::Symbol(self.selector_name(missing)),
-                Value::Array(positional),
+                Value::Array(ArrayRef::new(positional)),
                 block,
             ],
         )
@@ -7437,7 +7370,7 @@ impl SourceEvaluator {
                 }
                 ParameterCategory::Rest => {
                     let rest = positional.split_off(next.min(positional.len()));
-                    Some(Value::Array(rest))
+                    Some(Value::Array(ArrayRef::new(rest)))
                 }
                 ParameterCategory::Keyword => keyword
                     .iter()
@@ -7838,6 +7771,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::IteratorState => "IteratorStateError",
         EvaluationError::IndexError => "IndexError",
         EvaluationError::KeyError => "KeyError",
+        EvaluationError::ConcurrentModification => "ConcurrentModificationError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
@@ -7880,7 +7814,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use iris_parser::parse;
-    use iris_runtime::Value;
+    use iris_runtime::{ArrayRef, Value};
 
     use super::SourceEvaluator;
 
@@ -7934,10 +7868,10 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(1_u8.into()),
                 Value::Integer(1_u8.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -7975,10 +7909,10 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(1_u8.into()),
                 Value::Integer(1_u8.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -8078,10 +8012,10 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(1_u8.into()),
                 Value::Integer(1_u8.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -8132,10 +8066,10 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(1_u8.into()),
                 Value::Integer(2_u8.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -8153,11 +8087,11 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(1_u8.into()),
                 Value::Integer(1_u8.into()),
                 Value::Integer(2_u8.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -8221,10 +8155,10 @@ mod tests {
         // Then
         assert_eq!(
             result,
-            Ok(Value::Array(vec![
+            Ok(Value::Array(ArrayRef::new(vec![
                 Value::Integer(2_u8.into()),
                 Value::Integer(17_824_117_788_395_916_856_u64.into()),
-            ]))
+            ])))
         );
         Ok(())
     }
@@ -8290,7 +8224,7 @@ mod tests {
         ));
         assert_eq!(
             evaluator.names.get("log").map(|binding| &binding.value),
-            Some(&Value::Array(Vec::new()))
+            Some(&Value::Array(ArrayRef::new(Vec::new())))
         );
         Ok(())
     }
@@ -8306,21 +8240,20 @@ mod tests {
         let result = evaluator.program(&program);
 
         // Then
+        let Ok(Value::Array(values)) = result else {
+            unreachable!("expected an Array result")
+        };
         assert!(matches!(
-            result,
-            Ok(Value::Array(values))
-                if matches!(
-                    values.as_slice(),
-                    [
-                        Value::Integer(replaced),
-                        Value::Integer(nil_hash),
-                        Value::Integer(false_hash),
-                        Value::Integer(true_hash),
-                    ] if replaced == &2_u8.into()
-                        && nil_hash == &11_850_167_709_044_604_115_u64.into()
-                        && false_hash == &17_921_396_551_637_717_540_u64.into()
-                        && true_hash == &14_186_115_676_603_356_736_u64.into()
-                )
+            values.elements().as_slice(),
+            [
+                Value::Integer(replaced),
+                Value::Integer(nil_hash),
+                Value::Integer(false_hash),
+                Value::Integer(true_hash),
+            ] if replaced == &2_u8.into()
+                && nil_hash == &11_850_167_709_044_604_115_u64.into()
+                && false_hash == &17_921_396_551_637_717_540_u64.into()
+                && true_hash == &14_186_115_676_603_356_736_u64.into()
         ));
         assert!(matches!(
             evaluator.kernel.send(

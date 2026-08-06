@@ -1,4 +1,4 @@
-use iris_runtime::Value as RuntimeValue;
+use iris_runtime::{ArrayRef, Value as RuntimeValue};
 
 use super::{EvaluationError, evaluate};
 
@@ -13,11 +13,11 @@ fn logical_not_uses_to_bool_dispatch_for_builtins_and_overrides() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(true),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
 }
 
@@ -33,7 +33,7 @@ fn logical_and_preserves_falsy_operand_without_evaluating_rhs() {
     assert!(matches!(
         result,
         Ok(RuntimeValue::Array(values))
-            if matches!(values.as_slice(), [RuntimeValue::Object(_), RuntimeValue::Integer(value)] if value == &0_u8.into())
+            if matches!(values.elements().as_slice(), [RuntimeValue::Object(_), RuntimeValue::Integer(value)] if value == &0_u8.into())
     ));
 }
 
@@ -63,7 +63,7 @@ fn logical_or_preserves_truthy_operand_and_evaluates_rhs_when_falsy() {
     assert!(matches!(
         preserved,
         Ok(RuntimeValue::Array(values))
-            if matches!(values.as_slice(), [RuntimeValue::Object(_), RuntimeValue::Integer(value)] if value == &0_u8.into())
+            if matches!(values.elements().as_slice(), [RuntimeValue::Object(_), RuntimeValue::Integer(value)] if value == &0_u8.into())
     ));
     assert_eq!(fallback, Ok(RuntimeValue::Integer(1_u8.into())));
 }
@@ -152,10 +152,10 @@ fn overloadable_operator_methods_dispatch_independently() {
     assert_eq!(equality_result, Ok(RuntimeValue::Bool(true)));
     assert_eq!(
         independent_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
             RuntimeValue::Bool(false),
-        ]))
+        ])))
     );
 }
 
@@ -173,10 +173,10 @@ fn source_class_variables_and_builtin_reopens_dispatch() {
     // Then
     assert_eq!(
         class_variable_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
             RuntimeValue::Integer(2_u8.into()),
-        ]))
+        ])))
     );
     assert_eq!(builtin_reopen_result, Ok(RuntimeValue::Symbol("p".into())));
 }
@@ -194,14 +194,14 @@ fn comparison_operators_cover_numeric_orderings_and_user_declared_greater() {
     // Then
     assert_eq!(
         numeric_result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(true),
             RuntimeValue::Bool(true),
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(false),
             RuntimeValue::Bool(true),
-        ]))
+        ])))
     );
     assert_eq!(declared_result, Ok(RuntimeValue::Bool(true)));
 }
@@ -217,21 +217,21 @@ fn default_comparisons_delegate_to_replaced_spaceship_but_not_replaced_equal() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
-            RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Bool(false),
                 RuntimeValue::Bool(false),
                 RuntimeValue::Bool(true),
                 RuntimeValue::Bool(true),
                 RuntimeValue::Bool(false),
                 RuntimeValue::Bool(true),
-            ]),
-            RuntimeValue::Array(vec![
+            ])),
+            RuntimeValue::Array(ArrayRef::new(vec![
                 RuntimeValue::Integer(1_u8.into()),
                 RuntimeValue::Bool(false),
                 RuntimeValue::Bool(true),
                 RuntimeValue::Bool(true),
-            ]),
-        ]))
+            ])),
+        ])))
     );
 }

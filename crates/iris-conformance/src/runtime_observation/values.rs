@@ -65,7 +65,7 @@ fn compare_side_effects(
 
 fn observation_values(actual: RuntimeValue) -> Result<Vec<RuntimeValue>, String> {
     match actual {
-        RuntimeValue::Array(values) => Ok(values),
+        RuntimeValue::Array(values) => Ok(values.elements()),
         _ => Err("side_effects require an observation array".into()),
     }
 }
@@ -192,7 +192,16 @@ fn render_value(value: &RuntimeValue) -> String {
         // renders as an array. Only its mutation is rejected, and a distinct
         // rendering would make every existing suppressed-list expectation
         // opaque rather than comparable.
-        RuntimeValue::Array(values) | RuntimeValue::ReadonlyArray(values) => format!(
+        RuntimeValue::Array(values) => format!(
+            "{{\"array\":[{}]}}",
+            values
+                .elements()
+                .iter()
+                .map(render_value)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        RuntimeValue::ReadonlyArray(values) => format!(
             "{{\"array\":[{}]}}",
             values
                 .iter()
@@ -310,6 +319,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::IteratorState => "IteratorStateError".into(),
         EvaluationError::IndexError => "IndexError".into(),
         EvaluationError::KeyError => "KeyError".into(),
+        EvaluationError::ConcurrentModification => "ConcurrentModificationError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

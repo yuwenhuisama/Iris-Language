@@ -1,4 +1,4 @@
-use iris_runtime::{Capability, ClassError, PolicyOrigin, Value as RuntimeValue};
+use iris_runtime::{ArrayRef, Capability, ClassError, PolicyOrigin, Value as RuntimeValue};
 
 use super::{EvaluationError, evaluate};
 
@@ -26,10 +26,10 @@ fn module_instance_method_reads_and_writes_the_receiver_raw_ivar() {
     // Then
     assert_eq!(
         result,
-        Ok(RuntimeValue::Array(vec![
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
             RuntimeValue::Integer(1_u8.into()),
-        ]))
+        ])))
     );
 }
 

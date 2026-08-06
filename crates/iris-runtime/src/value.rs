@@ -122,8 +122,19 @@ impl From<u64> for IntegerValue {
 /// requires that every length-changing or element-replacing operation increment
 /// a content version so an active iterator can detect the change and raise
 /// `ConcurrentModificationError` on its next advance.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ArrayRef(Rc<RefCell<ArrayBody>>);
+
+/// Renders as the element sequence.
+///
+/// The shared cell and the `C026` version are representation, not observable
+/// content, and `Value` is compared through its `Debug` rendering in places, so
+/// showing them would make an Array's rendering depend on its mutation history.
+impl core::fmt::Debug for ArrayRef {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0.borrow().elements, formatter)
+    }
+}
 
 /// The elements and content version behind an [`ArrayRef`].
 #[derive(Debug)]
