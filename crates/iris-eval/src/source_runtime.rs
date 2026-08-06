@@ -54,6 +54,28 @@ fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<us
     length.checked_sub(magnitude)
 }
 
+/// Resolves an `IRIS-V1-COLLECTIONS-C010` slice span against a receiver length.
+///
+/// Slicing is unit-forward: negative endpoints resolve in the receiver's unit
+/// through `C009`, effective bounds are CLAMPED rather than raising, and an
+/// inverted span yields the empty slice.
+fn slice_bounds(
+    start: &iris_runtime::IntegerValue,
+    end: &iris_runtime::IntegerValue,
+    inclusive: bool,
+    length: usize,
+) -> std::ops::Range<usize> {
+    let from = resolve_index(start, length).unwrap_or(0).min(length);
+    let resolved = resolve_index(end, length).unwrap_or(0);
+    let to = if inclusive {
+        resolved.saturating_add(1)
+    } else {
+        resolved
+    }
+    .min(length);
+    from..to.max(from)
+}
+
 /// Whether a body contains a `yield`, making its callable a generator.
 ///
 /// `IRIS-V1-GRAMMAR-C072` makes the presence of `yield` the thing that decides,
@@ -4280,6 +4302,38 @@ impl SourceEvaluator {
     /// user Class can define its own.
     fn index_read(&mut self, target: Value, index: Value) -> Result<Value, EvaluationError> {
         match &target {
+            // C010 slices unit-forward, clamps effective bounds, and C025 makes
+            // an Array slice an INDEPENDENT snapshot rather than a view.
+            Value::Array(values) | Value::ReadonlyArray(values)
+                if matches!(index, Value::Range(..)) =>
+            {
+                let Value::Range(start, end, inclusive) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let span = slice_bounds(start, end, *inclusive, values.len());
+                Ok(Value::Array(values.get(span).unwrap_or_default().to_vec()))
+            }
+            // C044 indexes a String in Unicode SCALAR units, so a multi-byte
+            // scalar counts once and a slice cuts on scalar boundaries.
+            Value::Text(text) if matches!(index, Value::Range(..)) => {
+                let Value::Range(start, end, inclusive) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let scalars: Vec<char> = text.chars().collect();
+                let span = slice_bounds(start, end, *inclusive, scalars.len());
+                Ok(Value::Text(
+                    scalars.get(span).unwrap_or_default().iter().collect(),
+                ))
+            }
+            Value::Text(text) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let scalars: Vec<char> = text.chars().collect();
+                Ok(resolve_index(position, scalars.len())
+                    .and_then(|position| scalars.get(position))
+                    .map_or(Value::Nil, |scalar| Value::Text(scalar.to_string())))
+            }
             Value::Array(values) | Value::ReadonlyArray(values) => {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
@@ -6175,6 +6229,58 @@ impl SourceEvaluator {
         // identity hash, which is what lets an ExceptionContext be a Hash key
         // under IRIS-V1-CONTROL-V305. The identity it already carries is that
         // stable value, so no separate allocation is needed.
+        // C040 fixes the collection operation surface. `length` is the
+        // spelling C044 uses for String and the same name serves every indexed
+        // receiver, so one arm covers them rather than inventing per-type
+        // spellings the chapter never gives.
+        if arguments.is_empty() {
+            match (&receiver, selector) {
+                (Value::Array(values) | Value::ReadonlyArray(values), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(values.len()).unwrap_or_default().into(),
+                    ));
+                }
+                (Value::Hash(entries), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(entries.len()).unwrap_or_default().into(),
+                    ));
+                }
+                // C044 counts String length in Unicode SCALAR units, not bytes,
+                // and exposes bytes explicitly through `byte_length`.
+                (Value::Text(text), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(text.chars().count())
+                            .unwrap_or_default()
+                            .into(),
+                    ));
+                }
+                (Value::Text(text), "byte_length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(text.len()).unwrap_or_default().into(),
+                    ));
+                }
+                (Value::Array(values) | Value::ReadonlyArray(values), "empty?") => {
+                    return Ok(Value::Bool(values.is_empty()));
+                }
+                (Value::Hash(entries), "empty?") => {
+                    return Ok(Value::Bool(entries.is_empty()));
+                }
+                (Value::Text(text), "empty?") => {
+                    return Ok(Value::Bool(text.is_empty()));
+                }
+                // C006 gives a Range endpoint and openness APIs.
+                (Value::Range(start, ..), "start") => {
+                    return Ok(Value::Integer(start.clone()));
+                }
+                (Value::Range(_, end, _), "end") => {
+                    return Ok(Value::Integer(end.clone()));
+                }
+                (Value::Range(.., inclusive), "inclusive_end?") => {
+                    return Ok(Value::Bool(*inclusive));
+                }
+                _ => {}
+            }
+        }
         // C014 gives Iteration the get-only properties `yield?`, `done?` and
         // `value`. `Iteration.done.value` raises IteratorStateError rather than
         // answering nil, which is what keeps a yielded nil distinguishable

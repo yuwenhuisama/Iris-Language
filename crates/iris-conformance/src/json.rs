@@ -80,12 +80,28 @@ impl Parser<'_> {
     }
     fn string(&mut self) -> Result<String, String> {
         self.byte(b'"')?;
+        // Raw content bytes are accumulated and decoded as UTF-8 at the end.
+        // `char::from(byte)` decodes each byte as Latin-1, which split every
+        // multi-byte scalar into separate chars, so a vector could not state a
+        // non-ASCII expectation at all.
+        let mut raw: Vec<u8> = Vec::new();
         let mut result = String::new();
         loop {
             match self.next().ok_or("unterminated JSON string")? {
-                b'"' => return Ok(result),
-                b'\\' => result.push(self.escape()?),
-                byte if byte >= 0x20 => result.push(char::from(byte)),
+                b'"' => {
+                    result.push_str(
+                        std::str::from_utf8(&raw).map_err(|_| "invalid UTF-8 in JSON string")?,
+                    );
+                    return Ok(result);
+                }
+                b'\\' => {
+                    result.push_str(
+                        std::str::from_utf8(&raw).map_err(|_| "invalid UTF-8 in JSON string")?,
+                    );
+                    raw.clear();
+                    result.push(self.escape()?);
+                }
+                byte if byte >= 0x20 => raw.push(byte),
                 _ => return Err("invalid JSON string".into()),
             }
         }
