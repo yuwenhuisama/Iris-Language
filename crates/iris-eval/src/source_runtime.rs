@@ -356,6 +356,13 @@ pub(super) struct SourceEvaluator {
     /// skipping the suspensions already delivered, so the state is a counter
     /// pair rather than a captured native stack.
     generator: Option<GeneratorState>,
+    /// How many async bodies enclose the running code.
+    ///
+    /// `IRIS-V1-ASYNC-C050` refuses the Host drive surface inside one, since
+    /// `C015` forbids an Iris source-level blocking wait.
+    async_depth: usize,
+    /// How many Closure bodies enclose the running code.
+    closure_depth: usize,
     /// Every target joined to the current open transaction group.
     ///
     /// `IRIS-V1-META-C038` makes same-thread nested opens join the OUTERMOST
@@ -482,6 +489,8 @@ impl SourceEvaluator {
             module_body_main: None,
             open_target: None,
             generator: None,
+            async_depth: 0,
+            closure_depth: 0,
             open_group: Vec::new(),
             generic_definitions: Vec::new(),
             active_exception: None,
@@ -3743,7 +3752,15 @@ impl SourceEvaluator {
                     Expression::Member {
                         receiver: target,
                         selector,
-                    } if matches!(target.as_ref(), Expression::Name(name) if name.starts_with("Reflection::")) =>
+                    } if matches!(target.as_ref(), Expression::Name(name)
+                        if name.starts_with("Reflection::")
+                            // C050 names the Host drive surface, but `Host` is
+                            // an ordinary identifier a program may declare.
+                            // Routing it unconditionally hijacked a user Class
+                            // of that name, so a DECLARED name wins.
+                            || (name == "Host"
+                                && selector == "run"
+                                && self.class_name(name).ok().flatten().is_none())) =>
                     {
                         let Expression::Name(namespace) = target.as_ref() else {
                             return Err(EvaluationError::UnsupportedConstruct);
@@ -5051,6 +5068,29 @@ impl SourceEvaluator {
             // Types or static extensions to an already compiled namespace.
             // V422 observes both: the handle works and `Plugin` never enters
             // Main's lexical namespace.
+            // C050 fixes the HOST drive surface C015 names and C049 requires.
+            // It drives the scheduler until the Task completes and answers its
+            // awaited result, or re-raises its captured failure.
+            //
+            // C015 forbids any Iris SOURCE-level blocking wait, so the surface
+            // is refused inside an async body, a Closure, and a transaction.
+            // Without those refusals it would BE the hidden Task join C015
+            // forbids rather than the Host control surface it names.
+            ("Host", "run") => {
+                let [Value::Task(identity)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                if self.open_target.is_some() || self.async_depth > 0 || self.closure_depth > 0 {
+                    return Err(EvaluationError::HostDriveUnavailable);
+                }
+                match self.tasks.get(identity).cloned() {
+                    // C013 answers an already-complete Task immediately without
+                    // enqueueing a continuation.
+                    Some(Ok(value)) => Ok(value),
+                    Some(Err(error)) => Err(*error),
+                    None => Err(EvaluationError::UnsupportedConstruct),
+                }
+            }
             ("Reflection::Package", "load") => {
                 let ([Value::Symbol(id)] | [Value::Symbol(id), _]) = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -6770,12 +6810,18 @@ impl SourceEvaluator {
         // the enclosing binding map and OVERWRITE an outer name of the same
         // spelling, which `IRIS-V1-CONTROL-C028` forbids: a nested block
         // shadows a captured binding rather than replacing it.
-        match self.block(&body, &locals, receiver) {
+        // C050 refuses the Host drive surface inside a Closure, since a
+        // Closure can escape and be resumed anywhere, which would make the
+        // surface an Iris source-level blocking wait C015 forbids.
+        self.closure_depth += 1;
+        let outcome = match self.block(&body, &locals, receiver) {
             // A Closure `return` ends only this invocation under D-421, so it
             // is absorbed here rather than reaching an enclosing Method.
             Err(EvaluationError::Return(value)) => Ok(value),
             result => result,
-        }
+        };
+        self.closure_depth -= 1;
+        outcome
     }
 
     fn resolve_instance_method(
@@ -7170,10 +7216,14 @@ impl SourceEvaluator {
         // operation. The body therefore runs now, and the Task records what it
         // produced.
         if is_async {
+            // C050 refuses the Host drive surface inside an async body, which
+            // is what keeps it from becoming the hidden Task join C015 forbids.
+            self.async_depth += 1;
             let outcome = match self.block(&body, &locals, Some(receiver)) {
                 Err(EvaluationError::Return(value)) => Ok(value),
                 result => result,
             };
+            self.async_depth -= 1;
             let identity = self.next_context_identity();
             self.tasks.insert(identity, outcome.map_err(Box::new));
             return Ok(Value::Task(identity));
@@ -7457,6 +7507,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         // C102 and C103 make an ungranted or out-of-scope reflection call an
         // ordinary catchable Iris error; V363 and V421 observe it.
         EvaluationError::ReflectionAccess => "ReflectionAccessError",
+        EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
         EvaluationError::ComparisonContractError => "ComparisonContractError",

@@ -1,13 +1,13 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.33 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.34 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
 ## Current Conformance
 
 ```
-ASYNC    passed: 5, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0        (5 records, buckets sum 5)
+ASYNC    passed: 9, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0        (9 records, buckets sum 9)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
@@ -69,6 +69,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.25 | `META-C121` | The V343 rejection wording |
 | v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
 | v1.27 | `META-C124` | Corrected the decorator phase signatures |
+| v1.34 | `ASYNC-C050` | The `Host.run` drive surface `C015` names and `C049` already required |
 | v1.33 | `GRAMMAR-C072` | `yield`, widening the reserved inventory a second time to 50, and the generator semantics |
 | v1.32 | `GRAMMAR-C071` | The `await` production three clauses already presupposed |
 | v1.31 | `META-C126` | The audit digest scope, and the withdrawal of V357's unreproducible constant |

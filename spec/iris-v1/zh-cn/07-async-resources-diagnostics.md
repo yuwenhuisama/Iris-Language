@@ -179,6 +179,8 @@ IRIS-V1-ASYNC-C048: 不可变 revision events 按 `commit_id` order 进入 runti
 
 IRIS-V1-ASYNC-C049: Runtime 必须为 tests 和 controlled shutdown 提供 semantic flush 或 wait surface。该 surface 等待 flush boundary 前被接受进 subscriber queues 的所有 revision events 已 delivered 给其 subscribers、转换为该 subscriber 的 delivered `GapEvent` records，或因 subscriber failure 通过 event-error channel 报告。该 surface 不得在 original safepoint 或 commit path 中运行 subscriber code，且不得 roll back、retry 或 reinterpret 已完成 commit。
 
+IRIS-V1-ASYNC-C050：v1.34 勘误确定了 IRIS-V1-ASYNC-C015 所指称、且 C049 已然要求的宿主驱动表面的拼写。该表面为 `Host.run(task)`，它驱动 IrisRuntime 调度器直至 `task` 完成，并给出其被等待的结果，或重新抛出其所捕获的 `ExceptionContext`。它是**宿主**控制表面，**不是** Iris 源码级阻塞等待：它在 async 体内、Closure 内、以及开放或修订事务内均不可用，因此无法用它构造 C015 所禁止的隐式阻塞等待、隐藏的 Task join 或睡眠至完成原语。驱动一个已完成的 Task 立即作答且不入队延续，正如 C013 对任何 await 的要求。本条款**仅**提供拼写：Task 身份、完成、异常捕获与延续顺序均不改变，仍分别由 C006、C012、C013、C014 与 C016 所有。
+
 IRIS-V1-ASYNC-C050: Successful flush 或 wait completion 表示 selected runtime scope 满足 preceding delivery condition。如果 subscriber code 在 flushing 期间失败，该 subscriber failure 仍按 IRIS-V1-ASYNC-C048 隔离，并包括在 event-error channel 中。Flush 或 wait surface 报告 event delivery completed with recorded subscriber errors，而不是将 subscriber exceptions 作为 commit failure 传播。如果 shutdown 在所有 accepted events 到达 terminal delivered、gapped 或 error-recorded state 之前关闭 delivery，该 surface 必须报告 incomplete delivery，并带有足够 structured state 供 diagnostics 使用。
 
 IRIS-V1-ASYNC-C051: 每个 revision-event subscriber 有 bounded queue。Slow 或 full subscriber 不得 block safepoint、commit 或 open completion。Dropped event ranges 必须 coalesced into `GapEvent(from_commit, to_commit)`，并在该 subscriber 的 later retained events 之前 delivered。

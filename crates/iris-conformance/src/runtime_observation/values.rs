@@ -302,6 +302,9 @@ fn error_code(error: &EvaluationError) -> String {
         // A generator suspension that escaped its own `next()` is a defect in
         // the generator driver rather than an Iris-visible error.
         EvaluationError::GeneratorYield(..) => "GeneratorYieldEscaped".into(),
+        // C050 refuses the Host drive surface from an Iris source position,
+        // since C015 forbids a source-level blocking wait.
+        EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

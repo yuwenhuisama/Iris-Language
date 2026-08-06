@@ -2389,3 +2389,36 @@ fn c003_and_c012_make_an_async_call_return_a_started_task() {
                   let t = A.new().f(); try { await t } catch e { e }";
     assert_eq!(evaluate(failed), Ok(RuntimeValue::Symbol("boom".into())));
 }
+
+#[test]
+fn c050_drives_a_task_only_from_a_host_position() {
+    // C050 fixes the Host drive surface C015 names and C049 requires, so a
+    // Task's awaited result is reachable at last.
+    let driven = "class A { public async fun f() -> Integer { 1 } } Host.run(A.new().f())";
+    assert_eq!(evaluate(driven), Ok(RuntimeValue::Integer(1_u8.into())));
+
+    // C015 forbids an Iris SOURCE-level blocking wait, so the surface is
+    // refused everywhere source code could build one out of it. Without these
+    // refusals it would BE the hidden Task join C015 forbids.
+    for source in [
+        "class A { public async fun f() -> Integer { 1 } \
+         public async fun g() -> Integer { Host.run(A.new().f()) } } Host.run(A.new().g())",
+        "class A { public async fun f() -> Integer { 1 } } \
+         let c = { Host.run(A.new().f()) }; c.call()",
+        "class A { public async fun f() -> Integer { 1 } } class B { } \
+         B.open() { |t| Host.run(A.new().f()) }",
+    ] {
+        assert_eq!(
+            evaluate(source),
+            Err(EvaluationError::HostDriveUnavailable),
+            "the drive surface must not be reachable from Iris source: {source}"
+        );
+    }
+
+    // `Host` is an ordinary identifier a program may declare, and a DECLARED
+    // name wins over the surface. Routing it unconditionally hijacked a user
+    // Class of that name, which TYPES-V246 and META-V340 caught.
+    let declared = "module Helpers<T> { public fun h() -> Integer { 7 } } \
+                    class Host mixin Helpers<String> {} Host.new().h()";
+    assert_eq!(evaluate(declared), Ok(RuntimeValue::Integer(7_u8.into())));
+}

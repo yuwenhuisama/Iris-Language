@@ -134,6 +134,12 @@ pub enum EvaluationError {
     /// stack: this is the stackless part, and ordinary synchronous evaluation
     /// is untouched as `IRIS-V1-ASYNC-C011` requires.
     GeneratorYield(RuntimeValue, usize),
+    /// The Host drive surface was used from an Iris source position.
+    ///
+    /// `IRIS-V1-ASYNC-C050` makes `Host.run` a HOST control surface, and
+    /// `C015` forbids any Iris source-level blocking wait, so it is
+    /// unavailable inside an async body, a Closure, or a transaction.
+    HostDriveUnavailable,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
