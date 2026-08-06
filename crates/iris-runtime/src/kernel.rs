@@ -272,6 +272,9 @@ impl Kernel {
             &[
                 NativeSelector::Equal,
                 NativeSelector::NotEqual,
+                // C087 fixes a specification-stable String hash, so the
+                // selector is installed even though ordering stays out.
+                NativeSelector::Hash,
                 NativeSelector::ToBool,
             ],
         )?;

@@ -45,6 +45,8 @@ pub enum Chapter {
     Meta,
     /// The async chapter, whose rows observe Task and await behaviour.
     Async,
+    /// The collections chapter.
+    Collections,
 }
 
 impl Chapter {
@@ -56,6 +58,7 @@ impl Chapter {
             Self::Types => "TYPES",
             Self::Meta => "META",
             Self::Async => "ASYNC",
+            Self::Collections => "COLLECTIONS",
         }
     }
 }

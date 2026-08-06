@@ -6130,6 +6130,20 @@ impl SourceEvaluator {
         // identity hash, which is what lets an ExceptionContext be a Hash key
         // under IRIS-V1-CONTROL-V305. The identity it already carries is that
         // stable value, so no separate allocation is needed.
+        // C087 fixes a SPECIFICATION-STABLE public hash per value family, and
+        // C089 forbids falling back to object identity for an identity-less
+        // wrapper such as a Symbol or an Iteration.
+        if selector == "hash"
+            && arguments.is_empty()
+            && matches!(
+                receiver,
+                Value::Symbol(_) | Value::IterationDone | Value::IterationYield(_)
+            )
+        {
+            return iris_runtime::public_hash(&receiver)
+                .map(Value::Integer)
+                .map_err(|_| EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        }
         if selector == "hash"
             && arguments.is_empty()
             && let Value::ExceptionContext(identity, ..) = &receiver

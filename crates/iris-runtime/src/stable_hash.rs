@@ -41,17 +41,21 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::Integer(value) => numeric_hash(&NumericValue::Integer(value.clone())),
         Value::Float32(value) => numeric_hash(&NumericValue::Float32(*value)),
         Value::Float64(value) => numeric_hash(&NumericValue::Float64(*value)),
+        // C087 fixes a SPECIFICATION-STABLE hash per value family, each with
+        // its own domain-separated context, so these no longer fall through to
+        // the unsupported arm.
+        Value::Text(text) => Ok(string_hash(text)),
+        Value::Symbol(name) => Ok(symbol_hash(name)),
+        Value::IterationDone => Ok(iteration_hash(None)),
+        Value::IterationYield(payload) => Ok(iteration_hash(public_hash(payload)?.to_u64())),
         Value::Array(_)
         | Value::Hash(_)
-        | Value::Text(_)
-        | Value::Symbol(_)
         | Value::Class(_)
         | Value::Type(..)
         | Value::ComposedType(_)
         | Value::Contract(_)
         | Value::Closure(_)
         | Value::KeywordArgument(_, _)
-        | Value::IterationYield(_)
         | Value::ReadonlyArray(_)
         | Value::SourceLocation(..)
         | Value::StackFrame(..)
@@ -59,7 +63,6 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::ArrayIterator(_)
         | Value::Generator(_)
         | Value::Task(_)
-        | Value::IterationDone
         | Value::Transformation { .. }
         | Value::ExceptionContext(..)
         | Value::ContractView(_, _)
@@ -109,6 +112,113 @@ pub fn contract_type_hash(package: &str, qualified_name: &str, api_major: u64) -
 /// hashes use, since it identifies an artifact rather than an Iris value.
 pub fn artifact_digest(source: &[u8]) -> String {
     blake3::hash(source).to_hex().to_string()
+}
+
+/// `IRIS-V1-COLLECTIONS-C087` contexts, one per value family.
+const SYMBOL_CONTEXT: &str = "Iris Language v1 stable symbol hash";
+const STRING_CONTEXT: &str = "Iris Language v1 stable string hash";
+const BYTES_CONTEXT: &str = "Iris Language v1 stable bytes hash";
+const TUPLE_CONTEXT: &str = "Iris Language v1 stable tuple hash";
+const RANGE_CONTEXT: &str = "Iris Language v1 stable range hash";
+const ITERATION_CONTEXT: &str = "Iris Language v1 stable iteration hash";
+const REGEX_CONTEXT: &str = "Iris Language v1 stable regex hash";
+
+/// The shortest unsigned LEB128 encoding of `value`.
+///
+/// `IRIS-V1-COLLECTIONS-C086` makes the CANONICAL encoding the shortest one, so
+/// a redundant continuation group would be noncanonical and produce a different
+/// hash for the same value.
+fn uleb128(mut value: u64) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    loop {
+        let byte = u8::try_from(value & 0x7f).unwrap_or_default();
+        value >>= 7;
+        if value == 0 {
+            bytes.push(byte);
+            return bytes;
+        }
+        bytes.push(byte | 0x80);
+    }
+}
+
+/// A length-prefixed stable hash over raw content bytes.
+///
+/// `IRIS-V1-COLLECTIONS-C087` gives Symbol, String, and Bytes the same shape:
+/// `ULEB128(length) || content`, differing only in the domain-separated
+/// context, which `C087` forbids reusing across families.
+fn length_prefixed_hash(context: &str, content: &[u8]) -> IntegerValue {
+    let mut input = uleb128(content.len() as u64);
+    input.extend_from_slice(content);
+    IntegerValue::from(digest_hash(context, &input))
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` Symbol public hash.
+pub fn symbol_hash(name: &str) -> IntegerValue {
+    length_prefixed_hash(SYMBOL_CONTEXT, name.as_bytes())
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` String public hash.
+pub fn string_hash(text: &str) -> IntegerValue {
+    length_prefixed_hash(STRING_CONTEXT, text.as_bytes())
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` Bytes public hash.
+pub fn bytes_hash(bytes: &[u8]) -> IntegerValue {
+    length_prefixed_hash(BYTES_CONTEXT, bytes)
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` Tuple public hash.
+///
+/// `C089` makes it COMPOSITIONAL over component public hashes and forbids
+/// falling back to object identity, so the caller supplies the already-computed
+/// element hashes and any component failure propagates before reaching here.
+pub fn tuple_hash(elements: &[u64]) -> IntegerValue {
+    let mut input = uleb128(elements.len() as u64);
+    for element in elements {
+        input.extend_from_slice(&element.to_le_bytes());
+    }
+    IntegerValue::from(digest_hash(TUPLE_CONTEXT, &input))
+}
+
+/// The `IRIS-V1-COLLECTIONS-C088` Range public hash.
+///
+/// The openness tag is `0x00` for an inclusive end and `0x01` for an exclusive
+/// one, which is what distinguishes `a ..= b` from `a ..< b`.
+pub fn range_hash(inclusive_end: bool, start: u64, end: u64, step: u64) -> IntegerValue {
+    let mut input = vec![u8::from(!inclusive_end)];
+    input.extend_from_slice(&start.to_le_bytes());
+    input.extend_from_slice(&end.to_le_bytes());
+    input.extend_from_slice(&step.to_le_bytes());
+    IntegerValue::from(digest_hash(RANGE_CONTEXT, &input))
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` Iteration public hash.
+///
+/// `Iteration.done` hashes `[0x00]`; a yield hashes `[0x01]` followed by its
+/// payload's public hash, so a yielded `nil` stays distinguishable from
+/// exhaustion.
+pub fn iteration_hash(payload: Option<u64>) -> IntegerValue {
+    let input = payload.map_or_else(
+        || vec![0x00],
+        |payload| {
+            let mut input = vec![0x01];
+            input.extend_from_slice(&payload.to_le_bytes());
+            input
+        },
+    );
+    IntegerValue::from(digest_hash(ITERATION_CONTEXT, &input))
+}
+
+/// The `IRIS-V1-COLLECTIONS-C087` Regex public hash.
+///
+/// `C081` stores canonical flags in fixed `imsx` order with absent flags
+/// omitted, so two spellings of one Regex hash alike.
+pub fn regex_hash(pattern: &str, canonical_flags: &str) -> IntegerValue {
+    let mut input = uleb128(pattern.len() as u64);
+    input.extend_from_slice(pattern.as_bytes());
+    input.extend(uleb128(canonical_flags.len() as u64));
+    input.extend_from_slice(canonical_flags.as_bytes());
+    IntegerValue::from(digest_hash(REGEX_CONTEXT, &input))
 }
 
 /// The public hash of a Contract view.
@@ -298,5 +408,44 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod collections_hash_tests {
+    use super::{
+        bytes_hash, iteration_hash, range_hash, regex_hash, string_hash, symbol_hash, tuple_hash,
+    };
+
+    /// Every value is one of the `IRIS-V1-COLLECTIONS-C087` vectors the chapter
+    /// states, reproduced here so a change to any context or byte layout fails
+    /// against the specification's own numbers rather than against this
+    /// implementation's previous output.
+    #[test]
+    fn c087_reproduces_the_stated_vectors() {
+        // V001, V002: Symbol.
+        assert_eq!(
+            symbol_hash("name").to_u64(),
+            Some(10_999_003_376_002_830_561)
+        );
+        assert_eq!(symbol_hash("@x").to_u64(), Some(16_062_566_904_318_171_380));
+        // V003, V004: String.
+        assert_eq!(string_hash("").to_u64(), Some(8_628_710_579_024_922_659));
+        assert_eq!(
+            string_hash("Iris").to_u64(),
+            Some(2_999_030_340_536_694_829)
+        );
+        // V005, V006: Bytes.
+        assert_eq!(bytes_hash(&[]).to_u64(), Some(7_904_966_358_175_078_983));
+        assert_eq!(
+            bytes_hash(&[0xff, 0x00, 0x01, 0x02]).to_u64(),
+            Some(17_410_268_034_348_844_959)
+        );
+        // V011, V012: Iteration. A yielded nil stays distinct from exhaustion.
+        assert_ne!(iteration_hash(None), iteration_hash(Some(0)));
+        // The compositional families differ by shape, not just by content.
+        assert_ne!(tuple_hash(&[]), tuple_hash(&[0]));
+        assert_ne!(range_hash(true, 1, 3, 1), range_hash(false, 1, 3, 1));
+        assert_ne!(regex_hash("a+", "im"), regex_hash("a+", "i"));
     }
 }

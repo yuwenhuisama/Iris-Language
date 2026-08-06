@@ -49,13 +49,18 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut pending_string = String::new();
+    // An empty accumulator cannot distinguish "no string seen" from "an EMPTY
+    // string seen", so `""` produced no value at all and could not be
+    // evaluated. C041 makes a String a sequence of scalars, and the empty
+    // sequence is one of them.
+    let mut saw_string = false;
     while index < bytes.len() {
         if bytes[index].is_ascii_whitespace() {
             index += 1;
             continue;
         }
         if b"[],;".contains(&bytes[index]) {
-            flush_string(&mut conversion, &mut pending_string);
+            flush_string(&mut conversion, &mut pending_string, &mut saw_string);
             index += 1;
             continue;
         }
@@ -69,7 +74,7 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
                 || (byte == b'.'
                     && (next_is_digit(bytes, index) || bytes.get(index + 1) == Some(&b'_'))) =>
             {
-                flush_string(&mut conversion, &mut pending_string);
+                flush_string(&mut conversion, &mut pending_string, &mut saw_string);
                 convert_number(&source[index..])
             }
             _ => {
@@ -79,7 +84,10 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
         };
         index += result.width;
         match result.value {
-            Some(Literal::String(value)) => pending_string.push_str(&value),
+            Some(Literal::String(value)) => {
+                pending_string.push_str(&value);
+                saw_string = true;
+            }
             Some(value) => conversion.values.push(value),
             None => {}
         }
@@ -90,7 +98,7 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
             conversion.warnings.push(warning);
         }
     }
-    flush_string(&mut conversion, &mut pending_string);
+    flush_string(&mut conversion, &mut pending_string, &mut saw_string);
     conversion
 }
 
@@ -125,11 +133,12 @@ impl Segment {
     }
 }
 
-fn flush_string(conversion: &mut LiteralConversion, pending: &mut String) {
-    if !pending.is_empty() {
+fn flush_string(conversion: &mut LiteralConversion, pending: &mut String, saw: &mut bool) {
+    if *saw {
         conversion
             .values
             .push(Literal::String(std::mem::take(pending)));
+        *saw = false;
     }
 }
 
