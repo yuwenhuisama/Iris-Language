@@ -2422,3 +2422,47 @@ fn c050_drives_a_task_only_from_a_host_position() {
                     class Host mixin Helpers<String> {} Host.new().h()";
     assert_eq!(evaluate(declared), Ok(RuntimeValue::Integer(7_u8.into())));
 }
+
+#[test]
+fn c032_and_c033_close_a_using_resource_exactly_once() {
+    // C032 makes `using(resource, &block)` an ordinary helper that invokes the
+    // block then closes the resource through try/finally equivalent control.
+    let normal = "mut closed = false; \
+                  class R { public fun close() -> Nil { closed = true; nil } } \
+                  let v = using(R.new()) { 7 }; [v, closed]";
+    assert_eq!(
+        evaluate(normal),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Integer(7_u8.into()),
+            RuntimeValue::Bool(true),
+        ]))
+    );
+
+    // C033: a raising block stays PRIMARY and the close failure is appended to
+    // its suppressed list.
+    let both_raise = "class R { public fun close() -> Nil { raise :closefail } } \
+                      try { using(R.new()) { raise :blockfail } } \
+                      catch v, c { [v, c.suppressed[0].value] }";
+    assert_eq!(
+        evaluate(both_raise),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Symbol("blockfail".into()),
+            RuntimeValue::Symbol("closefail".into()),
+        ]))
+    );
+
+    // C033: a close failure after a NORMAL block becomes primary, and no block
+    // result is returned.
+    let close_raises = "class R { public fun close() -> Nil { raise :closefail } } \
+                        try { using(R.new()) { 7 } } catch e { e }";
+    assert_eq!(
+        evaluate(close_raises),
+        Ok(RuntimeValue::Symbol("closefail".into()))
+    );
+
+    // C014 keeps `using` an ordinary Method name, so a DECLARED one wins over
+    // the standard helper.
+    let declared = "module M { public fun using(r) -> Symbol { :mine } } \
+                    class R { public fun close() -> Nil { nil } } M.using(R.new())";
+    assert_eq!(evaluate(declared), Ok(RuntimeValue::Symbol("mine".into())));
+}

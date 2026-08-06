@@ -2870,6 +2870,22 @@ impl SourceEvaluator {
         let iterator = self.send(source, "iterator", &[])?;
         let outcome =
             self.for_iterations(label, binding, &iterator, body, locals, receiver.clone());
+        self.close_after(iterator, outcome)
+    }
+
+    /// Closes a resource after a protected body and merges the two outcomes.
+    ///
+    /// `IRIS-V1-ASYNC-C033` and `IRIS-V1-CONTROL-C047` state one rule: if the
+    /// body raised and `close` also raises, the BODY's context stays primary
+    /// and the close failure is appended to its suppressed list; if the body
+    /// completed and `close` raises, the close failure becomes primary and no
+    /// body result is returned. `using` and `for` share this implementation
+    /// rather than stating the rule twice.
+    fn close_after(
+        &mut self,
+        resource: Value,
+        outcome: Result<Value, EvaluationError>,
+    ) -> Result<Value, EvaluationError> {
         // The primary context must be captured BEFORE cleanup runs. A `close`
         // that raises installs its own context, which would otherwise overwrite
         // the primary one and leave the caught value and its bound context
@@ -2878,14 +2894,10 @@ impl SourceEvaluator {
             .is_err()
             .then(|| self.active_context.take())
             .flatten();
-        let closed = self.send(iterator, "close", &[]);
+        let closed = self.send(resource, "close", &[]);
         match (outcome, closed) {
             (Ok(value), Ok(_)) => Ok(value),
             (Ok(_), Err(error)) => Err(error),
-            // IRIS-V1-CONTROL-C047: when `close` fails during cleanup while a
-            // primary context exists, the close failure is APPENDED to that
-            // context's suppressed list in occurrence order rather than
-            // replacing the primary propagation.
             (Err(primary), Err(EvaluationError::Raised(cleanup))) => {
                 if let Some(Value::ExceptionContext(
                     identity,
@@ -3784,6 +3796,17 @@ impl SourceEvaluator {
                     }
                     Expression::Name(name) if name == "super" => {
                         self.super_send(receiver, &arguments, None)
+                    }
+                    // C032 makes `using` an ordinary HELPER reached by a bare
+                    // call. C014 keeps it an ordinary Method name, so a
+                    // DECLARED `using` wins and only an undeclared one reaches
+                    // the standard helper.
+                    Expression::Name(name)
+                        if name == "using"
+                            && !self.names.contains_key(name)
+                            && self.main_bound_method(name, receiver.as_ref()).is_none() =>
+                    {
+                        self.reflection("Iris", "using", &arguments)
                     }
                     Expression::Member {
                         receiver: target,
@@ -5076,6 +5099,18 @@ impl SourceEvaluator {
             // is refused inside an async body, a Closure, and a transaction.
             // Without those refusals it would BE the hidden Task join C015
             // forbids rather than the Host control surface it names.
+            // C032 makes `using(resource, &block)` an ordinary HELPER, not
+            // syntax and not a keyword: it invokes the block, then closes the
+            // resource through try/finally equivalent control. C033 states how
+            // the two outcomes merge, which `close_after` already implements
+            // for `for` cleanup.
+            ("Iris", "using") => {
+                let [resource, Value::Closure(block)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let outcome = self.invoke_closure(*block, &[]);
+                self.close_after(resource.clone(), outcome)
+            }
             ("Host", "run") => {
                 let [Value::Task(identity)] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
