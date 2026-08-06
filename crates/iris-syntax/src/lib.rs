@@ -531,6 +531,12 @@ pub enum Expression {
         finally: Option<Vec<Statement>>,
     },
     Grouped(Box<Expression>),
+    /// `()`, `(a,)`, `(a, b, ...)`.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C021` makes a Tuple an immutable identity-less
+    /// heterogeneous product value, distinct from a parenthesized expression:
+    /// `(a)` groups, `(a,)` is a one-element Tuple.
+    Tuple(Vec<Expression>),
     RawIvar(String),
     ClassVar(String),
     /// `$name`, a declared package-qualified runtime global.

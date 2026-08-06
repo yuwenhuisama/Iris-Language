@@ -440,6 +440,12 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// An Iris Tuple.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C021` makes a Tuple an IMMUTABLE identity-less
+    /// heterogeneous product value, so unlike Array it is held by value and
+    /// `C022` compares arity and elements in order.
+    Tuple(Vec<Value>),
     /// `IRIS-V1-COLLECTIONS-C003` additionally classifies `Hash<K,V>` as
     /// IDENTITY-BEARING, so the entries live behind a shared handle and two
     /// bindings to one Hash observe each other's mutations.

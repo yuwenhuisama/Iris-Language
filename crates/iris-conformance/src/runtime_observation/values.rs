@@ -201,6 +201,17 @@ fn render_value(value: &RuntimeValue) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        // C027 names `tuple` as its own value shape, and C021 makes a Tuple a
+        // DISTINCT immutable product value rather than an Array, so it must not
+        // render as one.
+        RuntimeValue::Tuple(elements) => format!(
+            "{{\"tuple\":[{}]}}",
+            elements
+                .iter()
+                .map(render_value)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
         RuntimeValue::ReadonlyArray(values) => format!(
             "{{\"array\":[{}]}}",
             values
@@ -250,6 +261,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",

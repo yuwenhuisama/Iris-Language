@@ -534,6 +534,7 @@ impl Kernel {
             // builtin Class is therefore an ordinary `Object` rather than an
             // error: rejecting these made `if :sym` and `if [1]` fail outright.
             Value::Array(_)
+            | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(..)

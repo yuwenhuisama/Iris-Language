@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 12, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (12 records, buckets sum 12)
+COLLECTIONS passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (15 records, buckets sum 15)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -105,8 +105,11 @@ Real defects surfaced through probing rather than through the corpus.
   contents. Both were stored by value, so every binding, argument pass and
   field read COPIED. **Array is fixed** in `841c085`: it now carries a shared
   body, which also deleted the syntax-routed `append` workaround and made
-  `C026` fail-fast iteration possible. **Hash is still by value** and needs the
-  same treatment before `V024`–`V028` can be transcribed.
+  `C026` fail-fast iteration possible. **Hash is fixed** in `4c0670b`, with `C034`
+  structural versioning that excludes value updates.
+- **A Hash reported its class as `Array`.** The class-name table paired
+  `Value::Hash` with `Value::Array` on one arm, so `Hash` was unreachable as a
+  reported class. Fixed alongside the Tuple work.
 - **The conformance runner mis-decoded non-ASCII JSON.** Its reader used
   `char::from(byte)`, decoding each UTF-8 byte as Latin-1 and splitting every
   multi-byte scalar. No vector could state a non-ASCII expectation. Fixed in

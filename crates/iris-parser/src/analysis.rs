@@ -2156,7 +2156,7 @@ impl Analyzer {
             Expression::Member { receiver, .. } | Expression::ContractView { receiver, .. } => {
                 self.expression(receiver, control);
             }
-            Expression::Array(values) => {
+            Expression::Array(values) | Expression::Tuple(values) => {
                 for value in values {
                     self.expression(value, control);
                 }

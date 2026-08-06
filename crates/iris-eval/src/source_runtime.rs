@@ -148,7 +148,9 @@ fn body_yields(body: &[Statement]) -> bool {
             Expression::Call {
                 callee, arguments, ..
             } => in_expression(callee) || arguments.iter().any(in_expression),
-            Expression::Array(values) => values.iter().any(in_expression),
+            Expression::Array(values) | Expression::Tuple(values) => {
+                values.iter().any(in_expression)
+            }
             Expression::If {
                 condition,
                 then_body,
@@ -3721,6 +3723,13 @@ impl SourceEvaluator {
                 .map(|value| self.expression(value, locals, receiver.clone()))
                 .collect::<Result<Vec<_>, _>>()
                 .map(|values| Value::Array(ArrayRef::new(values))),
+            // C021 makes a Tuple IMMUTABLE and identity-less, so unlike Array
+            // it is built by value and needs no shared body.
+            Expression::Tuple(values) => values
+                .iter()
+                .map(|value| self.expression(value, locals, receiver.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Value::Tuple),
             // A `try` in expression position runs the same evaluator the
             // statement form uses, so the two can never disagree on ordering,
             // handler selection, or which clause supplies the result.
@@ -4395,6 +4404,17 @@ impl SourceEvaluator {
     /// user Class can define its own.
     fn index_read(&mut self, target: Value, index: Value) -> Result<Value, EvaluationError> {
         match &target {
+            // C021 gives `Tuple#[]` integer indexes with negative support and
+            // `nil` out of range, matching the Array READ rule. A Tuple is
+            // immutable, so there is no corresponding write.
+            Value::Tuple(elements) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(resolve_index(position, elements.len())
+                    .and_then(|position| elements.get(position).cloned())
+                    .unwrap_or(Value::Nil))
+            }
             // C010 slices unit-forward, clamps effective bounds, and C025 makes
             // an Array slice an INDEPENDENT snapshot rather than a view.
             Value::Array(_) | Value::ReadonlyArray(_) if matches!(index, Value::Range(..)) => {
@@ -6447,6 +6467,10 @@ impl SourceEvaluator {
                     | Value::IterationDone
                     | Value::IterationYield(_)
                     | Value::Range(..)
+                    // C022 makes a Tuple hash succeed only when every element
+                    // hash does, and `public_hash` already propagates the
+                    // failure of an unhashable element.
+                    | Value::Tuple(_)
             )
         {
             return iris_runtime::public_hash(&receiver)
@@ -6466,6 +6490,16 @@ impl SourceEvaluator {
             && let Value::Contract(contract) = &receiver
         {
             return Ok(Value::Integer(self.contract_type_hash(*contract)?));
+        }
+        // C022 compares Tuple ARITY and then elements in order, which the
+        // derived value equality performs, and C021 makes a Tuple identity-less
+        // so this is a value comparison rather than an identity one.
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::Tuple(_))
+            && let [other] = arguments
+        {
+            let equal = &receiver == other;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         if matches!(selector, "==" | "!=")
             && matches!(
@@ -6507,6 +6541,7 @@ impl SourceEvaluator {
                         | Value::Float32(_)
                         | Value::Float64(_)
                         | Value::Array(_)
+                        | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
                         | Value::Symbol(_)
@@ -6556,6 +6591,7 @@ impl SourceEvaluator {
             Value::Float32(_) => self.kernel.class(iris_runtime::BuiltinClass::Float32),
             Value::Float64(_) => self.kernel.class(iris_runtime::BuiltinClass::Float64),
             Value::Array(_)
+            | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
             | Value::Symbol(_)
@@ -6765,6 +6801,7 @@ impl SourceEvaluator {
                 .class(iris_runtime::BuiltinClass::String)
                 .map_err(EvaluationError::Runtime)?,
             Value::Array(_)
+            | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
             | Value::Type(..)
@@ -7634,7 +7671,9 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Integer(_) => "Integer",
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
-        Value::Array(_) | Value::Hash(_) => "Array",
+        Value::Array(_) => "Array",
+        Value::Hash(_) => "Hash",
+        Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
         Value::SourceLocation(..) => "SourceLocation",
         Value::StackFrame(..) => "StackFrame",

@@ -923,6 +923,17 @@ impl Evaluator {
                 .collect::<Result<Vec<_>, _>>()
                 .map(|values| RuntimeValue::Array(ArrayRef::new(values)))
                 .map(Evaluated::Value),
+            // C021 makes a Tuple immutable and identity-less, so it is built by
+            // value rather than behind a shared body.
+            Expression::Tuple(expressions) => expressions
+                .iter()
+                .map(|expression| {
+                    self.expression(expression)
+                        .and_then(|value| self.value(value))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map(RuntimeValue::Tuple)
+                .map(Evaluated::Value),
             Expression::Grouped(expression) => self.expression(expression),
             Expression::Member { receiver, selector } => match self.expression(receiver)? {
                 Evaluated::Value(receiver) => Ok(Evaluated::Member(receiver, selector.clone())),
@@ -1168,6 +1179,7 @@ impl Evaluator {
             | RuntimeValue::Float32(_)
             | RuntimeValue::Float64(_)
             | RuntimeValue::Array(_)
+            | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
             | RuntimeValue::Symbol(_)
@@ -1220,6 +1232,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",
@@ -1315,7 +1328,9 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         // A declared global lives in the source runtime's cell table.
         | Expression::GlobalVar(_)
         | Expression::While { .. } => true,
-        Expression::Array(values) => values.iter().any(source_runtime_expression),
+        Expression::Array(values) | Expression::Tuple(values) => {
+            values.iter().any(source_runtime_expression)
+        }
         Expression::Member { receiver, .. }
         | Expression::ContractView { receiver, .. }
         | Expression::Grouped(receiver)

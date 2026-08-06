@@ -314,7 +314,24 @@ impl Parser {
                 return Some(Expression::ReifiedType(annotation));
             }
             self.advance();
+            // C021 spells the Tuple forms `()`, `(a,)` and `(a, b, ...)`, so
+            // the empty and trailing-comma forms are what separate a one-element
+            // Tuple from an ordinary grouped expression.
+            if self.consume(")") {
+                return Some(Expression::Tuple(Vec::new()));
+            }
             let value = self.expression(0)?;
+            if self.consume(",") {
+                let mut elements = vec![value];
+                while !self.check(")") && !self.at_end() {
+                    elements.push(self.expression(0)?);
+                    if !self.consume(",") {
+                        break;
+                    }
+                }
+                self.expect(")")?;
+                return Some(Expression::Tuple(elements));
+            }
             self.expect(")")?;
             return Some(Expression::Grouped(Box::new(value)));
         }

@@ -59,6 +59,16 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
             ))
         }
         Value::Symbol(name) => Ok(symbol_hash(name)),
+        // C022 makes a Tuple hash succeed ONLY when every element hash
+        // succeeds, so a failed element propagates and prevents use as a Hash
+        // key rather than being skipped.
+        Value::Tuple(elements) => {
+            let mut hashes = Vec::with_capacity(elements.len());
+            for element in elements {
+                hashes.push(public_hash(element)?.to_u64().unwrap_or_default());
+            }
+            Ok(tuple_hash(&hashes))
+        }
         Value::IterationDone => Ok(iteration_hash(None)),
         Value::IterationYield(payload) => Ok(iteration_hash(public_hash(payload)?.to_u64())),
         Value::Array(_)

@@ -124,6 +124,20 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             format!("{}[{}]", source_shape(receiver, 17), source_shape(index, 0)),
             17,
         ),
+        // C021 renders `(a,)` with its trailing comma, since that comma is
+        // what distinguishes a one-element Tuple from a grouped expression.
+        Expression::Tuple(values) => (
+            format!(
+                "({}{})",
+                values
+                    .iter()
+                    .map(|value| source_shape(value, 0))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                if values.len() == 1 { "," } else { "" }
+            ),
+            17,
+        ),
         Expression::Array(values) => (
             format!(
                 "[{}]",
@@ -227,6 +241,14 @@ fn structural_shape(expression: &Expression) -> String {
             "index({}, {})",
             structural_shape(receiver),
             structural_shape(index)
+        ),
+        Expression::Tuple(values) => format!(
+            "tuple({})",
+            values
+                .iter()
+                .map(structural_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         Expression::Array(values) => format!(
             "array({})",
