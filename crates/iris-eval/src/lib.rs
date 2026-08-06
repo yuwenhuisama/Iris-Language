@@ -140,6 +140,11 @@ pub enum EvaluationError {
     /// `C015` forbids any Iris source-level blocking wait, so it is
     /// unavailable inside an async body, a Closure, or a transaction.
     HostDriveUnavailable,
+    /// An Iterator-specific sequencing rule was violated.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C014` raises it for `Iteration.done.value`, and
+    /// `C020` for invalid Iterator sequencing generally.
+    IteratorState,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS

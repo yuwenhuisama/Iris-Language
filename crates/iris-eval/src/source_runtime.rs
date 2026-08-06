@@ -6130,6 +6130,25 @@ impl SourceEvaluator {
         // identity hash, which is what lets an ExceptionContext be a Hash key
         // under IRIS-V1-CONTROL-V305. The identity it already carries is that
         // stable value, so no separate allocation is needed.
+        // C014 gives Iteration the get-only properties `yield?`, `done?` and
+        // `value`. `Iteration.done.value` raises IteratorStateError rather than
+        // answering nil, which is what keeps a yielded nil distinguishable
+        // from exhaustion.
+        if arguments.is_empty() {
+            match (&receiver, selector) {
+                (Value::IterationYield(_), "yield?") => return Ok(Value::Bool(true)),
+                (Value::IterationYield(_), "done?") => return Ok(Value::Bool(false)),
+                (Value::IterationYield(payload), "value") => {
+                    return Ok((**payload).clone());
+                }
+                (Value::IterationDone, "yield?") => return Ok(Value::Bool(false)),
+                (Value::IterationDone, "done?") => return Ok(Value::Bool(true)),
+                (Value::IterationDone, "value") => {
+                    return Err(EvaluationError::IteratorState);
+                }
+                _ => {}
+            }
+        }
         // C087 fixes a SPECIFICATION-STABLE public hash per value family, and
         // C089 forbids falling back to object identity for an identity-less
         // wrapper such as a Symbol or an Iteration.
@@ -7561,6 +7580,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         // C102 and C103 make an ungranted or out-of-scope reflection call an
         // ordinary catchable Iris error; V363 and V421 observe it.
         EvaluationError::ReflectionAccess => "ReflectionAccessError",
+        EvaluationError::IteratorState => "IteratorStateError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

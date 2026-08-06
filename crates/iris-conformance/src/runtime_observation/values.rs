@@ -305,6 +305,7 @@ fn error_code(error: &EvaluationError) -> String {
         // C050 refuses the Host drive surface from an Iris source position,
         // since C015 forbids a source-level blocking wait.
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError".into(),
+        EvaluationError::IteratorState => "IteratorStateError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
