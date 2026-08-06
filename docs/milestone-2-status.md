@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-ASYNC    passed: 12, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (12 records, buckets sum 12)
+ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
@@ -172,6 +172,61 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 4. **Hash literals**, the last term of `V072`.
 5. **`migrate_revision` and revision reactivation** for `V085`, and static rebinding rejection
    for `V111`.
+
+## Milestone Close
+
+Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
+
+| Chapter | Transcribed | Rows |
+| --- | --- | --- |
+| RUNTIME | 109 | 109 |
+| GRAMMAR | 47 | 48 |
+| CONTROL | 134 | 134 |
+| TYPES | 79 | 80 |
+| META | 51 | 51 |
+| ASYNC | 15 | 40 |
+| **Total** | **435** | **462** |
+
+Three chapters are complete. The 27 open rows are NOT spread thin: they group
+into subsystems that each need an external boundary this milestone deliberately
+did not invent.
+
+### Blocked on an external completion source
+
+`V006`, `V010`, `V012`, `V017`, `V018` need a genuinely INCOMPLETE Awaitable.
+Nothing in this milestone can produce one: `IRIS-V1-ASYNC-C012` completes every
+async body synchronously when no incomplete await is reached, so `C014`'s FIFO
+continuation queue has no input and suspension across `using` or `for` cannot be
+triggered. Building the queue anyway would have produced code no vector could
+falsify.
+
+### Blocked on their own subsystems
+
+`V019`-`V025` and `V028` need structured diagnostic reporting, revision event
+delivery, `GapEvent`, and audit history recovery. `V073`-`V084` continue the
+same surfaces. Each is comparable in size to the `using` work this milestone
+closed with.
+
+### Remaining single rows
+
+- `GRAMMAR-V008`: no defining row in chapter 02, recorded since milestone 1.
+- `TYPES-V208`: blocked on static member-existence checking, recorded.
+
+### Errata published this milestone
+
+Nine clauses, each closing a gap where a published requirement had no spelling:
+`TYPES-C098`, `TYPES-C099`, `CONTROL-C080`, `META-C125`, `META-C126`,
+`GRAMMAR-C071`, `GRAMMAR-C072`, `ASYNC-C050`, and the v1.21-v1.27 set. The
+reserved keyword inventory was widened once more, to 50, for `yield`.
+
+### What the engine does and does not do
+
+Generators and async bodies are stackless: a generator is re-entered on each
+`next()` rather than resumed on a captured native stack. Ordinary synchronous
+evaluation is UNCHANGED, which `IRIS-V1-ASYNC-C011` requires by forbidding
+preemption between suspension boundaries. Synchronous recursion still uses the
+native stack and its existing depth budget; making that stackless was considered
+and rejected as outside what v1 specifies.
 
 ## Corpus Accounting
 

@@ -6065,6 +6065,11 @@ impl SourceEvaluator {
         }
         // C072 makes a generator an Iterator satisfying C011, so it answers
         // `iterator`, `next` and `close` exactly as any other Iterator does.
+        // C006 makes a Task an identity-bearing object, so it answers
+        // `class_name` like any other value. V026 reads it.
+        if matches!(receiver, Value::Task(_)) && selector == "class_name" && arguments.is_empty() {
+            return Ok(Value::Symbol("Task".into()));
+        }
         if let Value::Generator(identity) = &receiver {
             match selector {
                 "iterator" if arguments.is_empty() => return Ok(receiver.clone()),
