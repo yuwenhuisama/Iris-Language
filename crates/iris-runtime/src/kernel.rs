@@ -549,6 +549,7 @@ impl Kernel {
             | Value::ArrayIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
+            | Value::Range(..)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)

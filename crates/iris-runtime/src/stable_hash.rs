@@ -45,6 +45,19 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         // its own domain-separated context, so these no longer fall through to
         // the unsupported arm.
         Value::Text(text) => Ok(string_hash(text)),
+        // C088 tags an inclusive end 0x00 and an exclusive one 0x01, and C089
+        // composes over the components' own public hashes.
+        Value::Range(start, end, inclusive) => {
+            let start = numeric_hash(&NumericValue::Integer(start.clone()))?;
+            let end = numeric_hash(&NumericValue::Integer(end.clone()))?;
+            let step = numeric_hash(&NumericValue::Integer(1_u8.into()))?;
+            Ok(range_hash(
+                *inclusive,
+                start.to_u64().unwrap_or_default(),
+                end.to_u64().unwrap_or_default(),
+                step.to_u64().unwrap_or_default(),
+            ))
+        }
         Value::Symbol(name) => Ok(symbol_hash(name)),
         Value::IterationDone => Ok(iteration_hash(None)),
         Value::IterationYield(payload) => Ok(iteration_hash(public_hash(payload)?.to_u64())),

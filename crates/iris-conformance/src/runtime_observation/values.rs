@@ -222,6 +222,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::ArrayIterator(_)
         | RuntimeValue::Generator(_)
         | RuntimeValue::Task(_)
+        | RuntimeValue::Range(..)
         | RuntimeValue::IterationDone
         | RuntimeValue::ExceptionContext(..)
         | RuntimeValue::ContractView(_, _)
@@ -255,6 +256,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::Generator(..)
         | RuntimeValue::Task(..)
+        | RuntimeValue::Range(..)
         | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",

@@ -144,6 +144,13 @@ pub enum Value {
     StackFrame(String, Box<Value>),
     /// A `RaiseSite` record: the location a bare `raise` continued from.
     RaiseSite(Box<Value>),
+    /// A Range value: start, end, and whether the end is inclusive.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C006` gives `a ..= b` an inclusive end and
+    /// `a ..< b` an exclusive one, and `C007` fixes both endpoints as
+    /// Integers. `C003` makes it identity-less with a specification-stable
+    /// hash, so two Ranges over the same interval are one value.
+    Range(IntegerValue, IntegerValue, bool),
     /// A `Task<T>`, produced by invoking an async callable.
     ///
     /// `IRIS-V1-ASYNC-C006` makes it identity-bearing and gives it

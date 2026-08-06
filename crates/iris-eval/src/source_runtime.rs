@@ -4018,6 +4018,20 @@ impl SourceEvaluator {
                     BinaryOperator::Equal => "==",
                     BinaryOperator::NotEqual => "!=",
                     BinaryOperator::NamedInfix { selector } => selector,
+                    // C006 makes `..=` and `..<` the only Range literal
+                    // operators, and C007 fixes both endpoints as Integers.
+                    // They build a value rather than dispatching a selector,
+                    // since a Range is a literal form and not a send.
+                    BinaryOperator::RangeInclusive | BinaryOperator::RangeExclusive => {
+                        let (Value::Integer(start), Value::Integer(end)) = (&left, &right) else {
+                            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                        };
+                        return Ok(Value::Range(
+                            start.clone(),
+                            end.clone(),
+                            matches!(operator, BinaryOperator::RangeInclusive),
+                        ));
+                    }
                     BinaryOperator::Identity => {
                         // C050 makes a Contract view an identity-LESS capability
                         // value, so an identity question about one raises rather
@@ -6187,7 +6201,10 @@ impl SourceEvaluator {
             && arguments.is_empty()
             && matches!(
                 receiver,
-                Value::Symbol(_) | Value::IterationDone | Value::IterationYield(_)
+                Value::Symbol(_)
+                    | Value::IterationDone
+                    | Value::IterationYield(_)
+                    | Value::Range(..)
             )
         {
             return iris_runtime::public_hash(&receiver)
@@ -6265,6 +6282,7 @@ impl SourceEvaluator {
                         | Value::ArrayIterator(_)
                         | Value::Generator(_)
                         | Value::Task(_)
+                        | Value::Range(..)
                         | Value::IterationDone
                         | Value::Transformation { .. }
                         | Value::ExceptionContext(..)
@@ -6313,6 +6331,7 @@ impl SourceEvaluator {
             | Value::ArrayIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
+            | Value::Range(..)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -6627,6 +6646,7 @@ impl SourceEvaluator {
             | Value::ArrayIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
+            | Value::Range(..)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -7494,6 +7514,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
         Value::ArrayIterator(..) | Value::Generator(..) | Value::IterationDone => "Iteration",
         Value::Task(..) => "Task",
+        Value::Range(..) => "Range",
         Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",

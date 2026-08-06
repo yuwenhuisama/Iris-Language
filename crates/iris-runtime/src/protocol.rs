@@ -101,6 +101,7 @@ impl ComparisonProtocol {
             | Value::ArrayIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
+            | Value::Range(..)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -181,6 +182,7 @@ impl Truthiness {
                 | Value::ArrayIterator(_)
                 | Value::Generator(_)
                 | Value::Task(_)
+                | Value::Range(..)
                 | Value::IterationDone
                 | Value::Transformation { .. }
                 | Value::ExceptionContext(..)
@@ -216,6 +218,7 @@ impl Truthiness {
             | Value::ArrayIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
+            | Value::Range(..)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
