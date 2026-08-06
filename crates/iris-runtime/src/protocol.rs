@@ -99,6 +99,7 @@ impl ComparisonProtocol {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::Generator(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -177,6 +178,7 @@ impl Truthiness {
                 | Value::StackFrame(..)
                 | Value::RaiseSite(_)
                 | Value::ArrayIterator(_)
+                | Value::Generator(_)
                 | Value::IterationDone
                 | Value::Transformation { .. }
                 | Value::ExceptionContext(..)
@@ -210,6 +212,7 @@ impl Truthiness {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::Generator(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)

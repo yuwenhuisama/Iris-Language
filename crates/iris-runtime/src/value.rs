@@ -144,6 +144,12 @@ pub enum Value {
     StackFrame(String, Box<Value>),
     /// A `RaiseSite` record: the location a bare `raise` continued from.
     RaiseSite(Box<Value>),
+    /// A generator, produced by invoking a callable containing `yield`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` makes it an `Iterator<T>` satisfying
+    /// `IRIS-V1-COLLECTIONS-C011`, so `for` drives it through the same
+    /// `iterator()`/`next()` protocol every other Iterator uses.
+    Generator(ObjectId),
     /// A cursor over an Array, produced by `Array#iterator`.
     ///
     /// `IRIS-V1-COLLECTIONS-C011` makes Array iterable and `C012` drives `for`

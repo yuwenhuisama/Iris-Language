@@ -65,6 +65,19 @@ impl Parser {
         // C071 binds `await` at `unary_expr`, so its operand is a unary
         // expression: tighter than any binary operator, looser than a postfix
         // call, making `await f()` an await of the call's result.
+        // C072 puts `yield` at unary precedence beside `await`. Its operand is
+        // OPTIONAL, so a bare `yield` suspends with nil.
+        if self.peek() == Some("yield") {
+            self.advance();
+            // A bare `yield` suspends with nil, so an operand is read only
+            // when one actually follows on this line.
+            let value = if matches!(self.peek(), None | Some("\n") | Some(";") | Some("}")) {
+                None
+            } else {
+                self.expression(14).map(Box::new)
+            };
+            return Some(Expression::Yield(value));
+        }
         if self.peek() == Some("await") {
             self.advance();
             return self

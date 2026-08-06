@@ -426,6 +426,12 @@ pub enum Expression {
     /// the CALL's result. `IRIS-V1-META-C037` and `IRIS-V1-ASYNC-C018` forbid
     /// it inside an open or revision transaction body.
     Await(Box<Expression>),
+    /// `yield expr?`, a generator suspension point.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` makes a callable containing one a GENERATOR
+    /// whose invocation returns an `Iterator<T>`. `IRIS-V1-META-C037` forbids
+    /// it inside a transaction body exactly as it forbids `await`.
+    Yield(Option<Box<Expression>>),
     Name(String),
     Literal(String),
     Symbol(String),

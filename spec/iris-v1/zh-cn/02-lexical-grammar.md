@@ -594,6 +594,8 @@ IRIS-V1-GRAMMAR-C070：v1.26 勘误将装饰器应用路径放宽为 `decorator 
 
 IRIS-V1-GRAMMAR-C071：v1.32 勘误提供 IRIS-V1-ASYNC-C008 与 IRIS-V1-META-C037 已然预设的 `await` 运算符产生式。`unary_expr ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr`。其操作数为 `unary_expr`，因此 `await` 的结合力强于任何二元运算符、弱于后缀调用，使 `await f()` 表示等待该调用的结果，而非在被等待的被调方上发起调用。本条款**仅**提供语法：被等待类型由 IRIS-V1-ASYNC-C008 所有，挂起由 C013 所有，事务内禁止由 IRIS-V1-META-C037 与 IRIS-V1-ASYNC-C018 所有，本条款均不改变。
 
+IRIS-V1-GRAMMAR-C072：v1.33 勘误依 IRIS-V1-TRACE-C021 **第二次**扩大保留字清单，新增且仅新增 `yield`。就地取代 v1.1 的计数，v1.33 的保留字集合恰好包含 **50** 个小写词。`yield` 标记生成器挂起点，其产生式为 `yield_expr ::= "yield" expression?`，依 IRIS-V1-GRAMMAR-C071 与 `await` 同处 `unary_expr` 优先级。含 `yield` 的可调用体即**生成器**：调用它返回满足 IRIS-V1-COLLECTIONS-C011 的 `Iterator<T>`，其 `next()` 将体恢复执行至下一个 `yield` 并给出 `Iteration.yield(value)`，体执行完毕后给出 `Iteration.done`。IRIS-V1-META-C037 禁止 `yield` 出现在开放或修订事务体内，与其禁止 `await` 完全相同，理由同为不可挂起。本条款取代 IRIS-V1-GRAMMAR-V001 所述计数：该行的“恰好 48”相对 v1.1 的 49 早已过时，现读作 50。
+
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-GRAMMAR-V003`| 正向 |需要解释器；需要 JIT；原生不适用 | Iris 来源：`2 ** 3 ** 2; -2 ** 2; 2 ** -3`。 | 解析形状为 `2 ** (3 ** 2)`、`-(2 ** 2)` 和 `2 ** (-3)`；求幂是右结合的，并且比一元否定结合得更紧密。 | `D-033` |

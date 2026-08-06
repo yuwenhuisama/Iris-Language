@@ -421,7 +421,8 @@ bitwise_and_expr   ::= shift_expr ("&" shift_expr)*
 shift_expr         ::= additive_expr (("<<" | ">>") additive_expr)*
 additive_expr      ::= multiplicative_expr (("+" | "-") multiplicative_expr)*
 multiplicative_expr ::= unary_expr (("*" | "/") unary_expr)*
-unary_expr         ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr
+unary_expr         ::= "await" unary_expr | yield_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr
+yield_expr         ::= "yield" expression?
 exponent_expr      ::= postfix_expr ("**" unary_expr)?
 postfix_expr       ::= primary_expr postfix_part*
 postfix_part       ::= call_suffix | index_suffix | property_suffix | contract_view_suffix | trailing_block
@@ -593,6 +594,8 @@ IRIS-V1-GRAMMAR-C069: The v1.24 errata adds an optional `"override"` marker to t
 IRIS-V1-GRAMMAR-C070: The v1.26 errata widens the decorator application path to `decorator ::= "@" qualified_type_name "(" call_argument_list? ")"`, so a decorator declared in another Module is applied as `@D::Stamp()`. This supplies the reference IRIS-V1-META-C122 needs and which IRIS-V1-META-C013's import forms already presuppose for cross-Module use. No keyword is added and the reserved inventory of IRIS-V1-GRAMMAR-C013 is unchanged: a decorator is an ordinary Class under IRIS-V1-META-C122, so no declaration production is required and IRIS-V1-CONTROL-C014's three ordinary callable runtime kinds stay intact.
 
 IRIS-V1-GRAMMAR-C071: The v1.32 errata supplies the production for the `await` operator that IRIS-V1-ASYNC-C008 and IRIS-V1-META-C037 already presuppose. `unary_expr ::= "await" unary_expr | ("+" | "-" | "~" | "!") unary_expr | exponent_expr`. The operand is a `unary_expr`, so `await` binds tighter than every binary operator and looser than a postfix call, making `await f()` an await of the call's result rather than a call on an awaited callee. This clause supplies SYNTAX only: the awaited type is owned by IRIS-V1-ASYNC-C008, suspension by C013, and the transaction prohibition by IRIS-V1-META-C037 and IRIS-V1-ASYNC-C018, none of which this clause changes.
+
+IRIS-V1-GRAMMAR-C072: The v1.33 errata widens the reserved keyword inventory a SECOND time under IRIS-V1-TRACE-C021, adding exactly `yield`. Superseding the v1.1 count in place, the v1.33 reserved keyword set contains exactly 50 lowercase words. `yield` marks a generator suspension point, whose production is `yield_expr ::= "yield" expression?` at `unary_expr` precedence alongside `await` under IRIS-V1-GRAMMAR-C071. A callable containing `yield` is a GENERATOR: invoking it returns an `Iterator<T>` satisfying IRIS-V1-COLLECTIONS-C011, whose `next()` resumes the body until the next `yield` and answers `Iteration.yield(value)`, and answers `Iteration.done` once the body completes. `IRIS-V1-META-C037` forbids `yield` inside an open or revision transaction body exactly as it forbids `await`, for the same non-suspending reason. This clause supersedes the count `IRIS-V1-GRAMMAR-V001` states: that row's `exactly 48` was already stale against the v1.1 count of 49 and now reads 50.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

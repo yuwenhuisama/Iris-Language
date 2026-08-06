@@ -1985,6 +1985,16 @@ impl Analyzer {
                 }
                 self.expression(operand, control);
             }
+            // C072 forbids `yield` inside a transaction body exactly as C037
+            // forbids `await`, for the same non-suspending reason.
+            Expression::Yield(value) => {
+                if self.transaction_depth > 0 {
+                    self.report("IRIS-TRANSACTION-SUSPENSION");
+                }
+                if let Some(value) = value {
+                    self.expression(value, control);
+                }
+            }
             Expression::Assignment { left, right, .. } => {
                 self.expression(right, control);
                 // `D-426`: a bare `name = expr` only ASSIGNS an existing mutable

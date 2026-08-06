@@ -2015,6 +2015,8 @@ fn is_reserved_keyword(value: &str) -> bool {
             | "self"
             | "super"
             | "typeof"
+            // C072 widens the inventory a second time, adding exactly `yield`.
+            | "yield"
     )
 }
 

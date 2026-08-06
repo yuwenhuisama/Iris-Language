@@ -125,6 +125,15 @@ pub enum EvaluationError {
     /// `IRIS-V1-ASYNC-C018` owns the async reason. `IRIS-V1-META-V431` observes
     /// an `await` in a decorator transform.
     MetaTransactionSuspension,
+    /// A generator body reached a `yield`.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` makes a callable containing `yield` a generator
+    /// whose `next()` resumes the body until the next suspension. The signal
+    /// carries the yielded value and the suspension index that `next()`
+    /// resumes past, so the body is re-entered rather than kept on the native
+    /// stack: this is the stackless part, and ordinary synchronous evaluation
+    /// is untouched as `IRIS-V1-ASYNC-C011` requires.
+    GeneratorYield(RuntimeValue, usize),
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -860,7 +869,9 @@ impl Evaluator {
             // The literal-only evaluator never runs a transaction body, so an
             // `await` here is simply outside this evaluator's scope. C037's
             // prohibition is enforced statically and in the source runtime.
-            Expression::Await(_) => Err(EvaluationError::UnsupportedConstruct),
+            Expression::Await(_) | Expression::Yield(_) => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             // A keyword argument is meaningless outside a call the literal
             // evaluator cannot make, so it is routed rather than evaluated.
             Expression::KeywordArgument { .. }
@@ -1143,6 +1154,7 @@ impl Evaluator {
             | RuntimeValue::StackFrame(..)
             | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
+            | RuntimeValue::Generator(_)
             | RuntimeValue::IterationDone
             | RuntimeValue::Transformation { .. }
             | RuntimeValue::ExceptionContext(..)
@@ -1189,7 +1201,9 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
-        RuntimeValue::ArrayIterator(..) | RuntimeValue::IterationDone => "Iteration",
+        RuntimeValue::ArrayIterator(..)
+        | RuntimeValue::Generator(..)
+        | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
@@ -1254,6 +1268,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         // C037's prohibition lives in the source runtime, which is the only
         // evaluator that runs a transaction body.
         Expression::Await(_)
+        | Expression::Yield(_)
         // A Closure needs the heap the literal evaluator does not have.
         // A keyword argument binds by name, which only the source runtime does.
         | Expression::Closure { .. }

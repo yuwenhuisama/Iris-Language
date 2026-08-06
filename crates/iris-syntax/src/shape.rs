@@ -105,6 +105,13 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::ReifiedType(_) => ("(type)".into(), 17),
         // C071 binds `await` at unary precedence, which is 14 here.
         Expression::Await(operand) => (format!("await {}", source_shape(operand, 14)), 14),
+        Expression::Yield(value) => (
+            value.as_ref().map_or_else(
+                || "yield".to_owned(),
+                |value| format!("yield {}", source_shape(value, 14)),
+            ),
+            14,
+        ),
         Expression::Hash(entries) => (format!("%{{{} entries}}", entries.len()), 17),
         Expression::Closure { parameters, .. } => {
             (format!("{{|{}| ...}}", parameters.join(", ")), 17)
@@ -206,6 +213,10 @@ fn structural_shape(expression: &Expression) -> String {
         }
         Expression::ReifiedType(_) => "reified_type".into(),
         Expression::Await(operand) => format!("await({})", structural_shape(operand)),
+        Expression::Yield(value) => value.as_ref().map_or_else(
+            || "yield()".to_owned(),
+            |value| format!("yield({})", structural_shape(value)),
+        ),
         Expression::Closure { parameters, .. } => format!("closure({})", parameters.join(", ")),
         Expression::Hash(entries) => format!("hash({})", entries.len()),
         Expression::Symbol(value) => format!("symbol({value})"),

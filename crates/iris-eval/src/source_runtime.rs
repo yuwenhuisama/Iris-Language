@@ -38,6 +38,92 @@ struct ClosureRecord {
     receiver: Option<Value>,
 }
 
+/// Whether a body contains a `yield`, making its callable a generator.
+///
+/// `IRIS-V1-GRAMMAR-C072` makes the presence of `yield` the thing that decides,
+/// so a nested Closure's own `yield` belongs to that Closure and is not
+/// counted here.
+fn body_yields(body: &[Statement]) -> bool {
+    fn in_expression(expression: &Expression) -> bool {
+        match expression {
+            Expression::Yield(_) => true,
+            Expression::Await(operand)
+            | Expression::Unary { operand, .. }
+            | Expression::Grouped(operand) => in_expression(operand),
+            Expression::Binary { left, right, .. } | Expression::Assignment { left, right, .. } => {
+                in_expression(left) || in_expression(right)
+            }
+            Expression::Member { receiver, .. } => in_expression(receiver),
+            Expression::Index { receiver, index } => {
+                in_expression(receiver) || in_expression(index)
+            }
+            Expression::Call {
+                callee, arguments, ..
+            } => in_expression(callee) || arguments.iter().any(in_expression),
+            Expression::Array(values) => values.iter().any(in_expression),
+            Expression::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                in_expression(condition)
+                    || then_body.iter().any(in_statement)
+                    || else_body.iter().flatten().any(in_statement)
+            }
+            _ => false,
+        }
+    }
+    fn in_statement(statement: &Statement) -> bool {
+        match statement {
+            Statement::Expression(expression)
+            | Statement::Binding {
+                value: expression, ..
+            } => in_expression(expression),
+            Statement::Return(value) => value.as_ref().is_some_and(in_expression),
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                in_expression(condition)
+                    || then_body.iter().any(in_statement)
+                    || else_body.iter().flatten().any(in_statement)
+            }
+            Statement::While {
+                condition, body, ..
+            } => in_expression(condition) || body.iter().any(in_statement),
+            Statement::For { iterable, body, .. } => {
+                in_expression(iterable) || body.iter().any(in_statement)
+            }
+            _ => false,
+        }
+    }
+    body.iter().any(in_statement)
+}
+
+/// One live generator: its body, the locals it was invoked with, and progress.
+#[derive(Clone, Debug)]
+struct GeneratorBody {
+    body: Vec<Statement>,
+    locals: HashMap<String, Value>,
+    receiver: Option<Value>,
+    delivered: usize,
+    finished: bool,
+}
+
+/// The suspension bookkeeping for one running generator body.
+///
+/// `IRIS-V1-GRAMMAR-C072` makes `next()` resume the body until the NEXT
+/// `yield`. The body is re-entered from the top each time, so `resume_past`
+/// records how many suspensions were already delivered and `seen` counts those
+/// reached in the current run. A suspension whose index is below `resume_past`
+/// is replayed silently; the first at or above it suspends again.
+#[derive(Clone, Copy, Debug)]
+struct GeneratorState {
+    resume_past: usize,
+    seen: usize,
+}
+
 pub(super) struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
@@ -60,6 +146,13 @@ pub(super) struct SourceEvaluator {
     /// The cursor must ADVANCE across `next()` calls, so its position lives
     /// here rather than inside the Value, which is copied on every send.
     array_iterators: HashMap<iris_runtime::ObjectId, (Vec<Value>, usize)>,
+    /// Each live generator as its body, bound locals, receiver and progress.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body, so
+    /// what is retained is the body and how many suspensions were already
+    /// delivered, NOT a captured native stack. `IRIS-V1-ASYNC-C011` leaves
+    /// ordinary evaluation untouched, which is why nothing else changes.
+    generators: HashMap<iris_runtime::ObjectId, GeneratorBody>,
     names: HashMap<String, Binding>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
@@ -250,6 +343,12 @@ pub(super) struct SourceEvaluator {
     /// reach the CURRENT candidate, so the block needs to know which target is
     /// open rather than inferring it from the receiver alone.
     open_target: Option<ClassId>,
+    /// The generator body currently running, when one is.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body and
+    /// skipping the suspensions already delivered, so the state is a counter
+    /// pair rather than a captured native stack.
+    generator: Option<GeneratorState>,
     /// Every target joined to the current open transaction group.
     ///
     /// `IRIS-V1-META-C038` makes same-thread nested opens join the OUTERMOST
@@ -324,6 +423,7 @@ impl SourceEvaluator {
             remaining_steps: STEP_BUDGET,
             invocation_depth: 0,
             array_iterators: HashMap::new(),
+            generators: HashMap::new(),
             names: HashMap::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
@@ -373,6 +473,7 @@ impl SourceEvaluator {
             current_method: None,
             module_body_main: None,
             open_target: None,
+            generator: None,
             open_group: Vec::new(),
             generic_definitions: Vec::new(),
             active_exception: None,
@@ -3245,6 +3346,34 @@ impl SourceEvaluator {
             //
             // Outside a transaction, suspension is chapter 07's own surface and
             // is deliberately NOT given a placeholder meaning here.
+            // C072 suspends a generator body at `yield`. The signal carries
+            // the yielded value and this suspension's index, so `next()`
+            // resumes by re-entering the body and skipping suspensions it
+            // already delivered. The body never sits on the native stack
+            // between resumptions, which is what makes it stackless.
+            //
+            // C037 forbids suspending inside a transaction, exactly as it does
+            // for `await`.
+            Expression::Yield(value) => {
+                if self.open_target.is_some() {
+                    return Err(EvaluationError::MetaTransactionSuspension);
+                }
+                let Some(state) = self.generator.as_mut() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let index = state.seen;
+                state.seen += 1;
+                if index < state.resume_past {
+                    // Already delivered on an earlier `next()`, so this
+                    // suspension is replayed rather than re-yielded.
+                    return Ok(Value::Nil);
+                }
+                let yielded = match value {
+                    Some(value) => self.expression(value, locals, receiver)?,
+                    None => Value::Nil,
+                };
+                Err(EvaluationError::GeneratorYield(yielded, index))
+            }
             Expression::Await(_) => {
                 if self.open_target.is_some() {
                     return Err(EvaluationError::MetaTransactionSuspension);
@@ -5826,6 +5955,24 @@ impl SourceEvaluator {
             self.array_iterators.insert(identity, (values.clone(), 0));
             return Ok(Value::ArrayIterator(identity));
         }
+        // C072 makes a generator an Iterator satisfying C011, so it answers
+        // `iterator`, `next` and `close` exactly as any other Iterator does.
+        if let Value::Generator(identity) = &receiver {
+            match selector {
+                "iterator" if arguments.is_empty() => return Ok(receiver.clone()),
+                "next" if arguments.is_empty() => {
+                    let identity = *identity;
+                    return self.resume_generator(identity);
+                }
+                "close" if arguments.is_empty() => {
+                    if let Some(state) = self.generators.get_mut(identity) {
+                        state.finished = true;
+                    }
+                    return Ok(Value::Nil);
+                }
+                _ => {}
+            }
+        }
         if let Value::ArrayIterator(identity) = &receiver {
             match selector {
                 "next" if arguments.is_empty() => {
@@ -5939,6 +6086,7 @@ impl SourceEvaluator {
                         | Value::StackFrame(..)
                         | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
+                        | Value::Generator(_)
                         | Value::IterationDone
                         | Value::Transformation { .. }
                         | Value::ExceptionContext(..)
@@ -5985,6 +6133,7 @@ impl SourceEvaluator {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::Generator(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -6297,6 +6446,7 @@ impl SourceEvaluator {
             | Value::StackFrame(..)
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
+            | Value::Generator(_)
             | Value::IterationDone
             | Value::Transformation { .. }
             | Value::ExceptionContext(..)
@@ -6972,6 +7122,12 @@ impl SourceEvaluator {
             return Err(EvaluationError::UnsupportedConstruct);
         };
         let locals = self.bind_parameters(&parameters, arguments)?;
+        // C072 makes a callable containing `yield` a GENERATOR: invoking it
+        // runs no body and returns an Iterator whose `next()` drives it. The
+        // body is therefore not executed here at all.
+        if body_yields(&body) {
+            return Ok(self.new_generator(body, locals, receiver));
+        }
         let result = match self.block(&body, &locals, Some(receiver)) {
             Err(EvaluationError::Return(value)) => Ok(value),
             result => result,
@@ -6982,6 +7138,76 @@ impl SourceEvaluator {
             self.check_binding_annotation(&result, annotation)?;
         }
         Ok(result)
+    }
+
+    /// Creates the Iterator a generator invocation returns.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` runs NO body at invocation: the body is retained
+    /// with the locals it was bound to, and `next()` drives it.
+    fn new_generator(
+        &mut self,
+        body: Vec<Statement>,
+        locals: HashMap<String, Value>,
+        receiver: Value,
+    ) -> Value {
+        let identity = self.next_context_identity();
+        self.generators.insert(
+            identity,
+            GeneratorBody {
+                body,
+                locals,
+                receiver: Some(receiver),
+                delivered: 0,
+                finished: false,
+            },
+        );
+        Value::Generator(identity)
+    }
+
+    /// Resumes a generator body until its next suspension.
+    ///
+    /// `IRIS-V1-GRAMMAR-C072` makes `next()` answer `Iteration.yield(value)`
+    /// at each suspension and `Iteration.done` once the body completes, which
+    /// is the `IRIS-V1-COLLECTIONS-C013` protocol every Iterator follows.
+    ///
+    /// The body is RE-ENTERED rather than resumed on a captured native stack:
+    /// suspensions below the delivered count replay silently and the first at
+    /// or above it suspends again. That is what keeps a generator off the
+    /// native stack between resumptions, and it leaves ordinary synchronous
+    /// evaluation untouched as `IRIS-V1-ASYNC-C011` requires.
+    fn resume_generator(
+        &mut self,
+        identity: iris_runtime::ObjectId,
+    ) -> Result<Value, EvaluationError> {
+        let Some(state) = self.generators.get(&identity).cloned() else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        if state.finished {
+            // C013 returns the SAME `Iteration.done` singleton on every call
+            // after exhaustion.
+            return Ok(Value::IterationDone);
+        }
+        let previous = self.generator.replace(GeneratorState {
+            resume_past: state.delivered,
+            seen: 0,
+        });
+        let outcome = self.block(&state.body, &state.locals, state.receiver.clone());
+        self.generator = previous;
+        match outcome {
+            Err(EvaluationError::GeneratorYield(value, index)) => {
+                if let Some(state) = self.generators.get_mut(&identity) {
+                    state.delivered = index + 1;
+                }
+                Ok(Value::IterationYield(Box::new(value)))
+            }
+            Ok(_) | Err(EvaluationError::Return(_)) => {
+                if let Some(state) = self.generators.get_mut(&identity) {
+                    state.finished = true;
+                }
+                Ok(Value::IterationDone)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn super_send(
@@ -7062,7 +7288,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Contract(_) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
-        Value::ArrayIterator(..) | Value::IterationDone => "Iteration",
+        Value::ArrayIterator(..) | Value::Generator(..) | Value::IterationDone => "Iteration",
         Value::ExceptionContext(..) => "ExceptionContext",
         Value::ContractView(_, _) => "ContractView",
         Value::Object(_) => "Object",

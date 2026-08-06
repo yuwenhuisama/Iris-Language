@@ -1,6 +1,6 @@
 # Iris v1 Milestone 2 — Implementation Status
 
-**Revision:** Iris v1.32 (frozen semantics with owner-approved errata)
+**Revision:** Iris v1.33 (frozen semantics with owner-approved errata)
 **Branch:** `new-iris-dev`
 **Baseline of this milestone:** `3fa54ab`
 
@@ -68,6 +68,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.25 | `META-C121` | The V343 rejection wording |
 | v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
 | v1.27 | `META-C124` | Corrected the decorator phase signatures |
+| v1.33 | `GRAMMAR-C072` | `yield`, widening the reserved inventory a second time to 50, and the generator semantics |
 | v1.32 | `GRAMMAR-C071` | The `await` production three clauses already presupposed |
 | v1.31 | `META-C126` | The audit digest scope, and the withdrawal of V357's unreproducible constant |
 | v1.30 | `TYPES-C099`, `CONTROL-C080` | The `remove_contract` spelling, and naming `ExceptionContext` so its getters can be replaced |

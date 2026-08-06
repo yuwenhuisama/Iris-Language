@@ -220,6 +220,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::StackFrame(..)
         | RuntimeValue::RaiseSite(_)
         | RuntimeValue::ArrayIterator(_)
+        | RuntimeValue::Generator(_)
         | RuntimeValue::IterationDone
         | RuntimeValue::ExceptionContext(..)
         | RuntimeValue::ContractView(_, _)
@@ -250,7 +251,9 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Contract(_) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
-        RuntimeValue::ArrayIterator(..) | RuntimeValue::IterationDone => "Iteration",
+        RuntimeValue::ArrayIterator(..)
+        | RuntimeValue::Generator(..)
+        | RuntimeValue::IterationDone => "Iteration",
         RuntimeValue::ExceptionContext(..) => "ExceptionContext",
         RuntimeValue::ContractView(_, _) => "ContractView",
         RuntimeValue::Object(_) => "Object",
@@ -294,6 +297,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::ReflectionAccess => "ReflectionAccessError".into(),
         // C037 raises MetaTransactionError on a dynamic suspension attempt.
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError".into(),
+        // A generator suspension that escaped its own `next()` is a defect in
+        // the generator driver rather than an Iris-visible error.
+        EvaluationError::GeneratorYield(..) => "GeneratorYieldEscaped".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

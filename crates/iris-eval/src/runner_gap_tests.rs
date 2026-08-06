@@ -2324,3 +2324,39 @@ fn c037_refuses_suspension_inside_a_transaction_body() {
     );
     assert!(evaluate(ordinary).is_ok());
 }
+
+#[test]
+fn c072_makes_a_yielding_callable_a_generator() {
+    // C072 makes a callable containing `yield` a GENERATOR: invoking it runs no
+    // body and returns an Iterator whose `next()` drives it, answering
+    // Iteration.yield at each suspension and Iteration.done once complete.
+    let stepped = "class G { public fun each() -> Nil { yield 1; yield 2 } } \
+                   let g = G.new().each(); [g.next(), g.next(), g.next()]";
+    assert_eq!(
+        evaluate(stepped),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::IterationYield(Box::new(RuntimeValue::Integer(1_u8.into()))),
+            RuntimeValue::IterationYield(Box::new(RuntimeValue::Integer(2_u8.into()))),
+            // C013 returns the same done singleton on every later call.
+            RuntimeValue::IterationDone,
+        ]))
+    );
+
+    // C011 and C012 drive `for` through iterator()/next(), so a generator is
+    // consumed by the SAME protocol every other Iterator uses.
+    let driven = "mut seen = [] \
+                  class G { public fun iterator() -> Nil { yield 1; yield 2; yield 3 } } \
+                  for v in G.new() { seen.append(v) } \
+                  seen";
+    assert_eq!(
+        evaluate(driven),
+        Ok(RuntimeValue::Array(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Array(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Integer(2_u8.into()),
+                RuntimeValue::Integer(3_u8.into()),
+            ]),
+        ]))
+    );
+}

@@ -654,6 +654,8 @@ fn keyword(text: &[u8]) -> bool {
             | b"false"
             | b"nil"
             | b"typeof"
+            // C072 widens the inventory a second time, adding exactly `yield`.
+            | b"yield"
     )
 }
 fn fail(diagnostic: Diagnostic) -> LexedSource {
