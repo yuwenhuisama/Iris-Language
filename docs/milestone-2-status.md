@@ -7,6 +7,7 @@
 ## Current Conformance
 
 ```
+ASYNC    passed: 5, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0        (5 records, buckets sum 5)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)

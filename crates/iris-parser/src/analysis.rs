@@ -1314,6 +1314,18 @@ impl Analyzer {
     /// Only a provable case is reported. A result this pass cannot type is left
     /// to the runtime guard, which is what keeps a not-proven boundary a
     /// runtime check rather than a false rejection.
+    /// Rejects an async signature that states no awaited result Type.
+    ///
+    /// `IRIS-V1-ASYNC-C005` gives Iris v1 no signature meaning async void or
+    /// non-generic `Task`, and `C003` makes a no-result async Method declare or
+    /// infer `Nil`. A signature with no return Type at all states neither, so
+    /// `IRIS-V1-ASYNC-V003` rejects it before execution.
+    fn check_async_result(&mut self, declaration: &iris_syntax::MethodDeclaration) {
+        if declaration.is_async && declaration.return_type.is_none() {
+            self.report("ASYNC_RESULT_TYPE_REQUIRED");
+        }
+    }
+
     fn check_return_annotation(&mut self, declaration: &iris_syntax::MethodDeclaration) {
         let Some(annotation) = &declaration.return_type else {
             return;
@@ -1955,6 +1967,7 @@ impl Analyzer {
                     self.statement(statement, Control::callable());
                 }
                 self.check_return_annotation(declaration);
+                self.check_async_result(declaration);
                 self.scopes.pop();
             }
             Statement::StoredProperty {

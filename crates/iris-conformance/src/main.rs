@@ -17,8 +17,11 @@ fn main() -> ExitCode {
         [flag, chapter] if flag == "--chapter" && chapter == "META" => {
             iris_conformance::Chapter::Meta
         }
+        [flag, chapter] if flag == "--chapter" && chapter == "ASYNC" => {
+            iris_conformance::Chapter::Async
+        }
         _ => {
-            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META");
+            eprintln!("usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META|ASYNC");
             return ExitCode::from(2);
         }
     };
@@ -35,7 +38,10 @@ fn main() -> ExitCode {
             iris_conformance::Chapter::Runtime
             | iris_conformance::Chapter::Control
             | iris_conformance::Chapter::Types
-            | iris_conformance::Chapter::Meta => iris_conformance::execute_runtime(&records),
+            // ASYNC vectors observe values and diagnostics the same way, so
+            // they share the runtime execution path too.
+            | iris_conformance::Chapter::Meta
+            | iris_conformance::Chapter::Async => iris_conformance::execute_runtime(&records),
         }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
@@ -51,7 +57,8 @@ fn main() -> ExitCode {
                 iris_conformance::Chapter::Runtime
                 | iris_conformance::Chapter::Control
                 | iris_conformance::Chapter::Types
-                | iris_conformance::Chapter::Meta => {
+                | iris_conformance::Chapter::Meta
+                | iris_conformance::Chapter::Async => {
                     println!(
                         "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
                         report.passed,
