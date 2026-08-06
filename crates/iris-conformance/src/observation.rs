@@ -10,7 +10,8 @@ use crate::{
 
 pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(), String> {
     let expected = parse_expect(&record.expect)?;
-    let expected = object(&expected)?;
+    let expected_map = object(&expected)?;
+    let expected = expected_map;
     if let Some(Value::Array(entries)) = expected.get("diagnostics") {
         let expected = entries
             .iter()
@@ -38,7 +39,20 @@ pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(),
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        if !expected.iter().all(|code| actual.contains(code)) {
+        // Diagnostics match as a SUBSET by default, since most rows name the
+        // codes they care about rather than every code a source produces. A
+        // row that observes an exact INVENTORY, such as the reserved keyword
+        // count, sets `exhaustive` so a missing or extra code fails it.
+        let exhaustive = matches!(
+            expected_map.get("diagnostics_exhaustive"),
+            Some(Value::Bool(true))
+        );
+        let matched = if exhaustive {
+            actual == expected
+        } else {
+            expected.iter().all(|code| actual.contains(code))
+        };
+        if !matched {
             return Err(format!(
                 "diagnostics expected {expected:?}, actual {actual:?}"
             ));
