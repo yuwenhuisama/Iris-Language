@@ -41,4 +41,6 @@ pub use stable_hash::{
     iteration_hash, numeric_hash, numeric_public_hash, public_hash, range_hash, regex_hash,
     string_hash, symbol_hash, tuple_hash,
 };
-pub use value::{ArrayBody, ArrayRef, ComposedType, HashBody, HashRef, IntegerValue, TypeAtom, Value};
+pub use value::{
+    ArrayBody, ArrayRef, ComposedType, HashBody, HashRef, IntegerValue, TypeAtom, Value,
+};

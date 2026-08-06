@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use iris_runtime::{
     ArrayRef, Capability, ClassError, ClassId, ClassRevision, ComparisonSlot, CompositionEdge,
-    DispatchContext, DispatchError, DispatchOutcome, Kernel, MetaCapabilities, Method, MethodBody,
-    MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError,
+    DispatchContext, DispatchError, DispatchOutcome, HashRef, Kernel, MetaCapabilities, Method,
+    MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError,
     TruthinessMethod, Value,
 };
 use iris_syntax::{
@@ -2984,20 +2984,22 @@ impl SourceEvaluator {
                 .mutate(|elements| apply_array_mutation(elements, selector, arguments))
                 .map(Some),
             // C029: `fetch` RAISES for an absent key where `[]` answers nil.
-            (Value::Hash(entries), "fetch", [key]) => entries
-                .iter()
-                .find(|(known, _)| known == key)
-                .map(|(_, value)| Some(value.clone()))
-                .ok_or(EvaluationError::KeyError),
+            (Value::Hash(entries), "fetch", [key]) => {
+                entries.get(key).map(Some).ok_or(EvaluationError::KeyError)
+            }
             (Value::Hash(entries), "keys", []) => Ok(Some(Value::Array(
-                entries.iter().map(|(key, _)| key.clone()).collect(),
+                entries.entries().into_iter().map(|(key, _)| key).collect(),
             ))),
             (Value::Hash(entries), "values", []) => Ok(Some(Value::Array(
-                entries.iter().map(|(_, value)| value.clone()).collect(),
+                entries
+                    .entries()
+                    .into_iter()
+                    .map(|(_, value)| value)
+                    .collect(),
             ))),
-            (Value::Hash(entries), "has_key?", [key]) => Ok(Some(Value::Bool(
-                entries.iter().any(|(known, _)| known == key),
-            ))),
+            (Value::Hash(entries), "has_key?", [key]) => {
+                Ok(Some(Value::Bool(entries.contains_key(key))))
+            }
             _ => Ok(None),
         }
     }
@@ -3618,7 +3620,7 @@ impl SourceEvaluator {
                         None => built.push((key, value)),
                     }
                 }
-                Ok(Value::Hash(built))
+                Ok(Value::Hash(HashRef::new(built)))
             }
             Expression::Closure { parameters, body } => {
                 // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
@@ -4448,10 +4450,7 @@ impl SourceEvaluator {
             }
             // C028 dispatches the key's current `==`, which for the built-in
             // values is structural equality.
-            Value::Hash(entries) => Ok(entries
-                .iter()
-                .find(|(key, _)| *key == index)
-                .map_or(Value::Nil, |(_, value)| value.clone())),
+            Value::Hash(entries) => Ok(entries.get(&index).unwrap_or(Value::Nil)),
             _ => self.send(target, "[]", &[index]),
         }
     }
@@ -4481,13 +4480,12 @@ impl SourceEvaluator {
                 values.mutate(|elements| elements[position] = value.clone());
                 Ok(Value::Array(values))
             }
-            Value::Hash(mut entries) => {
+            Value::Hash(entries) => {
                 // C134 rejects a NaN key on INSERTION as well as construction.
                 self.send(index.clone(), "hash", &[])?;
-                match entries.iter_mut().find(|(key, _)| *key == index) {
-                    Some(entry) => entry.1 = value.clone(),
-                    None => entries.push((index, value.clone())),
-                }
+                // C029 answers nil from a Hash write, and C034 makes only the
+                // INSERT structural, which `HashRef::insert` distinguishes.
+                entries.insert(index, value.clone());
                 Ok(Value::Hash(entries))
             }
             target => self.send(target, "[]=", &[index, value]),
@@ -7383,7 +7381,7 @@ impl SourceEvaluator {
                         .into_iter()
                         .map(|(name, value)| (Value::Symbol(name), value))
                         .collect();
-                    Some(Value::Hash(rest))
+                    Some(Value::Hash(HashRef::new(rest)))
                 }
                 // C025 binds an omitted optional block to `nil`, so the block
                 // channel is never a missing-argument error.
