@@ -163,6 +163,12 @@ pub enum EvaluationError {
     /// `IRIS-V1-COLLECTIONS-C026` and `C034` make traversal FAIL-FAST rather
     /// than silently yielding stale or skipped elements.
     ConcurrentModification,
+    /// A rehash found two entries colliding into one equality class.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C031` raises when no merge block was supplied, and
+    /// `C032` reuses it for a block, shape, or consistency failure. Neither
+    /// publishes a partial result.
+    KeyConflictError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS

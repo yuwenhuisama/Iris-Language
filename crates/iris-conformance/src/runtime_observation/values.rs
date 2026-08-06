@@ -334,6 +334,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::IndexError => "IndexError".into(),
         EvaluationError::KeyError => "KeyError".into(),
         EvaluationError::ConcurrentModification => "ConcurrentModificationError".into(),
+        EvaluationError::KeyConflictError => "KeyConflictError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

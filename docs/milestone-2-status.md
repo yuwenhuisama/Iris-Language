@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 19, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (19 records, buckets sum 19)
+COLLECTIONS passed: 20, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (20 records, buckets sum 20)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -107,6 +107,11 @@ Real defects surfaced through probing rather than through the corpus.
   body, which also deleted the syntax-routed `append` workaround and made
   `C026` fail-fast iteration possible. **Hash is fixed** in `4c0670b`, with `C034`
   structural versioning that excludes value updates.
+- **Symbol answers neither `==` nor `!=`.** Found while transcribing V026,
+  where `seen != :KeyConflictError` failed with MessageNotFoundError. Symbol is
+  an identity-less immutable value under `C003` and comparing two of them is
+  ordinary, so this is a real gap. V026 was rewritten to avoid it rather than
+  absorb an unrelated fix; no COLLECTIONS row states Symbol equality directly.
 - **A Hash reported its class as `Array`.** The class-name table paired
   `Value::Hash` with `Value::Array` on one arm, so `Hash` was unreachable as a
   reported class. Fixed alongside the Tuple work.

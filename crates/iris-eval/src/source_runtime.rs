@@ -3016,6 +3016,16 @@ impl SourceEvaluator {
                 .mutate(|elements| apply_array_mutation(elements, selector, arguments))
                 .map(Some),
             // C029: `fetch` RAISES for an absent key where `[]` answers nil.
+            // C031 builds and validates a temporary replacement from CURRENT
+            // keys, hashes and equality, and publishes nothing on failure.
+            // C030 makes this the user's remedy after mutating `==` or `hash`.
+            (Value::Hash(entries), "rehash", []) => self.rehash(&entries.clone(), None).map(Some),
+            // C032 supplies the merge as a trailing block, which reaches the
+            // send as an ordinary closure argument.
+            (Value::Hash(entries), "rehash", [block @ Value::Closure(_)]) => {
+                let (entries, block) = (entries.clone(), block.clone());
+                self.rehash(&entries, Some(block)).map(Some)
+            }
             (Value::Hash(entries), "fetch", [key]) => {
                 entries.get(key).map(Some).ok_or(EvaluationError::KeyError)
             }
@@ -3034,6 +3044,80 @@ impl SourceEvaluator {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
+    ///
+    /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
+    /// to `same?` for identity-bearing keys unless the selected equality Method
+    /// itself does so. This is therefore an ordinary `==` send, deliberately
+    /// distinct from `TYPES-C050` view equality, which compares
+    /// identity-bearing receivers by identity and would hide exactly the
+    /// redefinition `C030` tells users to call `rehash` about.
+    fn key_equal(&mut self, left: &Value, right: &Value) -> Result<bool, EvaluationError> {
+        match self.send(left.clone(), "==", std::slice::from_ref(right))? {
+            Value::Bool(equal) => Ok(equal),
+            _ => Err(EvaluationError::ComparisonContractError),
+        }
+    }
+
+    /// Rebuilds a Hash under current equality and hashes.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C031` requires the replacement to be built and
+    /// validated BEFORE anything is published, so this assembles a temporary
+    /// entry list and installs it only after every check passes. A collision
+    /// with no merge block raises `KeyConflictError` and leaves the receiver
+    /// untouched, and under `C032` a block failure or a shape failure aborts
+    /// the same way.
+    fn rehash(
+        &mut self,
+        entries: &iris_runtime::HashRef,
+        merge: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let current = entries.entries();
+        let mut rebuilt: Vec<(Value, Value)> = Vec::with_capacity(current.len());
+        for (key, value) in current {
+            // C031 validates against the CURRENT public hash, so an unhashable
+            // key aborts the rehash rather than silently keeping its old slot.
+            self.send(key.clone(), "hash", &[])?;
+            let mut collision = None;
+            for (index, (kept, _)) in rebuilt.iter().enumerate() {
+                if self.key_equal(kept, &key)? {
+                    collision = Some(index);
+                    break;
+                }
+            }
+            let Some(index) = collision else {
+                rebuilt.push((key, value));
+                continue;
+            };
+            // C031 raises when two previously distinct entries collide into one
+            // equality class and no merge block was supplied.
+            let Some(merge) = merge.clone() else {
+                return Err(EvaluationError::KeyConflictError);
+            };
+            let (kept_key, kept_value) = rebuilt[index].clone();
+            let merged = self.send(merge, "call", &[kept_key, kept_value, key, value])?;
+            // C032 takes the block result as a two-element `(key, value)`
+            // replacement, so a different shape is a shape failure.
+            let Value::Tuple(replacement) = &merged else {
+                return Err(EvaluationError::KeyConflictError);
+            };
+            let [new_key, new_value] = replacement.as_slice() else {
+                return Err(EvaluationError::KeyConflictError);
+            };
+            // C032 requires the returned key to REMAIN equal to the class under
+            // current equality, so a key that leaves its own class is a new
+            // inconsistency and aborts.
+            if !self.key_equal(new_key, &rebuilt[index].0)? {
+                return Err(EvaluationError::KeyConflictError);
+            }
+            self.send(new_key.clone(), "hash", &[])?;
+            rebuilt[index] = (new_key.clone(), new_value.clone());
+        }
+        // Every check passed, so the replacement is published atomically.
+        entries.replace_entries(rebuilt);
+        Ok(Value::Nil)
     }
 
     /// Closes a resource after a protected body and merges the two outcomes.
@@ -7921,6 +8005,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::IndexError => "IndexError",
         EvaluationError::KeyError => "KeyError",
         EvaluationError::ConcurrentModification => "ConcurrentModificationError",
+        EvaluationError::KeyConflictError => "KeyConflictError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
