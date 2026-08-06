@@ -309,6 +309,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError".into(),
         EvaluationError::IteratorState => "IteratorStateError".into(),
         EvaluationError::IndexError => "IndexError".into(),
+        EvaluationError::KeyError => "KeyError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

@@ -151,6 +151,12 @@ pub enum EvaluationError {
     /// raises `IndexError` for an out-of-range scalar WRITE, and `C024` repeats
     /// that for Array specifically.
     IndexError,
+    /// `Hash#fetch` was given a key the Hash does not hold.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C029` makes `hash[key]` answer `nil` for an absent
+    /// key while `fetch(key)` RAISES, which is the whole difference between
+    /// them.
+    KeyError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS

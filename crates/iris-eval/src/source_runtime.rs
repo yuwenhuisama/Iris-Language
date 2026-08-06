@@ -54,6 +54,53 @@ fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<us
     length.checked_sub(magnitude)
 }
 
+/// Applies one `IRIS-V1-COLLECTIONS-C040` Array growth operation in place.
+///
+/// `C024` names append and insert the EXPLICIT growth operations and makes a
+/// scalar write raise `IndexError` out of range. `insert` resolves its position
+/// through `C009` negative indexing and accepts the end position so an element
+/// can be added after the last one. Each operation answers `nil`.
+fn apply_array_mutation(
+    values: &mut Vec<Value>,
+    selector: &str,
+    arguments: &[Value],
+    value: Option<&Value>,
+) -> Result<Value, EvaluationError> {
+    match selector {
+        "append" => values.push(value.ok_or(EvaluationError::UnsupportedConstruct)?.clone()),
+        "clear" => values.clear(),
+        // `delete` removes the FIRST element equal to the argument. C026 fixes
+        // Array equality as the in-order element comparison, which is what the
+        // derived value equality already performs.
+        "delete" => {
+            let target = value.ok_or(EvaluationError::UnsupportedConstruct)?;
+            if let Some(position) = values.iter().position(|held| held == target) {
+                values.remove(position);
+            }
+        }
+        "insert" => {
+            let [index, _] = arguments else {
+                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+            };
+            let Value::Integer(index) = index else {
+                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+            };
+            // The end position is a valid insertion point, so the length itself
+            // resolves even though it is out of range for a READ.
+            let position = resolve_index(index, values.len()).ok_or(EvaluationError::IndexError)?;
+            if position > values.len() {
+                return Err(EvaluationError::IndexError);
+            }
+            values.insert(
+                position,
+                value.ok_or(EvaluationError::UnsupportedConstruct)?.clone(),
+            );
+        }
+        _ => return Err(EvaluationError::UnsupportedConstruct),
+    }
+    Ok(Value::Nil)
+}
+
 /// Resolves an `IRIS-V1-COLLECTIONS-C010` slice span against a receiver length.
 ///
 /// Slicing is unit-forward: negative endpoints resolve in the receiver's unit
@@ -2911,6 +2958,38 @@ impl SourceEvaluator {
         self.close_after(iterator, outcome)
     }
 
+    /// Applies an `IRIS-V1-COLLECTIONS-C040` collection operation.
+    ///
+    /// Returns `None` when the selector is not one of them, so an ordinary send
+    /// continues unchanged. The receiver value is returned in mutated form; the
+    /// caller's binding is updated by the assignment path that owns it, exactly
+    /// as `append` already worked.
+    fn collection_mutation(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Option<Value>, EvaluationError> {
+        match (receiver, selector, arguments) {
+            // C029: `fetch` RAISES for an absent key where `[]` answers nil.
+            (Value::Hash(entries), "fetch", [key]) => entries
+                .iter()
+                .find(|(known, _)| known == key)
+                .map(|(_, value)| Some(value.clone()))
+                .ok_or(EvaluationError::KeyError),
+            (Value::Hash(entries), "keys", []) => Ok(Some(Value::Array(
+                entries.iter().map(|(key, _)| key.clone()).collect(),
+            ))),
+            (Value::Hash(entries), "values", []) => Ok(Some(Value::Array(
+                entries.iter().map(|(_, value)| value.clone()).collect(),
+            ))),
+            (Value::Hash(entries), "has_key?", [key]) => Ok(Some(Value::Bool(
+                entries.iter().any(|(known, _)| known == key),
+            ))),
+            _ => Ok(None),
+        }
+    }
+
     /// Closes a resource after a protected body and merges the two outcomes.
     ///
     /// `IRIS-V1-ASYNC-C033` and `IRIS-V1-CONTROL-C047` state one rule: if the
@@ -3829,8 +3908,8 @@ impl SourceEvaluator {
                     Expression::Member {
                         receiver: target,
                         selector,
-                    } if selector == "append" => {
-                        self.append_array_binding(target, &arguments, locals)
+                    } if matches!(selector.as_str(), "append" | "insert" | "delete" | "clear") => {
+                        self.mutate_array_binding(target, selector, &arguments, locals)
                     }
                     Expression::Name(name) if name == "super" => {
                         self.super_send(receiver, &arguments, None)
@@ -6229,6 +6308,13 @@ impl SourceEvaluator {
         // identity hash, which is what lets an ExceptionContext be a Hash key
         // under IRIS-V1-CONTROL-V305. The identity it already carries is that
         // stable value, so no separate allocation is needed.
+        // C040 lists append, insert, delete and clear as the Array growth
+        // operations, and C029 gives Hash its own read and removal surface.
+        // These MUTATE the receiver, so they are routed through the binding
+        // the receiver came from rather than through a copied value.
+        if let Some(result) = self.collection_mutation(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
         // C040 fixes the collection operation surface. `length` is the
         // spelling C044 uses for String and the same name serves every indexed
         // receiver, so one arm covers them rather than inventing per-type
@@ -6454,14 +6540,21 @@ impl SourceEvaluator {
             .map(|()| receiver)
     }
 
-    fn append_array_binding(
+    fn mutate_array_binding(
         &mut self,
         target: &Expression,
+        selector: &str,
         arguments: &[Value],
         locals: &HashMap<String, Value>,
     ) -> Result<Value, EvaluationError> {
-        let [value] = arguments else {
-            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+        // `append` and `delete` take one argument, `insert` takes an index and
+        // an element, and `clear` takes none. The first argument is what the
+        // class-level slot path needs to mirror the binding path.
+        let value = match (selector, arguments) {
+            ("append" | "delete", [value]) => Some(value.clone()),
+            ("insert", [_, value]) => Some(value.clone()),
+            ("clear", []) => None,
+            _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity)),
         };
         let Expression::Name(name) = target else {
             // `IRIS-V1-TYPES-C064` puts class-level storage on the Class or
@@ -6469,7 +6562,9 @@ impl SourceEvaluator {
             // lexical binding. Routing `append` by syntax reached only the
             // binding form, so a class-level Array could be READ but never
             // appended to.
-            if let Some(appended) = self.append_class_level_slot(target, value, locals)? {
+            if let Some(appended) =
+                self.mutate_class_level_slot(target, selector, arguments, value.as_ref(), locals)?
+            {
                 return Ok(appended);
             }
             // `append` is routed by SYNTAX before the receiver is evaluated, so
@@ -6500,28 +6595,30 @@ impl SourceEvaluator {
         let Value::Array(values) = &mut binding.value else {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         };
-        values.push(value.clone());
-        Ok(Value::Nil)
+        apply_array_mutation(values, selector, arguments, value.as_ref())
     }
 
-    /// Appends to a class-level storage slot named as `Owner.slot`.
+    /// Applies an Array growth operation to a class-level slot `Owner.slot`.
     ///
     /// `IRIS-V1-TYPES-C064` puts class-level storage on the Class or Module
     /// OBJECT rather than on an instance, so `S.e` is a slot read through a
-    /// singleton accessor. `append` is routed by syntax before its receiver is
-    /// evaluated, so without this the slot could be read and never appended to.
+    /// singleton accessor. These operations are routed by syntax before the
+    /// receiver is evaluated, so without this the slot could be read and never
+    /// mutated.
     ///
     /// Returns `None` when the target is not such a slot, leaving the ordinary
     /// rejection in place.
-    fn append_class_level_slot(
+    fn mutate_class_level_slot(
         &mut self,
         target: &Expression,
-        value: &Value,
+        selector: &str,
+        arguments: &[Value],
+        value: Option<&Value>,
         locals: &HashMap<String, Value>,
     ) -> Result<Option<Value>, EvaluationError> {
         let Expression::Member {
             receiver: owner,
-            selector,
+            selector: slot_name,
         } = target
         else {
             return Ok(None);
@@ -6544,10 +6641,10 @@ impl SourceEvaluator {
         let Some(class) = class else {
             return Ok(None);
         };
-        if !self.is_class_level_property(class, selector) {
+        if !self.is_class_level_property(class, slot_name) {
             return Ok(None);
         }
-        let slot = self.selector(selector);
+        let slot = self.selector(slot_name);
         let current = self
             .runtime
             .class_raw_ivar(class, slot)
@@ -6555,7 +6652,7 @@ impl SourceEvaluator {
         let Value::Array(mut values) = current else {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         };
-        values.push(value.clone());
+        apply_array_mutation(&mut values, selector, arguments, value)?;
         self.runtime
             .assign_class_raw_ivar(class, slot, Value::Array(values))
             .map_err(EvaluationError::Construction)?;
@@ -7740,6 +7837,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::ReflectionAccess => "ReflectionAccessError",
         EvaluationError::IteratorState => "IteratorStateError",
         EvaluationError::IndexError => "IndexError",
+        EvaluationError::KeyError => "KeyError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
