@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 11, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (11 records, buckets sum 11)
+COLLECTIONS passed: 12, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (12 records, buckets sum 12)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -100,13 +100,13 @@ Each changed only a spelling or an unsatisfiable assertion, never a name, argume
 
 Real defects surfaced through probing rather than through the corpus.
 
-- **Array and Hash are not identity-bearing.** `IRIS-V1-COLLECTIONS-C003`
+- **Array and Hash were not identity-bearing.** `IRIS-V1-COLLECTIONS-C003`
   classifies `Array<T>` and `Hash<K,V>` as *identity-bearing* with mutable
-  contents, alongside `MutableString` and `ByteArray`. The runtime stores them
-  as by-value `Value::Array(Vec<Value>)` and `Value::Hash(Vec<(Value, Value)>)`,
-  so every binding, argument pass and field read COPIES. `mut b = a;
-  b.append(3)` leaves `a` unchanged, and the same holds for element writes and
-  for Hash insertion through an alias. NOT yet fixed; see below.
+  contents. Both were stored by value, so every binding, argument pass and
+  field read COPIED. **Array is fixed** in `841c085`: it now carries a shared
+  body, which also deleted the syntax-routed `append` workaround and made
+  `C026` fail-fast iteration possible. **Hash is still by value** and needs the
+  same treatment before `V024`–`V028` can be transcribed.
 - **The conformance runner mis-decoded non-ASCII JSON.** Its reader used
   `char::from(byte)`, decoding each UTF-8 byte as Latin-1 and splitting every
   multi-byte scalar. No vector could state a non-ASCII expectation. Fixed in
