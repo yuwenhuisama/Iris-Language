@@ -2466,3 +2466,38 @@ fn c032_and_c033_close_a_using_resource_exactly_once() {
                     class R { public fun close() -> Nil { nil } } M.using(R.new())";
     assert_eq!(evaluate(declared), Ok(RuntimeValue::Symbol("mine".into())));
 }
+
+#[test]
+fn c009_resolves_negative_indexes_and_unary_operators() {
+    // C016 counts unary and binary `+` and `-` as distinct forms, and the
+    // runtime already installed `negate` and `~` as native selectors, but the
+    // source evaluator dispatched to neither. `-1` was unevaluatable, which
+    // also made a negative index unwritable.
+    assert_eq!(
+        evaluate("class Z { } -1"),
+        Ok(RuntimeValue::Integer((-1_i8).into()))
+    );
+    assert_eq!(
+        evaluate("class Z { } +3"),
+        Ok(RuntimeValue::Integer(3_u8.into()))
+    );
+    assert_eq!(
+        evaluate("class Z { } ~0"),
+        Ok(RuntimeValue::Integer((-1_i8).into()))
+    );
+
+    // C009 resolves a negative index as `length + index`, and a read outside
+    // the resolved range answers nil rather than raising.
+    assert_eq!(
+        evaluate("class Z { } let a = [1,2,3]; a[-1]"),
+        Ok(RuntimeValue::Integer(3_u8.into()))
+    );
+    assert_eq!(
+        evaluate("class Z { } let a = [1,2,3]; a[-3]"),
+        Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+    assert_eq!(
+        evaluate("class Z { } let a = [1,2,3]; a[-4]"),
+        Ok(RuntimeValue::Nil)
+    );
+}

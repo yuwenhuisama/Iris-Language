@@ -38,6 +38,22 @@ struct ClosureRecord {
     receiver: Option<Value>,
 }
 
+/// Resolves an `IRIS-V1-COLLECTIONS-C009` index against a receiver length.
+///
+/// A negative index resolves as `length + index` in the receiver's indexing
+/// unit. An index that stays out of range after resolution yields `None`, which
+/// a read turns into `nil` and a write turns into `IndexError`.
+fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<usize> {
+    if let Some(position) = index.to_usize() {
+        return Some(position);
+    }
+    // A negative value has no `to_usize`, so the magnitude is read from its
+    // canonical decimal text and subtracted from the length.
+    let text = index.decimal_text();
+    let magnitude: usize = text.strip_prefix('-')?.parse().ok()?;
+    length.checked_sub(magnitude)
+}
+
 /// Whether a body contains a `yield`, making its callable a generator.
 ///
 /// `IRIS-V1-GRAMMAR-C072` makes the presence of `yield` the thing that decides,
@@ -4037,10 +4053,21 @@ impl SourceEvaluator {
                     .expression(operand, locals, receiver)
                     .and_then(|value| self.truthy(value))
                     .map(|value| Value::Bool(!value)),
-                iris_syntax::UnaryOperator::Plus
-                | iris_syntax::UnaryOperator::Negate
-                | iris_syntax::UnaryOperator::BitwiseNot => {
-                    Err(EvaluationError::UnsupportedConstruct)
+                // C016 counts unary and binary `+` and `-` as DISTINCT forms.
+                // The runtime already installs `negate` and `~` as native
+                // selectors; nothing dispatched to them, so `-1` and `~x` were
+                // unevaluatable and a negative index could not be written.
+                //
+                // Unary `+` is the identity on its operand, so it answers the
+                // operand rather than sending a selector that does not exist.
+                iris_syntax::UnaryOperator::Plus => self.expression(operand, locals, receiver),
+                iris_syntax::UnaryOperator::Negate => {
+                    let value = self.expression(operand, locals, receiver)?;
+                    self.send(value, "negate", &[])
+                }
+                iris_syntax::UnaryOperator::BitwiseNot => {
+                    let value = self.expression(operand, locals, receiver)?;
+                    self.send(value, "~", &[])
                 }
             },
             Expression::ContractView { .. } => Err(EvaluationError::UnsupportedConstruct),
@@ -4243,8 +4270,10 @@ impl SourceEvaluator {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
-                Ok(position
-                    .to_usize()
+                // C009 resolves a NEGATIVE index as `length + index` in the
+                // receiver's unit, and a read outside the resolved range
+                // answers nil rather than raising.
+                Ok(resolve_index(position, values.len())
                     .and_then(|position| values.get(position).cloned())
                     .unwrap_or(Value::Nil))
             }
