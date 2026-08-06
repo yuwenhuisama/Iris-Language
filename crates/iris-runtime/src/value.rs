@@ -221,6 +221,156 @@ impl FromIterator<Value> for ArrayRef {
     }
 }
 
+/// A shared, mutable Hash body with the `IRIS-V1-COLLECTIONS-C034` version.
+///
+/// `C003` makes `Hash<K,V>` identity-bearing, so this is a HANDLE: cloning it
+/// shares one entry set rather than copying it.
+///
+/// `C034` counts only STRUCTURAL change: adding a key, removing a key, clearing
+/// and rehashing bump the version, while updating the value for an existing key
+/// does not. That distinction is the whole reason this carries its own version
+/// type rather than reusing the Array rule, under which every element
+/// replacement invalidates active cursors.
+#[derive(Clone)]
+pub struct HashRef(Rc<RefCell<HashBody>>);
+
+/// The entries and structural version behind a [`HashRef`].
+#[derive(Debug)]
+pub struct HashBody {
+    entries: Vec<(Value, Value)>,
+    version: u64,
+}
+
+impl HashRef {
+    /// Creates a new Hash holding `entries`, at structural version zero.
+    #[must_use]
+    pub fn new(entries: Vec<(Value, Value)>) -> Self {
+        Self(Rc::new(RefCell::new(HashBody {
+            entries,
+            version: 0,
+        })))
+    }
+
+    /// Reads the current entries.
+    #[must_use]
+    pub fn entries(&self) -> Vec<(Value, Value)> {
+        self.0.borrow().entries.clone()
+    }
+
+    /// Returns the current entry count.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.borrow().entries.len()
+    }
+
+    /// Returns whether the Hash currently holds no entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Reads the value stored for `key`, if the Hash holds it.
+    ///
+    /// `C028` dispatches each key's current equality, which the derived value
+    /// equality performs for the built-in cases.
+    #[must_use]
+    pub fn get(&self, key: &Value) -> Option<Value> {
+        self.0
+            .borrow()
+            .entries
+            .iter()
+            .find(|(held, _)| held == key)
+            .map(|(_, value)| value.clone())
+    }
+
+    /// Returns whether the Hash holds `key`.
+    #[must_use]
+    pub fn contains_key(&self, key: &Value) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Returns the current `C034` structural version.
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.0.borrow().version
+    }
+
+    /// Returns whether two handles denote the SAME Hash.
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Inserts or updates `key`, answering nothing.
+    ///
+    /// `C034` makes an INSERT structural and an update of an existing key
+    /// non-structural, so the version moves only when a key is actually added.
+    pub fn insert(&self, key: Value, value: Value) {
+        let mut body = self.0.borrow_mut();
+        if let Some(slot) = body
+            .entries
+            .iter_mut()
+            .find(|(held, _)| *held == key)
+            .map(|(_, slot)| slot)
+        {
+            *slot = value;
+            return;
+        }
+        body.entries.push((key, value));
+        body.version = body.version.saturating_add(1);
+    }
+
+    /// Removes `key`, answering the value it held.
+    ///
+    /// Removal is structural under `C034`, so the version moves whenever an
+    /// entry actually leaves.
+    pub fn remove(&self, key: &Value) -> Option<Value> {
+        let mut body = self.0.borrow_mut();
+        let position = body.entries.iter().position(|(held, _)| held == key)?;
+        let (_, value) = body.entries.remove(position);
+        body.version = body.version.saturating_add(1);
+        Some(value)
+    }
+
+    /// Removes every entry.
+    pub fn clear(&self) {
+        let mut body = self.0.borrow_mut();
+        if body.entries.is_empty() {
+            return;
+        }
+        body.entries.clear();
+        body.version = body.version.saturating_add(1);
+    }
+
+    /// Replaces the entries wholesale, counting the change as structural.
+    ///
+    /// `C031` builds and validates a rehash replacement BEFORE installing it,
+    /// so the caller commits an already-checked entry set here.
+    pub fn replace_entries(&self, entries: Vec<(Value, Value)>) {
+        let mut body = self.0.borrow_mut();
+        body.entries = entries;
+        body.version = body.version.saturating_add(1);
+    }
+}
+
+/// Renders as the entry list, so a Hash's rendering does not depend on its
+/// mutation history.
+impl core::fmt::Debug for HashRef {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0.borrow().entries, formatter)
+    }
+}
+
+/// Compares the current ENTRIES rather than Hash identity.
+impl PartialEq for HashRef {
+    fn eq(&self, other: &Self) -> bool {
+        if self.same(other) {
+            return true;
+        }
+        self.0.borrow().entries == other.0.borrow().entries
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     /// The singleton nil value.
@@ -290,7 +440,10 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
-    Hash(Vec<(Value, Value)>),
+    /// `IRIS-V1-COLLECTIONS-C003` additionally classifies `Hash<K,V>` as
+    /// IDENTITY-BEARING, so the entries live behind a shared handle and two
+    /// bindings to one Hash observe each other's mutations.
+    Hash(HashRef),
     /// An Iris String value.
     ///
     /// `IRIS-V1-COLLECTIONS-C041` makes a String contain only valid Unicode
