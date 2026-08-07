@@ -18,6 +18,12 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
         "false" => return Ok(Value::Bool(false)),
         _ => {}
     }
+    // C067 gives Bytes and ByteArray their own literal prefixes. The body is
+    // decoded here rather than in the literal-only evaluator, whose observable
+    // Value set is fixed by the grammar vectors.
+    if let Some(bytes) = byte_literal(source)? {
+        return Ok(bytes);
+    }
     match evaluate_literals(source)? {
         LiteralValue::Integer(value) => value
             .parse()
@@ -31,6 +37,69 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
         LiteralValue::String(value) => Ok(Value::Text(value)),
         LiteralValue::Array(_) => Err(EvaluationError::UnsupportedConstruct),
     }
+}
+
+/// Decodes a `IRIS-V1-COLLECTIONS-C067` byte literal.
+///
+/// Returns `None` when `source` is not one, so ordinary literals continue
+/// unchanged. Non-ASCII text contributes its UTF-8 bytes and `\xNN` injects one
+/// raw byte. `b`/`br` produce immutable Bytes; `mb`/`mbr` produce a ByteArray.
+fn byte_literal(source: &str) -> Result<Option<Value>, EvaluationError> {
+    let Some(prefix_end) = source.find(['"', '\'']) else {
+        return Ok(None);
+    };
+    let (prefix, body) = source.split_at(prefix_end);
+    let mutable = match prefix {
+        "b" | "br" => false,
+        "mb" | "mbr" => true,
+        _ => return Ok(None),
+    };
+    let raw = prefix.ends_with('r');
+    let quote = body.chars().next().unwrap_or('"');
+    let body = body
+        .strip_prefix(quote)
+        .and_then(|body| body.strip_suffix(quote))
+        .ok_or(EvaluationError::UnsupportedConstruct)?;
+    let mut bytes = Vec::new();
+    let mut characters = body.chars();
+    while let Some(character) = characters.next() {
+        if raw || character != '\\' {
+            let mut buffer = [0_u8; 4];
+            bytes.extend_from_slice(character.encode_utf8(&mut buffer).as_bytes());
+            continue;
+        }
+        let escape = characters
+            .next()
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        match escape {
+            // `\xNN` injects ONE raw byte, which is why a byte literal cannot
+            // simply reuse the String unescaper: the result need not be UTF-8.
+            'x' => {
+                let high = characters
+                    .next()
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                let low = characters
+                    .next()
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                let value = u8::from_str_radix(&format!("{high}{low}"), 16)
+                    .map_err(|_| EvaluationError::UnsupportedConstruct)?;
+                bytes.push(value);
+            }
+            'n' => bytes.push(b'\n'),
+            'r' => bytes.push(b'\r'),
+            't' => bytes.push(b'\t'),
+            '0' => bytes.push(0),
+            '\\' => bytes.push(b'\\'),
+            '"' => bytes.push(b'"'),
+            '\'' => bytes.push(b'\''),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
+    Ok(Some(if mutable {
+        Value::ByteArray(iris_runtime::ByteArrayRef::new(bytes))
+    } else {
+        Value::Bytes(bytes)
+    }))
 }
 
 pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {

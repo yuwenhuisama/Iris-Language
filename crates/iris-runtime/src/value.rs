@@ -518,6 +518,8 @@ pub enum Value {
     /// objects and denies any hidden current-iterator context, so each cursor
     /// is its own identity-bearing object rather than state on the Hash.
     HashIterator(ObjectId),
+    /// A live cursor over a Bytes or ByteArray sequence.
+    ByteIterator(ObjectId),
     /// A literal Iris `Hash<K,V>`.
     ///
     /// `IRIS-V1-COLLECTIONS-C033` leaves iteration order UNSPECIFIED, and

@@ -551,6 +551,7 @@ impl Kernel {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::HashIterator(_)
+            | Value::ByteIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
             | Value::Range(..)

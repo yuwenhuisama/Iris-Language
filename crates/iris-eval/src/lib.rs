@@ -169,6 +169,17 @@ pub enum EvaluationError {
     /// `C032` reuses it for a block, shape, or consistency failure. Neither
     /// publishes a partial result.
     KeyConflictError,
+    /// Bytes could not be decoded as UTF-8.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C073` decodes STRICTLY and makes lossy or ignoring
+    /// behavior an explicit option rather than the default.
+    EncodingError,
+    /// A value fell outside the range its receiver accepts.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C069` raises this for a ByteArray write whose value
+    /// is not an Integer byte in 0..255, distinct from the IndexError an
+    /// out-of-range POSITION raises.
+    RangeError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -1185,6 +1196,8 @@ impl Evaluator {
             | RuntimeValue::Float32(_)
             | RuntimeValue::Float64(_)
             | RuntimeValue::Array(_)
+            | RuntimeValue::Bytes(_)
+            | RuntimeValue::ByteArray(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
@@ -1202,6 +1215,7 @@ impl Evaluator {
             | RuntimeValue::RaiseSite(_)
             | RuntimeValue::ArrayIterator(_)
             | RuntimeValue::HashIterator(_)
+            | RuntimeValue::ByteIterator(_)
             | RuntimeValue::Generator(_)
             | RuntimeValue::Task(_)
             | RuntimeValue::Range(..)
@@ -1239,6 +1253,8 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Bytes(_) => "Bytes",
+        RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
@@ -1254,6 +1270,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::HashIterator(..)
+        | RuntimeValue::ByteIterator(..)
         | RuntimeValue::Generator(..)
         | RuntimeValue::Task(..)
         | RuntimeValue::Range(..)

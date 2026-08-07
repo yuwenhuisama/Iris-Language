@@ -69,6 +69,20 @@ struct ArrayCursor {
     fail_fast: bool,
 }
 
+/// A live cursor over a byte sequence.
+///
+/// `IRIS-V1-COLLECTIONS-C075` makes ANY ByteArray content mutation invalidate
+/// the cursor, so this compares the content version rather than a structural
+/// one. Bytes is immutable, so its cursor never fails fast.
+#[derive(Debug)]
+struct ByteCursor {
+    bytes: Vec<u8>,
+    source: Option<iris_runtime::ByteArrayRef>,
+    position: usize,
+    expected_version: u64,
+    fail_fast: bool,
+}
+
 /// A live cursor over a shared Hash body.
 ///
 /// `IRIS-V1-COLLECTIONS-C034` makes traversal fail-fast for STRUCTURAL change
@@ -267,6 +281,8 @@ pub(super) struct SourceEvaluator {
     /// `C037` denies any hidden current-iterator context, so each cursor is
     /// reached only through the Iterator object that owns it.
     hash_iterators: HashMap<iris_runtime::ObjectId, HashCursor>,
+    /// Live Bytes and ByteArray cursors.
+    byte_iterators: HashMap<iris_runtime::ObjectId, ByteCursor>,
     /// Each live generator as its body, bound locals, receiver and progress.
     ///
     /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body, so
@@ -559,6 +575,7 @@ impl SourceEvaluator {
             invocation_depth: 0,
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
+            byte_iterators: HashMap::new(),
             generators: HashMap::new(),
             tasks: HashMap::new(),
             names: HashMap::new(),
@@ -3016,6 +3033,16 @@ impl SourceEvaluator {
                 .mutate(|elements| apply_array_mutation(elements, selector, arguments))
                 .map(Some),
             // C029: `fetch` RAISES for an absent key where `[]` answers nil.
+            // C073 decodes STRICTLY and raises EncodingError on an invalid
+            // sequence; lossy behavior is never the default. C072 keeps text
+            // and binary conversion to these EXPLICIT APIs.
+            (Value::Bytes(bytes), "to_string", []) => String::from_utf8(bytes.clone())
+                .map(|text| Some(Value::Text(text)))
+                .map_err(|_| EvaluationError::EncodingError),
+            (Value::ByteArray(bytes), "to_string", []) => String::from_utf8(bytes.bytes())
+                .map(|text| Some(Value::Text(text)))
+                .map_err(|_| EvaluationError::EncodingError),
+            (Value::Text(text), "to_bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
             // C031 builds and validates a temporary replacement from CURRENT
             // keys, hashes and equality, and publishes nothing on failure.
             // C030 makes this the user's remedy after mutating `==` or `hash`.
@@ -4518,6 +4545,39 @@ impl SourceEvaluator {
     /// user Class can define its own.
     fn index_read(&mut self, target: Value, index: Value) -> Result<Value, EvaluationError> {
         match &target {
+            // C069 reads byte units with negative-index support and answers an
+            // Integer in 0..255, or nil out of range.
+            Value::Bytes(_) | Value::ByteArray(_) if !matches!(index, Value::Range(..)) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let bytes = match &target {
+                    Value::Bytes(bytes) => bytes.clone(),
+                    Value::ByteArray(bytes) => bytes.bytes(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                Ok(resolve_index(position, bytes.len())
+                    .and_then(|position| bytes.get(position).copied())
+                    .map_or(Value::Nil, |byte| Value::Integer(u64::from(byte).into())))
+            }
+            // C070 slices in BYTE units: Bytes answers Bytes, and a ByteArray
+            // answers an INDEPENDENT ByteArray snapshot identity.
+            Value::Bytes(_) | Value::ByteArray(_) => {
+                let Value::Range(start, end, inclusive) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let bytes = match &target {
+                    Value::Bytes(bytes) => bytes.clone(),
+                    Value::ByteArray(bytes) => bytes.bytes(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let span = slice_bounds(start, end, *inclusive, bytes.len());
+                let taken = bytes.get(span).unwrap_or_default().to_vec();
+                Ok(match &target {
+                    Value::ByteArray(_) => Value::ByteArray(iris_runtime::ByteArrayRef::new(taken)),
+                    _ => Value::Bytes(taken),
+                })
+            }
             // C021 gives `Tuple#[]` integer indexes with negative support and
             // `nil` out of range, matching the Array READ rule. A Tuple is
             // immutable, so there is no corresponding write.
@@ -4613,6 +4673,28 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::IndexError)?;
                 values.mutate(|elements| elements[position] = value.clone());
                 Ok(Value::Array(values))
+            }
+            // C069 requires an Integer byte in 0..255, raises RangeError for an
+            // invalid byte value, IndexError out of range, mutates in place and
+            // answers nil. C067 gives no write path for immutable Bytes.
+            Value::ByteArray(bytes) => {
+                let Value::Integer(position) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let Value::Integer(byte) = &value else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let byte = byte
+                    .to_u64()
+                    .and_then(|byte| u8::try_from(byte).ok())
+                    .ok_or(EvaluationError::RangeError)?;
+                let position =
+                    resolve_index(position, bytes.len()).ok_or(EvaluationError::IndexError)?;
+                if position >= bytes.len() {
+                    return Err(EvaluationError::IndexError);
+                }
+                bytes.mutate(|bytes| bytes[position] = byte);
+                Ok(Value::Nil)
             }
             Value::Hash(entries) => {
                 // C134 rejects a NaN key on INSERTION as well as construction.
@@ -6412,6 +6494,63 @@ impl SourceEvaluator {
             self.array_iterators.insert(identity, cursor);
             return Ok(Value::ArrayIterator(identity));
         }
+        if matches!(receiver, Value::Bytes(_) | Value::ByteArray(_))
+            && selector == "iterator"
+            && arguments.is_empty()
+        {
+            // C075 yields Integer byte values in source order. Bytes is
+            // immutable so its cursor can never fail fast; a ByteArray cursor
+            // captures the content version and ANY mutation invalidates it,
+            // which is stricter than the Hash structural rule.
+            let identity = self.next_context_identity();
+            let (bytes, version, fail_fast) = match &receiver {
+                Value::Bytes(bytes) => (bytes.clone(), 0, false),
+                Value::ByteArray(bytes) => (bytes.bytes(), bytes.version(), true),
+                _ => return Err(EvaluationError::UnsupportedConstruct),
+            };
+            let source = match &receiver {
+                Value::ByteArray(bytes) => Some(bytes.clone()),
+                _ => None,
+            };
+            self.byte_iterators.insert(
+                identity,
+                ByteCursor {
+                    bytes,
+                    source,
+                    position: 0,
+                    expected_version: version,
+                    fail_fast,
+                },
+            );
+            return Ok(Value::ByteIterator(identity));
+        }
+        if let Value::ByteIterator(identity) = &receiver {
+            let identity = *identity;
+            match selector {
+                "next" if arguments.is_empty() => {
+                    let Some(cursor) = self.byte_iterators.get_mut(&identity) else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    if cursor.fail_fast
+                        && cursor
+                            .source
+                            .as_ref()
+                            .is_some_and(|source| source.version() != cursor.expected_version)
+                    {
+                        return Err(EvaluationError::ConcurrentModification);
+                    }
+                    let Some(byte) = cursor.bytes.get(cursor.position).copied() else {
+                        return Ok(Value::IterationDone);
+                    };
+                    cursor.position += 1;
+                    return Ok(Value::IterationYield(Box::new(Value::Integer(
+                        u64::from(byte).into(),
+                    ))));
+                }
+                "close" if arguments.is_empty() => return Ok(Value::Nil),
+                _ => {}
+            }
+        }
         if let Value::Hash(entries) = &receiver
             && selector == "iterator"
             && arguments.is_empty()
@@ -6578,6 +6717,22 @@ impl SourceEvaluator {
                         u64::try_from(values.len()).unwrap_or_default().into(),
                     ));
                 }
+                (Value::Bytes(bytes), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(bytes.len()).unwrap_or_default().into(),
+                    ));
+                }
+                (Value::ByteArray(bytes), "length") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(bytes.len()).unwrap_or_default().into(),
+                    ));
+                }
+                (Value::Bytes(bytes), "empty?") => {
+                    return Ok(Value::Bool(bytes.is_empty()));
+                }
+                (Value::ByteArray(bytes), "empty?") => {
+                    return Ok(Value::Bool(bytes.is_empty()));
+                }
                 (Value::Array(values), "length") => {
                     return Ok(Value::Integer(
                         u64::try_from(values.len()).unwrap_or_default().into(),
@@ -6661,6 +6816,9 @@ impl SourceEvaluator {
                     // hash does, and `public_hash` already propagates the
                     // failure of an unhashable element.
                     | Value::Tuple(_)
+                    // C068 makes the Bytes hash stable. A ByteArray is absent
+                    // deliberately: its built-in hash RAISES InvalidKeyError.
+                    | Value::Bytes(_)
             )
         {
             return iris_runtime::public_hash(&receiver)
@@ -6731,6 +6889,8 @@ impl SourceEvaluator {
                         | Value::Float32(_)
                         | Value::Float64(_)
                         | Value::Array(_)
+                        | Value::Bytes(_)
+                        | Value::ByteArray(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
@@ -6748,6 +6908,7 @@ impl SourceEvaluator {
                         | Value::RaiseSite(_)
                         | Value::ArrayIterator(_)
                         | Value::HashIterator(_)
+                        | Value::ByteIterator(_)
                         | Value::Generator(_)
                         | Value::Task(_)
                         | Value::Range(..)
@@ -6782,6 +6943,8 @@ impl SourceEvaluator {
             Value::Float32(_) => self.kernel.class(iris_runtime::BuiltinClass::Float32),
             Value::Float64(_) => self.kernel.class(iris_runtime::BuiltinClass::Float64),
             Value::Array(_)
+            | Value::Bytes(_)
+            | Value::ByteArray(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
@@ -6799,6 +6962,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::HashIterator(_)
+            | Value::ByteIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
             | Value::Range(..)
@@ -6993,6 +7157,8 @@ impl SourceEvaluator {
                 .class(iris_runtime::BuiltinClass::String)
                 .map_err(EvaluationError::Runtime)?,
             Value::Array(_)
+            | Value::Bytes(_)
+            | Value::ByteArray(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -7008,6 +7174,7 @@ impl SourceEvaluator {
             | Value::RaiseSite(_)
             | Value::ArrayIterator(_)
             | Value::HashIterator(_)
+            | Value::ByteIterator(_)
             | Value::Generator(_)
             | Value::Task(_)
             | Value::Range(..)
@@ -7865,6 +8032,8 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
         Value::Array(_) => "Array",
+        Value::Bytes(_) => "Bytes",
+        Value::ByteArray(_) => "ByteArray",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
@@ -7880,6 +8049,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
         Value::ArrayIterator(..)
         | Value::HashIterator(..)
+        | Value::ByteIterator(..)
         | Value::Generator(..)
         | Value::IterationDone => "Iteration",
         Value::Task(..) => "Task",
@@ -8006,6 +8176,8 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::KeyError => "KeyError",
         EvaluationError::ConcurrentModification => "ConcurrentModificationError",
         EvaluationError::KeyConflictError => "KeyConflictError",
+        EvaluationError::EncodingError => "EncodingError",
+        EvaluationError::RangeError => "RangeError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

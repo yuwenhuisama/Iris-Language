@@ -201,6 +201,24 @@ fn render_value(value: &RuntimeValue) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        // C027 names `bytes_hex` as the byte-sequence shape. C068 permits
+        // CROSS-TYPE equality between Bytes and ByteArray, so both render the
+        // same way and a vector states the sequence rather than the container.
+        RuntimeValue::Bytes(bytes) => format!(
+            "{{\"bytes_hex\":\"{}\"}}",
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ),
+        RuntimeValue::ByteArray(bytes) => format!(
+            "{{\"bytes_hex\":\"{}\"}}",
+            bytes
+                .bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ),
         // C027 names `tuple` as its own value shape, and C021 makes a Tuple a
         // DISTINCT immutable product value rather than an Array, so it must not
         // render as one.
@@ -241,6 +259,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::RaiseSite(_)
         | RuntimeValue::ArrayIterator(_)
         | RuntimeValue::HashIterator(_)
+        | RuntimeValue::ByteIterator(_)
         | RuntimeValue::Generator(_)
         | RuntimeValue::Task(_)
         | RuntimeValue::Range(..)
@@ -262,6 +281,8 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
         RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Bytes(_) => "Bytes",
+        RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
@@ -277,6 +298,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::HashIterator(..)
+        | RuntimeValue::ByteIterator(..)
         | RuntimeValue::Generator(..)
         | RuntimeValue::Task(..)
         | RuntimeValue::Range(..)
@@ -335,6 +357,8 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::KeyError => "KeyError".into(),
         EvaluationError::ConcurrentModification => "ConcurrentModificationError".into(),
         EvaluationError::KeyConflictError => "KeyConflictError".into(),
+        EvaluationError::EncodingError => "EncodingError".into(),
+        EvaluationError::RangeError => "RangeError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

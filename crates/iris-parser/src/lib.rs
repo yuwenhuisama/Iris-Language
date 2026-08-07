@@ -1809,12 +1809,31 @@ impl Parser {
         false
     }
     fn is_name(&self) -> bool {
+        // A byte literal's prefix is made of identifier characters, so the
+        // whole `b"..."` token satisfies `is_identifier` and would be taken as
+        // a NAME before ever reaching the literal test.
+        if self.peek().is_some_and(|text| self.is_byte_literal(text)) {
+            return false;
+        }
         self.peek().is_some_and(is_identifier)
+    }
+    /// Whether `value` is a chapter 02 `bytes_literal`.
+    fn is_byte_literal(&self, value: &str) -> bool {
+        value.contains(['"', '\''])
+            && matches!(
+                value.split(['"', '\'']).next(),
+                Some("b" | "br" | "mb" | "mbr")
+            )
     }
     fn is_literal(&self, value: &str) -> bool {
         value.chars().next().is_some_and(|character| {
             character.is_ascii_digit() || character == '\'' || character == '"'
         }) || matches!(value, "nil" | "true" | "false")
+            // `bytes_literal ::= bytes_prefix string_body` in chapter 02, with
+            // `b`/`br` producing C067 Bytes and `mb`/`mbr` a ByteArray. Without
+            // this the prefix parsed as a bare name and the quoted body became
+            // a separate statement.
+            || self.is_byte_literal(value)
             // C023 makes a slash start a Regex literal ONLY where a primary
             // expression is expected. This is reached from `primary`, which is
             // exactly such a position, so a slash here is a literal rather than
