@@ -59,6 +59,9 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
             ))
         }
         Value::Symbol(name) => Ok(symbol_hash(name)),
+        // C068 makes the Bytes public hash stable while a ByteArray's raises,
+        // so these deliberately do not share an arm.
+        Value::Bytes(bytes) => Ok(bytes_hash(bytes)),
         // C022 makes a Tuple hash succeed ONLY when every element hash
         // succeeds, so a failed element propagates and prevents use as a Hash
         // key rather than being skipped.
@@ -72,6 +75,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::IterationDone => Ok(iteration_hash(None)),
         Value::IterationYield(payload) => Ok(iteration_hash(public_hash(payload)?.to_u64())),
         Value::Array(_)
+        | Value::ByteArray(_)
         | Value::Hash(_)
         | Value::Class(_)
         | Value::Type(..)

@@ -371,6 +371,85 @@ impl PartialEq for HashRef {
     }
 }
 
+/// A shared, mutable ByteArray body with the `IRIS-V1-COLLECTIONS-C075` version.
+///
+/// `C067` makes `ByteArray` identity-bearing, so this is a HANDLE, and `C075`
+/// requires ANY content mutation to invalidate active iterators, which is
+/// stricter than the Hash rule where only structural change counts.
+#[derive(Clone)]
+pub struct ByteArrayRef(Rc<RefCell<ByteArrayBody>>);
+
+/// The bytes and content version behind a [`ByteArrayRef`].
+#[derive(Debug)]
+pub struct ByteArrayBody {
+    bytes: Vec<u8>,
+    version: u64,
+}
+
+impl ByteArrayRef {
+    /// Creates a new ByteArray holding `bytes`, at content version zero.
+    #[must_use]
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(Rc::new(RefCell::new(ByteArrayBody { bytes, version: 0 })))
+    }
+
+    /// Reads the current bytes.
+    #[must_use]
+    pub fn bytes(&self) -> Vec<u8> {
+        self.0.borrow().bytes.clone()
+    }
+
+    /// Returns the current byte count.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.borrow().bytes.len()
+    }
+
+    /// Returns whether the ByteArray currently holds no bytes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the current `C075` content version.
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.0.borrow().version
+    }
+
+    /// Returns whether two handles denote the SAME ByteArray.
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Mutates the bytes, incrementing the `C075` content version.
+    pub fn mutate<T>(&self, change: impl FnOnce(&mut Vec<u8>) -> T) -> T {
+        let mut body = self.0.borrow_mut();
+        let outcome = change(&mut body.bytes);
+        body.version = body.version.saturating_add(1);
+        outcome
+    }
+}
+
+/// Renders as the byte sequence, so the rendering does not depend on mutation
+/// history.
+impl core::fmt::Debug for ByteArrayRef {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.0.borrow().bytes, formatter)
+    }
+}
+
+/// `C068` compares the exact current byte SEQUENCE rather than identity.
+impl PartialEq for ByteArrayRef {
+    fn eq(&self, other: &Self) -> bool {
+        if self.same(other) {
+            return true;
+        }
+        self.0.borrow().bytes == other.0.borrow().bytes
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     /// The singleton nil value.
@@ -446,6 +525,18 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// An immutable Iris `Bytes` value.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C067` makes Bytes an IMMUTABLE identity-less byte
+    /// sequence, so it is held by value, and `C068` makes its public hash
+    /// stable while a ByteArray's raises.
+    Bytes(Vec<u8>),
+    /// An identity-bearing mutable Iris `ByteArray`.
+    ///
+    /// `C067` makes ByteArray identity-bearing and mutable, so it carries a
+    /// shared body exactly as Array does, and `C075` requires its iterators to
+    /// capture a content version.
+    ByteArray(ByteArrayRef),
     /// An Iris Tuple.
     ///
     /// `IRIS-V1-COLLECTIONS-C021` makes a Tuple an IMMUTABLE identity-less
