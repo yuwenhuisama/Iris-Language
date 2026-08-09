@@ -656,6 +656,13 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// A Gate: an Awaitable completed by an external post.
+    ///
+    /// `IRIS-V1-ASYNC-C014` lets Host completions enter the scheduler in the
+    /// order they are POSTED, and a Gate is that post made observable to a
+    /// fixture. It is identity-bearing because two awaits on the SAME Gate must
+    /// both resume from one completion.
+    Gate(ObjectId),
     /// An `FFI::Library`.
     ///
     /// `IRIS-V1-FFI-C043` makes the Library IDENTITY-BEARING, and `C045`

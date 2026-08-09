@@ -269,6 +269,24 @@ struct GeneratorState {
     seen: usize,
 }
 
+/// One async body suspended on an incomplete Awaitable.
+///
+/// `IRIS-V1-ASYNC-C013` requires an incomplete await to register the current
+/// continuation and suspend. This engine is stackless for async bodies exactly
+/// as it is for generators: the body is re-entered from the top and awaits
+/// below the delivered count replay their recorded values, so the recorded
+/// answers are the continuation.
+#[derive(Clone)]
+struct SuspendedTask {
+    body: Vec<Statement>,
+    locals: HashMap<String, Value>,
+    receiver: Option<Value>,
+    /// Awaits already completed, whose values replay on re-entry.
+    delivered: Vec<Value>,
+    /// The Gate this body is currently suspended on.
+    gate: iris_runtime::ObjectId,
+}
+
 pub(super) struct SourceEvaluator {
     runtime: Runtime,
     kernel: Kernel,
@@ -307,6 +325,21 @@ pub(super) struct SourceEvaluator {
     next_commit_id: u64,
     /// Subscriber failures recorded on the `C048` event-error channel.
     event_errors: Vec<Value>,
+    /// Gates awaiting an external completion post.
+    ///
+    /// `IRIS-V1-ASYNC-C014` lets external IO or Host completions enter the
+    /// scheduler in the order the Host POSTS them, so a Gate is the fixture's
+    /// stand-in for that post. It is the only way to obtain a genuinely
+    /// INCOMPLETE Awaitable, which `C013`'s suspension half needs.
+    gates: HashMap<iris_runtime::ObjectId, Option<Value>>,
+    /// Suspended async bodies, keyed by their Task identity.
+    suspended: HashMap<iris_runtime::ObjectId, SuspendedTask>,
+    /// Continuations made ready by a completion post, in `C014` FIFO order.
+    ready: Vec<iris_runtime::ObjectId>,
+    /// Awaits already delivered in the async body currently being replayed.
+    async_replay: Option<GeneratorState>,
+    /// The recorded await values for the body currently being replayed.
+    replaying: Option<Vec<Value>>,
     /// Whether `C050` shutdown has closed revision-event delivery.
     revision_delivery_closed: bool,
     /// Retained audit history, in commit order.
@@ -609,6 +642,11 @@ impl SourceEvaluator {
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
+            gates: HashMap::new(),
+            suspended: HashMap::new(),
+            ready: Vec::new(),
+            async_replay: None,
+            replaying: None,
             revision_subscribers: Vec::new(),
             revision_delivery_closed: false,
             next_commit_id: 1,
@@ -3633,6 +3671,66 @@ impl SourceEvaluator {
         }
     }
 
+    /// Resumes every continuation made ready by a completion post.
+    ///
+    /// `IRIS-V1-ASYNC-C014` enqueues ready continuations in deterministic FIFO
+    /// order, so they resume in the order they became ready. A resumed body may
+    /// suspend again on another Gate, which simply re-registers it.
+    fn drive_ready_continuations(&mut self) -> Result<(), EvaluationError> {
+        while !self.ready.is_empty() {
+            let identity = self.ready.remove(0);
+            let Some(task) = self.suspended.remove(&identity) else {
+                continue;
+            };
+            let Some(resumed) = self.gates.get(&task.gate).cloned().flatten() else {
+                // The Gate is no longer complete, so the continuation is not
+                // ready after all and stays registered.
+                self.suspended.insert(identity, task);
+                continue;
+            };
+            let mut delivered = task.delivered.clone();
+            delivered.push(resumed);
+            let previous_replay = self.async_replay.replace(GeneratorState {
+                resume_past: delivered.len(),
+                seen: 0,
+            });
+            let previous_values = self.replaying.replace(delivered.clone());
+            self.async_depth += 1;
+            let outcome = match self.block(&task.body, &task.locals, task.receiver.clone()) {
+                Err(EvaluationError::Return(value)) => Ok(value),
+                result => result,
+            };
+            self.async_depth -= 1;
+            self.replaying = previous_values;
+            self.async_replay = previous_replay;
+            match outcome {
+                Err(EvaluationError::AwaitSuspended(gate)) => {
+                    self.suspended.insert(
+                        identity,
+                        SuspendedTask {
+                            delivered,
+                            gate,
+                            ..task
+                        },
+                    );
+                }
+                outcome => {
+                    self.tasks.insert(identity, outcome.map_err(Box::new));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The value recorded for an already-delivered await during replay.
+    ///
+    /// The async body is re-entered from the top, so awaits below the delivered
+    /// count must answer what they answered before rather than suspending
+    /// again. This is the same stackless strategy generators use.
+    fn replayed_await(&self, index: usize) -> Option<Value> {
+        self.replaying.as_ref()?.get(index).cloned()
+    }
+
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
     ///
     /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
@@ -3720,6 +3818,14 @@ impl SourceEvaluator {
         resource: Value,
         outcome: Result<Value, EvaluationError>,
     ) -> Result<Value, EvaluationError> {
+        // C013 makes a suspension a REGISTERED CONTINUATION, not an exit, so
+        // the protected region has not been left and the resource must stay
+        // open. Closing here would run cleanup once on the way out and again on
+        // the replayed re-entry, which is exactly the double close V084
+        // forbids.
+        if matches!(outcome, Err(EvaluationError::AwaitSuspended(_))) {
+            return outcome;
+        }
         // The primary context must be captured BEFORE cleanup runs. A `close`
         // that raises installs its own context, which would otherwise overwrite
         // the primary one and leave the caught value and its bound context
@@ -4252,6 +4358,29 @@ impl SourceEvaluator {
                     return Err(EvaluationError::MetaTransactionSuspension);
                 }
                 let awaited = self.expression(operand, locals, receiver)?;
+                // A Gate is the only incomplete Awaitable this engine can make.
+                // C013 continues synchronously when it is already complete and
+                // suspends when it is not.
+                if let Value::Gate(gate) = awaited {
+                    if let Some(state) = self.async_replay.as_mut() {
+                        // Re-entry replays awaits already delivered, so an await
+                        // below the delivered count answers its recorded value
+                        // instead of suspending again.
+                        let index = state.seen;
+                        state.seen += 1;
+                        if index < state.resume_past {
+                            return self
+                                .replayed_await(index)
+                                .ok_or(EvaluationError::UnsupportedConstruct);
+                        }
+                    }
+                    return match self.gates.get(&gate).cloned().flatten() {
+                        Some(value) => Ok(value),
+                        // C013 registers the continuation and returns control to
+                        // the driver, which the signal carries out.
+                        None => Err(EvaluationError::AwaitSuspended(gate)),
+                    };
+                }
                 let Value::Task(identity) = awaited else {
                     // C008 types `await expr` through `Awaitable<T>` and only
                     // `Task<T>` implements it in v1, so an operand that is not
@@ -4626,7 +4755,7 @@ impl SourceEvaluator {
                             // C043 names `FFI` the standard service Class, and
                             // it is an ordinary identifier for the same reason
                             // `Host` is, so a DECLARED `FFI` wins over it.
-                            || (matches!(name.as_str(), "Revision" | "RevisionHistory")
+                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate")
                                 && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
@@ -6193,6 +6322,35 @@ impl SourceEvaluator {
             // only script-originated path into an external binary.
             // C046 makes after-commit revision events publicly subscribable.
             // The optional second argument is the C051 bounded queue capacity.
+            // C014 lets external completions enter the scheduler in POST
+            // order. A Gate is that post: it starts incomplete, so awaiting it
+            // exercises C013's suspension half.
+            ("Gate", "new") => {
+                let identity = self.next_context_identity();
+                self.gates.insert(identity, None);
+                Ok(Value::Gate(identity))
+            }
+            // Posting the completion makes every continuation registered on
+            // this Gate ready, in the C014 FIFO order they suspended.
+            ("Gate", "complete") => {
+                let ([Value::Gate(gate)] | [Value::Gate(gate), _]) = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let value = arguments.get(1).cloned().unwrap_or(Value::Nil);
+                self.gates.insert(*gate, Some(value));
+                let mut ready: Vec<_> = self
+                    .suspended
+                    .iter()
+                    .filter(|(_, task)| task.gate == *gate)
+                    .map(|(identity, _)| *identity)
+                    .collect();
+                // The map has no order, so readiness is restored to the order
+                // the tasks suspended, which is the order their identities were
+                // allocated. C014 requires that determinism.
+                ready.sort_unstable();
+                self.ready.extend(ready);
+                Ok(Value::Nil)
+            }
             ("Revision", "subscribe") => {
                 let [Value::Closure(callback), rest @ ..] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
@@ -6289,6 +6447,10 @@ impl SourceEvaluator {
                 if self.open_target.is_some() || self.async_depth > 0 || self.closure_depth > 0 {
                     return Err(EvaluationError::HostDriveUnavailable);
                 }
+                // C063 drives the scheduler until the Task completes, so
+                // continuations made ready by a completion post run here rather
+                // than in the poster's own call.
+                self.drive_ready_continuations()?;
                 match self.tasks.get(identity).cloned() {
                     // C013 answers an already-complete Task immediately without
                     // enqueueing a continuation.
@@ -7758,6 +7920,7 @@ impl SourceEvaluator {
                         | Value::Regex(_)
                         | Value::Match(_)
                         | Value::Library(_)
+                        | Value::Gate(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
@@ -7816,6 +7979,7 @@ impl SourceEvaluator {
             | Value::Regex(_)
             | Value::Match(_)
             | Value::Library(_)
+            | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
@@ -8034,6 +8198,7 @@ impl SourceEvaluator {
             | Value::Regex(_)
             | Value::Match(_)
             | Value::Library(_)
+            | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -8749,12 +8914,32 @@ impl SourceEvaluator {
             // C050 refuses the Host drive surface inside an async body, which
             // is what keeps it from becoming the hidden Task join C015 forbids.
             self.async_depth += 1;
-            let outcome = match self.block(&body, &locals, Some(receiver)) {
+            let previous = self.async_replay.replace(GeneratorState {
+                resume_past: 0,
+                seen: 0,
+            });
+            let outcome = match self.block(&body, &locals, Some(receiver.clone())) {
                 Err(EvaluationError::Return(value)) => Ok(value),
                 result => result,
             };
+            self.async_replay = previous;
             self.async_depth -= 1;
             let identity = self.next_context_identity();
+            // C013 suspends rather than completing when the body awaited an
+            // incomplete Awaitable, so the Task stays pending until a post.
+            if let Err(EvaluationError::AwaitSuspended(gate)) = &outcome {
+                self.suspended.insert(
+                    identity,
+                    SuspendedTask {
+                        body,
+                        locals,
+                        receiver: Some(receiver),
+                        delivered: Vec::new(),
+                        gate: *gate,
+                    },
+                );
+                return Ok(Value::Task(identity));
+            }
             self.tasks.insert(identity, outcome.map_err(Box::new));
             return Ok(Value::Task(identity));
         }
@@ -8913,6 +9098,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Regex(_) => "Regex",
         Value::Match(_) => "Match",
         Value::Library(_) => "FFI::Library",
+        Value::Gate(_) => "Gate",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",

@@ -209,6 +209,9 @@ fn render_value(value: &RuntimeValue) -> String {
         // for it, so a vector observes it through its class name rather than
         // through a structural rendering that would imply value semantics.
         RuntimeValue::Library(_) => "{\"class_name\":\"FFI::Library\"}".to_owned(),
+        // C014 makes a Gate identity-bearing, so it is observed through its
+        // class name rather than a structural rendering.
+        RuntimeValue::Gate(_) => "{\"class_name\":\"Gate\"}".to_owned(),
         // C027 names `regex` as its own value shape, and C077 makes canonical
         // pattern text plus canonical flags the whole value.
         RuntimeValue::Regex(regex) => format!(
@@ -304,6 +307,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
+        RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
@@ -385,6 +389,10 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError".into(),
         EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError".into(),
         EvaluationError::AuditHistoryUnavailable => "AuditHistoryUnavailableError".into(),
+        // C013 makes suspension a control signal, so it never reaches user
+        // code and has no Iris error name. Reaching here means an async body
+        // suspended with no driver to resume it.
+        EvaluationError::AwaitSuspended(_) => "AwaitSuspendedError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

@@ -203,6 +203,12 @@ pub enum EvaluationError {
     /// `IRIS-V1-ASYNC-C053` raises when any requested portion is unavailable
     /// and forbids returning a partial sequence as complete.
     AuditHistoryUnavailable,
+    /// An async body awaited an incomplete Awaitable and must suspend.
+    ///
+    /// `IRIS-V1-ASYNC-C013` requires the continuation to be registered and
+    /// control returned to the driver, so this is a control signal rather than
+    /// a failure and never reaches user code.
+    AwaitSuspended(iris_runtime::ObjectId),
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -1225,6 +1231,7 @@ impl Evaluator {
             | RuntimeValue::Regex(_)
             | RuntimeValue::Match(_)
             | RuntimeValue::Library(_)
+            | RuntimeValue::Gate(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
@@ -1286,6 +1293,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
+        RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
