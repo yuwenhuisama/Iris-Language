@@ -47,6 +47,8 @@ pub enum Chapter {
     Async,
     /// The collections chapter.
     Collections,
+    /// The native host and FFI chapter.
+    Ffi,
 }
 
 impl Chapter {
@@ -59,6 +61,7 @@ impl Chapter {
             Self::Meta => "META",
             Self::Async => "ASYNC",
             Self::Collections => "COLLECTIONS",
+            Self::Ffi => "FFI",
         }
     }
 }

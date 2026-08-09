@@ -82,6 +82,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::ByteArray(_)
         | Value::MutableString(_)
         | Value::Match(_)
+        | Value::Library(_)
         | Value::Hash(_)
         | Value::Class(_)
         | Value::Type(..)

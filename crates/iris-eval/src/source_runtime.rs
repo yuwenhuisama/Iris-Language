@@ -3168,6 +3168,46 @@ impl SourceEvaluator {
                 };
                 Ok(Some(found.map_or(Value::Nil, Value::Text)))
             }
+            // C045 gives a programmatic bind the SAME validation a sidecar
+            // declaration gets, and C047 lists the data a signature must carry.
+            (Value::Library(library), "bind", [symbol, signature, ..]) => {
+                let (Value::Symbol(symbol) | Value::Text(symbol)) = symbol else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Self::validate_ffi_signature(signature)?;
+                let mut bound = library.bound.clone();
+                bound.push(symbol.clone());
+                Ok(Some(Value::Library(Box::new(iris_runtime::LibraryValue {
+                    path: library.path.clone(),
+                    bound,
+                }))))
+            }
+            (Value::Library(library), "bound?", [symbol]) => {
+                let (Value::Symbol(symbol) | Value::Text(symbol)) = symbol else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(Some(Value::Bool(library.bound.contains(symbol))))
+            }
+            // C045 forbids invoking an UNBOUND symbol, and C046 denies any
+            // signature-less escape hatch, so the refusal happens here and no
+            // native call is attempted.
+            (Value::Library(library), "call", [symbol, ..]) => {
+                let (Value::Symbol(symbol) | Value::Text(symbol)) = symbol else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                if !library.bound.contains(symbol) {
+                    return Err(EvaluationError::UnboundNativeSymbol);
+                }
+                if !self.grants.is_empty()
+                    && !self.grants.iter().any(|(name, _)| name == "ffi.call")
+                {
+                    return Err(EvaluationError::PermissionDenied);
+                }
+                // A bound, granted symbol still needs a real native boundary,
+                // which this engine does not provide. Answering a value here
+                // would fake a call that never happened.
+                Err(EvaluationError::UnsupportedConstruct)
+            }
             // C053 answers a String SNAPSHOT of current content, so a later
             // mutation of the receiver does not reach the snapshot.
             (Value::MutableString(text), "to_string", []) => Ok(Some(Value::Text(text.text()))),
@@ -3393,6 +3433,28 @@ impl SourceEvaluator {
             pattern: built,
             flags: canonical,
         })))
+    }
+
+    /// Validates an `IRIS-V1-FFI-C047` FFI signature.
+    ///
+    /// `C047` lists the data a signature MUST declare and requires missing data
+    /// to reject the binding BEFORE any call occurs, so this checks presence
+    /// rather than deferring to call time. `C046` denies any signature-less
+    /// path, which is why an absent signature is a rejection and not a default.
+    fn validate_ffi_signature(signature: &Value) -> Result<(), EvaluationError> {
+        let Value::Hash(fields) = signature else {
+            return Err(EvaluationError::IncompleteNativeSignature);
+        };
+        // The subset checked here is the part a pure-Iris fixture can state:
+        // the calling convention, the parameter C types, the result C type, and
+        // the error convention. C047 lists more, and the remainder becomes
+        // checkable when a real native boundary exists.
+        for required in ["convention", "parameters", "result", "errors"] {
+            if !fields.contains_key(&Value::Symbol(required.into())) {
+                return Err(EvaluationError::IncompleteNativeSignature);
+            }
+        }
+        Ok(())
     }
 
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
@@ -4384,6 +4446,12 @@ impl SourceEvaluator {
                             // of that name, so a DECLARED name wins.
                             || (name == "Host"
                                 && selector == "run"
+                                && self.class_name(name).ok().flatten().is_none())
+                            // C043 names `FFI` the standard service Class, and
+                            // it is an ordinary identifier for the same reason
+                            // `Host` is, so a DECLARED `FFI` wins over it.
+                            || (name == "FFI"
+                                && selector == "open"
                                 && self.class_name(name).ok().flatten().is_none())) =>
                     {
                         let Expression::Name(namespace) = target.as_ref() else {
@@ -5942,6 +6010,38 @@ impl SourceEvaluator {
                 let outcome = self.invoke_closure(*block, &[]);
                 self.close_after(resource.clone(), outcome)
             }
+            // C043 makes `FFI.open` the loader and requires the Host to have
+            // granted `ffi.load` BEFORE loading succeeds. C005 makes this the
+            // only script-originated path into an external binary.
+            ("FFI", "open") => {
+                let [path, ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let path = self.text_operand(path)?;
+                // A fixture declaring NO grants at all is ungated, matching how
+                // every other grant check treats a pre-grants fixture.
+                if !self.grants.is_empty()
+                    && !self.grants.iter().any(|(name, _)| name == "ffi.load")
+                {
+                    return Err(EvaluationError::PermissionDenied);
+                }
+                // C045 accepts sidecar declarations at open time, each of which
+                // is validated exactly as a programmatic bind would be.
+                let mut bound = Vec::new();
+                if let Some(Value::Hash(declarations)) = arguments.get(1) {
+                    for (symbol, signature) in declarations.entries() {
+                        let (Value::Symbol(symbol) | Value::Text(symbol)) = &symbol else {
+                            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                        };
+                        Self::validate_ffi_signature(&signature)?;
+                        bound.push(symbol.clone());
+                    }
+                }
+                Ok(Value::Library(Box::new(iris_runtime::LibraryValue {
+                    path,
+                    bound,
+                })))
+            }
             ("Host", "run") => {
                 let [Value::Task(identity)] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
@@ -7417,6 +7517,7 @@ impl SourceEvaluator {
                         | Value::MutableString(_)
                         | Value::Regex(_)
                         | Value::Match(_)
+                        | Value::Library(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
@@ -7474,6 +7575,7 @@ impl SourceEvaluator {
             | Value::MutableString(_)
             | Value::Regex(_)
             | Value::Match(_)
+            | Value::Library(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
@@ -7691,6 +7793,7 @@ impl SourceEvaluator {
             | Value::MutableString(_)
             | Value::Regex(_)
             | Value::Match(_)
+            | Value::Library(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -8569,6 +8672,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::MutableString(_) => "MutableString",
         Value::Regex(_) => "Regex",
         Value::Match(_) => "Match",
+        Value::Library(_) => "FFI::Library",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
@@ -8715,6 +8819,8 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::RangeError => "RangeError",
         EvaluationError::InvalidKeyError => "InvalidKeyError",
         EvaluationError::RegexSyntaxError => "RegexSyntaxError",
+        EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError",
+        EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

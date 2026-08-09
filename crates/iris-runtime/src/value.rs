@@ -476,6 +476,19 @@ pub struct RangeValue {
     pub step: IntegerValue,
 }
 
+/// One loaded `FFI::Library`.
+///
+/// `IRIS-V1-FFI-C005` makes `FFI.open` the ONLY script-originated path into an
+/// external binary, so a Library records exactly which symbols were bound with
+/// a verified signature and nothing else is callable through it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LibraryValue {
+    /// The requested library path.
+    pub path: String,
+    /// Symbols bound with a complete `C047` signature.
+    pub bound: Vec<String>,
+}
+
 /// The canonical pattern and flags of a Regex.
 ///
 /// `IRIS-V1-COLLECTIONS-C081` stores flags in the fixed order `imsx` with
@@ -643,6 +656,12 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// An `FFI::Library`.
+    ///
+    /// `IRIS-V1-FFI-C043` makes the Library IDENTITY-BEARING, and `C045`
+    /// requires every callable symbol to carry a verified signature, so the
+    /// bound symbol names travel with it.
+    Library(Box<LibraryValue>),
     /// An immutable Iris `Regex`.
     ///
     /// `IRIS-V1-COLLECTIONS-C077` makes Regex an immutable identity-LESS core

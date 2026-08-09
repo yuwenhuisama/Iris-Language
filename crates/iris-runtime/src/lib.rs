@@ -43,5 +43,6 @@ pub use stable_hash::{
 };
 pub use value::{
     ArrayBody, ArrayRef, ByteArrayBody, ByteArrayRef, ComposedType, HashBody, HashRef,
-    IntegerValue, MatchValue, MutableStringRef, RangeValue, RegexValue, TypeAtom, Value,
+    IntegerValue, LibraryValue, MatchValue, MutableStringRef, RangeValue, RegexValue, TypeAtom,
+    Value,
 };

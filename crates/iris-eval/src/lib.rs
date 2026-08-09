@@ -191,6 +191,13 @@ pub enum EvaluationError {
     /// backreferences, lookbehind and other constructs that would require
     /// unbounded catastrophic backtracking.
     RegexSyntaxError,
+    /// A native symbol was called without a verified signature binding.
+    ///
+    /// `IRIS-V1-FFI-C045` forbids invoking an unbound symbol and `C046` denies
+    /// any signature-less escape hatch, so this refuses BEFORE any native call.
+    UnboundNativeSymbol,
+    /// An FFI signature omitted data `IRIS-V1-FFI-C047` requires.
+    IncompleteNativeSignature,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -1212,6 +1219,7 @@ impl Evaluator {
             | RuntimeValue::MutableString(_)
             | RuntimeValue::Regex(_)
             | RuntimeValue::Match(_)
+            | RuntimeValue::Library(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
@@ -1272,6 +1280,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::MutableString(_) => "MutableString",
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
+        RuntimeValue::Library(_) => "FFI::Library",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",

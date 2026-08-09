@@ -205,6 +205,10 @@ fn render_value(value: &RuntimeValue) -> String {
         // content, so it renders under the same shape and a vector states the
         // scalar content rather than the container.
         RuntimeValue::MutableString(text) => render_value(&RuntimeValue::Text(text.text())),
+        // C043 makes an FFI::Library identity-bearing, and C027 has no shape
+        // for it, so a vector observes it through its class name rather than
+        // through a structural rendering that would imply value semantics.
+        RuntimeValue::Library(_) => "{\"class_name\":\"FFI::Library\"}".to_owned(),
         // C027 names `regex` as its own value shape, and C077 makes canonical
         // pattern text plus canonical flags the whole value.
         RuntimeValue::Regex(regex) => format!(
@@ -299,6 +303,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::MutableString(_) => "MutableString",
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
+        RuntimeValue::Library(_) => "FFI::Library",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
@@ -377,6 +382,8 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::RangeError => "RangeError".into(),
         EvaluationError::InvalidKeyError => "InvalidKeyError".into(),
         EvaluationError::RegexSyntaxError => "RegexSyntaxError".into(),
+        EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError".into(),
+        EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),
