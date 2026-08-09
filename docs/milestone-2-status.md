@@ -99,6 +99,25 @@ reinterpreting a decided semantic, rather than against this precedent.
 
 Each changed only a spelling or an unsatisfiable assertion, never a name, argument, value or decision. Ledger rows 21 and 23 record the first two and note that two uses make this a precedent rather than a one-off: weigh any further use against `TRACE-C007` itself, not against these rows.
 
+## Rows Needing a Non-Executable Validator
+
+Four rows do not observe language behaviour and cannot be transcribed as
+executable vectors, so they are recorded here rather than skipped silently.
+
+- `IDENTITY-V001` and `IDENTITY-V012` are documentation validations. Both facts
+  they assert are true of this tree today: `spec/iris-v1` holds exactly 14
+  product artifacts, `spec/drafts/iris-language-specification.md` is present as
+  the semantic source, chapter 11 records 88 `IRIS-V1-MIG-` divergences, and the
+  successor declaration appears in both `README.md` and chapter 01. Asserting
+  them needs a documentation validator, which is a different mechanism from
+  executing a vector.
+- `CONFORMANCE-V010`, `V011` and `V012` are corpus validations. They check the
+  SHAPE of a vector record rather than any language behaviour, so they need a
+  record validator over the corpus itself.
+- `IDENTITY-V014` needs instance-level revision migration: `migrate_revision`
+  on an instance, with a committed revision NOT migrating other instances
+  implicitly. That subsystem does not exist.
+
 ## Defects Found Without Vector Coverage
 
 Real defects surfaced through probing rather than through the corpus.
