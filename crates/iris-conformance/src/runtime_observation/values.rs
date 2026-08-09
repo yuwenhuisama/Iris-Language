@@ -384,6 +384,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::RegexSyntaxError => "RegexSyntaxError".into(),
         EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError".into(),
         EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError".into(),
+        EvaluationError::AuditHistoryUnavailable => "AuditHistoryUnavailableError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

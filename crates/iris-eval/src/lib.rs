@@ -198,6 +198,11 @@ pub enum EvaluationError {
     UnboundNativeSymbol,
     /// An FFI signature omitted data `IRIS-V1-FFI-C047` requires.
     IncompleteNativeSignature,
+    /// Requested audit history was not retained.
+    ///
+    /// `IRIS-V1-ASYNC-C053` raises when any requested portion is unavailable
+    /// and forbids returning a partial sequence as complete.
+    AuditHistoryUnavailable,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS

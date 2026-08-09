@@ -69,6 +69,23 @@ struct ArrayCursor {
     fail_fast: bool,
 }
 
+/// One registered revision-event subscriber.
+///
+/// `IRIS-V1-ASYNC-C051` gives each subscriber a BOUNDED queue and requires a
+/// dropped range to be coalesced into a `GapEvent` delivered before later
+/// retained events, so the queue and the pending gap travel together.
+#[derive(Debug)]
+struct RevisionSubscriber {
+    /// The subscriber Closure, invoked once per delivered event.
+    callback: iris_runtime::ObjectId,
+    /// Capacity, after which older commits are dropped into a gap.
+    capacity: usize,
+    /// Commit ids accepted into the queue and not yet delivered.
+    queued: Vec<u64>,
+    /// The inclusive commit range dropped for capacity, if any.
+    gap: Option<(u64, u64)>,
+}
+
 /// A live cursor over a byte sequence.
 ///
 /// `IRIS-V1-COLLECTIONS-C075` makes ANY ByteArray content mutation invalidate
@@ -281,6 +298,20 @@ pub(super) struct SourceEvaluator {
     /// `C037` denies any hidden current-iterator context, so each cursor is
     /// reached only through the Iterator object that owns it.
     hash_iterators: HashMap<iris_runtime::ObjectId, HashCursor>,
+    /// Revision-event subscribers, in subscription order.
+    ///
+    /// `C048` runs subscribers in subscription order for one event and commit,
+    /// so this is a sequence rather than a set.
+    revision_subscribers: Vec<RevisionSubscriber>,
+    /// The commit id the next enqueued revision event carries.
+    next_commit_id: u64,
+    /// Subscriber failures recorded on the `C048` event-error channel.
+    event_errors: Vec<Value>,
+    /// Retained audit history, in commit order.
+    ///
+    /// `C053` answers retained events and raises when a requested portion is
+    /// unavailable, so a pruned commit is ABSENT here rather than recorded.
+    audit_history: Vec<u64>,
     /// Live Bytes and ByteArray cursors.
     byte_iterators: HashMap<iris_runtime::ObjectId, ByteCursor>,
     /// Each live generator as its body, bound locals, receiver and progress.
@@ -576,6 +607,10 @@ impl SourceEvaluator {
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
+            revision_subscribers: Vec::new(),
+            next_commit_id: 1,
+            event_errors: Vec::new(),
+            audit_history: Vec::new(),
             generators: HashMap::new(),
             tasks: HashMap::new(),
             names: HashMap::new(),
@@ -1791,6 +1826,11 @@ impl SourceEvaluator {
                     .registry_mut()
                     .commit_group()
                     .map_err(EvaluationError::Class)?;
+                // C047 delivers revision events asynchronously AFTER the
+                // structural commit returns, and forbids subscriber code from
+                // running in the commit path, so the event is only ENQUEUED
+                // here and delivered by the C049 flush surface.
+                self.enqueue_revision_event(&group);
                 Ok(value)
             }
             Err(error) => {
@@ -3457,6 +3497,98 @@ impl SourceEvaluator {
         Ok(())
     }
 
+    /// Enqueues one after-commit revision event for every subscriber.
+    ///
+    /// `IRIS-V1-ASYNC-C047` publishes at safepoint and resumes the runtime
+    /// WITHOUT waiting for subscribers, so this only records the commit and
+    /// never invokes subscriber code. `C051` drops the oldest commits into a
+    /// coalesced gap when a bounded queue is full, rather than blocking the
+    /// commit.
+    fn enqueue_revision_event(&mut self, group: &[ClassId]) {
+        if group.is_empty() {
+            return;
+        }
+        let commit = self.next_commit_id;
+        self.next_commit_id += 1;
+        // C053 answers RETAINED audit events, so the commit is recorded here
+        // and pruning removes it again.
+        self.audit_history.push(commit);
+        for subscriber in &mut self.revision_subscribers {
+            subscriber.queued.push(commit);
+            if subscriber.queued.len() <= subscriber.capacity {
+                continue;
+            }
+            // C051 coalesces the dropped range into one GapEvent, and C052
+            // makes that range inclusive and forbids pretending no change
+            // occurred, so the dropped ids extend an existing gap.
+            let dropped = subscriber.queued.remove(0);
+            subscriber.gap = Some(match subscriber.gap {
+                Some((from, _)) => (from, dropped),
+                None => (dropped, dropped),
+            });
+        }
+    }
+
+    /// Delivers every queued revision event, per `IRIS-V1-ASYNC-C049`.
+    ///
+    /// The flush surface waits until each accepted event has been delivered,
+    /// converted into a delivered `GapEvent`, or reported through the
+    /// event-error channel. `C048` isolates a subscriber failure: it is
+    /// recorded and does not roll back the commit, affect other subscribers, or
+    /// propagate to the completed open caller.
+    fn flush_revision_events(&mut self) -> Result<Value, EvaluationError> {
+        let mut delivered = Vec::new();
+        for index in 0..self.revision_subscribers.len() {
+            let (callback, gap, queued) = {
+                let subscriber = &mut self.revision_subscribers[index];
+                (
+                    subscriber.callback,
+                    subscriber.gap.take(),
+                    std::mem::take(&mut subscriber.queued),
+                )
+            };
+            // C051 delivers the GapEvent BEFORE later retained events.
+            if let Some((from, to)) = gap {
+                let event = Value::Tuple(vec![
+                    Value::Symbol("GapEvent".into()),
+                    Value::Integer(from.into()),
+                    Value::Integer(to.into()),
+                ]);
+                delivered.push(event.clone());
+                self.deliver_revision_event(callback, event);
+            }
+            for commit in queued {
+                let event = Value::Tuple(vec![
+                    Value::Symbol("RevisionEvent".into()),
+                    Value::Integer(commit.into()),
+                ]);
+                delivered.push(event.clone());
+                self.deliver_revision_event(callback, event);
+            }
+        }
+        Ok(Value::Array(ArrayRef::new(delivered)))
+    }
+
+    /// Invokes one subscriber, isolating its failure per `IRIS-V1-ASYNC-C048`.
+    ///
+    /// A failure creates its own context and is recorded on the event-error
+    /// channel. It MUST NOT affect other subscribers or the commit, so the
+    /// error is captured here rather than propagated.
+    fn deliver_revision_event(&mut self, callback: iris_runtime::ObjectId, event: Value) {
+        if let Err(error) = self.invoke_closure(callback, &[event]) {
+            // C048 requires the failure to create a FULL context and be
+            // recorded, so the raised Iris value is kept where there is one.
+            let recorded = match error {
+                EvaluationError::Raised(value) => value,
+                other => catchable_name(&other)
+                    .map_or(Value::Symbol("SubscriberError".into()), |name| {
+                        Value::Symbol(name)
+                    }),
+            };
+            self.event_errors.push(recorded);
+        }
+    }
+
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
     ///
     /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
@@ -4450,6 +4582,8 @@ impl SourceEvaluator {
                             // C043 names `FFI` the standard service Class, and
                             // it is an ordinary identifier for the same reason
                             // `Host` is, so a DECLARED `FFI` wins over it.
+                            || (matches!(name.as_str(), "Revision" | "RevisionHistory")
+                                && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
                                 && self.class_name(name).ok().flatten().is_none())) =>
@@ -6013,6 +6147,65 @@ impl SourceEvaluator {
             // C043 makes `FFI.open` the loader and requires the Host to have
             // granted `ffi.load` BEFORE loading succeeds. C005 makes this the
             // only script-originated path into an external binary.
+            // C046 makes after-commit revision events publicly subscribable.
+            // The optional second argument is the C051 bounded queue capacity.
+            ("Revision", "subscribe") => {
+                let [Value::Closure(callback), rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let capacity = match rest {
+                    [Value::Integer(capacity)] => capacity.to_usize().unwrap_or(usize::MAX),
+                    [] => usize::MAX,
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity)),
+                };
+                self.revision_subscribers.push(RevisionSubscriber {
+                    callback: *callback,
+                    capacity,
+                    queued: Vec::new(),
+                    gap: None,
+                });
+                Ok(Value::Nil)
+            }
+            // C049 is the semantic flush surface for tests and controlled
+            // shutdown. It answers the delivered sequence so a fixture can
+            // observe that a GapEvent preceded later retained events.
+            ("Revision", "flush") => self.flush_revision_events(),
+            // C048 records subscriber failures on the event-error channel,
+            // which a fixture reads to observe that the commit still succeeded.
+            ("Revision", "event_errors") => {
+                Ok(Value::Array(ArrayRef::new(self.event_errors.clone())))
+            }
+            // C053 answers RETAINED audit events in commit order and raises
+            // when any requested portion is unavailable, returning no partial
+            // sequence as complete.
+            ("RevisionHistory", "events") => {
+                let [Value::Integer(from), Value::Integer(to)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let (Some(from), Some(to)) = (from.to_u64(), to.to_u64()) else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let mut found = Vec::new();
+                for commit in from..=to {
+                    if !self.audit_history.contains(&commit) {
+                        // C053 forbids returning a partial sequence as
+                        // complete, so a single pruned commit fails the whole
+                        // request rather than yielding the retained prefix.
+                        return Err(EvaluationError::AuditHistoryUnavailable);
+                    }
+                    found.push(Value::Integer(commit.into()));
+                }
+                Ok(Value::Array(ArrayRef::new(found)))
+            }
+            // A fixture prunes retained history to reach the C053 failure.
+            ("RevisionHistory", "prune") => {
+                let [Value::Integer(commit)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let commit = commit.to_u64().unwrap_or_default();
+                self.audit_history.retain(|held| *held != commit);
+                Ok(Value::Nil)
+            }
             ("FFI", "open") => {
                 let [path, ..] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
@@ -8821,6 +9014,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::RegexSyntaxError => "RegexSyntaxError",
         EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError",
         EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError",
+        EvaluationError::AuditHistoryUnavailable => "AuditHistoryUnavailableError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

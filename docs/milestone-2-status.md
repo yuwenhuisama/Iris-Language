@@ -9,7 +9,7 @@
 ```
 COLLECTIONS passed: 36, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (36 records, buckets sum 36)
 FFI         passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-ASYNC    passed: 19, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (19 records, buckets sum 19)
+ASYNC    passed: 25, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (25 records, buckets sum 25)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
@@ -71,7 +71,7 @@ Each was raised before the fact and approved by the owner. All are bilingual per
 | v1.25 | `META-C121` | The V343 rejection wording |
 | v1.26 | `META-C122`, `C123`, `GRAMMAR-C070` | The five Decorator Contracts, the property reflection row and the qualified decorator path |
 | v1.27 | `META-C124` | Corrected the decorator phase signatures |
-| v1.34 | `ASYNC-C050` | The `Host.run` drive surface `C015` names and `C049` already required |
+| v1.34 | `ASYNC-C063` | The `Host.run` drive surface `C015` names and `C049` already required. Renumbered from `C050`, which the frozen chapter already uses for flush semantics. |
 | v1.33 | `GRAMMAR-C072` | `yield`, widening the reserved inventory a second time to 50, and the generator semantics |
 | v1.32 | `GRAMMAR-C071` | The `await` production three clauses already presupposed |
 | v1.31 | `META-C126` | The audit digest scope, and the withdrawal of V357's unreproducible constant |
@@ -222,13 +222,13 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | CONTROL | 134 | 134 |
 | TYPES | 79 | 80 |
 | META | 51 | 51 |
-| ASYNC | 19 | 40 |
+| ASYNC | 25 | 40 |
 | COLLECTIONS | 36 | 122 |
 | FFI | 3 | 32 |
 | LIBRARY | 0 | 14 |
 | IDENTITY | 0 | 5 |
 | CONFORMANCE | 0 | 3 |
-| **Total** | **473** | **638** |
+| **Total** | **479** | **638** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
@@ -259,7 +259,7 @@ closed with.
 
 Nine clauses, each closing a gap where a published requirement had no spelling:
 `TYPES-C098`, `TYPES-C099`, `CONTROL-C080`, `META-C125`, `META-C126`,
-`GRAMMAR-C071`, `GRAMMAR-C072`, `ASYNC-C050`, and the v1.21-v1.27 set. The
+`GRAMMAR-C071`, `GRAMMAR-C072`, `ASYNC-C063`, and the v1.21-v1.27 set. The
 reserved keyword inventory was widened once more, to 50, for `yield`.
 
 ### What the engine does and does not do
