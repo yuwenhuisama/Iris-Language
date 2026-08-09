@@ -3493,6 +3493,45 @@ impl SourceEvaluator {
                 // C036 and C054 close the cursor on every exit path.
                 self.close_after(cursor, outcome).map(Some)
             }
+            // C051 makes `to_array` the ordered element sequence for the
+            // sequence-shaped receivers, which is how a Range or Tuple is
+            // materialized without promising anything about Hash order.
+            (
+                Value::Range(_) | Value::Tuple(_) | Value::Bytes(_) | Value::ByteArray(_),
+                "to_array",
+                [],
+            ) => {
+                let elements = match &receiver {
+                    Value::Tuple(elements) => elements.clone(),
+                    Value::Bytes(bytes) => bytes
+                        .iter()
+                        .map(|byte| Value::Integer(u64::from(*byte).into()))
+                        .collect(),
+                    Value::ByteArray(bytes) => bytes
+                        .bytes()
+                        .iter()
+                        .map(|byte| Value::Integer(u64::from(*byte).into()))
+                        .collect(),
+                    // A Range materializes through its own iterator, so
+                    // C039's openness and step rules are not restated here.
+                    Value::Range(_) => {
+                        let cursor = self.send(receiver.clone(), "iterator", &[])?;
+                        let mut values = Vec::new();
+                        while let Value::IterationYield(value) =
+                            self.send(cursor.clone(), "next", &[])?
+                        {
+                            values.push(*value);
+                        }
+                        values
+                    }
+                    _ => return Err(EvaluationError::UnsupportedConstruct),
+                };
+                Ok(Some(Value::Array(ArrayRef::new(elements))))
+            }
+            (Value::Array(values), "to_array", []) => {
+                // C025 makes a copy INDEPENDENT of the receiver.
+                Ok(Some(Value::Array(ArrayRef::new(values.elements()))))
+            }
             // C033 leaves iteration ORDER unspecified, so an entry array is an
             // unordered multiset in which each entry appears exactly once.
             (Value::Hash(entries), "to_array", []) => Ok(Some(Value::Array(ArrayRef::new(
@@ -8050,6 +8089,27 @@ impl SourceEvaluator {
             && let Value::Contract(contract) = &receiver
         {
             return Ok(Value::Integer(self.contract_type_hash(*contract)?));
+        }
+        // C068 compares the exact current byte SEQUENCE and PERMITS cross-type
+        // equality, so Bytes and ByteArray compare over their bytes rather
+        // than over the two container kinds.
+        if matches!(selector, "==" | "!=")
+            && matches!(
+                (&receiver, arguments.first()),
+                (
+                    Value::Bytes(_) | Value::ByteArray(_),
+                    Some(Value::Bytes(_) | Value::ByteArray(_))
+                )
+            )
+            && let [other] = arguments
+        {
+            let bytes = |value: &Value| match value {
+                Value::Bytes(bytes) => Some(bytes.clone()),
+                Value::ByteArray(bytes) => Some(bytes.bytes()),
+                _ => None,
+            };
+            let equal = bytes(&receiver) == bytes(other);
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // C055 compares current exact scalar content and is CROSS-TYPE equal
         // to a String with identical content, so the comparison is over the
