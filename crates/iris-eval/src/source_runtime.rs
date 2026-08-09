@@ -3207,6 +3207,21 @@ impl SourceEvaluator {
             // count Unicode scalars. C073 makes this the same snapshot
             // `to_bytes` answers.
             (Value::Text(text), "bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
+            // C044 exposes Unicode GRAPHEME CLUSTERS explicitly, using the
+            // fixed Unicode data version, because `length` and indexing count
+            // scalars and a cluster may span several of them.
+            (Value::Text(_) | Value::MutableString(_), "graphemes", []) => {
+                let text = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let clusters =
+                    unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true)
+                        .map(|cluster| Value::Text(cluster.to_owned()))
+                        .collect();
+                Ok(Some(Value::Array(ArrayRef::new(clusters))))
+            }
             // C050 makes `to_string` answer the receiver itself.
             (Value::Text(text), "to_string", []) => Ok(Some(Value::Text(text.clone()))),
             // C050 requires a REPARSABLE double-quoted literal that recreates a

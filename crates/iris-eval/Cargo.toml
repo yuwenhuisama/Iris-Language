@@ -10,6 +10,9 @@ workspace = true
 [dependencies]
 # C078/C079: the engine enforces the linear-time, no-backtracking subset.
 regex = "1"
+# C042 pins Unicode data to 17.0.0 and this crate's UNICODE_VERSION is exactly
+# (17, 0, 0), so C044 graphemes use the required UAX#29 tables.
+unicode-segmentation = "1.13"
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }

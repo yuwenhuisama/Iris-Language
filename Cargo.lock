@@ -104,6 +104,7 @@ dependencies = [
  "iris-runtime",
  "iris-syntax",
  "regex",
+ "unicode-segmentation",
 ]
 
 [[package]]
