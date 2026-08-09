@@ -3449,7 +3449,20 @@ impl SourceEvaluator {
                 self.rehash(&entries, Some(block)).map(Some)
             }
             (Value::Hash(entries), "fetch", [key]) => {
-                entries.get(key).map(Some).ok_or(EvaluationError::KeyError)
+                let (entries, key) = (entries.clone(), key.clone());
+                let slot = self.hash_slot(&entries, &key)?;
+                slot.and_then(|slot| entries.value_at(slot))
+                    .map(Some)
+                    .ok_or(EvaluationError::KeyError)
+            }
+            // C029 answers the old value or nil, and removal is structural.
+            (Value::Hash(entries), "delete", [key]) => {
+                let (entries, key) = (entries.clone(), key.clone());
+                let slot = self.hash_slot(&entries, &key)?;
+                Ok(Some(
+                    slot.and_then(|slot| entries.remove_at(slot))
+                        .unwrap_or(Value::Nil),
+                ))
             }
             (Value::Hash(entries), "keys", []) => Ok(Some(Value::Array(
                 entries.entries().into_iter().map(|(key, _)| key).collect(),
@@ -3774,6 +3787,25 @@ impl SourceEvaluator {
     /// again. This is the same stackless strategy generators use.
     fn replayed_await(&self, index: usize) -> Option<Value> {
         self.replaying.as_ref()?.get(index).cloned()
+    }
+
+    /// The slot a Hash key occupies under `IRIS-V1-COLLECTIONS-C028`.
+    ///
+    /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
+    /// to identity for an identity-bearing key, so the search is a real send
+    /// per entry rather than the derived value comparison. Answers `None` when
+    /// no held key compares equal.
+    fn hash_slot(
+        &mut self,
+        entries: &iris_runtime::HashRef,
+        key: &Value,
+    ) -> Result<Option<usize>, EvaluationError> {
+        for (index, (held, _)) in entries.entries().into_iter().enumerate() {
+            if self.key_equal(&held, key)? {
+                return Ok(Some(index));
+            }
+        }
+        Ok(None)
     }
 
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
@@ -5436,7 +5468,13 @@ impl SourceEvaluator {
             }
             // C028 dispatches the key's current `==`, which for the built-in
             // values is structural equality.
-            Value::Hash(entries) => Ok(entries.get(&index).unwrap_or(Value::Nil)),
+            Value::Hash(entries) => {
+                let entries = entries.clone();
+                let slot = self.hash_slot(&entries, &index)?;
+                Ok(slot
+                    .and_then(|slot| entries.value_at(slot))
+                    .unwrap_or(Value::Nil))
+            }
             _ => self.send(target, "[]", &[index]),
         }
     }
@@ -5557,8 +5595,10 @@ impl SourceEvaluator {
                 // C134 rejects a NaN key on INSERTION as well as construction.
                 self.send(index.clone(), "hash", &[])?;
                 // C029 answers nil from a Hash write, and C034 makes only the
-                // INSERT structural, which `HashRef::insert` distinguishes.
-                entries.insert(index, value.clone());
+                // INSERT structural. C028 dispatches the key's current `==`, so
+                // the slot is resolved by real sends before writing.
+                let slot = self.hash_slot(&entries, &index)?;
+                entries.insert_at(slot, index, value.clone());
                 Ok(Value::Hash(entries))
             }
             target => self.send(target, "[]=", &[index, value]),
@@ -7944,6 +7984,65 @@ impl SourceEvaluator {
             };
             let equal = scalars(&receiver) == scalars(other);
             return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
+        // C003 classifies an `Iteration<T>` yield as IDENTITY-LESS and
+        // immutable, so two yields of equal payloads are equal and `same?`
+        // has no answer to give. `Iteration.done` is an identity-bearing
+        // SINGLETON, so it is `same?` as itself.
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::IterationYield(_) | Value::IterationDone)
+            && let [other] = arguments
+        {
+            let equal = &receiver == other;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
+        if selector == "same?"
+            && let [other] = arguments
+        {
+            match (&receiver, other) {
+                (Value::IterationDone, Value::IterationDone) => return Ok(Value::Bool(true)),
+                // C089 forbids falling back to object identity for an
+                // identity-less wrapper, so this raises rather than comparing.
+                (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => {
+                    return Err(EvaluationError::IdentityError);
+                }
+                // C011 makes an Iterator identity-bearing with a mutable
+                // cursor, so identity is the handle rather than its position.
+                (Value::ArrayIterator(left), Value::ArrayIterator(right))
+                | (Value::HashIterator(left), Value::HashIterator(right))
+                | (Value::ByteIterator(left), Value::ByteIterator(right)) => {
+                    return Ok(Value::Bool(left == right));
+                }
+                _ => {}
+            }
+        }
+        // C011 makes an Iterator identity-bearing, so two DISTINCT cursors over
+        // equal contents are not equal, and advancing one does not change its
+        // hash. Equality and hash therefore both key on the identity.
+        if matches!(selector, "==" | "!=")
+            && matches!(
+                receiver,
+                Value::ArrayIterator(_) | Value::HashIterator(_) | Value::ByteIterator(_)
+            )
+            && let [other] = arguments
+        {
+            let equal = match (&receiver, other) {
+                (Value::ArrayIterator(left), Value::ArrayIterator(right))
+                | (Value::HashIterator(left), Value::HashIterator(right))
+                | (Value::ByteIterator(left), Value::ByteIterator(right)) => left == right,
+                _ => false,
+            };
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
+        if selector == "hash"
+            && arguments.is_empty()
+            && let Value::ArrayIterator(identity)
+            | Value::HashIterator(identity)
+            | Value::ByteIterator(identity) = &receiver
+        {
+            // C003 makes an Iterator hash RUNTIME-LOCAL, stable for the
+            // lifetime of one identity, so advancing the cursor cannot move it.
+            return Ok(Value::Integer(identity.raw().into()));
         }
         // C043 compares the exact scalar SEQUENCE and case, with no implicit
         // normalization, case folding, locale mapping or grapheme

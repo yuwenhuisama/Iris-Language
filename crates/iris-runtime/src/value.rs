@@ -315,18 +315,54 @@ impl HashRef {
     /// `C034` makes an INSERT structural and an update of an existing key
     /// non-structural, so the version moves only when a key is actually added.
     pub fn insert(&self, key: Value, value: Value) {
+        self.insert_at(None, key, value);
+    }
+
+    /// Inserts or updates, with the matching slot already resolved.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C028` dispatches each key's CURRENT `==` Method,
+    /// which only the evaluator can perform, so the caller resolves the slot
+    /// and passes it here. `None` means no existing key compared equal, and the
+    /// derived comparison is used only for the built-in value keys.
+    pub fn insert_at(&self, slot: Option<usize>, key: Value, value: Value) {
         let mut body = self.0.borrow_mut();
-        if let Some(slot) = body
+        if let Some(index) = slot {
+            if let Some(entry) = body.entries.get_mut(index) {
+                entry.1 = value;
+                return;
+            }
+        } else if let Some(existing) = body
             .entries
             .iter_mut()
             .find(|(held, _)| *held == key)
             .map(|(_, slot)| slot)
         {
-            *slot = value;
+            *existing = value;
             return;
         }
         body.entries.push((key, value));
         body.version = body.version.saturating_add(1);
+    }
+
+    /// Returns the value at a resolved slot.
+    #[must_use]
+    pub fn value_at(&self, slot: usize) -> Option<Value> {
+        self.0
+            .borrow()
+            .entries
+            .get(slot)
+            .map(|(_, value)| value.clone())
+    }
+
+    /// Removes the entry at a resolved slot, answering its value.
+    pub fn remove_at(&self, slot: usize) -> Option<Value> {
+        let mut body = self.0.borrow_mut();
+        if slot >= body.entries.len() {
+            return None;
+        }
+        let (_, value) = body.entries.remove(slot);
+        body.version = body.version.saturating_add(1);
+        Some(value)
     }
 
     /// Removes `key`, answering the value it held.
