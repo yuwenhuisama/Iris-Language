@@ -450,6 +450,54 @@ impl PartialEq for ByteArrayRef {
     }
 }
 
+/// A shared, mutable text body.
+///
+/// `IRIS-V1-COLLECTIONS-C052` makes MutableString identity-bearing, so this is
+/// a HANDLE, and `C053` makes `to_string` copy out of it so a snapshot does not
+/// observe later mutation.
+#[derive(Clone)]
+pub struct MutableStringRef(Rc<RefCell<String>>);
+
+impl MutableStringRef {
+    /// Creates a fresh MutableString identity holding `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(Rc::new(RefCell::new(text)))
+    }
+
+    /// Copies the current text out.
+    #[must_use]
+    pub fn text(&self) -> String {
+        self.0.borrow().clone()
+    }
+
+    /// Returns whether two handles denote the SAME MutableString.
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// Replaces the content, which `C058` requires callers to have fully
+    /// prepared first so the commit itself cannot fail partway.
+    pub fn set(&self, text: String) {
+        *self.0.borrow_mut() = text;
+    }
+}
+
+/// Renders as the current text.
+impl core::fmt::Debug for MutableStringRef {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+
+/// `C055` compares current exact scalar CONTENT rather than identity.
+impl PartialEq for MutableStringRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.same(other) || *self.0.borrow() == *other.0.borrow()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     /// The singleton nil value.
@@ -527,6 +575,12 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// An identity-bearing mutable Iris `MutableString`.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C052` makes each `m` literal evaluation create a
+    /// FRESH identity, and `C053` makes `to_string` a snapshot, so the text
+    /// lives behind a shared body and a snapshot copies out of it.
+    MutableString(MutableStringRef),
     /// An immutable Iris `Bytes` value.
     ///
     /// `IRIS-V1-COLLECTIONS-C067` makes Bytes an IMMUTABLE identity-less byte

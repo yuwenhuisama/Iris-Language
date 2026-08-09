@@ -76,6 +76,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::IterationYield(payload) => Ok(iteration_hash(public_hash(payload)?.to_u64())),
         Value::Array(_)
         | Value::ByteArray(_)
+        | Value::MutableString(_)
         | Value::Hash(_)
         | Value::Class(_)
         | Value::Type(..)
