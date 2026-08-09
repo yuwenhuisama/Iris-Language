@@ -4245,6 +4245,36 @@ impl SourceEvaluator {
         }
     }
 
+    /// Rejects a value `IRIS-V1-LIBRARY-C018` does not carry.
+    ///
+    /// `C003` forbids serializing a live resource merely because it exists, so
+    /// an FFI handle, an open File, a Task or a native payload is refused here
+    /// rather than having its pointer, runtime identity or descriptor emitted.
+    fn check_irisvalue_encodable(value: &Value) -> Result<(), EvaluationError> {
+        match value {
+            Value::Nil
+            | Value::Bool(_)
+            | Value::Integer(_)
+            | Value::Float32(_)
+            | Value::Float64(_)
+            | Value::Text(_)
+            | Value::Symbol(_)
+            | Value::Bytes(_) => Ok(()),
+            Value::Tuple(elements) => elements
+                .iter()
+                .try_for_each(Self::check_irisvalue_encodable),
+            Value::Array(values) => values
+                .elements()
+                .iter()
+                .try_for_each(Self::check_irisvalue_encodable),
+            Value::Hash(entries) => entries.entries().iter().try_for_each(|(key, held)| {
+                Self::check_irisvalue_encodable(key)
+                    .and_then(|()| Self::check_irisvalue_encodable(held))
+            }),
+            _ => Err(EvaluationError::SerializationError),
+        }
+    }
+
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
     ///
     /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
@@ -5313,6 +5343,7 @@ impl SourceEvaluator {
                                     | "JSON"
                                     | "File"
                                     | "Package"
+                                    | "IrisValue"
                                     | "Encoding::UTF_8"
                                     | "Encoding::UTF_16LE"
                                     | "Encoding::UTF_16BE"
@@ -7118,6 +7149,66 @@ impl SourceEvaluator {
                     return Err(EvaluationError::LexicalDiagnostic("PACKAGE_CORE_ABI_CLAIM"));
                 }
                 Ok(Value::Symbol("validated".into()))
+            }
+            // C015 requires the IrisValue format to EXIST and be separately
+            // versioned, and explicitly does not define its byte tags, field
+            // ordering or complete schema here. What this chapter does fix is
+            // header validation, decode limits and the eligibility boundary,
+            // so those are what this surface implements.
+            ("IrisValue", "encode") => {
+                let [value, ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                // C018 lists the supported families, and C003 keeps a live
+                // resource out: an FFI handle, an open File or a native payload
+                // is refused rather than having its identity emitted.
+                let representation = self.serializable_representation(value)?;
+                Self::check_irisvalue_encodable(&representation)?;
+                Ok(representation)
+            }
+            ("IrisValue", "decode") => {
+                let [stream, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let Value::Hash(stream) = stream else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let field = |name: &str| stream.get(&Value::Text(name.to_owned()));
+                // C016 validates magic and format version BEFORE decoding any
+                // payload that depends on them, so the header is checked first
+                // and nothing is allocated when it fails.
+                let magic = field("magic");
+                let version = field("format_version");
+                if magic != Some(Value::Text("IRISVALUE".into()))
+                    || version != Some(Value::Integer(1_u8.into()))
+                {
+                    return Err(EvaluationError::LexicalDiagnostic(
+                        "IRISVALUE_INCOMPATIBLE_HEADER",
+                    ));
+                }
+                // C017 forbids allocating from a DECLARED length before that
+                // length is validated, so the declared count is checked against
+                // the limit before the payload is read at all.
+                let limit = rest
+                    .iter()
+                    .find_map(|option| match option {
+                        Value::KeywordArgument(name, limit) if name == "element_limit" => {
+                            match &**limit {
+                                Value::Integer(limit) => limit.to_usize(),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(1024);
+                if let Some(Value::Integer(declared)) = field("element_count")
+                    && declared.to_usize().is_none_or(|declared| declared > limit)
+                {
+                    return Err(EvaluationError::LexicalDiagnostic(
+                        "IRISVALUE_LIMIT_OR_STRUCTURE",
+                    ));
+                }
+                Ok(field("payload").unwrap_or(Value::Nil))
             }
             ("JSON", "encode") => {
                 let [value, rest @ ..] = arguments else {
