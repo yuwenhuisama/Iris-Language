@@ -219,6 +219,72 @@ fn render_json(value: &crate::json::Value) -> String {
     }
 }
 
+/// Validates a documentation claim for an IDENTITY row.
+///
+/// The row states facts about the artifact tree, so each is checked against the
+/// workspace: a file count under a directory, a required path, or a minimum
+/// number of matches for a pattern in a file. Nothing is executed.
+fn validate_documentation(record: &Record) -> Outcome {
+    let checked = || -> Result<(), String> {
+        let expected = crate::model::parse_expect(&record.expect)?;
+        let expected = crate::model::object(&expected)?;
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if let Some(counts) = expected.get("artifact_counts") {
+            for (directory, wanted) in crate::model::object(counts)? {
+                let crate::json::Value::String(wanted) = wanted else {
+                    return Err("artifact count expects a string".into());
+                };
+                let found = std::fs::read_dir(root.join(directory))
+                    .map_err(|error| error.to_string())?
+                    .filter(|entry| {
+                        entry.as_ref().is_ok_and(|entry| {
+                            entry.path().extension().is_some_and(|kind| kind == "md")
+                        })
+                    })
+                    .count();
+                if found.to_string() != *wanted {
+                    return Err(format!(
+                        "{directory}: expected {wanted} artifacts, found {found}"
+                    ));
+                }
+            }
+        }
+        if let Some(paths) = expected.get("required_paths") {
+            for path in crate::model::array(paths)? {
+                let crate::json::Value::String(path) = path else {
+                    return Err("required path expects a string".into());
+                };
+                if !root.join(path).exists() {
+                    return Err(format!("required path {path} is absent"));
+                }
+            }
+        }
+        if let Some(claims) = expected.get("declares") {
+            for (path, wanted) in crate::model::object(claims)? {
+                let crate::json::Value::String(wanted) = wanted else {
+                    return Err("declaration expects a string".into());
+                };
+                let text =
+                    std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())?;
+                if !text.to_lowercase().contains(&wanted.to_lowercase()) {
+                    return Err(format!("{path} does not declare {wanted}"));
+                }
+            }
+        }
+        Ok(())
+    };
+    match checked() {
+        Ok(()) => Outcome::Passed {
+            id: record.id.clone(),
+        },
+        Err(reason) => Outcome::Failed {
+            id: record.id.clone(),
+            expected: "documentation claim to hold".into(),
+            actual: reason,
+        },
+    }
+}
+
 fn execute_runtime_record(record: &Record) -> Outcome {
     match record
         .tags
@@ -238,6 +304,9 @@ fn execute_runtime_record(record: &Record) -> Outcome {
         // record rather than any language behaviour, so it is checked as data
         // against its own stated expectation instead of being executed.
         Some("record-validation") => validate_record_shape(record),
+        // An IDENTITY documentation row asserts facts about the artifact tree
+        // itself, so it is checked against the workspace rather than executed.
+        Some("documentation") => validate_documentation(record),
         Some("executable") | None => match compare_runtime(record) {
             Ok(()) => Outcome::Passed {
                 id: record.id.clone(),

@@ -9,7 +9,7 @@
 ```
 COLLECTIONS passed: 99, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (99 records, buckets sum 99)
 FFI         passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-IDENTITY    passed: 1, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (1 record, buckets sum 1)
+IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
 CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 ASYNC    passed: 39, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (39 records, buckets sum 39)
@@ -105,7 +105,8 @@ Each changed only a spelling or an unsatisfiable assertion, never a name, argume
 Four rows do not observe language behaviour and cannot be transcribed as
 executable vectors, so they are recorded here rather than skipped silently.
 
-- `IDENTITY-V001` and `IDENTITY-V012` are documentation validations. Both facts
+- `IDENTITY-V001` and `IDENTITY-V012` are documentation validations. RESOLVED
+  by a `bucket:documentation` outcome that checks the tree directly. Both facts
   they assert are true of this tree today: `spec/iris-v1` holds exactly 14
   product artifacts, `spec/drafts/iris-language-specification.md` is present as
   the semantic source, chapter 11 records 88 `IRIS-V1-MIG-` divergences, and the
@@ -261,9 +262,9 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | COLLECTIONS | 99 | 122 |
 | FFI | 3 | 32 |
 | LIBRARY | 14 | 14 |
-| IDENTITY | 1 | 5 |
+| IDENTITY | 3 | 5 |
 | CONFORMANCE | 3 | 3 |
-| **Total** | **579** | **637** |
+| **Total** | **581** | **637** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
