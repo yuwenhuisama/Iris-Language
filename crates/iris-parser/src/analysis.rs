@@ -1327,7 +1327,22 @@ impl Analyzer {
     /// infer `Nil`. A signature with no return Type at all states neither, so
     /// `IRIS-V1-ASYNC-V003` rejects it before execution.
     fn check_async_result(&mut self, declaration: &iris_syntax::MethodDeclaration) {
-        if declaration.is_async && declaration.return_type.is_none() {
+        if !declaration.is_async {
+            return;
+        }
+        let Some(annotation) = &declaration.return_type else {
+            self.report("ASYNC_RESULT_TYPE_REQUIRED");
+            return;
+        };
+        // C003 makes the annotation the awaited RESULT type `T`, with the
+        // invocation supplying the `Task<T>` wrapper. Writing `Task` there
+        // names no result at all, and `Task<T>` would ask for `Task<Task<T>>`.
+        if matches!(annotation, iris_syntax::TypeExpression::Name(name) if name == "Task")
+            || matches!(
+                annotation,
+                iris_syntax::TypeExpression::Generic { name, .. } if name == "Task"
+            )
+        {
             self.report("ASYNC_RESULT_TYPE_REQUIRED");
         }
     }

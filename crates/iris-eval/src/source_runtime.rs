@@ -325,6 +325,12 @@ pub(super) struct SourceEvaluator {
     next_commit_id: u64,
     /// Subscriber failures recorded on the `C048` event-error channel.
     event_errors: Vec<Value>,
+    /// Failed Tasks that no awaiter has observed yet.
+    ///
+    /// `IRIS-V1-ASYNC-C027` forbids an unobserved failed Task from disappearing
+    /// silently, and `C028` forbids the report from marking the failure handled,
+    /// so observation is recorded separately from the retained context.
+    unobserved_failures: Vec<(iris_runtime::ObjectId, Value)>,
     /// Gates awaiting an external completion post.
     ///
     /// `IRIS-V1-ASYNC-C014` lets external IO or Host completions enter the
@@ -642,6 +648,7 @@ impl SourceEvaluator {
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
+            unobserved_failures: Vec::new(),
             gates: HashMap::new(),
             suspended: HashMap::new(),
             ready: Vec::new(),
@@ -3715,6 +3722,14 @@ impl SourceEvaluator {
                     );
                 }
                 outcome => {
+                    if let Err(error) = &outcome {
+                        let captured = match error {
+                            EvaluationError::Raised(value) => value.clone(),
+                            other => catchable_name(other)
+                                .map_or(Value::Symbol("AsyncFailure".into()), Value::Symbol),
+                        };
+                        self.unobserved_failures.push((identity, captured));
+                    }
                     self.tasks.insert(identity, outcome.map_err(Box::new));
                 }
             }
@@ -4392,8 +4407,14 @@ impl SourceEvaluator {
                 // Awaitable without enqueueing a continuation for fairness.
                 match self.tasks.get(&identity).cloned() {
                     Some(Ok(value)) => Ok(value),
-                    // C016 propagates the captured failure to the awaiter.
-                    Some(Err(error)) => Err(*error),
+                    // C016 propagates the captured failure to the awaiter, and
+                    // C027 counts awaiting as OBSERVING it, so it is no longer
+                    // eligible for unobserved-failure reporting.
+                    Some(Err(error)) => {
+                        self.unobserved_failures
+                            .retain(|(task, _)| *task != identity);
+                        Err(*error)
+                    }
                     None => Err(EvaluationError::UnsupportedConstruct),
                 }
             }
@@ -4755,7 +4776,7 @@ impl SourceEvaluator {
                             // C043 names `FFI` the standard service Class, and
                             // it is an ordinary identifier for the same reason
                             // `Host` is, so a DECLARED `FFI` wins over it.
-                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate")
+                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate" | "Diagnostics")
                                 && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
@@ -6325,6 +6346,23 @@ impl SourceEvaluator {
             // C014 lets external completions enter the scheduler in POST
             // order. A Gate is that post: it starts incomplete, so awaiting it
             // exercises C013's suspension half.
+            // C027 emits a STRUCTURED diagnostic for a failed Task nothing
+            // observed, and C028 fixes what the report carries: the Task
+            // identity, the captured value, and the observation state. Reading
+            // the report MUST NOT mark the failure handled, so this only reads.
+            ("Diagnostics", "unobserved_failures") => Ok(Value::Array(ArrayRef::new(
+                self.unobserved_failures
+                    .iter()
+                    .map(|(task, captured)| {
+                        Value::Tuple(vec![
+                            Value::Symbol("UnobservedFailure".into()),
+                            Value::Task(*task),
+                            captured.clone(),
+                            Value::Symbol("unobserved".into()),
+                        ])
+                    })
+                    .collect(),
+            ))),
             ("Gate", "new") => {
                 let identity = self.next_context_identity();
                 self.gates.insert(identity, None);
@@ -6455,7 +6493,12 @@ impl SourceEvaluator {
                     // C013 answers an already-complete Task immediately without
                     // enqueueing a continuation.
                     Some(Ok(value)) => Ok(value),
-                    Some(Err(error)) => Err(*error),
+                    Some(Err(error)) => {
+                        // Driving to completion observes the failure.
+                        self.unobserved_failures
+                            .retain(|(task, _)| task != identity);
+                        Err(*error)
+                    }
                     None => Err(EvaluationError::UnsupportedConstruct),
                 }
             }
@@ -8939,6 +8982,16 @@ impl SourceEvaluator {
                     },
                 );
                 return Ok(Value::Task(identity));
+            }
+            // C027 makes a failed Task eligible for unobserved-failure
+            // reporting until something observes it.
+            if let Err(error) = &outcome {
+                let captured = match error {
+                    EvaluationError::Raised(value) => value.clone(),
+                    other => catchable_name(other)
+                        .map_or(Value::Symbol("AsyncFailure".into()), Value::Symbol),
+                };
+                self.unobserved_failures.push((identity, captured));
             }
             self.tasks.insert(identity, outcome.map_err(Box::new));
             return Ok(Value::Task(identity));
