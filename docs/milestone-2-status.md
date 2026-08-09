@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 25, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (25 records, buckets sum 25)
+COLLECTIONS passed: 27, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (27 records, buckets sum 27)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -107,7 +107,14 @@ Real defects surfaced through probing rather than through the corpus.
   body, which also deleted the syntax-routed `append` workaround and made
   `C026` fail-fast iteration possible. **Hash is fixed** in `4c0670b`, with `C034`
   structural versioning that excludes value updates.
-- **Symbol answers neither `==` nor `!=`.** Found while transcribing V026,
+- **Interpolation is applied AFTER unescaping.** `"\u{24}{1}"` and
+  `"\x24{1}"` both answer `1`: the escape produces a `$`, and the literal
+  layer then treats the resulting `${1}` as interpolation. An escaped dollar
+  must not interpolate. Found while making `String#inspect` reparsable under
+  `C050`; recorded rather than fixed, since the ordering lives in the lexer and
+  belongs with a row that states it. `inspect` escapes the quote and backslash
+  correctly and round-trips for every other case.
+- **Symbol answers neither `==` nor `!=`.** FIXED in this milestone alongside String equality. Found while transcribing V026,
   where `seen != :KeyConflictError` failed with MessageNotFoundError. Symbol is
   an identity-less immutable value under `C003` and comparing two of them is
   ordinary, so this is a real gap. V026 was rewritten to avoid it rather than

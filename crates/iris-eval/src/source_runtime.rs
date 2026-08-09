@@ -3033,6 +3033,54 @@ impl SourceEvaluator {
                 .mutate(|elements| apply_array_mutation(elements, selector, arguments))
                 .map(Some),
             // C029: `fetch` RAISES for an absent key where `[]` answers nil.
+            // C051 appends another String directly and otherwise invokes its
+            // `to_string`. C072 forbids reaching text through an implicit
+            // binary conversion, so Bytes does not join a String here.
+            (Value::Text(text), "+", [other]) => {
+                let joined = match other {
+                    Value::Text(other) => other.clone(),
+                    other => match self.send(other.clone(), "to_string", &[])? {
+                        Value::Text(rendered) => rendered,
+                        // C048 raises when a conversion answers a non-String.
+                        _ => return Err(EvaluationError::TypeContractError),
+                    },
+                };
+                Ok(Some(Value::Text(format!("{text}{joined}"))))
+            }
+            // C044 exposes UTF-8 bytes EXPLICITLY, since `length` and indexing
+            // count Unicode scalars. C073 makes this the same snapshot
+            // `to_bytes` answers.
+            (Value::Text(text), "bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
+            // C050 makes `to_string` answer the receiver itself.
+            (Value::Text(text), "to_string", []) => Ok(Some(Value::Text(text.clone()))),
+            // C050 requires a REPARSABLE double-quoted literal that recreates a
+            // scalar-equal String and does not execute interpolation when
+            // parsed. Interpolation is written `${...}`, so only a `$` that
+            // OPENS one needs escaping; escaping every `$` would emit `\$`,
+            // which the literal grammar does not accept.
+            (Value::Text(text), "inspect", []) => {
+                let mut rendered = String::from("\"");
+                let mut scalars = text.chars().peekable();
+                while let Some(scalar) = scalars.next() {
+                    match scalar {
+                        '"' => rendered.push_str("\\\""),
+                        '\\' => rendered.push_str("\\\\"),
+                        '\n' => rendered.push_str("\\n"),
+                        '\r' => rendered.push_str("\\r"),
+                        '\t' => rendered.push_str("\\t"),
+                        // Interpolation is written `${...}`. The literal
+                        // escape table has no `\$`, so a `$` that would OPEN
+                        // one is emitted as its Unicode escape instead, which
+                        // reparses to the same scalar without interpolating.
+                        '$' if scalars.peek() == Some(&'{') => {
+                            rendered.push_str("\\u{24}");
+                        }
+                        scalar => rendered.push(scalar),
+                    }
+                }
+                rendered.push('"');
+                Ok(Some(Value::Text(rendered)))
+            }
             // C073 decodes STRICTLY and raises EncodingError on an invalid
             // sequence; lossy behavior is never the default. C072 keeps text
             // and binary conversion to these EXPLICIT APIs.
@@ -6838,6 +6886,17 @@ impl SourceEvaluator {
             && let Value::Contract(contract) = &receiver
         {
             return Ok(Value::Integer(self.contract_type_hash(*contract)?));
+        }
+        // C043 compares the exact scalar SEQUENCE and case, with no implicit
+        // normalization, case folding, locale mapping or grapheme
+        // equivalence. A Symbol is an identity-less immutable value under
+        // C003, so it compares the same way. Both are value comparisons.
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::Text(_) | Value::Symbol(_))
+            && let [other] = arguments
+        {
+            let equal = &receiver == other;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // C022 compares Tuple ARITY and then elements in order, which the
         // derived value equality performs, and C021 makes a Tuple identity-less
