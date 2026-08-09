@@ -247,6 +247,13 @@ pub struct HashRef(Rc<RefCell<HashBody>>);
 #[derive(Debug)]
 pub struct HashBody {
     entries: Vec<(Value, Value)>,
+    /// The bucket each entry was placed under at insertion.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C028` looks an entry up by the key's CURRENT hash,
+    /// and `C030` says a container does not track later hash changes, so the
+    /// bucket is recorded when the entry is placed and only `rehash()` rebuilds
+    /// it. Recomputing it from the key would hide exactly that staleness.
+    buckets: Vec<Value>,
     version: u64,
 }
 
@@ -254,8 +261,10 @@ impl HashRef {
     /// Creates a new Hash holding `entries`, at structural version zero.
     #[must_use]
     pub fn new(entries: Vec<(Value, Value)>) -> Self {
+        let buckets = vec![Value::Nil; entries.len()];
         Self(Rc::new(RefCell::new(HashBody {
             entries,
+            buckets,
             version: 0,
         })))
     }
@@ -324,6 +333,28 @@ impl HashRef {
     /// which only the evaluator can perform, so the caller resolves the slot
     /// and passes it here. `None` means no existing key compared equal, and the
     /// derived comparison is used only for the built-in value keys.
+    /// The bucket recorded for a slot at insertion time.
+    #[must_use]
+    pub fn bucket_at(&self, slot: usize) -> Option<Value> {
+        self.0.borrow().buckets.get(slot).cloned()
+    }
+
+    /// Inserts or updates, recording the bucket the key hashed to.
+    pub fn insert_bucketed(&self, slot: Option<usize>, key: Value, value: Value, bucket: Value) {
+        {
+            let mut body = self.0.borrow_mut();
+            if let Some(index) = slot
+                && let Some(entry) = body.entries.get_mut(index)
+            {
+                entry.1 = value;
+                return;
+            }
+            body.entries.push((key, value));
+            body.buckets.push(bucket);
+            body.version = body.version.saturating_add(1);
+        }
+    }
+
     pub fn insert_at(&self, slot: Option<usize>, key: Value, value: Value) {
         let mut body = self.0.borrow_mut();
         if let Some(index) = slot {
@@ -361,6 +392,9 @@ impl HashRef {
             return None;
         }
         let (_, value) = body.entries.remove(slot);
+        if slot < body.buckets.len() {
+            body.buckets.remove(slot);
+        }
         body.version = body.version.saturating_add(1);
         Some(value)
     }
@@ -393,6 +427,9 @@ impl HashRef {
     /// so the caller commits an already-checked entry set here.
     pub fn replace_entries(&self, entries: Vec<(Value, Value)>) {
         let mut body = self.0.borrow_mut();
+        // C031 rebuilds from CURRENT hashes, so stale buckets are cleared and
+        // the caller records the fresh ones.
+        body.buckets = vec![Value::Nil; entries.len()];
         body.entries = entries;
         body.version = body.version.saturating_add(1);
     }

@@ -3464,6 +3464,44 @@ impl SourceEvaluator {
                         .unwrap_or(Value::Nil),
                 ))
             }
+            // C037 yields exactly `(key, value)` to an `each` block and
+            // exactly `(key, value, iterator)` to `each_with_iterator`, which
+            // is the ONLY standard block surface exposing `remove_current`.
+            // Each traversal takes its own Iterator, so nested traversals do
+            // not share a cursor and no hidden current-iterator context exists.
+            (Value::Hash(_), "each" | "each_with_iterator", [Value::Closure(block)]) => {
+                let (block, with_iterator) = (*block, selector == "each_with_iterator");
+                let cursor = self.send(receiver.clone(), "iterator", &[])?;
+                let outcome = loop {
+                    let step = match self.send(cursor.clone(), "next", &[]) {
+                        Ok(step) => step,
+                        Err(error) => break Err(error),
+                    };
+                    let Value::IterationYield(entry) = step else {
+                        break Ok(Value::Nil);
+                    };
+                    let Value::Tuple(mut arguments) = *entry else {
+                        break Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                    };
+                    if with_iterator {
+                        arguments.push(cursor.clone());
+                    }
+                    if let Err(error) = self.invoke_closure(block, &arguments) {
+                        break Err(error);
+                    }
+                };
+                // C036 and C054 close the cursor on every exit path.
+                self.close_after(cursor, outcome).map(Some)
+            }
+            // C033 leaves iteration ORDER unspecified, so an entry array is an
+            // unordered multiset in which each entry appears exactly once.
+            (Value::Hash(entries), "to_array", []) => Ok(Some(Value::Array(ArrayRef::new(
+                entries
+                    .entries()
+                    .into_iter()
+                    .map(|(key, value)| Value::Tuple(vec![key, value]))
+                    .collect(),
+            )))),
             (Value::Hash(entries), "keys", []) => Ok(Some(Value::Array(
                 entries.entries().into_iter().map(|(key, _)| key).collect(),
             ))),
@@ -3800,12 +3838,34 @@ impl SourceEvaluator {
         entries: &iris_runtime::HashRef,
         key: &Value,
     ) -> Result<Option<usize>, EvaluationError> {
+        // C028 uses the key's current `hash` AND `==`, so a key whose hash has
+        // moved since insertion no longer finds its entry: the stored slot was
+        // placed under the old hash. C030 makes `rehash()` the remedy and says
+        // the inconsistency until then is the user's responsibility, which is
+        // exactly what V276 observes.
+        let wanted = self.key_hash(key)?;
         for (index, (held, _)) in entries.entries().into_iter().enumerate() {
+            // The bucket recorded at INSERTION is what the entry sits under. A
+            // key whose hash has since moved therefore misses, which is the
+            // C030 inconsistency `rehash()` exists to repair.
+            let placed = entries.bucket_at(index).unwrap_or(Value::Nil);
+            if placed != Value::Nil && placed != wanted {
+                continue;
+            }
             if self.key_equal(&held, key)? {
                 return Ok(Some(index));
             }
         }
         Ok(None)
+    }
+
+    /// The bucket a Hash key currently belongs to.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C028` dispatches the key's CURRENT `hash` Method.
+    /// A key whose built-in hash raises is not a legal key at all, so the
+    /// failure propagates rather than being treated as a distinct bucket.
+    fn key_hash(&mut self, key: &Value) -> Result<Value, EvaluationError> {
+        self.send(key.clone(), "hash", &[])
     }
 
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
@@ -3878,7 +3938,13 @@ impl SourceEvaluator {
             rebuilt[index] = (new_key.clone(), new_value.clone());
         }
         // Every check passed, so the replacement is published atomically.
-        entries.replace_entries(rebuilt);
+        entries.replace_entries(Vec::new());
+        for (key, value) in rebuilt {
+            // C031 rebuilds from CURRENT public hashes, so each surviving entry
+            // is placed under the hash it has NOW rather than the stale one.
+            let bucket = self.key_hash(&key)?;
+            entries.insert_bucketed(None, key, value, bucket);
+        }
         Ok(Value::Nil)
     }
 
@@ -5598,7 +5664,8 @@ impl SourceEvaluator {
                 // INSERT structural. C028 dispatches the key's current `==`, so
                 // the slot is resolved by real sends before writing.
                 let slot = self.hash_slot(&entries, &index)?;
-                entries.insert_at(slot, index, value.clone());
+                let bucket = self.key_hash(&index)?;
+                entries.insert_bucketed(slot, index, value.clone(), bucket);
                 Ok(Value::Hash(entries))
             }
             target => self.send(target, "[]=", &[index, value]),
