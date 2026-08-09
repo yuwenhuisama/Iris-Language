@@ -3482,6 +3482,10 @@ impl SourceEvaluator {
             (Value::ByteArray(bytes), "to_string", []) => String::from_utf8(bytes.bytes())
                 .map(|text| Some(Value::Text(text)))
                 .map_err(|_| EvaluationError::EncodingError),
+            // C073 makes `to_bytes` a Bytes SNAPSHOT, so a ByteArray answers
+            // its current contents as an immutable value.
+            (Value::Bytes(bytes), "to_bytes", []) => Ok(Some(Value::Bytes(bytes.clone()))),
+            (Value::ByteArray(bytes), "to_bytes", []) => Ok(Some(Value::Bytes(bytes.bytes()))),
             (Value::Text(text), "to_bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
             // C031 builds and validates a temporary replacement from CURRENT
             // keys, hashes and equality, and publishes nothing on failure.
@@ -8352,6 +8356,16 @@ impl SourceEvaluator {
             // C003 makes an Iterator hash RUNTIME-LOCAL, stable for the
             // lifetime of one identity, so advancing the cursor cannot move it.
             return Ok(Value::Integer(identity.raw().into()));
+        }
+        // C077 makes Regex an immutable identity-LESS value whose equality
+        // uses canonical pattern text plus canonical flags, so `/a+/im` and
+        // `/a+/mi` are equal once C081 has ordered the flags.
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::Regex(_))
+            && let [other] = arguments
+        {
+            let equal = &receiver == other;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // C043 compares the exact scalar SEQUENCE and case, with no implicit
         // normalization, case folding, locale mapping or grapheme
