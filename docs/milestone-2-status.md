@@ -9,7 +9,7 @@
 ```
 COLLECTIONS passed: 36, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (36 records, buckets sum 36)
 FFI         passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
+ASYNC    passed: 19, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (19 records, buckets sum 19)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
@@ -222,8 +222,13 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | CONTROL | 134 | 134 |
 | TYPES | 79 | 80 |
 | META | 51 | 51 |
-| ASYNC | 15 | 40 |
-| **Total** | **435** | **462** |
+| ASYNC | 19 | 40 |
+| COLLECTIONS | 36 | 122 |
+| FFI | 3 | 32 |
+| LIBRARY | 0 | 14 |
+| IDENTITY | 0 | 5 |
+| CONFORMANCE | 0 | 3 |
+| **Total** | **473** | **638** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
@@ -231,7 +236,7 @@ did not invent.
 
 ### Blocked on an external completion source
 
-`V006`, `V010`, `V012`, `V017`, `V018` need a genuinely INCOMPLETE Awaitable.
+`V006`, `V010`, `V012`, `V081`, `V084` need a genuinely INCOMPLETE Awaitable.
 Nothing in this milestone can produce one: `IRIS-V1-ASYNC-C012` completes every
 async body synchronously when no incomplete await is reached, so `C014`'s FIFO
 continuation queue has no input and suspension across `using` or `for` cannot be
