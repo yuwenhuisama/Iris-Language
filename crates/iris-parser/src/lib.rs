@@ -138,8 +138,8 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         TokenKind::StringLiteral
         | TokenKind::MutableStringLiteral
         | TokenKind::BytesLiteral
-        | TokenKind::ByteArrayLiteral
-        | TokenKind::RegexLiteral => literal_end(remaining),
+        | TokenKind::ByteArrayLiteral => literal_end(remaining),
+        TokenKind::RegexLiteral => regex_literal_end(remaining),
         TokenKind::Newline => usize::from(remaining.starts_with("\r\n")) + 1,
         TokenKind::HashOpen => 2,
         TokenKind::SourceCharacter
@@ -179,6 +179,30 @@ fn numeric_end(source: &str, start: usize) -> usize {
         break;
     }
     end
+}
+
+/// The length of a `IRIS-V1-COLLECTIONS-C076` Regex literal token.
+///
+/// A Regex is delimited by `/` rather than a quote and carries trailing flags,
+/// so measuring it with the quoted-literal rule cut the token at the closing
+/// slash and DROPPED every flag, making `/a/im` indistinguishable from `/a/`.
+fn regex_literal_end(remaining: &str) -> usize {
+    let bytes = remaining.as_bytes();
+    let mut cursor = usize::from(bytes.first() == Some(&b'r')) + 1;
+    while let Some(byte) = bytes.get(cursor) {
+        match byte {
+            b'\\' => cursor += 2,
+            b'/' => {
+                cursor += 1;
+                while bytes.get(cursor).is_some_and(u8::is_ascii_alphabetic) {
+                    cursor += 1;
+                }
+                return cursor;
+            }
+            _ => cursor += 1,
+        }
+    }
+    remaining.len()
 }
 
 fn literal_end(remaining: &str) -> usize {

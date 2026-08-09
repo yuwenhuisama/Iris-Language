@@ -205,6 +205,15 @@ fn render_value(value: &RuntimeValue) -> String {
         // content, so it renders under the same shape and a vector states the
         // scalar content rather than the container.
         RuntimeValue::MutableString(text) => render_value(&RuntimeValue::Text(text.text())),
+        // C027 names `regex` as its own value shape, and C077 makes canonical
+        // pattern text plus canonical flags the whole value.
+        RuntimeValue::Regex(regex) => format!(
+            "{{\"regex\":{{\"pattern\":\"{}\",\"flags\":\"{}\"}}}}",
+            regex.pattern, regex.flags
+        ),
+        // A Match has no C027 shape of its own, so a vector observes it through
+        // its parts rather than as a whole.
+        RuntimeValue::Match(matched) => format!("{{\"string\":\"{}\"}}", matched.text),
         // C027 names `bytes_hex` as the byte-sequence shape. C068 permits
         // CROSS-TYPE equality between Bytes and ByteArray, so both render the
         // same way and a vector states the sequence rather than the container.
@@ -288,6 +297,8 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Bytes(_) => "Bytes",
         RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::MutableString(_) => "MutableString",
+        RuntimeValue::Regex(_) => "Regex",
+        RuntimeValue::Match(_) => "Match",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
@@ -365,6 +376,7 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::EncodingError => "EncodingError".into(),
         EvaluationError::RangeError => "RangeError".into(),
         EvaluationError::InvalidKeyError => "InvalidKeyError".into(),
+        EvaluationError::RegexSyntaxError => "RegexSyntaxError".into(),
         EvaluationError::IdentityError => "IdentityError".into(),
         EvaluationError::ComparisonContractError => "ComparisonContractError".into(),
         EvaluationError::ArgumentError => "ArgumentError".into(),

@@ -537,6 +537,8 @@ impl Kernel {
             | Value::Bytes(_)
             | Value::ByteArray(_)
             | Value::MutableString(_)
+            | Value::Regex(_)
+            | Value::Match(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)

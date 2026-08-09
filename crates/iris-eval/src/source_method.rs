@@ -27,6 +27,9 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
     // C052 makes an `m` literal follow the corresponding String literal family
     // for content, interpolation and indentation BEFORE the MutableString value
     // is created, so the body is delegated rather than re-parsed.
+    if let Some(regex) = regex_literal(source)? {
+        return Ok(regex);
+    }
     if let Some(text) = mutable_string_literal(source) {
         let Value::Text(text) = literal(&text)? else {
             return Err(EvaluationError::UnsupportedConstruct);
@@ -111,6 +114,64 @@ fn byte_literal(source: &str) -> Result<Option<Value>, EvaluationError> {
     } else {
         Value::Bytes(bytes)
     }))
+}
+
+/// Decodes a `IRIS-V1-COLLECTIONS-C076` Regex literal.
+///
+/// Returns `None` when `source` is not one. `C080` fixes the flag set as
+/// exactly `i`, `m`, `s` and `x` and requires a duplicate or unsupported flag to
+/// be diagnosed, and `C081` stores the accepted flags in canonical `imsx` order
+/// so `/a/im` and `/a/mi` are equal.
+fn regex_literal(source: &str) -> Result<Option<Value>, EvaluationError> {
+    let body = match source.strip_prefix("r/") {
+        Some(body) => body,
+        None => match source.strip_prefix('/') {
+            Some(body) => body,
+            None => return Ok(None),
+        },
+    };
+    let Some(close) = body.rfind('/') else {
+        return Ok(None);
+    };
+    let (pattern, flags) = body.split_at(close);
+    let flags = &flags[1..];
+    let mut seen = Vec::new();
+    for flag in flags.chars() {
+        // C080 rejects an unsupported flag, and C081 makes a DUPLICATE invalid
+        // before canonicalization rather than something to deduplicate.
+        if !matches!(flag, 'i' | 'm' | 's' | 'x') || seen.contains(&flag) {
+            return Err(EvaluationError::LexicalDiagnostic("LEX_BAD_REGEX_FLAGS"));
+        }
+        seen.push(flag);
+    }
+    let canonical: String = "imsx".chars().filter(|flag| seen.contains(flag)).collect();
+    // C078 fixes the supported subset and C079 forbids backreferences,
+    // lookbehind and other constructs needing unbounded backtracking. The
+    // engine enforces exactly that subset, so an unsupported construct is
+    // rejected here rather than accepted and mis-executed.
+    compiled_regex(pattern, &canonical)?;
+    Ok(Some(Value::Regex(Box::new(iris_runtime::RegexValue {
+        pattern: pattern.to_owned(),
+        flags: canonical,
+    }))))
+}
+
+/// Compiles a canonical pattern and flags into an engine Regex.
+///
+/// `IRIS-V1-COLLECTIONS-C080` maps each flag onto its engine equivalent, and
+/// Unicode mode is always on and fixed by the language major.
+pub(crate) fn compiled_regex(
+    pattern: &str,
+    canonical_flags: &str,
+) -> Result<regex::Regex, EvaluationError> {
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(canonical_flags.contains('i'))
+        .multi_line(canonical_flags.contains('m'))
+        .dot_matches_new_line(canonical_flags.contains('s'))
+        .ignore_whitespace(canonical_flags.contains('x'))
+        .unicode(true)
+        .build()
+        .map_err(|_| EvaluationError::RegexSyntaxError)
 }
 
 /// Strips a `IRIS-V1-COLLECTIONS-C052` MutableString prefix.

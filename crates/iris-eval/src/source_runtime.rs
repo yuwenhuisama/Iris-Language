@@ -3080,6 +3080,94 @@ impl SourceEvaluator {
                     _ => Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 }
             }
+            // C082 evaluates text and Regex once, requires the subject to be a
+            // String or a MutableString SNAPSHOT, and answers an immutable
+            // Match for the FIRST match or nil. C084 makes the snapshot the
+            // reason a later MutableString mutation cannot rewrite a Match.
+            (Value::Text(_) | Value::MutableString(_), "=~" | "!~", [Value::Regex(regex)]) => {
+                let subject = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let compiled = crate::source_method::compiled_regex(&regex.pattern, &regex.flags)?;
+                let found = compiled.captures(&subject);
+                if selector == "!~" {
+                    // C082 makes `!~` true exactly when `=~` would answer nil.
+                    return Ok(Some(Value::Bool(found.is_none())));
+                }
+                let Some(found) = found else {
+                    return Ok(Some(Value::Nil));
+                };
+                let whole = found.get(0).ok_or(EvaluationError::RegexSyntaxError)?;
+                // C083 exposes scalar ranges alongside UTF-8 byte ranges, so the
+                // scalar offsets are counted rather than assumed equal to bytes.
+                let scalar_start = subject[..whole.start()].chars().count();
+                let scalar_end = scalar_start + whole.as_str().chars().count();
+                // C083 keeps capture ABSENCE distinct from an empty capture, so
+                // a non-participating group stays None rather than becoming "".
+                let captures = (1..compiled.captures_len())
+                    .map(|index| found.get(index).map(|group| group.as_str().to_owned()))
+                    .collect();
+                let named = compiled
+                    .capture_names()
+                    .flatten()
+                    .map(|name| {
+                        (
+                            name.to_owned(),
+                            found.name(name).map(|group| group.as_str().to_owned()),
+                        )
+                    })
+                    .collect();
+                Ok(Some(Value::Match(Box::new(iris_runtime::MatchValue {
+                    text: whole.as_str().to_owned(),
+                    byte_start: whole.start(),
+                    byte_end: whole.end(),
+                    scalar_start,
+                    scalar_end,
+                    captures,
+                    named,
+                    regex: regex.as_ref().clone(),
+                }))))
+            }
+            // C083 exposes the full match, its ranges, its captures and the
+            // Regex used, and forbids any global or mutable engine state.
+            (Value::Match(matched), "text" | "to_string", []) => {
+                Ok(Some(Value::Text(matched.text.clone())))
+            }
+            (Value::Match(matched), "regex", []) => {
+                Ok(Some(Value::Regex(Box::new(matched.regex.clone()))))
+            }
+            (Value::Match(matched), "byte_start", []) => Ok(Some(Value::Integer(
+                u64::try_from(matched.byte_start).unwrap_or_default().into(),
+            ))),
+            (Value::Match(matched), "byte_end", []) => Ok(Some(Value::Integer(
+                u64::try_from(matched.byte_end).unwrap_or_default().into(),
+            ))),
+            (Value::Match(matched), "start", []) => Ok(Some(Value::Integer(
+                u64::try_from(matched.scalar_start)
+                    .unwrap_or_default()
+                    .into(),
+            ))),
+            (Value::Match(matched), "end", []) => Ok(Some(Value::Integer(
+                u64::try_from(matched.scalar_end).unwrap_or_default().into(),
+            ))),
+            (Value::Match(matched), "capture", [index]) => {
+                let found = match index {
+                    Value::Integer(index) => index
+                        .to_usize()
+                        .and_then(|index| index.checked_sub(1))
+                        .and_then(|index| matched.captures.get(index).cloned())
+                        .flatten(),
+                    Value::Symbol(name) | Value::Text(name) => matched
+                        .named
+                        .iter()
+                        .find(|(known, _)| known == name)
+                        .and_then(|(_, value)| value.clone()),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                Ok(Some(found.map_or(Value::Nil, Value::Text)))
+            }
             // C053 answers a String SNAPSHOT of current content, so a later
             // mutation of the receiver does not reach the snapshot.
             (Value::MutableString(text), "to_string", []) => Ok(Some(Value::Text(text.text()))),
@@ -3239,6 +3327,57 @@ impl SourceEvaluator {
                 _ => Err(EvaluationError::TypeContractError),
             },
         }
+    }
+
+    /// Builds a Regex literal whose pattern contains `${expr}` interpolation.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C076` evaluates each segment ONCE, converts it with
+    /// dynamic `to_string`, and escapes the result with default Regex escaping.
+    /// Escaping is the point: an interpolated `a+b` must match the three
+    /// characters, not "one or more a followed by b".
+    fn interpolated_regex(
+        &mut self,
+        source: &str,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let body = source
+            .strip_prefix('/')
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let close = body
+            .rfind('/')
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        let (pattern, flags) = body.split_at(close);
+        let flags = &flags[1..];
+        let mut built = String::new();
+        let mut rest = pattern;
+        while let Some(open) = rest.find("${") {
+            built.push_str(&rest[..open]);
+            let after = &rest[open + 2..];
+            let end = after
+                .find('}')
+                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            let parsed = iris_parser::parse(&after[..end]);
+            let [iris_syntax::ProgramEntry::Statement(Statement::Expression(expression))] =
+                parsed.program.entries.as_slice()
+            else {
+                return Err(EvaluationError::UnsupportedConstruct);
+            };
+            let value = self.expression(expression, locals, receiver.clone())?;
+            let text = self.text_operand(&value)?;
+            built.push_str(&regex::escape(&text));
+            rest = &after[end + 1..];
+        }
+        built.push_str(rest);
+        let canonical: String = "imsx"
+            .chars()
+            .filter(|flag| flags.contains(*flag))
+            .collect();
+        crate::source_method::compiled_regex(&built, &canonical)?;
+        Ok(Value::Regex(Box::new(iris_runtime::RegexValue {
+            pattern: built,
+            flags: canonical,
+        })))
     }
 
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
@@ -4024,6 +4163,13 @@ impl SourceEvaluator {
                 .get(&(self.package.clone(), name.clone()))
                 .map(Binding::value)
                 .ok_or(EvaluationError::NameError),
+            // C076 evaluates each `${expr}` in a NON-RAW Regex literal once,
+            // converts it through dynamic `to_string`, then escapes it with
+            // default Regex escaping before insertion, so an interpolated value
+            // contributes literal text and never pattern syntax.
+            Expression::Literal(source) if source.starts_with('/') && source.contains("${") => {
+                self.interpolated_regex(source, locals, receiver)
+            }
             Expression::Literal(source) => literal(source),
             Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
             Expression::Grouped(expression) => self.expression(expression, locals, receiver),
@@ -4450,6 +4596,10 @@ impl SourceEvaluator {
                     }
                     BinaryOperator::Equal => "==",
                     BinaryOperator::NotEqual => "!=",
+                    // C082 makes `=~` and `!~` ordinary sends on the subject,
+                    // so they dispatch like any other binary selector.
+                    BinaryOperator::Match => "=~",
+                    BinaryOperator::NotMatch | BinaryOperator::RegexDoesNotMatch => "!~",
                     BinaryOperator::NamedInfix { selector } => selector,
                     // C006 makes `..=` and `..<` the only Range literal
                     // operators, and C007 fixes both endpoints as Integers.
@@ -7112,6 +7262,8 @@ impl SourceEvaluator {
                     // C022 makes a Tuple hash succeed only when every element
                     // hash does, and `public_hash` already propagates the
                     // failure of an unhashable element.
+                    // C077 hashes canonical pattern text plus canonical flags.
+                    | Value::Regex(_)
                     // C068 makes the Bytes hash stable. A ByteArray is absent
                     // deliberately: its built-in hash RAISES InvalidKeyError.
                     | Value::Bytes(_)
@@ -7248,6 +7400,8 @@ impl SourceEvaluator {
                         | Value::Bytes(_)
                         | Value::ByteArray(_)
                         | Value::MutableString(_)
+                        | Value::Regex(_)
+                        | Value::Match(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
@@ -7303,6 +7457,8 @@ impl SourceEvaluator {
             | Value::Bytes(_)
             | Value::ByteArray(_)
             | Value::MutableString(_)
+            | Value::Regex(_)
+            | Value::Match(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
@@ -7518,6 +7674,8 @@ impl SourceEvaluator {
             | Value::Bytes(_)
             | Value::ByteArray(_)
             | Value::MutableString(_)
+            | Value::Regex(_)
+            | Value::Match(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -8394,6 +8552,8 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Bytes(_) => "Bytes",
         Value::ByteArray(_) => "ByteArray",
         Value::MutableString(_) => "MutableString",
+        Value::Regex(_) => "Regex",
+        Value::Match(_) => "Match",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
@@ -8539,6 +8699,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::EncodingError => "EncodingError",
         EvaluationError::RangeError => "RangeError",
         EvaluationError::InvalidKeyError => "InvalidKeyError",
+        EvaluationError::RegexSyntaxError => "RegexSyntaxError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

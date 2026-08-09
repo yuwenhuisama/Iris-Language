@@ -476,6 +476,43 @@ pub struct RangeValue {
     pub step: IntegerValue,
 }
 
+/// The canonical pattern and flags of a Regex.
+///
+/// `IRIS-V1-COLLECTIONS-C081` stores flags in the fixed order `imsx` with
+/// absent flags omitted, so `/a/im` and `/a/mi` compare and hash equal.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegexValue {
+    /// The canonical pattern text.
+    pub pattern: String,
+    /// The canonical flags, in `imsx` order.
+    pub flags: String,
+}
+
+/// One immutable match result.
+///
+/// `IRIS-V1-COLLECTIONS-C083` requires capture ABSENCE to stay distinct from an
+/// empty capture, which is why the captures are `Option`s rather than empty
+/// strings, and requires scalar ranges alongside UTF-8 byte ranges.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchValue {
+    /// The full matched text.
+    pub text: String,
+    /// The byte offsets of the full match in the subject's UTF-8 encoding.
+    pub byte_start: usize,
+    /// The exclusive end byte offset of the full match.
+    pub byte_end: usize,
+    /// The scalar offsets of the full match in the subject.
+    pub scalar_start: usize,
+    /// The exclusive end scalar offset of the full match.
+    pub scalar_end: usize,
+    /// Numbered captures, where `None` marks a group that did not participate.
+    pub captures: Vec<Option<String>>,
+    /// Named captures, in pattern order.
+    pub named: Vec<(String, Option<String>)>,
+    /// The Regex that produced this Match.
+    pub regex: RegexValue,
+}
+
 /// A shared, mutable text body.
 ///
 /// `IRIS-V1-COLLECTIONS-C052` makes MutableString identity-bearing, so this is
@@ -606,6 +643,17 @@ pub enum Value {
     /// relation. Entries are therefore kept as an association list keyed by
     /// `Value` equality instead of a host `HashMap`, which would impose both a
     /// host hash and a host equality the clauses do not permit.
+    /// An immutable Iris `Regex`.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C077` makes Regex an immutable identity-LESS core
+    /// value whose equality and public hash use canonical pattern text plus
+    /// canonical flags, so those two strings are the value.
+    Regex(Box<RegexValue>),
+    /// An immutable Iris `Match`.
+    ///
+    /// `C083` makes a Match immutable and forbids exposing global variables or
+    /// mutable engine state, so it carries its own resolved captures.
+    Match(Box<MatchValue>),
     /// An identity-bearing mutable Iris `MutableString`.
     ///
     /// `IRIS-V1-COLLECTIONS-C052` makes each `m` literal evaluation create a

@@ -8,6 +8,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+# C078/C079: the engine enforces the linear-time, no-backtracking subset.
+regex = "1"
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }

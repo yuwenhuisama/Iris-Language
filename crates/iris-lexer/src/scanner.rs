@@ -204,6 +204,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::Dot,
                 offset,
                 true,
+                &mut expression_start,
             ),
             // C016 lists `=~` and `!~` among the fixed expression operator
             // spellings. Without them `=~` lexed as assignment plus bitwise
@@ -297,6 +298,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::LeftParen,
                 offset,
                 true,
+                &mut expression_start,
             ),
             b')' => {
                 punct(
@@ -306,6 +308,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                     TokenKind::RightParen,
                     offset,
                     false,
+                    &mut expression_start,
                 );
                 expression_start = false;
             }
@@ -316,6 +319,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::LeftBrace,
                 offset,
                 true,
+                &mut expression_start,
             ),
             b'}' => punct(
                 &mut tokens,
@@ -324,6 +328,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::RightBrace,
                 offset,
                 false,
+                &mut expression_start,
             ),
             b':' => punct(
                 &mut tokens,
@@ -332,6 +337,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::Colon,
                 offset,
                 true,
+                &mut expression_start,
             ),
             b';' => punct(
                 &mut tokens,
@@ -340,6 +346,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::Semicolon,
                 offset,
                 true,
+                &mut expression_start,
             ),
             b'@' if bytes.get(index + 1) == Some(&b'@') => {
                 push(&mut tokens, TokenKind::DoubleAt, offset);
@@ -353,6 +360,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 TokenKind::At,
                 offset,
                 true,
+                &mut expression_start,
             ),
             byte @ (b'+' | b'-' | b'*' | b'&' | b'|' | b'^' | b'%' | b'=') => {
                 let (kind, width) = fixed_operator(bytes, index, byte);
@@ -579,11 +587,16 @@ fn punct(
     position: &mut SourcePosition,
     kind: TokenKind,
     offset: ByteOffset,
-    expression_start: bool,
+    starts_expression: bool,
+    expression_start: &mut bool,
 ) {
     push(tokens, kind, offset);
     advance(index, 1, position);
-    let _ = expression_start;
+    // `IRIS-V1-COLLECTIONS-C023` makes a slash open a Regex literal only where a
+    // primary expression is expected. Every caller passed that answer in and it
+    // was discarded, so an opening brace never restored the expression position
+    // and `fun f() { /a/ }` could not lex a Regex at all.
+    *expression_start = starts_expression;
 }
 fn push(tokens: &mut Vec<Token>, kind: TokenKind, offset: ByteOffset) {
     tokens.push(Token { kind, offset });

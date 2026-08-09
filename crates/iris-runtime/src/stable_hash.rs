@@ -64,6 +64,8 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         // C068 makes the Bytes public hash stable while a ByteArray's raises,
         // so these deliberately do not share an arm.
         Value::Bytes(bytes) => Ok(bytes_hash(bytes)),
+        // C077 hashes canonical pattern text plus canonical flags.
+        Value::Regex(regex) => Ok(regex_hash(&regex.pattern, &regex.flags)),
         // C022 makes a Tuple hash succeed ONLY when every element hash
         // succeeds, so a failed element propagates and prevents use as a Hash
         // key rather than being skipped.
@@ -79,6 +81,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::Array(_)
         | Value::ByteArray(_)
         | Value::MutableString(_)
+        | Value::Match(_)
         | Value::Hash(_)
         | Value::Class(_)
         | Value::Type(..)

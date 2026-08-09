@@ -185,6 +185,12 @@ pub enum EvaluationError {
     /// `IRIS-V1-COLLECTIONS-C026`, `C055` and `C068` make the built-in hash of
     /// an Array, MutableString and ByteArray raise rather than answer.
     InvalidKeyError,
+    /// A Regex pattern lies outside the core subset.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C078` fixes the supported subset and `C079` forbids
+    /// backreferences, lookbehind and other constructs that would require
+    /// unbounded catastrophic backtracking.
+    RegexSyntaxError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -1204,6 +1210,8 @@ impl Evaluator {
             | RuntimeValue::Bytes(_)
             | RuntimeValue::ByteArray(_)
             | RuntimeValue::MutableString(_)
+            | RuntimeValue::Regex(_)
+            | RuntimeValue::Match(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
@@ -1262,6 +1270,8 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Bytes(_) => "Bytes",
         RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::MutableString(_) => "MutableString",
+        RuntimeValue::Regex(_) => "Regex",
+        RuntimeValue::Match(_) => "Match",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",

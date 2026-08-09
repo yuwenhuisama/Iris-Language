@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 32, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (32 records, buckets sum 32)
+COLLECTIONS passed: 35, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (35 records, buckets sum 35)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -114,6 +114,15 @@ Real defects surfaced through probing rather than through the corpus.
   `C050`; recorded rather than fixed, since the ordering lives in the lexer and
   belongs with a row that states it. `inspect` escapes the quote and backslash
   correctly and round-trips for every other case.
+- **`punct` discarded the expression-position flag.** The lexer helper took a
+  `expression_start` argument and ended with `let _ = expression_start;`, so no
+  punctuation token ever updated it. An opening brace therefore never restored
+  expression position and `fun f() { /a/ }` could not lex a Regex at all, while
+  `{ /a/ }` at top level could. Fixed with the Regex work.
+- **Regex literal tokens were measured with the quoted-literal rule.** The
+  parser sized a `RegexLiteral` by looking for a quote, so the token was cut at
+  the closing slash and every flag was DROPPED, making `/a/im` indistinguishable
+  from `/a/`. Fixed with the Regex work.
 - **Symbol answers neither `==` nor `!=`.** FIXED in this milestone alongside String equality. Found while transcribing V026,
   where `seen != :KeyConflictError` failed with MessageNotFoundError. Symbol is
   an identity-less immutable value under `C003` and comparing two of them is

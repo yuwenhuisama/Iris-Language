@@ -10,3 +10,12 @@ workspace = true
 [dependencies]
 blake3 = "1"
 num-bigint = "0.4"
+# IRIS-V1-COLLECTIONS-C078 requires deterministic linear-time-oriented matching
+# and C079 forbids backreferences, lookbehind and catastrophic backtracking.
+# This crate is built on finite automata with those exact guarantees, so the
+# subset the chapter defines is the subset it already implements.
+regex = "1"
+# IRIS-V1-COLLECTIONS-C042 pins Unicode data to 17.0.0, and this crate's
+# UNICODE_VERSION is exactly (17, 0, 0), so C044 graphemes use the required
+# tables rather than a hand-rolled approximation of UAX#29.
+unicode-segmentation = "1.13"
