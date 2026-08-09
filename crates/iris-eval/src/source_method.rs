@@ -171,7 +171,23 @@ pub(crate) fn compiled_regex(
         .ignore_whitespace(canonical_flags.contains('x'))
         .unicode(true)
         .build()
-        .map_err(|_| EvaluationError::RegexSyntaxError)
+        // C079 names the unsupported constructs individually, and V353 requires
+        // a DISTINCT diagnostic per construct rather than one generic Regex
+        // failure. The engine already reports which one it refused, so the code
+        // is derived from that rather than guessed from the pattern text.
+        .map_err(|error| {
+            let reported = error.to_string();
+            if reported.contains("backreference") {
+                EvaluationError::LexicalDiagnostic("REGEX_UNSUPPORTED_BACKREFERENCE")
+            } else if reported.contains("look-around")
+                || reported.contains("look-behind")
+                || reported.contains("look-ahead")
+            {
+                EvaluationError::LexicalDiagnostic("REGEX_UNSUPPORTED_LOOKBEHIND")
+            } else {
+                EvaluationError::RegexSyntaxError
+            }
+        })
 }
 
 /// Strips a `IRIS-V1-COLLECTIONS-C052` MutableString prefix.
