@@ -307,6 +307,8 @@ pub(super) struct SourceEvaluator {
     next_commit_id: u64,
     /// Subscriber failures recorded on the `C048` event-error channel.
     event_errors: Vec<Value>,
+    /// Whether `C050` shutdown has closed revision-event delivery.
+    revision_delivery_closed: bool,
     /// Retained audit history, in commit order.
     ///
     /// `C053` answers retained events and raises when a requested portion is
@@ -608,6 +610,7 @@ impl SourceEvaluator {
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
             revision_subscribers: Vec::new(),
+            revision_delivery_closed: false,
             next_commit_id: 1,
             event_errors: Vec::new(),
             audit_history: Vec::new(),
@@ -3529,6 +3532,16 @@ impl SourceEvaluator {
         }
     }
 
+    /// Closes revision delivery, per `IRIS-V1-ASYNC-C050`.
+    ///
+    /// Shutdown makes every event accepted but not yet delivered UNREACHABLE,
+    /// so a later flush reports incomplete delivery rather than pretending the
+    /// events reached a terminal state.
+    fn shutdown_revision_delivery(&mut self) -> Value {
+        self.revision_delivery_closed = true;
+        Value::Nil
+    }
+
     /// Delivers every queued revision event, per `IRIS-V1-ASYNC-C049`.
     ///
     /// The flush surface waits until each accepted event has been delivered,
@@ -3538,6 +3551,23 @@ impl SourceEvaluator {
     /// propagate to the completed open caller.
     fn flush_revision_events(&mut self) -> Result<Value, EvaluationError> {
         let mut delivered = Vec::new();
+        let mut undelivered = 0_usize;
+        if self.revision_delivery_closed {
+            // Delivery is closed, so nothing further can reach a terminal
+            // state. The accepted-but-undelivered count is the structured
+            // state C050 requires for diagnostics.
+            for subscriber in &mut self.revision_subscribers {
+                undelivered += subscriber.queued.len() + usize::from(subscriber.gap.is_some());
+                subscriber.queued.clear();
+                subscriber.gap = None;
+            }
+            return Ok(Value::Tuple(vec![
+                Value::Symbol("incomplete".into()),
+                Value::Array(ArrayRef::new(delivered)),
+                Value::Integer(u64::try_from(undelivered).unwrap_or_default().into()),
+                Value::Array(ArrayRef::new(self.event_errors.clone())),
+            ]));
+        }
         for index in 0..self.revision_subscribers.len() {
             let (callback, gap, queued) = {
                 let subscriber = &mut self.revision_subscribers[index];
@@ -3566,7 +3596,21 @@ impl SourceEvaluator {
                 self.deliver_revision_event(callback, event);
             }
         }
-        Ok(Value::Array(ArrayRef::new(delivered)))
+        // C050 makes a successful flush mean the delivery condition is
+        // satisfied, and requires an incomplete report with enough structured
+        // state when shutdown closed delivery first. The status travels with
+        // the delivered sequence so one surface answers both.
+        let status = if undelivered == 0 {
+            Value::Symbol("delivered".into())
+        } else {
+            Value::Symbol("incomplete".into())
+        };
+        Ok(Value::Tuple(vec![
+            status,
+            Value::Array(ArrayRef::new(delivered)),
+            Value::Integer(u64::try_from(undelivered).unwrap_or_default().into()),
+            Value::Array(ArrayRef::new(self.event_errors.clone())),
+        ]))
     }
 
     /// Invokes one subscriber, isolating its failure per `IRIS-V1-ASYNC-C048`.
@@ -6170,6 +6214,9 @@ impl SourceEvaluator {
             // shutdown. It answers the delivered sequence so a fixture can
             // observe that a GapEvent preceded later retained events.
             ("Revision", "flush") => self.flush_revision_events(),
+            // C050 names shutdown as the condition under which flush must
+            // report incomplete delivery.
+            ("Revision", "shutdown") => Ok(self.shutdown_revision_delivery()),
             // C048 records subscriber failures on the event-error channel,
             // which a fixture reads to observe that the commit still succeeded.
             ("Revision", "event_errors") => {
