@@ -9169,6 +9169,16 @@ impl SourceEvaluator {
         // only after instance dispatch found nothing, so a DECLARED
         // `to_string` still wins.
         let missing_name = self.selector_name(missing);
+        // C003 makes an ordinary object IDENTITY-BEARING, so `same?` compares
+        // the two identities. Like `to_string` this is reached only after
+        // instance dispatch found nothing, so a declared one still wins.
+        if missing_name == "same?"
+            && let [other] = arguments
+        {
+            return Ok(Value::Bool(
+                matches!(other, Value::Object(other) if *other == object),
+            ));
+        }
         if matches!(missing_name.as_str(), "to_string" | "inspect") && arguments.is_empty() {
             let class = self
                 .runtime
