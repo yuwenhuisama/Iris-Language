@@ -1817,12 +1817,12 @@ impl Parser {
         }
         self.peek().is_some_and(is_identifier)
     }
-    /// Whether `value` is a chapter 02 `bytes_literal`.
+    /// Whether `value` is a chapter 02 `bytes_literal` or MutableString literal.
     fn is_byte_literal(&self, value: &str) -> bool {
         value.contains(['"', '\''])
             && matches!(
                 value.split(['"', '\'']).next(),
-                Some("b" | "br" | "mb" | "mbr")
+                Some("b" | "br" | "mb" | "mbr" | "m" | "mr")
             )
     }
     fn is_literal(&self, value: &str) -> bool {

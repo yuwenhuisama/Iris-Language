@@ -24,6 +24,17 @@ pub(super) fn literal(source: &str) -> Result<Value, EvaluationError> {
     if let Some(bytes) = byte_literal(source)? {
         return Ok(bytes);
     }
+    // C052 makes an `m` literal follow the corresponding String literal family
+    // for content, interpolation and indentation BEFORE the MutableString value
+    // is created, so the body is delegated rather than re-parsed.
+    if let Some(text) = mutable_string_literal(source) {
+        let Value::Text(text) = literal(&text)? else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        return Ok(Value::MutableString(iris_runtime::MutableStringRef::new(
+            text,
+        )));
+    }
     match evaluate_literals(source)? {
         LiteralValue::Integer(value) => value
             .parse()
@@ -100,6 +111,21 @@ fn byte_literal(source: &str) -> Result<Option<Value>, EvaluationError> {
     } else {
         Value::Bytes(bytes)
     }))
+}
+
+/// Strips a `IRIS-V1-COLLECTIONS-C052` MutableString prefix.
+///
+/// Returns the equivalent String literal source, so the content rules are
+/// applied by the String path rather than duplicated here. Returns `None` when
+/// `source` is not an `m` literal.
+fn mutable_string_literal(source: &str) -> Option<String> {
+    let prefix_end = source.find(['"', '\''])?;
+    let (prefix, body) = source.split_at(prefix_end);
+    match prefix {
+        "m" => Some(body.to_owned()),
+        "mr" => Some(format!("r{body}")),
+        _ => None,
+    }
 }
 
 pub(super) fn builtin(name: &str, kernel: &Kernel) -> Option<Value> {

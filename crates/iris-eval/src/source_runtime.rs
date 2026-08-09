@@ -3047,6 +3047,41 @@ impl SourceEvaluator {
                 };
                 Ok(Some(Value::Text(format!("{text}{joined}"))))
             }
+            // C053 answers a String SNAPSHOT of current content, so a later
+            // mutation of the receiver does not reach the snapshot.
+            (Value::MutableString(text), "to_string", []) => Ok(Some(Value::Text(text.text()))),
+            (Value::MutableString(text), "to_bytes", []) => {
+                Ok(Some(Value::Bytes(text.text().into_bytes())))
+            }
+            (Value::MutableString(text), "length", []) => Ok(Some(Value::Integer(
+                u64::try_from(text.text().chars().count())
+                    .unwrap_or_default()
+                    .into(),
+            ))),
+            // C056 converts the operand first and answers a FRESH identity,
+            // leaving the receiver unchanged. C058 requires the in-place forms
+            // to commit atomically, so the conversion is completed BEFORE the
+            // receiver is touched, and a self or alias append is snapshotted by
+            // that same ordering.
+            (Value::MutableString(text), "+" | "<<" | "append", [other]) => {
+                let addition = self.text_operand(other)?;
+                if selector == "+" {
+                    return Ok(Some(Value::MutableString(
+                        iris_runtime::MutableStringRef::new(format!("{}{addition}", text.text())),
+                    )));
+                }
+                text.set(format!("{}{addition}", text.text()));
+                Ok(Some(receiver.clone()))
+            }
+            (Value::MutableString(text), "clear", []) => {
+                text.set(String::new());
+                Ok(Some(receiver.clone()))
+            }
+            (Value::MutableString(text), "replace", [other]) => {
+                let replacement = self.text_operand(other)?;
+                text.set(replacement);
+                Ok(Some(receiver.clone()))
+            }
             // C044 exposes UTF-8 bytes EXPLICITLY, since `length` and indexing
             // count Unicode scalars. C073 makes this the same snapshot
             // `to_bytes` answers.
@@ -3118,6 +3153,24 @@ impl SourceEvaluator {
                 Ok(Some(Value::Bool(entries.contains_key(key))))
             }
             _ => Ok(None),
+        }
+    }
+
+    /// Converts an operand to text for the `IRIS-V1-COLLECTIONS-C056` forms.
+    ///
+    /// String and MutableString contribute SNAPSHOT semantics, and anything
+    /// else is converted through `to_string`, whose non-String result `C048`
+    /// rejects. This runs to completion before any in-place mutation, which is
+    /// what makes `C058`'s atomic commit and its self-append snapshot hold.
+    fn text_operand(&mut self, value: &Value) -> Result<String, EvaluationError> {
+        match value {
+            Value::Text(text) => Ok(text.clone()),
+            Value::MutableString(text) => Ok(text.text()),
+            other => match self.send(other.clone(), "to_string", &[])? {
+                Value::Text(text) => Ok(text),
+                Value::MutableString(text) => Ok(text.text()),
+                _ => Err(EvaluationError::TypeContractError),
+            },
         }
     }
 
@@ -4595,7 +4648,9 @@ impl SourceEvaluator {
         match &target {
             // C069 reads byte units with negative-index support and answers an
             // Integer in 0..255, or nil out of range.
-            Value::Bytes(_) | Value::ByteArray(_) if !matches!(index, Value::Range(..)) => {
+            Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_)
+                if !matches!(index, Value::Range(..)) =>
+            {
                 let Value::Integer(position) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
@@ -4610,7 +4665,7 @@ impl SourceEvaluator {
             }
             // C070 slices in BYTE units: Bytes answers Bytes, and a ByteArray
             // answers an INDEPENDENT ByteArray snapshot identity.
-            Value::Bytes(_) | Value::ByteArray(_) => {
+            Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_) => {
                 let Value::Range(start, end, inclusive) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
@@ -6542,8 +6597,10 @@ impl SourceEvaluator {
             self.array_iterators.insert(identity, cursor);
             return Ok(Value::ArrayIterator(identity));
         }
-        if matches!(receiver, Value::Bytes(_) | Value::ByteArray(_))
-            && selector == "iterator"
+        if matches!(
+            receiver,
+            Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_)
+        ) && selector == "iterator"
             && arguments.is_empty()
         {
             // C075 yields Integer byte values in source order. Bytes is
@@ -6863,7 +6920,6 @@ impl SourceEvaluator {
                     // C022 makes a Tuple hash succeed only when every element
                     // hash does, and `public_hash` already propagates the
                     // failure of an unhashable element.
-                    | Value::Tuple(_)
                     // C068 makes the Bytes hash stable. A ByteArray is absent
                     // deliberately: its built-in hash RAISES InvalidKeyError.
                     | Value::Bytes(_)
@@ -6872,6 +6928,34 @@ impl SourceEvaluator {
             return iris_runtime::public_hash(&receiver)
                 .map(Value::Integer)
                 .map_err(|_| EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        }
+        if selector == "hash"
+            && arguments.is_empty()
+            && let Value::Tuple(elements) = &receiver
+        {
+            let mut hashes = Vec::with_capacity(elements.len());
+            for element in elements.clone() {
+                // A failed element hash propagates unchanged, so an unhashable
+                // element answers InvalidKeyError rather than a type failure.
+                let Value::Integer(hash) = self.send(element, "hash", &[])? else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                hashes.push(hash.to_u64().unwrap_or_default());
+            }
+            return Ok(Value::Integer(iris_runtime::tuple_hash(&hashes)));
+        }
+        // C026, C055 and C068 make the built-in hash of an Array,
+        // MutableString and ByteArray RAISE InvalidKeyError rather than answer
+        // a value, which is what keeps a mutable container out of a Hash key
+        // position.
+        if selector == "hash"
+            && arguments.is_empty()
+            && matches!(
+                receiver,
+                Value::Array(_) | Value::MutableString(_) | Value::ByteArray(_)
+            )
+        {
+            return Err(EvaluationError::InvalidKeyError);
         }
         if selector == "hash"
             && arguments.is_empty()
@@ -6886,6 +6970,27 @@ impl SourceEvaluator {
             && let Value::Contract(contract) = &receiver
         {
             return Ok(Value::Integer(self.contract_type_hash(*contract)?));
+        }
+        // C055 compares current exact scalar content and is CROSS-TYPE equal
+        // to a String with identical content, so the comparison is over the
+        // scalars rather than over the two container kinds.
+        if matches!(selector, "==" | "!=")
+            && matches!(
+                (&receiver, arguments.first()),
+                (
+                    Value::MutableString(_),
+                    Some(Value::MutableString(_) | Value::Text(_))
+                ) | (Value::Text(_), Some(Value::MutableString(_)))
+            )
+            && let [other] = arguments
+        {
+            let scalars = |value: &Value| match value {
+                Value::MutableString(text) => Some(text.text()),
+                Value::Text(text) => Some(text.clone()),
+                _ => None,
+            };
+            let equal = scalars(&receiver) == scalars(other);
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // C043 compares the exact scalar SEQUENCE and case, with no implicit
         // normalization, case folding, locale mapping or grapheme
@@ -6950,6 +7055,7 @@ impl SourceEvaluator {
                         | Value::Array(_)
                         | Value::Bytes(_)
                         | Value::ByteArray(_)
+                        | Value::MutableString(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
                         | Value::Text(_)
@@ -7004,6 +7110,7 @@ impl SourceEvaluator {
             Value::Array(_)
             | Value::Bytes(_)
             | Value::ByteArray(_)
+            | Value::MutableString(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Text(_)
@@ -7218,6 +7325,7 @@ impl SourceEvaluator {
             Value::Array(_)
             | Value::Bytes(_)
             | Value::ByteArray(_)
+            | Value::MutableString(_)
             | Value::Tuple(_)
             | Value::Hash(_)
             | Value::Symbol(_)
@@ -8093,6 +8201,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Array(_) => "Array",
         Value::Bytes(_) => "Bytes",
         Value::ByteArray(_) => "ByteArray",
+        Value::MutableString(_) => "MutableString",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
@@ -8237,6 +8346,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::KeyConflictError => "KeyConflictError",
         EvaluationError::EncodingError => "EncodingError",
         EvaluationError::RangeError => "RangeError",
+        EvaluationError::InvalidKeyError => "InvalidKeyError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

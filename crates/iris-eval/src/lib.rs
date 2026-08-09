@@ -180,6 +180,11 @@ pub enum EvaluationError {
     /// is not an Integer byte in 0..255, distinct from the IndexError an
     /// out-of-range POSITION raises.
     RangeError,
+    /// A value that cannot be a Hash key was asked for its built-in hash.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C026`, `C055` and `C068` make the built-in hash of
+    /// an Array, MutableString and ByteArray raise rather than answer.
+    InvalidKeyError,
     /// `same?` was applied to a Contract view.
     ///
     /// `IRIS-V1-TYPES-C050` makes Contract views immutable identity-LESS
@@ -1198,6 +1203,7 @@ impl Evaluator {
             | RuntimeValue::Array(_)
             | RuntimeValue::Bytes(_)
             | RuntimeValue::ByteArray(_)
+            | RuntimeValue::MutableString(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
             | RuntimeValue::Text(_)
@@ -1255,6 +1261,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Array(_) => "Array",
         RuntimeValue::Bytes(_) => "Bytes",
         RuntimeValue::ByteArray(_) => "ByteArray",
+        RuntimeValue::MutableString(_) => "MutableString",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",

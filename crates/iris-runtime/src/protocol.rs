@@ -173,7 +173,7 @@ impl Truthiness {
                 | Value::Array(_)
                 | Value::Bytes(_)
                 | Value::ByteArray(_)
-            | Value::MutableString(_)
+                | Value::MutableString(_)
                 | Value::Tuple(_)
                 | Value::Hash(_)
                 | Value::Text(_)
