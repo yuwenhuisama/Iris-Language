@@ -93,8 +93,15 @@ struct RevisionSubscriber {
 /// one. Bytes is immutable, so its cursor never fails fast.
 #[derive(Debug)]
 struct ByteCursor {
-    bytes: Vec<u8>,
+    /// The values this cursor yields, already materialized.
+    ///
+    /// `C075` yields Integer bytes for a byte sequence and `C061` yields
+    /// one-scalar Strings for MutableString, so the element kind is decided
+    /// when the cursor is made rather than on every advance.
+    values: Vec<Value>,
     source: Option<iris_runtime::ByteArrayRef>,
+    /// A MutableString source, whose `C061` content version is separate.
+    text_source: Option<iris_runtime::MutableStringRef>,
     position: usize,
     expected_version: u64,
     fail_fast: bool,
@@ -164,6 +171,33 @@ fn apply_array_mutation(
 /// Slicing is unit-forward: negative endpoints resolve in the receiver's unit
 /// through `C009`, effective bounds are CLAMPED rather than raising, and an
 /// inverted span yields the empty slice.
+/// Rejects a `IRIS-V1-COLLECTIONS-C046` stepped or reverse slice.
+///
+/// Slicing is UNIT-FORWARD, so a Range carrying any step other than +1 cannot
+/// describe one and raises `ArgumentError` rather than silently slicing as if
+/// the step were absent.
+fn check_slice_range(range: &iris_runtime::RangeValue) -> Result<(), EvaluationError> {
+    let Some(step) = range.step.to_i128() else {
+        return Err(EvaluationError::ArgumentError);
+    };
+    if step == 1 {
+        return Ok(());
+    }
+    // C046 answers the EMPTY slice for a start-after-end span, and C038 infers
+    // step -1 for exactly that literal, so a descending literal is a legal
+    // empty slice rather than the reverse slicing this rejects. Only a step
+    // that could not have been inferred, meaning an explicit `by`, is refused.
+    let descending_literal = step == -1
+        && iris_runtime::Numeric::compare(
+            &iris_runtime::NumericValue::Integer(range.end.clone()),
+            &iris_runtime::NumericValue::Integer(range.start.clone()),
+        ) == Some(std::cmp::Ordering::Less);
+    if descending_literal {
+        return Ok(());
+    }
+    Err(EvaluationError::ArgumentError)
+}
+
 fn slice_bounds(
     start: &iris_runtime::IntegerValue,
     end: &iris_runtime::IntegerValue,
@@ -3310,6 +3344,51 @@ impl SourceEvaluator {
                 // would fake a call that never happened.
                 Err(EvaluationError::UnsupportedConstruct)
             }
+            // C044 exposes an ordered scalar Array, each element an immutable
+            // one-scalar String, which is what `C045` makes an index answer.
+            (Value::Text(_) | Value::MutableString(_), "to_array", []) => {
+                let text = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                Ok(Some(Value::Array(ArrayRef::new(
+                    text.chars().map(|s| Value::Text(s.to_string())).collect(),
+                ))))
+            }
+            // C059 gives each transform a functional form answering a FRESH
+            // value and a bang form mutating in place and answering the
+            // receiver, so the two are distinguished by identity.
+            (Value::Text(text), "upcase" | "downcase", []) => {
+                Ok(Some(Value::Text(if selector == "upcase" {
+                    text.to_uppercase()
+                } else {
+                    text.to_lowercase()
+                })))
+            }
+            (Value::MutableString(text), "upcase" | "downcase", []) => {
+                let current = text.text();
+                let changed = if selector == "upcase" {
+                    current.to_uppercase()
+                } else {
+                    current.to_lowercase()
+                };
+                Ok(Some(Value::MutableString(
+                    iris_runtime::MutableStringRef::new(changed),
+                )))
+            }
+            (Value::MutableString(text), "upcase!" | "downcase!", []) => {
+                let current = text.text();
+                // C058 commits atomically, so the whole replacement is built
+                // before the receiver is touched.
+                let changed = if selector == "upcase!" {
+                    current.to_uppercase()
+                } else {
+                    current.to_lowercase()
+                };
+                text.set(changed);
+                Ok(Some(receiver.clone()))
+            }
             // C053 answers a String SNAPSHOT of current content, so a later
             // mutation of the receiver does not reach the snapshot.
             (Value::MutableString(text), "to_string", []) => Ok(Some(Value::Text(text.text()))),
@@ -5500,6 +5579,7 @@ impl SourceEvaluator {
                     Value::ByteArray(bytes) => bytes.bytes(),
                     _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
+                check_slice_range(range)?;
                 let span = slice_bounds(&range.start, &range.end, range.inclusive_end, bytes.len());
                 let taken = bytes.get(span).unwrap_or_default().to_vec();
                 Ok(match &target {
@@ -5529,6 +5609,7 @@ impl SourceEvaluator {
                     Value::ReadonlyArray(values) => values.clone(),
                     _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
+                check_slice_range(range)?;
                 let span =
                     slice_bounds(&range.start, &range.end, range.inclusive_end, values.len());
                 Ok(Value::Array(ArrayRef::new(
@@ -5542,6 +5623,7 @@ impl SourceEvaluator {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
                 let scalars: Vec<char> = text.chars().collect();
+                check_slice_range(range)?;
                 let span =
                     slice_bounds(&range.start, &range.end, range.inclusive_end, scalars.len());
                 Ok(Value::Text(
@@ -5668,6 +5750,7 @@ impl SourceEvaluator {
                     _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
                 let current = bytes.bytes();
+                check_slice_range(range)?;
                 let span =
                     slice_bounds(&range.start, &range.end, range.inclusive_end, current.len());
                 let mut rebuilt = current.get(..span.start).unwrap_or_default().to_vec();
@@ -7707,20 +7790,41 @@ impl SourceEvaluator {
             // captures the content version and ANY mutation invalidates it,
             // which is stricter than the Hash structural rule.
             let identity = self.next_context_identity();
-            let (bytes, version, fail_fast) = match &receiver {
-                Value::Bytes(bytes) => (bytes.clone(), 0, false),
-                Value::ByteArray(bytes) => (bytes.bytes(), bytes.version(), true),
+            // C061 gives a MutableString scalar iterator the same fail-fast
+            // rule over its own content version, so both share this cursor.
+            let byte = |bytes: Vec<u8>| {
+                bytes
+                    .into_iter()
+                    .map(|byte| Value::Integer(u64::from(byte).into()))
+                    .collect::<Vec<_>>()
+            };
+            let (values, version, fail_fast) = match &receiver {
+                Value::Bytes(bytes) => (byte(bytes.clone()), 0, false),
+                Value::ByteArray(bytes) => (byte(bytes.bytes()), bytes.version(), true),
+                Value::MutableString(text) => (
+                    text.text()
+                        .chars()
+                        .map(|scalar| Value::Text(scalar.to_string()))
+                        .collect(),
+                    text.version(),
+                    true,
+                ),
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             };
             let source = match &receiver {
                 Value::ByteArray(bytes) => Some(bytes.clone()),
                 _ => None,
             };
+            let text_source = match &receiver {
+                Value::MutableString(text) => Some(text.clone()),
+                _ => None,
+            };
             self.byte_iterators.insert(
                 identity,
                 ByteCursor {
-                    bytes,
+                    values,
                     source,
+                    text_source,
                     position: 0,
                     expected_version: version,
                     fail_fast,
@@ -7735,21 +7839,22 @@ impl SourceEvaluator {
                     let Some(cursor) = self.byte_iterators.get_mut(&identity) else {
                         return Err(EvaluationError::UnsupportedConstruct);
                     };
-                    if cursor.fail_fast
-                        && cursor
-                            .source
+                    let moved = cursor
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.version() != cursor.expected_version)
+                        || cursor
+                            .text_source
                             .as_ref()
-                            .is_some_and(|source| source.version() != cursor.expected_version)
-                    {
+                            .is_some_and(|source| source.version() != cursor.expected_version);
+                    if cursor.fail_fast && moved {
                         return Err(EvaluationError::ConcurrentModification);
                     }
-                    let Some(byte) = cursor.bytes.get(cursor.position).copied() else {
+                    let Some(value) = cursor.values.get(cursor.position).cloned() else {
                         return Ok(Value::IterationDone);
                     };
                     cursor.position += 1;
-                    return Ok(Value::IterationYield(Box::new(Value::Integer(
-                        u64::from(byte).into(),
-                    ))));
+                    return Ok(Value::IterationYield(Box::new(value)));
                 }
                 "close" if arguments.is_empty() => return Ok(Value::Nil),
                 _ => {}

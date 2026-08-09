@@ -605,19 +605,28 @@ pub struct MatchValue {
 /// a HANDLE, and `C053` makes `to_string` copy out of it so a snapshot does not
 /// observe later mutation.
 #[derive(Clone)]
-pub struct MutableStringRef(Rc<RefCell<String>>);
+pub struct MutableStringRef(Rc<RefCell<(String, u64)>>);
 
 impl MutableStringRef {
     /// Creates a fresh MutableString identity holding `text`.
     #[must_use]
     pub fn new(text: String) -> Self {
-        Self(Rc::new(RefCell::new(text)))
+        Self(Rc::new(RefCell::new((text, 0))))
     }
 
     /// Copies the current text out.
     #[must_use]
     pub fn text(&self) -> String {
-        self.0.borrow().clone()
+        self.0.borrow().0.clone()
+    }
+
+    /// The `IRIS-V1-COLLECTIONS-C061` content version.
+    ///
+    /// Any content change increments it, so a scalar or grapheme iterator that
+    /// captured an older value fails fast on its next advance.
+    #[must_use]
+    pub fn version(&self) -> u64 {
+        self.0.borrow().1
     }
 
     /// Returns whether two handles denote the SAME MutableString.
@@ -629,21 +638,23 @@ impl MutableStringRef {
     /// Replaces the content, which `C058` requires callers to have fully
     /// prepared first so the commit itself cannot fail partway.
     pub fn set(&self, text: String) {
-        *self.0.borrow_mut() = text;
+        let mut body = self.0.borrow_mut();
+        body.0 = text;
+        body.1 = body.1.saturating_add(1);
     }
 }
 
 /// Renders as the current text.
 impl core::fmt::Debug for MutableStringRef {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+        core::fmt::Debug::fmt(&self.0.borrow().0, formatter)
     }
 }
 
 /// `C055` compares current exact scalar CONTENT rather than identity.
 impl PartialEq for MutableStringRef {
     fn eq(&self, other: &Self) -> bool {
-        self.same(other) || *self.0.borrow() == *other.0.borrow()
+        self.same(other) || self.0.borrow().0 == other.0.borrow().0
     }
 }
 
