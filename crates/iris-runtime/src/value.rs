@@ -70,6 +70,15 @@ impl IntegerValue {
         }
     }
 
+    /// Returns the value as a signed 128-bit integer, or `None` when out of
+    /// range.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C038` gives a Range a step that may be NEGATIVE, so
+    /// stepping cannot read its operands back as unsigned.
+    pub fn to_i128(&self) -> Option<i128> {
+        self.decimal_text().parse().ok()
+    }
+
     /// Returns the value as a container index, or `None` when out of range.
     pub fn to_usize(&self) -> Option<usize> {
         self.to_u64().and_then(|value| value.try_into().ok())
@@ -450,6 +459,23 @@ impl PartialEq for ByteArrayRef {
     }
 }
 
+/// The endpoints, endpoint openness and step of a Range.
+///
+/// `IRIS-V1-COLLECTIONS-C039` makes all four part of Range equality and of the
+/// public hash. They are boxed so a Range does not widen every `Value`, and
+/// through it every Result that carries one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RangeValue {
+    /// The first value the Range would yield.
+    pub start: IntegerValue,
+    /// The endpoint, included only when `inclusive_end` is set.
+    pub end: IntegerValue,
+    /// Whether the endpoint is included, as `..=` rather than `..<`.
+    pub inclusive_end: bool,
+    /// The nonzero stride between yielded values.
+    pub step: IntegerValue,
+}
+
 /// A shared, mutable text body.
 ///
 /// `IRIS-V1-COLLECTIONS-C052` makes MutableString identity-bearing, so this is
@@ -540,7 +566,12 @@ pub enum Value {
     /// `a ..< b` an exclusive one, and `C007` fixes both endpoints as
     /// Integers. `C003` makes it identity-less with a specification-stable
     /// hash, so two Ranges over the same interval are one value.
-    Range(IntegerValue, IntegerValue, bool),
+    /// A Range: start, end, inclusive end, and step.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C039` makes the STEP part of Range equality and of
+    /// the public hash, so it is carried in the value rather than inferred at
+    /// each use.
+    Range(Box<RangeValue>),
     /// A `Task<T>`, produced by invoking an async callable.
     ///
     /// `IRIS-V1-ASYNC-C006` makes it identity-bearing and gives it

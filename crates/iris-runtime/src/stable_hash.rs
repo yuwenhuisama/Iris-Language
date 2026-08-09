@@ -47,12 +47,14 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         Value::Text(text) => Ok(string_hash(text)),
         // C088 tags an inclusive end 0x00 and an exclusive one 0x01, and C089
         // composes over the components' own public hashes.
-        Value::Range(start, end, inclusive) => {
-            let start = numeric_hash(&NumericValue::Integer(start.clone()))?;
-            let end = numeric_hash(&NumericValue::Integer(end.clone()))?;
-            let step = numeric_hash(&NumericValue::Integer(1_u8.into()))?;
+        Value::Range(range) => {
+            let start = numeric_hash(&NumericValue::Integer(range.start.clone()))?;
+            let end = numeric_hash(&NumericValue::Integer(range.end.clone()))?;
+            // C039 includes the STEP in the public hash, so the value's own
+            // step is hashed rather than an assumed 1.
+            let step = numeric_hash(&NumericValue::Integer(range.step.clone()))?;
             Ok(range_hash(
-                *inclusive,
+                range.inclusive_end,
                 start.to_u64().unwrap_or_default(),
                 end.to_u64().unwrap_or_default(),
                 step.to_u64().unwrap_or_default(),

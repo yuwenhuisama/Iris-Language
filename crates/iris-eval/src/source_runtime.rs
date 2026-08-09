@@ -3047,6 +3047,39 @@ impl SourceEvaluator {
                 };
                 Ok(Some(Value::Text(format!("{text}{joined}"))))
             }
+            // C071 answers an immutable Bytes from `Bytes + ...` and a FRESH
+            // ByteArray identity from `ByteArray + ...` without changing the
+            // receiver. `<<` and `append` mutate in place after snapshotting
+            // aliases and answer the receiver, committing atomically.
+            (Value::Bytes(_) | Value::ByteArray(_), "+" | "<<" | "append", [other]) => {
+                let addition = match other {
+                    Value::Bytes(other) => other.clone(),
+                    Value::ByteArray(other) => other.bytes(),
+                    // C072 forbids reaching binary through a text conversion,
+                    // so a String does not join a byte sequence here.
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                match (&receiver, selector) {
+                    (Value::Bytes(bytes), "+") => {
+                        let mut joined = bytes.clone();
+                        joined.extend_from_slice(&addition);
+                        Ok(Some(Value::Bytes(joined)))
+                    }
+                    (Value::ByteArray(bytes), "+") => {
+                        let mut joined = bytes.bytes();
+                        joined.extend_from_slice(&addition);
+                        Ok(Some(Value::ByteArray(iris_runtime::ByteArrayRef::new(
+                            joined,
+                        ))))
+                    }
+                    (Value::ByteArray(bytes), _) => {
+                        bytes.mutate(|bytes| bytes.extend_from_slice(&addition));
+                        Ok(Some(receiver.clone()))
+                    }
+                    // C067 gives immutable Bytes no in-place append.
+                    _ => Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                }
+            }
             // C053 answers a String SNAPSHOT of current content, so a later
             // mutation of the receiver does not reach the snapshot.
             (Value::MutableString(text), "to_string", []) => Ok(Some(Value::Text(text.text()))),
@@ -3129,6 +3162,40 @@ impl SourceEvaluator {
             // C031 builds and validates a temporary replacement from CURRENT
             // keys, hashes and equality, and publishes nothing on failure.
             // C030 makes this the user's remedy after mutating `==` or `hash`.
+            // C038 answers a Range with a NONZERO step whose sign moves toward
+            // the end, and raises RangeError otherwise. A zero step would never
+            // reach the end, which is why it is rejected rather than clamped.
+            (Value::Range(range), "by", [step]) => {
+                // C038 spells the operand `range.by(step: Integer)`, so the
+                // argument arrives as a KEYWORD argument rather than a bare
+                // positional one.
+                let step = match step {
+                    Value::KeywordArgument(name, value) if name == "step" => value.as_ref(),
+                    value => value,
+                };
+                let Value::Integer(step) = step else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let Some(magnitude) = step.to_i128() else {
+                    return Err(EvaluationError::RangeError);
+                };
+                if magnitude == 0 {
+                    return Err(EvaluationError::RangeError);
+                }
+                let descending = iris_runtime::Numeric::compare(
+                    &iris_runtime::NumericValue::Integer(range.end.clone()),
+                    &iris_runtime::NumericValue::Integer(range.start.clone()),
+                ) == Some(std::cmp::Ordering::Less);
+                if (descending && magnitude > 0) || (!descending && magnitude < 0) {
+                    return Err(EvaluationError::RangeError);
+                }
+                Ok(Some(Value::Range(Box::new(iris_runtime::RangeValue {
+                    start: range.start.clone(),
+                    end: range.end.clone(),
+                    inclusive_end: range.inclusive_end,
+                    step: step.clone(),
+                }))))
+            }
             (Value::Hash(entries), "rehash", []) => self.rehash(&entries.clone(), None).map(Some),
             // C032 supplies the merge as a trailing block, which reaches the
             // send as an ordinary closure argument.
@@ -4392,11 +4459,26 @@ impl SourceEvaluator {
                         let (Value::Integer(start), Value::Integer(end)) = (&left, &right) else {
                             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                         };
-                        return Ok(Value::Range(
-                            start.clone(),
-                            end.clone(),
-                            matches!(operator, BinaryOperator::RangeInclusive),
-                        ));
+                        // C038 infers step +1 when `end >= start` and -1 when
+                        // `end < start`, so a literal carries a step from the
+                        // start rather than assuming forward iteration.
+                        // IntegerValue is arbitrary precision, so ordering goes
+                        // through the numeric protocol the runtime already uses
+                        // rather than a host integer conversion.
+                        let descending = iris_runtime::Numeric::compare(
+                            &iris_runtime::NumericValue::Integer(end.clone()),
+                            &iris_runtime::NumericValue::Integer(start.clone()),
+                        ) == Some(std::cmp::Ordering::Less);
+                        return Ok(Value::Range(Box::new(iris_runtime::RangeValue {
+                            start: start.clone(),
+                            end: end.clone(),
+                            inclusive_end: matches!(operator, BinaryOperator::RangeInclusive),
+                            step: if descending {
+                                (-1_i8).into()
+                            } else {
+                                1_u8.into()
+                            },
+                        })));
                     }
                     BinaryOperator::Identity => {
                         // C050 makes a Contract view an identity-LESS capability
@@ -4666,7 +4748,7 @@ impl SourceEvaluator {
             // C070 slices in BYTE units: Bytes answers Bytes, and a ByteArray
             // answers an INDEPENDENT ByteArray snapshot identity.
             Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_) => {
-                let Value::Range(start, end, inclusive) = &index else {
+                let Value::Range(range) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
                 let bytes = match &target {
@@ -4674,7 +4756,7 @@ impl SourceEvaluator {
                     Value::ByteArray(bytes) => bytes.bytes(),
                     _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
-                let span = slice_bounds(start, end, *inclusive, bytes.len());
+                let span = slice_bounds(&range.start, &range.end, range.inclusive_end, bytes.len());
                 let taken = bytes.get(span).unwrap_or_default().to_vec();
                 Ok(match &target {
                     Value::ByteArray(_) => Value::ByteArray(iris_runtime::ByteArrayRef::new(taken)),
@@ -4695,7 +4777,7 @@ impl SourceEvaluator {
             // C010 slices unit-forward, clamps effective bounds, and C025 makes
             // an Array slice an INDEPENDENT snapshot rather than a view.
             Value::Array(_) | Value::ReadonlyArray(_) if matches!(index, Value::Range(..)) => {
-                let Value::Range(start, end, inclusive) = &index else {
+                let Value::Range(range) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
                 let values = match &target {
@@ -4703,7 +4785,8 @@ impl SourceEvaluator {
                     Value::ReadonlyArray(values) => values.clone(),
                     _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
                 };
-                let span = slice_bounds(start, end, *inclusive, values.len());
+                let span =
+                    slice_bounds(&range.start, &range.end, range.inclusive_end, values.len());
                 Ok(Value::Array(ArrayRef::new(
                     values.get(span).unwrap_or_default().to_vec(),
                 )))
@@ -4711,11 +4794,12 @@ impl SourceEvaluator {
             // C044 indexes a String in Unicode SCALAR units, so a multi-byte
             // scalar counts once and a slice cuts on scalar boundaries.
             Value::Text(text) if matches!(index, Value::Range(..)) => {
-                let Value::Range(start, end, inclusive) = &index else {
+                let Value::Range(range) = &index else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
                 let scalars: Vec<char> = text.chars().collect();
-                let span = slice_bounds(start, end, *inclusive, scalars.len());
+                let span =
+                    slice_bounds(&range.start, &range.end, range.inclusive_end, scalars.len());
                 Ok(Value::Text(
                     scalars.get(span).unwrap_or_default().iter().collect(),
                 ))
@@ -4776,6 +4860,71 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::IndexError)?;
                 values.mutate(|elements| elements[position] = value.clone());
                 Ok(Value::Array(values))
+            }
+            // C054 reads use String scalar indexing, and a scalar write
+            // requires a ONE-SCALAR String, raises IndexError out of range,
+            // mutates in place and answers nil. A range write accepts any
+            // String, uses scalar unit-forward slicing and may change length.
+            // C058 makes both commit atomically, so the replacement is fully
+            // resolved before the receiver is written.
+            Value::MutableString(text) => {
+                let scalars: Vec<char> = text.text().chars().collect();
+                let replacement = match &value {
+                    Value::Text(replacement) => replacement.clone(),
+                    Value::MutableString(replacement) => replacement.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let span = match &index {
+                    Value::Range(range) => {
+                        slice_bounds(&range.start, &range.end, range.inclusive_end, scalars.len())
+                    }
+                    Value::Integer(position) => {
+                        // A scalar write replaces exactly one scalar, so the
+                        // replacement must itself be one scalar.
+                        if replacement.chars().count() != 1 {
+                            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                        }
+                        let position = resolve_index(position, scalars.len())
+                            .ok_or(EvaluationError::IndexError)?;
+                        if position >= scalars.len() {
+                            return Err(EvaluationError::IndexError);
+                        }
+                        position..position + 1
+                    }
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let mut rebuilt: String = scalars
+                    .get(..span.start)
+                    .unwrap_or_default()
+                    .iter()
+                    .collect();
+                rebuilt.push_str(&replacement);
+                rebuilt.extend(scalars.get(span.end..).unwrap_or_default().iter());
+                text.set(rebuilt);
+                Ok(Value::Nil)
+            }
+            // C070 accepts Bytes or ByteArray, SNAPSHOTS an aliasing source
+            // before mutating, may change length, replaces the range atomically
+            // and exposes no partial content.
+            Value::ByteArray(bytes) if matches!(index, Value::Range(..)) => {
+                let Value::Range(range) = &index else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                // The replacement is snapshotted FIRST, so assigning a
+                // ByteArray into itself reads pre-mutation content.
+                let replacement = match &value {
+                    Value::Bytes(replacement) => replacement.clone(),
+                    Value::ByteArray(replacement) => replacement.bytes(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let current = bytes.bytes();
+                let span =
+                    slice_bounds(&range.start, &range.end, range.inclusive_end, current.len());
+                let mut rebuilt = current.get(..span.start).unwrap_or_default().to_vec();
+                rebuilt.extend_from_slice(&replacement);
+                rebuilt.extend_from_slice(current.get(span.end..).unwrap_or_default());
+                bytes.mutate(|bytes| *bytes = rebuilt);
+                Ok(Value::Nil)
             }
             // C069 requires an Integer byte in 0..255, raises RangeError for an
             // invalid byte value, IndexError out of range, mutates in place and
@@ -6597,6 +6746,49 @@ impl SourceEvaluator {
             self.array_iterators.insert(identity, cursor);
             return Ok(Value::ArrayIterator(identity));
         }
+        // C039 respects endpoint openness and step, and a step that does not
+        // land exactly on the endpoint SKIPS that endpoint. The values are
+        // materialized because a Range is an immutable identity-less interval,
+        // so there is no body a live cursor could observe changing.
+        if let Value::Range(range) = &receiver
+            && selector == "iterator"
+            && arguments.is_empty()
+        {
+            let inclusive = &range.inclusive_end;
+            let (Some(start), Some(end), Some(step)) = (
+                range.start.to_i128(),
+                range.end.to_i128(),
+                range.step.to_i128(),
+            ) else {
+                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+            };
+            let mut values = Vec::new();
+            if step != 0 {
+                let mut current = start;
+                while (step > 0 && (current < end || (*inclusive && current == end)))
+                    || (step < 0 && (current > end || (*inclusive && current == end)))
+                {
+                    // IntegerValue is built from canonical decimal text, which
+                    // keeps an arbitrary-precision endpoint exact.
+                    let Ok(value) = current.to_string().parse() else {
+                        return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                    };
+                    values.push(Value::Integer(value));
+                    current += step;
+                }
+            }
+            let identity = self.next_context_identity();
+            self.array_iterators.insert(
+                identity,
+                ArrayCursor {
+                    values: ArrayRef::new(values),
+                    position: 0,
+                    expected_version: 0,
+                    fail_fast: false,
+                },
+            );
+            return Ok(Value::ArrayIterator(identity));
+        }
         if matches!(
             receiver,
             Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_)
@@ -6875,14 +7067,14 @@ impl SourceEvaluator {
                     return Ok(Value::Bool(text.is_empty()));
                 }
                 // C006 gives a Range endpoint and openness APIs.
-                (Value::Range(start, ..), "start") => {
-                    return Ok(Value::Integer(start.clone()));
+                (Value::Range(range), "start") => {
+                    return Ok(Value::Integer(range.start.clone()));
                 }
-                (Value::Range(_, end, _), "end") => {
-                    return Ok(Value::Integer(end.clone()));
+                (Value::Range(range), "end") => {
+                    return Ok(Value::Integer(range.end.clone()));
                 }
-                (Value::Range(.., inclusive), "inclusive_end?") => {
-                    return Ok(Value::Bool(*inclusive));
+                (Value::Range(range), "inclusive_end?") => {
+                    return Ok(Value::Bool(range.inclusive_end));
                 }
                 _ => {}
             }

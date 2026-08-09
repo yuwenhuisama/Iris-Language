@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 30, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (30 records, buckets sum 30)
+COLLECTIONS passed: 32, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (32 records, buckets sum 32)
 ASYNC    passed: 15, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (15 records, buckets sum 15)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
