@@ -131,6 +131,23 @@ struct HashCursor {
     removed_current: bool,
 }
 
+/// Renders a String as a JSON string literal.
+fn render_json_text(value: &str) -> String {
+    let mut rendered = String::from("\"");
+    for scalar in value.chars() {
+        match scalar {
+            '"' => rendered.push_str("\\\""),
+            '\\' => rendered.push_str("\\\\"),
+            '\n' => rendered.push_str("\\n"),
+            '\r' => rendered.push_str("\\r"),
+            '\t' => rendered.push_str("\\t"),
+            scalar => rendered.push(scalar),
+        }
+    }
+    rendered.push('"');
+    rendered
+}
+
 /// Applies one `IRIS-V1-COLLECTIONS-C040` Array growth operation in place.
 ///
 /// `C024` names append and insert the EXPLICIT growth operations. `insert`
@@ -4040,6 +4057,194 @@ impl SourceEvaluator {
         self.send(key.clone(), "hash", &[])
     }
 
+    /// The `IRIS-V1-LIBRARY-C004` serialization representation of a value.
+    ///
+    /// A Class participates ONLY when its declared static spine lists
+    /// `for Serializable`. `C003` and `C004` forbid duck typing, reflection
+    /// visibility, `to_string`, `inspect`, raw ivar access and public property
+    /// presence from implying eligibility, so an ordinary object is refused
+    /// here rather than serialized by inspection.
+    fn serializable_representation(&mut self, value: &Value) -> Result<Value, EvaluationError> {
+        let Value::Object(object) = value else {
+            return Ok(value.clone());
+        };
+        let class = self
+            .runtime
+            .class_of(*object)
+            .map_err(EvaluationError::Construction)?;
+        // `contract_names` maps a NAME to its id, so eligibility is decided by
+        // looking the Contract up by name and checking the class declares it.
+        let serializable = self.contract_names.get("Serializable").copied();
+        let declares = serializable.is_some_and(|wanted| {
+            self.class_contracts
+                .get(&class)
+                .is_some_and(|contracts| contracts.contains(&wanted))
+        });
+        if !declares {
+            return Err(EvaluationError::SerializationError);
+        }
+        // C005 makes the representation ordinary Iris data the Class chooses,
+        // so it is obtained by asking the Class rather than by inspection.
+        self.send(value.clone(), "serialize", &[])
+    }
+
+    /// Renders a `IRIS-V1-LIBRARY-C011` JSON-compatible value.
+    ///
+    /// The encoder REJECTS an unsupported value rather than falling back to
+    /// `to_string`, `inspect`, object identity or raw ivar scanning.
+    fn encode_json(
+        &mut self,
+        value: &Value,
+        canonical: bool,
+        out: &mut String,
+    ) -> Result<(), EvaluationError> {
+        match value {
+            Value::Nil => out.push_str("null"),
+            Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+            Value::Integer(number) => out.push_str(&number.decimal_text()),
+            Value::Text(text) => out.push_str(&render_json_text(text)),
+            Value::Array(values) => {
+                out.push('[');
+                for (index, element) in values.elements().iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    self.encode_json(element, canonical, out)?;
+                }
+                out.push(']');
+            }
+            Value::Hash(entries) => {
+                // C010 fixes the default JSON value set as Hash with STRING
+                // keys, so any other key kind is rejected rather than coerced.
+                let mut pairs = Vec::new();
+                for (key, held) in entries.entries() {
+                    let Value::Text(key) = key else {
+                        return Err(EvaluationError::SerializationError);
+                    };
+                    pairs.push((key, held));
+                }
+                if canonical {
+                    pairs.sort_by(|left, right| left.0.cmp(&right.0));
+                }
+                out.push('{');
+                for (index, (key, held)) in pairs.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&render_json_text(key));
+                    out.push(':');
+                    self.encode_json(held, canonical, out)?;
+                }
+                out.push('}');
+            }
+            // C011 rejects everything else, which is what keeps an FFI handle,
+            // a Task, a Closure or a native payload out of a document.
+            _ => return Err(EvaluationError::SerializationError),
+        }
+        Ok(())
+    }
+
+    /// Parses one `IRIS-V1-LIBRARY-C010` JSON value.
+    ///
+    /// `C013` refuses a value exceeding a configured limit BEFORE allocating
+    /// the offending container, so the depth check precedes the recursion.
+    fn decode_json(
+        cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        depth_limit: Option<usize>,
+        depth: usize,
+    ) -> Result<Value, EvaluationError> {
+        while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+            cursor.next();
+        }
+        let Some(&scalar) = cursor.peek() else {
+            return Err(EvaluationError::JsonSyntaxError);
+        };
+        match scalar {
+            '[' | '{' => {
+                if depth_limit.is_some_and(|limit| depth >= limit) {
+                    return Err(EvaluationError::JsonLimitError);
+                }
+                let closing = if scalar == '[' { ']' } else { '}' };
+                cursor.next();
+                let mut values = Vec::new();
+                let mut entries = Vec::new();
+                loop {
+                    while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+                        cursor.next();
+                    }
+                    if cursor.peek() == Some(&closing) {
+                        cursor.next();
+                        break;
+                    }
+                    if closing == ']' {
+                        values.push(Self::decode_json(cursor, depth_limit, depth + 1)?);
+                    } else {
+                        let key = Self::decode_json(cursor, depth_limit, depth + 1)?;
+                        while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+                            cursor.next();
+                        }
+                        if cursor.next() != Some(':') {
+                            return Err(EvaluationError::JsonSyntaxError);
+                        }
+                        let held = Self::decode_json(cursor, depth_limit, depth + 1)?;
+                        entries.push((key, held));
+                    }
+                    while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+                        cursor.next();
+                    }
+                    if cursor.peek() == Some(&',') {
+                        cursor.next();
+                    }
+                }
+                if closing == ']' {
+                    Ok(Value::Array(ArrayRef::new(values)))
+                } else {
+                    Ok(Value::Hash(iris_runtime::HashRef::new(entries)))
+                }
+            }
+            '"' => {
+                cursor.next();
+                let mut text = String::new();
+                loop {
+                    let Some(scalar) = cursor.next() else {
+                        return Err(EvaluationError::JsonSyntaxError);
+                    };
+                    match scalar {
+                        '"' => break,
+                        '\\' => match cursor.next() {
+                            Some('n') => text.push('\n'),
+                            Some('t') => text.push('\t'),
+                            Some('r') => text.push('\r'),
+                            Some(other) => text.push(other),
+                            None => return Err(EvaluationError::JsonSyntaxError),
+                        },
+                        other => text.push(other),
+                    }
+                }
+                Ok(Value::Text(text))
+            }
+            _ => {
+                let mut token = String::new();
+                while let Some(&scalar) = cursor.peek() {
+                    if scalar.is_whitespace() || matches!(scalar, ',' | ']' | '}' | ':') {
+                        break;
+                    }
+                    token.push(scalar);
+                    cursor.next();
+                }
+                match token.as_str() {
+                    "null" => Ok(Value::Nil),
+                    "true" => Ok(Value::Bool(true)),
+                    "false" => Ok(Value::Bool(false)),
+                    _ => token
+                        .parse()
+                        .map(Value::Integer)
+                        .map_err(|_| EvaluationError::JsonSyntaxError),
+                }
+            }
+        }
+    }
+
     /// Compares two Hash keys under `IRIS-V1-COLLECTIONS-C028`.
     ///
     /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
@@ -5099,7 +5304,7 @@ impl SourceEvaluator {
                             // C043 names `FFI` the standard service Class, and
                             // it is an ordinary identifier for the same reason
                             // `Host` is, so a DECLARED `FFI` wins over it.
-                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate" | "Diagnostics")
+                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate" | "Diagnostics" | "JSON")
                                 && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
@@ -6789,6 +6994,53 @@ impl SourceEvaluator {
                 let commit = commit.to_u64().unwrap_or_default();
                 self.audit_history.retain(|held| *held != commit);
                 Ok(Value::Nil)
+            }
+            // C009 makes JSON a stable package owning JSON value mapping and
+            // canonical error reporting. C011 accepts only JSON-compatible
+            // values and requires a Class instance to go through its EXPLICIT
+            // Serializable representation, never through to_string, inspect,
+            // identity, or raw ivar scanning.
+            ("JSON", "encode") => {
+                let [value, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                // C002 leaves ordering to this chapter's callers, and V002 asks
+                // for canonical ordering when the caller selects it.
+                let canonical = rest.iter().any(|option| {
+                    matches!(option, Value::KeywordArgument(name, flag)
+                        if name == "canonical" && **flag == Value::Bool(true))
+                });
+                let value = self.serializable_representation(value)?;
+                let mut rendered = String::new();
+                self.encode_json(&value, canonical, &mut rendered)?;
+                Ok(Value::Text(rendered))
+            }
+            ("JSON", "decode") => {
+                let [value, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                // C012 raises EncodingError for invalid UTF-8 BEFORE any JSON
+                // token is interpreted, so decoding is refused at the boundary.
+                let text = match value {
+                    Value::Text(text) => text.clone(),
+                    Value::Bytes(bytes) => String::from_utf8(bytes.clone())
+                        .map_err(|_| EvaluationError::EncodingError)?,
+                    Value::ByteArray(bytes) => String::from_utf8(bytes.bytes())
+                        .map_err(|_| EvaluationError::EncodingError)?,
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                // C013 makes a decode limit a REFUSAL before the offending
+                // container is allocated, not a truncation afterwards.
+                let depth_limit = rest.iter().find_map(|option| match option {
+                    Value::KeywordArgument(name, limit) if name == "depth" => match **limit {
+                        Value::Integer(ref limit) => limit.to_usize(),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                let mut cursor = text.chars().peekable();
+                let decoded = Self::decode_json(&mut cursor, depth_limit, 0)?;
+                Ok(decoded)
             }
             ("FFI", "open") => {
                 let [path, ..] = arguments else {
@@ -9854,6 +10106,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError",
         EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError",
         EvaluationError::AuditHistoryUnavailable => "AuditHistoryUnavailableError",
+        EvaluationError::SerializationError => "SerializationError",
+        EvaluationError::JsonLimitError => "JSONLimitError",
+        EvaluationError::JsonSyntaxError => "JSONSyntaxError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",

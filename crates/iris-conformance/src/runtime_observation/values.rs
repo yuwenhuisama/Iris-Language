@@ -409,6 +409,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::UnboundNativeSymbol => "UnboundNativeSymbolError".into(),
         EvaluationError::IncompleteNativeSignature => "IncompleteNativeSignatureError".into(),
         EvaluationError::AuditHistoryUnavailable => "AuditHistoryUnavailableError".into(),
+        EvaluationError::SerializationError => "SerializationError".into(),
+        EvaluationError::JsonLimitError => "JSONLimitError".into(),
+        EvaluationError::JsonSyntaxError => "JSONSyntaxError".into(),
         // C013 makes suspension a control signal, so it never reaches user
         // code and has no Iris error name. Reaching here means an async body
         // suspended with no driver to resume it.

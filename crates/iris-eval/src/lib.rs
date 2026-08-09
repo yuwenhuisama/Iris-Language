@@ -203,6 +203,16 @@ pub enum EvaluationError {
     /// `IRIS-V1-ASYNC-C053` raises when any requested portion is unavailable
     /// and forbids returning a partial sequence as complete.
     AuditHistoryUnavailable,
+    /// A value outside the serialization contract boundary was serialized.
+    ///
+    /// `IRIS-V1-LIBRARY-C003` and `C004` make serialization opt-in through the
+    /// `Serializable` Contract, so an ordinary object is refused rather than
+    /// serialized by inspection.
+    SerializationError,
+    /// JSON input exceeded a configured decode limit.
+    JsonLimitError,
+    /// JSON input was not well formed.
+    JsonSyntaxError,
     /// An async body awaited an incomplete Awaitable and must suspend.
     ///
     /// `IRIS-V1-ASYNC-C013` requires the continuation to be registered and

@@ -51,6 +51,8 @@ pub enum Chapter {
     Ffi,
     /// The language identity chapter.
     Identity,
+    /// The serialization and standard library chapter.
+    Library,
 }
 
 impl Chapter {
@@ -65,6 +67,7 @@ impl Chapter {
             Self::Collections => "COLLECTIONS",
             Self::Ffi => "FFI",
             Self::Identity => "IDENTITY",
+            Self::Library => "LIBRARY",
         }
     }
 }
