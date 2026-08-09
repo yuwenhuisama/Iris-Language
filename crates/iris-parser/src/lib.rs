@@ -1825,7 +1825,18 @@ impl Parser {
         // after eating the first advanced the cursor past a `:` that belongs to
         // its enclosing form, which made a bare identifier Hash key such as
         // `%{ a: 10 }` fail to parse at all.
-        if self.check(":") && self.peek_next() == Some(":") {
+        // Two colon tokens only form `::` when they are ADJACENT in the
+        // source. `errors: :replace` is a keyword argument whose value is a
+        // Symbol, and treating its two separated colons as a qualified
+        // separator merged them into the single name `errors::replace`.
+        if self.check(":")
+            && self.peek_next() == Some(":")
+            && self
+                .tokens
+                .get(self.cursor + 1)
+                .zip(self.tokens.get(self.cursor))
+                .is_some_and(|(next, current)| next.offset == current.offset + 1)
+        {
             self.advance();
             self.advance();
             return true;

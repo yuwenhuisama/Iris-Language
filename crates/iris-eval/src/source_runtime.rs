@@ -5304,7 +5304,18 @@ impl SourceEvaluator {
                             // C043 names `FFI` the standard service Class, and
                             // it is an ordinary identifier for the same reason
                             // `Host` is, so a DECLARED `FFI` wins over it.
-                            || (matches!(name.as_str(), "Revision" | "RevisionHistory" | "Gate" | "Diagnostics" | "JSON")
+                            || (matches!(
+                                name.as_str(),
+                                "Revision"
+                                    | "RevisionHistory"
+                                    | "Gate"
+                                    | "Diagnostics"
+                                    | "JSON"
+                                    | "Encoding::UTF_8"
+                                    | "Encoding::UTF_16LE"
+                                    | "Encoding::UTF_16BE"
+                                    | "Encoding::Latin_1"
+                            )
                                 && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
@@ -7000,6 +7011,65 @@ impl SourceEvaluator {
             // values and requires a Class instance to go through its EXPLICIT
             // Serializable representation, never through to_string, inspect,
             // identity, or raw ivar scanning.
+            // C022 makes the Encoding package own explicit Encoding objects,
+            // with STRICT error handling the default for every one of them.
+            // Replacement or ignore behaviour requires an explicit option at
+            // the call site and is never selected by default.
+            ("Encoding::UTF_8", "decode")
+            | ("Encoding::UTF_16LE", "decode")
+            | ("Encoding::UTF_16BE", "decode")
+            | ("Encoding::Latin_1", "decode") => {
+                let [value, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let bytes = match value {
+                    Value::Bytes(bytes) => bytes.clone(),
+                    Value::ByteArray(bytes) => bytes.bytes(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                let errors = rest.iter().find_map(|option| match option {
+                    Value::KeywordArgument(name, mode) if name == "errors" => match &**mode {
+                        Value::Symbol(mode) => Some(mode.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                let decoded = match namespace {
+                    "Encoding::Latin_1" => {
+                        // Latin-1 maps every byte to the scalar of that value,
+                        // so it cannot fail and needs no error option.
+                        Ok(bytes.iter().map(|byte| char::from(*byte)).collect())
+                    }
+                    "Encoding::UTF_16LE" | "Encoding::UTF_16BE" => {
+                        let big = namespace.ends_with("BE");
+                        let units: Vec<u16> = bytes
+                            .chunks_exact(2)
+                            .map(|pair| {
+                                if big {
+                                    u16::from_be_bytes([pair[0], pair[1]])
+                                } else {
+                                    u16::from_le_bytes([pair[0], pair[1]])
+                                }
+                            })
+                            .collect();
+                        if bytes.len() % 2 == 0 {
+                            String::from_utf16(&units).map_err(|_| ())
+                        } else {
+                            Err(())
+                        }
+                    }
+                    _ => String::from_utf8(bytes.clone()).map_err(|_| ()),
+                };
+                match decoded {
+                    Ok(text) => Ok(Value::Text(text)),
+                    // C022 makes strict the DEFAULT, so a lossy result appears
+                    // only because the caller asked for it by name.
+                    Err(()) if errors.as_deref() == Some("replace") => {
+                        Ok(Value::Text(String::from_utf8_lossy(&bytes).into_owned()))
+                    }
+                    Err(()) => Err(EvaluationError::EncodingError),
+                }
+            }
             ("JSON", "encode") => {
                 let [value, rest @ ..] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
