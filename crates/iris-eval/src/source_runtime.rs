@@ -325,6 +325,18 @@ pub(super) struct SourceEvaluator {
     next_commit_id: u64,
     /// Subscriber failures recorded on the `C048` event-error channel.
     event_errors: Vec<Value>,
+    /// The permitted change summary recorded for each commit.
+    ///
+    /// `IRIS-V1-ASYNC-C046` lets a payload identify targets and change
+    /// summaries but forbids private bodies and raw private data, so only the
+    /// target NAMES are recorded here.
+    committed_targets: HashMap<u64, Vec<Value>>,
+    /// Exception contexts discarded by a `finally` control transfer.
+    ///
+    /// `IRIS-V1-CONTROL-C063` records these ONLY in a protected diagnostic
+    /// channel, so they are kept apart from cause and suppressed metadata and
+    /// are never visible to an ordinary caller.
+    discarded_contexts: Vec<Value>,
     /// Failed Tasks that no awaiter has observed yet.
     ///
     /// `IRIS-V1-ASYNC-C027` forbids an unobserved failed Task from disappearing
@@ -648,6 +660,8 @@ impl SourceEvaluator {
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
+            committed_targets: HashMap::new(),
+            discarded_contexts: Vec::new(),
             unobserved_failures: Vec::new(),
             gates: HashMap::new(),
             suspended: HashMap::new(),
@@ -3561,6 +3575,11 @@ impl SourceEvaluator {
         // C053 answers RETAINED audit events, so the commit is recorded here
         // and pruning removes it again.
         self.audit_history.push(commit);
+        let summary = group
+            .iter()
+            .map(|target| Value::Symbol(self.class_source_name(*target)))
+            .collect();
+        self.committed_targets.insert(commit, summary);
         for subscriber in &mut self.revision_subscribers {
             subscriber.queued.push(commit);
             if subscriber.queued.len() <= subscriber.capacity {
@@ -3633,9 +3652,20 @@ impl SourceEvaluator {
                 self.deliver_revision_event(callback, event);
             }
             for commit in queued {
+                // C046 fixes what a payload identifies: the commit ID and a
+                // permitted summary. It MUST NOT expose private Method bodies,
+                // raw private data, candidate mutation handles or rollback
+                // authority, so the payload carries names and counts rather
+                // than anything reachable back into the committed candidate.
+                let summary = self
+                    .committed_targets
+                    .get(&commit)
+                    .cloned()
+                    .unwrap_or_default();
                 let event = Value::Tuple(vec![
                     Value::Symbol("RevisionEvent".into()),
                     Value::Integer(commit.into()),
+                    Value::Array(ArrayRef::new(summary)),
                 ]);
                 delivered.push(event.clone());
                 self.deliver_revision_event(callback, event);
@@ -4105,6 +4135,20 @@ impl SourceEvaluator {
                         Box::new(location),
                     ));
                 }
+            }
+            // C063: a `return`, `break` or `continue` from `finally` overrides
+            // any pending result or exception. When it DISCARDS a pending
+            // context, that context is recorded only in a protected runtime
+            // diagnostic channel, never as cause or suppressed metadata, and
+            // ordinary callers observe only the new control transfer.
+            if let Err(
+                EvaluationError::Return(_)
+                | EvaluationError::LoopBreak(..)
+                | EvaluationError::LoopContinue(_),
+            ) = &final_result
+                && let Err(EvaluationError::Raised(discarded)) = &result
+            {
+                self.discarded_contexts.push(discarded.clone());
             }
             final_result?;
         }
@@ -6350,6 +6394,11 @@ impl SourceEvaluator {
             // observed, and C028 fixes what the report carries: the Task
             // identity, the captured value, and the observation state. Reading
             // the report MUST NOT mark the failure handled, so this only reads.
+            // C063 records a discarded pending context in a PROTECTED
+            // diagnostic channel rather than as cause or suppressed metadata.
+            ("Diagnostics", "discarded_contexts") => {
+                Ok(Value::Array(ArrayRef::new(self.discarded_contexts.clone())))
+            }
             ("Diagnostics", "unobserved_failures") => Ok(Value::Array(ArrayRef::new(
                 self.unobserved_failures
                     .iter()
