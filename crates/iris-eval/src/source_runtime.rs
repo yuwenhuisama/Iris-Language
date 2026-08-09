@@ -5311,6 +5311,8 @@ impl SourceEvaluator {
                                     | "Gate"
                                     | "Diagnostics"
                                     | "JSON"
+                                    | "File"
+                                    | "Package"
                                     | "Encoding::UTF_8"
                                     | "Encoding::UTF_16LE"
                                     | "Encoding::UTF_16BE"
@@ -7069,6 +7071,53 @@ impl SourceEvaluator {
                     }
                     Err(()) => Err(EvaluationError::EncodingError),
                 }
+            }
+            // C025 forbids selecting an OS locale, code page, environment
+            // variable or Host default IMPLICITLY. Those settings may be
+            // exposed as explicit values, but choosing one for decoding
+            // requires the caller to name a real Encoding object.
+            ("File", "read_text") => {
+                let [_, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let selected = rest.iter().find_map(|option| match option {
+                    Value::KeywordArgument(name, choice) if name == "encoding" => {
+                        Some((**choice).clone())
+                    }
+                    _ => None,
+                });
+                match selected {
+                    // A host-default request names no Encoding at all, which is
+                    // exactly the implicit selection C025 refuses.
+                    Some(Value::Symbol(name)) if name == "host_default" => Err(
+                        EvaluationError::LexicalDiagnostic("ENCODING_EXPLICIT_REQUIRED"),
+                    ),
+                    None => Err(EvaluationError::LexicalDiagnostic(
+                        "ENCODING_EXPLICIT_REQUIRED",
+                    )),
+                    // Reading a real file needs a Host IO boundary this engine
+                    // does not have, so a well-formed call is not answered with
+                    // fabricated content.
+                    Some(_) => Err(EvaluationError::UnsupportedConstruct),
+                }
+            }
+            // C028 fixes which surfaces are language core. A separately
+            // versioned package MUST NOT claim core ABI or replace core literal
+            // semantics, so the claim is rejected at validation time and core
+            // behaviour is left untouched.
+            ("Package", "validate") => {
+                let [_, rest @ ..] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let claims_core = rest.iter().any(|option| {
+                    matches!(option, Value::KeywordArgument(name, flag)
+                        if matches!(name.as_str(), "core_abi" | "replaces_core_regex_literals")
+                            && **flag == Value::Bool(true))
+                });
+                if claims_core {
+                    return Err(EvaluationError::LexicalDiagnostic("PACKAGE_CORE_ABI_CLAIM"));
+                }
+                Ok(Value::Symbol("validated".into()))
             }
             ("JSON", "encode") => {
                 let [value, rest @ ..] = arguments else {
