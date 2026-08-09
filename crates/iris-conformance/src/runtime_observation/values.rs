@@ -171,6 +171,23 @@ fn unpublished_class(expected: &Value) -> Result<&str, String> {
         .ok_or_else(|| "error side_effects must use '<Class> is not published.'".into())
 }
 
+/// Renders `value` as a JSON string literal.
+fn render_json_string(value: &str) -> String {
+    let mut rendered = String::from("\"");
+    for scalar in value.chars() {
+        match scalar {
+            '"' => rendered.push_str("\\\""),
+            '\\' => rendered.push_str("\\\\"),
+            '\n' => rendered.push_str("\\n"),
+            '\r' => rendered.push_str("\\r"),
+            '\t' => rendered.push_str("\\t"),
+            scalar => rendered.push(scalar),
+        }
+    }
+    rendered.push('"');
+    rendered
+}
+
 fn render_value(value: &RuntimeValue) -> String {
     match value {
         RuntimeValue::Nil => "{\"nil\":true}".into(),
@@ -265,7 +282,10 @@ fn render_value(value: &RuntimeValue) -> String {
         RuntimeValue::Hash(entries) => format!("{{\"hash\":\"{}\"}}", entries.len()),
         // IRIS-V1-CONFORMANCE-C027 names `string` as the expectation key for an
         // observable String value.
-        RuntimeValue::Text(value) => format!("{{\"string\":\"{value}\"}}"),
+        // A String is embedded in JSON, so a quote or backslash inside it must
+        // be escaped or the rendering is not parseable at all. V310 observes an
+        // `inspect` result, which is exactly a String containing quotes.
+        RuntimeValue::Text(value) => format!("{{\"string\":{}}}", render_json_string(value)),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
         RuntimeValue::Class(_)
         | RuntimeValue::Type(..)

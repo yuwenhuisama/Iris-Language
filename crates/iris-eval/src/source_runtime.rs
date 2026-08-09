@@ -3443,6 +3443,13 @@ impl SourceEvaluator {
                         .collect();
                 Ok(Some(Value::Array(ArrayRef::new(clusters))))
             }
+            // C048 converts a non-String interpolation value through dynamic
+            // `to_string`, so the built-in value families answer one. C049
+            // gives ordinary objects the nominal-name form separately.
+            (Value::Integer(value), "to_string", []) => Ok(Some(Value::Text(value.decimal_text()))),
+            (Value::Bool(value), "to_string", []) => Ok(Some(Value::Text(value.to_string()))),
+            (Value::Nil, "to_string", []) => Ok(Some(Value::Text("nil".into()))),
+            (Value::Symbol(name), "to_string", []) => Ok(Some(Value::Text(name.clone()))),
             // C050 makes `to_string` answer the receiver itself.
             (Value::Text(text), "to_string", []) => Ok(Some(Value::Text(text.clone()))),
             // C050 requires a REPARSABLE double-quoted literal that recreates a
@@ -3657,6 +3664,49 @@ impl SourceEvaluator {
                 _ => Err(EvaluationError::TypeContractError),
             },
         }
+    }
+
+    /// Builds a String literal containing `${expr}` interpolation.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C048` fixes the order and the failure behaviour:
+    /// segments run left to right, a non-String value is converted by dynamic
+    /// `to_string`, a non-String conversion result raises TypeContractError,
+    /// and on any failure later segments do not run and nothing partial is
+    /// published. Building into a local and answering only at the end is what
+    /// makes the last requirement hold.
+    fn interpolated_string(
+        &mut self,
+        source: &str,
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let Value::Text(body) = literal(source)? else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let mut built = String::new();
+        let mut rest = body.as_str();
+        while let Some(open) = rest.find("${") {
+            built.push_str(&rest[..open]);
+            let after = &rest[open + 2..];
+            let Some(end) = after.find('}') else {
+                return Err(EvaluationError::LexicalDiagnostic(
+                    "PARSE_BAD_INTERPOLATION",
+                ));
+            };
+            let parsed = iris_parser::parse(&after[..end]);
+            let [iris_syntax::ProgramEntry::Statement(Statement::Expression(expression))] =
+                parsed.program.entries.as_slice()
+            else {
+                return Err(EvaluationError::LexicalDiagnostic(
+                    "PARSE_BAD_INTERPOLATION",
+                ));
+            };
+            let value = self.expression(expression, locals, receiver.clone())?;
+            built.push_str(&self.text_operand(&value)?);
+            rest = &after[end + 1..];
+        }
+        built.push_str(rest);
+        Ok(Value::Text(built))
     }
 
     /// Builds a Regex literal whose pattern contains `${expr}` interpolation.
@@ -4832,6 +4882,13 @@ impl SourceEvaluator {
                 .get(&(self.package.clone(), name.clone()))
                 .map(Binding::value)
                 .ok_or(EvaluationError::NameError),
+            // C048 evaluates each `${expr}` LEFT TO RIGHT, converts a
+            // non-String value through dynamic `to_string`, and raises
+            // TypeContractError when that answers a non-String. On any failure
+            // later segments do not run and no partial String is published.
+            Expression::Literal(source) if source.starts_with('"') && source.contains("${") => {
+                self.interpolated_string(source, locals, receiver)
+            }
             // C076 evaluates each `${expr}` in a NON-RAW Regex literal once,
             // converts it through dynamic `to_string`, then escapes it with
             // default Regex escaping before insertion, so an interpolated value

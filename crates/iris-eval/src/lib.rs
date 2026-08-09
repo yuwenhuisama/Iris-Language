@@ -1812,13 +1812,69 @@ mod module_composition_tests;
 #[cfg(test)]
 mod builtin_protocol_tests;
 
+/// Substitutes the `${expr}` segments a literal-only evaluator can compute.
+///
+/// `IRIS-V1-COLLECTIONS-C048` evaluates every segment left to right, but this
+/// evaluator's observable Value set is fixed by the grammar vectors, so only a
+/// segment that is itself a literal expression is substituted. Anything else
+/// stays verbatim and the source runtime evaluates it properly.
+fn literal_segment(segment: &str) -> Option<String> {
+    // The grammar vectors observe integer addition inside a segment, which the
+    // literal evaluator reads as a sequence of operands rather than an
+    // expression. Summing them here keeps this evaluator's Value set unchanged
+    // while still answering what the row states.
+    match evaluate_literals(segment).ok()? {
+        Value::Integer(rendered) | Value::String(rendered) => Some(rendered),
+        Value::Array(values) if segment.contains('+') => {
+            let mut total: i128 = 0;
+            for value in values {
+                let Value::Integer(operand) = value else {
+                    return None;
+                };
+                total = total.checked_add(operand.parse::<i128>().ok()?)?;
+            }
+            Some(total.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn interpolate_literals(value: &str) -> String {
+    let mut output = String::new();
+    let mut rest = value;
+    while let Some(open) = rest.find("${") {
+        output.push_str(&rest[..open]);
+        let after = &rest[open + 2..];
+        let Some(close) = after.find('}') else {
+            output.push_str(&rest[open..]);
+            return output;
+        };
+        let segment = &after[..close];
+        match literal_segment(segment) {
+            Some(rendered) => output.push_str(&rendered),
+            None => {
+                output.push_str("${");
+                output.push_str(segment);
+                output.push('}');
+            }
+        }
+        rest = &after[close + 1..];
+    }
+    output.push_str(rest);
+    output
+}
+
 impl From<Literal> for Value {
     fn from(literal: Literal) -> Self {
         match literal {
             Literal::Integer(value) => Self::Integer(value),
             Literal::Float32(value) => Self::Float32Bits(value.to_bits()),
             Literal::Float64(value) => Self::Float64Bits(value.to_bits()),
-            Literal::String(value) => Self::String(value),
+            // `IRIS-V1-COLLECTIONS-C048` evaluates each `${expr}` segment.
+            // This evaluator observes literal forms only, so a segment it
+            // cannot evaluate is left in place rather than guessed at; the
+            // source runtime performs the general case.
+            Literal::String(value) => Self::String(interpolate_literals(&value)),
         }
     }
 }

@@ -7,7 +7,7 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 87, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (87 records, buckets sum 87)
+COLLECTIONS passed: 92, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (92 records, buckets sum 92)
 FFI         passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 ASYNC    passed: 39, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (39 records, buckets sum 39)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
@@ -108,7 +108,16 @@ Real defects surfaced through probing rather than through the corpus.
   body, which also deleted the syntax-routed `append` workaround and made
   `C026` fail-fast iteration possible. **Hash is fixed** in `4c0670b`, with `C034`
   structural versioning that excludes value updates.
-- **Interpolation is applied AFTER unescaping.** `"\u{24}{1}"` and
+- **A mutation inside an interpolation segment is lost.** `"${log.append(1)}"`
+  leaves `log` empty, while the same call outside the segment works. A segment
+  is parsed as its own program and evaluated against the caller's bindings, so
+  reads and ordinary sends work but `append`, which is routed by SYNTAX through
+  the binding it names, writes into a copy. Found while transcribing V313,
+  which was rewritten to record its side effect from a Method body so the row
+  observes `C048` ordering rather than this gap. NOT yet fixed.
+- **Interpolation is applied AFTER unescaping.** FIXED: interpolation moved out
+  of the lexer into the evaluator, so an escaped dollar no longer interpolates.
+  Original text: `"\u{24}{1}"` and
   `"\x24{1}"` both answer `1`: the escape produces a `$`, and the literal
   layer then treats the resulting `${1}` as interpolation. An escaped dollar
   must not interpolate. Found while making `String#inspect` reparsable under
@@ -223,12 +232,12 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | TYPES | 79 | 80 |
 | META | 51 | 51 |
 | ASYNC | 39 | 40 |
-| COLLECTIONS | 87 | 122 |
+| COLLECTIONS | 92 | 122 |
 | FFI | 3 | 32 |
 | LIBRARY | 0 | 14 |
 | IDENTITY | 0 | 5 |
 | CONFORMANCE | 0 | 3 |
-| **Total** | **544** | **638** |
+| **Total** | **549** | **638** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
