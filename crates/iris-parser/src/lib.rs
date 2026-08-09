@@ -241,7 +241,14 @@ fn combine_numeric_literals(raw: &[(TokenKind, &str, usize)]) -> Vec<Token> {
     let mut cursor = 0;
     while cursor < raw.len() {
         let (kind, text, offset) = raw[cursor];
-        if text == ":" && raw.get(cursor + 1).is_some_and(|(_, next, _)| *next == ":") {
+        // Two colons form `::` only when they are ADJACENT in the source.
+        // Joining any two colon tokens turned `f(x: :a)`, a keyword argument
+        // whose value is a Symbol, into the single name `x::a`.
+        if text == ":"
+            && raw
+                .get(cursor + 1)
+                .is_some_and(|(_, next, next_offset)| *next == ":" && *next_offset == offset + 1)
+        {
             tokens.push(Token {
                 text: "::".into(),
                 offset,
