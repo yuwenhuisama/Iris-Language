@@ -3921,12 +3921,14 @@ impl SourceEvaluator {
             let (kept_key, kept_value) = rebuilt[index].clone();
             let merged = self.send(merge, "call", &[kept_key, kept_value, key, value])?;
             // C032 takes the block result as a two-element `(key, value)`
-            // replacement, so a different shape is a shape failure.
+            // replacement. A different SHAPE is a Type failure, distinct from
+            // the C031 conflict that a missing block reports: V278 observes a
+            // block answering `:bad` and requires TypeContractError.
             let Value::Tuple(replacement) = &merged else {
-                return Err(EvaluationError::KeyConflictError);
+                return Err(EvaluationError::TypeContractError);
             };
             let [new_key, new_value] = replacement.as_slice() else {
-                return Err(EvaluationError::KeyConflictError);
+                return Err(EvaluationError::TypeContractError);
             };
             // C032 requires the returned key to REMAIN equal to the class under
             // current equality, so a key that leaves its own class is a new
