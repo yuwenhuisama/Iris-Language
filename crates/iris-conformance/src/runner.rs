@@ -149,6 +149,76 @@ pub fn report(outcomes: &[Outcome]) -> Report {
         })
 }
 
+/// Validates a vector record's shape for a CONFORMANCE row.
+///
+/// `IRIS-V1-CONFORMANCE-C016` and the surrounding clauses fix what a record
+/// must carry, so the fixture under test is ordinary JSON and the expectation
+/// names the fields that must hold. Nothing is executed.
+fn validate_record_shape(record: &Record) -> Outcome {
+    let checked = || -> Result<(), String> {
+        let fixture = crate::model::parse_expect(&record.source)?;
+        let fixture = crate::model::object(&fixture)?;
+        let expected = crate::model::parse_expect(&record.expect)?;
+        let expected = crate::model::object(&expected)?;
+        let Some(fields) = expected.get("record_fields") else {
+            return Err("record_fields expected".into());
+        };
+        for (path, wanted) in crate::model::object(fields)? {
+            let mut current = fixture.get(path.split('.').next().unwrap_or(path));
+            for step in path.split('.').skip(1) {
+                current = current
+                    .and_then(|value| crate::model::object(value).ok())
+                    .and_then(|value| value.get(step));
+            }
+            let Some(found) = current else {
+                return Err(format!("record field {path} missing"));
+            };
+            // `json::Value` has no equality, so the comparison is over a
+            // canonical rendering of each side.
+            if render_json(found) != render_json(wanted) {
+                return Err(format!(
+                    "record field {path}: expected {}, found {}",
+                    render_json(wanted),
+                    render_json(found)
+                ));
+            }
+        }
+        Ok(())
+    };
+    match checked() {
+        Ok(()) => Outcome::Passed {
+            id: record.id.clone(),
+        },
+        Err(reason) => Outcome::Failed {
+            id: record.id.clone(),
+            expected: "record shape to validate".into(),
+            actual: reason,
+        },
+    }
+}
+
+/// Renders a parsed JSON value canonically for comparison.
+fn render_json(value: &crate::json::Value) -> String {
+    match value {
+        crate::json::Value::Array(values) => format!(
+            "[{}]",
+            values.iter().map(render_json).collect::<Vec<_>>().join(",")
+        ),
+        crate::json::Value::Bool(flag) => flag.to_string(),
+        crate::json::Value::Null => "null".into(),
+        crate::json::Value::Number => "number".into(),
+        crate::json::Value::Object(entries) => format!(
+            "{{{}}}",
+            entries
+                .iter()
+                .map(|(key, held)| format!("{key}:{}", render_json(held)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        crate::json::Value::String(text) => format!("{text:?}"),
+    }
+}
+
 fn execute_runtime_record(record: &Record) -> Outcome {
     match record
         .tags
@@ -164,6 +234,10 @@ fn execute_runtime_record(record: &Record) -> Outcome {
         Some("differential") => Outcome::Differential {
             id: record.id.clone(),
         },
+        // A CONFORMANCE record-validation row observes the SHAPE of a vector
+        // record rather than any language behaviour, so it is checked as data
+        // against its own stated expectation instead of being executed.
+        Some("record-validation") => validate_record_shape(record),
         Some("executable") | None => match compare_runtime(record) {
             Ok(()) => Outcome::Passed {
                 id: record.id.clone(),

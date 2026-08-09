@@ -32,9 +32,12 @@ fn main() -> ExitCode {
         [flag, chapter] if flag == "--chapter" && chapter == "LIBRARY" => {
             iris_conformance::Chapter::Library
         }
+        [flag, chapter] if flag == "--chapter" && chapter == "CONFORMANCE" => {
+            iris_conformance::Chapter::Conformance
+        }
         _ => {
             eprintln!(
-                "usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META|ASYNC|COLLECTIONS|FFI|IDENTITY|LIBRARY"
+                "usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META|ASYNC|COLLECTIONS|FFI|IDENTITY|LIBRARY|CONFORMANCE"
             );
             return ExitCode::from(2);
         }
@@ -59,7 +62,8 @@ fn main() -> ExitCode {
             | iris_conformance::Chapter::Collections
                 | iris_conformance::Chapter::Ffi
                 | iris_conformance::Chapter::Identity
-                | iris_conformance::Chapter::Library => iris_conformance::execute_runtime(&records),
+                | iris_conformance::Chapter::Library
+                | iris_conformance::Chapter::Conformance => iris_conformance::execute_runtime(&records),
         }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
@@ -80,7 +84,8 @@ fn main() -> ExitCode {
                 | iris_conformance::Chapter::Collections
                 | iris_conformance::Chapter::Ffi
                 | iris_conformance::Chapter::Identity
-                | iris_conformance::Chapter::Library => {
+                | iris_conformance::Chapter::Library
+                | iris_conformance::Chapter::Conformance => {
                     println!(
                         "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
                         report.passed,

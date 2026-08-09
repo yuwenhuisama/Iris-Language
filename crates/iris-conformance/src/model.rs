@@ -53,6 +53,8 @@ pub enum Chapter {
     Identity,
     /// The serialization and standard library chapter.
     Library,
+    /// The conformance chapter, whose rows validate record shape.
+    Conformance,
 }
 
 impl Chapter {
@@ -68,6 +70,7 @@ impl Chapter {
             Self::Ffi => "FFI",
             Self::Identity => "IDENTITY",
             Self::Library => "LIBRARY",
+            Self::Conformance => "CONFORMANCE",
         }
     }
 }

@@ -11,6 +11,7 @@ COLLECTIONS passed: 99, failed: 0, needs_subsystem: 0, no_fixture: 0, differenti
 FFI         passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 IDENTITY    passed: 1, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (1 record, buckets sum 1)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
+CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 ASYNC    passed: 39, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (39 records, buckets sum 39)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
@@ -111,9 +112,9 @@ executable vectors, so they are recorded here rather than skipped silently.
   successor declaration appears in both `README.md` and chapter 01. Asserting
   them needs a documentation validator, which is a different mechanism from
   executing a vector.
-- `CONFORMANCE-V010`, `V011` and `V012` are corpus validations. They check the
-  SHAPE of a vector record rather than any language behaviour, so they need a
-  record validator over the corpus itself.
+- `CONFORMANCE-V010`, `V011` and `V012` are corpus validations. RESOLVED: a
+  `bucket:record-validation` outcome checks a fixture record's fields as DATA
+  against the row's stated expectation, without executing anything.
 - `IDENTITY-V014` needs instance-level revision migration: `migrate_revision`
   on an instance, with a committed revision NOT migrating other instances
   implicitly. That subsystem does not exist.
@@ -261,8 +262,8 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | FFI | 3 | 32 |
 | LIBRARY | 14 | 14 |
 | IDENTITY | 1 | 5 |
-| CONFORMANCE | 0 | 3 |
-| **Total** | **576** | **637** |
+| CONFORMANCE | 3 | 3 |
+| **Total** | **579** | **637** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
