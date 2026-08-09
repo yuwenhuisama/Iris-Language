@@ -8117,6 +8117,19 @@ impl SourceEvaluator {
         {
             match (&receiver, other) {
                 (Value::IterationDone, Value::IterationDone) => return Ok(Value::Bool(true)),
+                // C003 classifies String, Symbol, Tuple, Range, Bytes and Regex
+                // as IDENTITY-LESS, and C089 forbids falling back to object
+                // identity for such a value, so an identity question about one
+                // has no answer to give and raises.
+                (
+                    Value::Text(_)
+                    | Value::Symbol(_)
+                    | Value::Tuple(_)
+                    | Value::Range(_)
+                    | Value::Bytes(_)
+                    | Value::Regex(_),
+                    _,
+                ) => return Err(EvaluationError::IdentityError),
                 // C089 forbids falling back to object identity for an
                 // identity-less wrapper, so this raises rather than comparing.
                 (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => {
@@ -8128,6 +8141,21 @@ impl SourceEvaluator {
                 | (Value::HashIterator(left), Value::HashIterator(right))
                 | (Value::ByteIterator(left), Value::ByteIterator(right)) => {
                     return Ok(Value::Bool(left == right));
+                }
+                // C003 classifies Array, Hash, MutableString and ByteArray as
+                // IDENTITY-BEARING, so `same?` asks whether the two handles
+                // denote one container rather than whether contents match.
+                (Value::Array(left), Value::Array(right)) => {
+                    return Ok(Value::Bool(left.same(right)));
+                }
+                (Value::Hash(left), Value::Hash(right)) => {
+                    return Ok(Value::Bool(left.same(right)));
+                }
+                (Value::MutableString(left), Value::MutableString(right)) => {
+                    return Ok(Value::Bool(left.same(right)));
+                }
+                (Value::ByteArray(left), Value::ByteArray(right)) => {
+                    return Ok(Value::Bool(left.same(right)));
                 }
                 _ => {}
             }
@@ -8898,6 +8926,21 @@ impl SourceEvaluator {
         missing: Selector,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // C049 gives every Object a root `to_string` answering
+        // `<fully.qualified.ClassName>` from NOMINAL Class identity, omitting
+        // the address, identity hash, runtime ID, revision number, properties
+        // and ivars, with `inspect` initially delegating to it. This is reached
+        // only after instance dispatch found nothing, so a DECLARED
+        // `to_string` still wins.
+        let missing_name = self.selector_name(missing);
+        if matches!(missing_name.as_str(), "to_string" | "inspect") && arguments.is_empty() {
+            let class = self
+                .runtime
+                .class_of(object)
+                .map_err(EvaluationError::Construction)?;
+            let name = self.class_source_name(class);
+            return Ok(Value::Text(format!("<{}::{name}>", self.package)));
+        }
         let fallback = self.selector("method_missing");
         if missing == fallback {
             return Err(EvaluationError::MessageNotFound {
