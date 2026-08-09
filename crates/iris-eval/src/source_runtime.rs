@@ -7973,7 +7973,10 @@ impl SourceEvaluator {
                 receiver,
                 Value::Symbol(_)
                     | Value::IterationDone
-                    | Value::IterationYield(_)
+                    // An IterationYield is absent deliberately: C089 composes
+                    // over its PAYLOAD's hash, which needs a real dispatch so
+                    // an unhashable payload propagates InvalidKeyError. The
+                    // arm below does that.
                     | Value::Range(..)
                     // C022 makes a Tuple hash succeed only when every element
                     // hash does, and `public_hash` already propagates the
@@ -7988,6 +7991,21 @@ impl SourceEvaluator {
             return iris_runtime::public_hash(&receiver)
                 .map(Value::Integer)
                 .map_err(|_| EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        }
+        if selector == "hash"
+            && arguments.is_empty()
+            && let Value::IterationYield(payload) = &receiver
+        {
+            // C089 composes over the PAYLOAD's own public hash, so an
+            // unhashable payload propagates InvalidKeyError unchanged instead
+            // of collapsing into a type failure.
+            let payload = self.send(payload.as_ref().clone(), "hash", &[])?;
+            let Value::Integer(payload) = payload else {
+                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+            };
+            return Ok(Value::Integer(iris_runtime::iteration_hash(
+                payload.to_u64(),
+            )));
         }
         if selector == "hash"
             && arguments.is_empty()
@@ -8051,6 +8069,35 @@ impl SourceEvaluator {
             };
             let equal = scalars(&receiver) == scalars(other);
             return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
+        // C089 orders Iteration values: `done` equals itself, a yield and
+        // `done` are UNORDERED, and two yields compare by payload. A payload
+        // comparison that answers outside -1..1 breaks the Contract.
+        if selector == "<=>"
+            && let [other] = arguments
+        {
+            match (&receiver, other) {
+                (Value::IterationDone, Value::IterationDone) => {
+                    return Ok(Value::Integer(0_u8.into()));
+                }
+                (Value::IterationDone, Value::IterationYield(_))
+                | (Value::IterationYield(_), Value::IterationDone) => return Ok(Value::Nil),
+                (Value::IterationYield(left), Value::IterationYield(right)) => {
+                    let ordering = self.send(
+                        left.as_ref().clone(),
+                        "<=>",
+                        std::slice::from_ref(right.as_ref()),
+                    )?;
+                    let Value::Integer(value) = &ordering else {
+                        return Err(EvaluationError::ComparisonContractError);
+                    };
+                    if !matches!(value.to_i128(), Some(-1..=1)) {
+                        return Err(EvaluationError::ComparisonContractError);
+                    }
+                    return Ok(ordering);
+                }
+                _ => {}
+            }
         }
         // C003 classifies an `Iteration<T>` yield as IDENTITY-LESS and
         // immutable, so two yields of equal payloads are equal and `same?`
