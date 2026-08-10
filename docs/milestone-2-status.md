@@ -7,17 +7,17 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 118, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (118 records, buckets sum 118)
-FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (32 records, buckets sum 32)
-IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
-CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-ASYNC    passed: 40, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (40 records, buckets sum 40)
-RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
-CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
-TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
-META     passed: 51, failed: 0, needs_subsystem: 0                                  (51 records, buckets sum 51)
-GRAMMAR  passed: 32, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (47 records)
+COLLECTIONS passed: 118, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (118 records)
+FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (32 records)
+IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (3 records)
+LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records)
+CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (3 records)
+ASYNC       passed: 40, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (40 records)
+RUNTIME     passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records)
+CONTROL     passed: 129, failed: 0, needs_subsystem: 5                                 (134 records)
+TYPES       passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (79 records)
+META        passed: 51, failed: 0, needs_subsystem: 0                                  (51 records)
+GRAMMAR     passed: 32, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (47 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -291,9 +291,12 @@ coverage:
 
 ### Missing spec rows
 
-- `COLLECTIONS`: `V295` `V296` `V330` `V350`
-- `IDENTITY`: `V002` `V014`
-- `GRAMMAR-V008`, `TYPES-V208`
+- `COLLECTIONS`: `V295` `V296` (need a WeakProbe host fixture and forced
+  collection), `V330` (differential), `V350` (generic Contract declaration and
+  builtin iterator requirement reflection)
+- `IDENTITY-V002` (documentation validator), `IDENTITY-V014` and `TYPES-V208`
+  (explicit revision migration and static member-existence checking)
+- `GRAMMAR-V008` (no defining row in chapter 02, recorded since milestone 1)
 
 Five chapters are complete. The 13 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
