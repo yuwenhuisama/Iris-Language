@@ -249,24 +249,53 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 
 ## Milestone Close
 
-Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
+Every chapter reports `failed: 0`.
 
-| Chapter | Transcribed | Rows |
+Two numbers are counted separately here, because merging them once overstated
+coverage. **Spec rows** are vector IDs the frozen specification declares.
+**Local rows** are additional vectors this implementation authored to pin
+behaviour a spec row named but did not enumerate; they cite real clauses, but
+counting them toward specification coverage would inflate both sides of the
+ratio. An earlier revision of this table reported CONTROL as 134 of 134 by
+folding 14 locally authored `V###A` rows into the spec count.
+
+| Chapter | Spec transcribed | Spec rows | Missing | Local rows |
+| --- | --- | --- | --- | --- |
+| ASYNC | 39 | 40 | 1 | 0 |
+| COLLECTIONS | 115 | 122 | 7 | 0 |
+| CONFORMANCE | 3 | 3 | 0 | 0 |
+| CONTROL | 120 | 120 | 0 | 14 |
+| FFI | 31 | 32 | 1 | 0 |
+| GRAMMAR | 47 | 48 | 1 | 0 |
+| IDENTITY | 3 | 5 | 2 | 0 |
+| LIBRARY | 14 | 14 | 0 | 0 |
+| META | 51 | 51 | 0 | 0 |
+| RUNTIME | 109 | 109 | 0 | 0 |
+| TYPES | 79 | 80 | 1 | 0 |
+| **Total** | **611** | **624** | **13** | **14** |
+
+**611 of 624 spec rows transcribed (97.9%), plus 14 locally authored rows.**
+
+Transcribed is not the same as passing. Of the 625 records in the corpus, 591
+pass and 34 are recorded in non-passing buckets rather than counted as
+coverage:
+
+| Bucket | Count | Meaning |
 | --- | --- | --- |
-| RUNTIME | 109 | 109 |
-| GRAMMAR | 47 | 48 |
-| CONTROL | 134 | 134 |
-| TYPES | 79 | 80 |
-| META | 51 | 51 |
-| ASYNC | 39 | 40 |
-| COLLECTIONS | 115 | 122 |
-| FFI | 30 | 32 |
-| LIBRARY | 14 | 14 |
-| IDENTITY | 3 | 5 |
-| CONFORMANCE | 3 | 3 |
-| **Total** | **624** | **637** |
+| unrunnable_source | 9 | The frozen row supplies prose, not an executable fixture |
+| needs_subsystem | 11 | Requires a subsystem that does not exist yet |
+| no_fixture | 5 | No fixture exists for the row |
+| authored_expect | 5 | The frozen row names no stable diagnostic code |
+| differential | 3 | Requires interpreter/JIT comparison that does not exist |
+| deferred | 1 | Deferred by the row itself |
 
-Three chapters are complete. The 27 open rows are NOT spread thin: they group
+### Missing spec rows
+
+- `COLLECTIONS`: `V039` `V280` `V295` `V296` `V297` `V330` `V350`
+- `IDENTITY`: `V002` `V014`
+- `ASYNC-V012`, `FFI-V010`, `GRAMMAR-V008`, `TYPES-V208`
+
+Five chapters are complete. The 13 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
 did not invent.
 
