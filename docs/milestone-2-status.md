@@ -8,7 +8,7 @@
 
 ```
 COLLECTIONS passed: 116, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (116 records, buckets sum 116)
-FFI         passed: 30, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (31 records, buckets sum 31)
+FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (32 records, buckets sum 32)
 IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
 CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
@@ -265,18 +265,18 @@ folding 14 locally authored `V###A` rows into the spec count.
 | COLLECTIONS | 116 | 122 | 6 | 0 |
 | CONFORMANCE | 3 | 3 | 0 | 0 |
 | CONTROL | 120 | 120 | 0 | 14 |
-| FFI | 31 | 32 | 1 | 0 |
+| FFI | 32 | 32 | 0 | 0 |
 | GRAMMAR | 47 | 48 | 1 | 0 |
 | IDENTITY | 3 | 5 | 2 | 0 |
 | LIBRARY | 14 | 14 | 0 | 0 |
 | META | 51 | 51 | 0 | 0 |
 | RUNTIME | 109 | 109 | 0 | 0 |
 | TYPES | 79 | 80 | 1 | 0 |
-| **Total** | **612** | **624** | **12** | **14** |
+| **Total** | **613** | **624** | **11** | **14** |
 
-**612 of 624 spec rows transcribed (98.1%), plus 14 locally authored rows.**
+**613 of 624 spec rows transcribed (98.2%), plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 626 records in the corpus, 592
+Transcribed is not the same as passing. Of the 627 records in the corpus, 593
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 
@@ -293,7 +293,7 @@ coverage:
 
 - `COLLECTIONS`: `V039` `V295` `V296` `V297` `V330` `V350`
 - `IDENTITY`: `V002` `V014`
-- `ASYNC-V012`, `FFI-V010`, `GRAMMAR-V008`, `TYPES-V208`
+- `ASYNC-V012`, `GRAMMAR-V008`, `TYPES-V208`
 
 Five chapters are complete. The 13 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
