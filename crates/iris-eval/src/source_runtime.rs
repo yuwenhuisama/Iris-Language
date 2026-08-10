@@ -3821,14 +3821,71 @@ impl SourceEvaluator {
         let Value::Hash(fields) = signature else {
             return Err(EvaluationError::IncompleteNativeSignature);
         };
-        // The subset checked here is the part a pure-Iris fixture can state:
-        // the calling convention, the parameter C types, the result C type, and
-        // the error convention. C047 lists more, and the remainder becomes
-        // checkable when a real native boundary exists.
+        // C047 always requires the calling convention, the parameter C types,
+        // the result C type, and the error convention.
         for required in ["convention", "parameters", "result", "errors"] {
             if !fields.contains_key(&Value::Symbol(required.into())) {
                 return Err(EvaluationError::IncompleteNativeSignature);
             }
+        }
+        // C049 supports the stable C ABI ONLY, so a signature naming another
+        // implementation language's convention is rejected rather than being
+        // bound and failing at the call.
+        if let Some(Value::Symbol(convention)) = fields.get(&Value::Symbol("convention".into()))
+            && convention.as_str() != "c"
+        {
+            return Err(EvaluationError::IncompleteNativeSignature);
+        }
+        // The rest of C047's list is CONDITIONAL: pointer nullability, pointer
+        // ownership and lifetime, text encoding, and buffer length relations
+        // are required "where needed", which is what V020 observes. A pointer
+        // parameter is where they are needed, so a declaration that omits them
+        // is rejected BEFORE any call occurs rather than at the boundary.
+        let parameters = fields.get(&Value::Symbol("parameters".into()));
+        if let Some(Value::Array(parameters)) = parameters {
+            for parameter in parameters.elements() {
+                Self::validate_ffi_parameter(&parameter)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates one declared FFI parameter.
+    ///
+    /// `IRIS-V1-FFI-C047` requires pointer nullability, ownership and lifetime,
+    /// text encoding, and buffer length relations WHERE NEEDED. A plain scalar
+    /// needs none of them, so this only demands them once a parameter declares
+    /// itself a pointer, and rejects the binding before any call occurs.
+    fn validate_ffi_parameter(parameter: &Value) -> Result<(), EvaluationError> {
+        // A scalar parameter is named by a bare symbol and carries no pointer
+        // obligations at all.
+        let Value::Hash(fields) = parameter else {
+            return Ok(());
+        };
+        let kind = fields.get(&Value::Symbol("type".into()));
+        let Some(Value::Symbol(kind)) = kind.as_ref() else {
+            return Err(EvaluationError::IncompleteNativeSignature);
+        };
+        if kind != "pointer" {
+            return Ok(());
+        }
+        for required in ["nullable", "ownership"] {
+            if !fields.contains_key(&Value::Symbol(required.into())) {
+                return Err(EvaluationError::IncompleteNativeSignature);
+            }
+        }
+        // A text pointer additionally needs its encoding, and a buffer pointer
+        // needs the parameter stating its length, since neither can be inferred
+        // from the pointer type alone.
+        if fields.get(&Value::Symbol("text".into())) == Some(Value::Bool(true))
+            && !fields.contains_key(&Value::Symbol("encoding".into()))
+        {
+            return Err(EvaluationError::IncompleteNativeSignature);
+        }
+        if fields.get(&Value::Symbol("buffer".into())) == Some(Value::Bool(true))
+            && !fields.contains_key(&Value::Symbol("length".into()))
+        {
+            return Err(EvaluationError::IncompleteNativeSignature);
         }
         Ok(())
     }
@@ -7315,8 +7372,21 @@ impl SourceEvaluator {
                 }
                 // C045 accepts sidecar declarations at open time, each of which
                 // is validated exactly as a programmatic bind would be.
+                //
+                // C043 spells the loader `FFI.open(path, declarations: ...)`, so
+                // the sidecar arrives as a KEYWORD argument. Matching only a
+                // bare Hash silently ignored the spec's own spelling and opened
+                // a Library with nothing bound.
+                let sidecar = arguments.get(1).map(|argument| match argument {
+                    Value::KeywordArgument(name, value) if name == "declarations" => {
+                        (*value).clone()
+                    }
+                    other => Box::new(other.clone()),
+                });
                 let mut bound = Vec::new();
-                if let Some(Value::Hash(declarations)) = arguments.get(1) {
+                if let Some(declarations) = sidecar.as_deref()
+                    && let Value::Hash(declarations) = declarations
+                {
                     for (symbol, signature) in declarations.entries() {
                         let (Value::Symbol(symbol) | Value::Text(symbol)) = &symbol else {
                             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));

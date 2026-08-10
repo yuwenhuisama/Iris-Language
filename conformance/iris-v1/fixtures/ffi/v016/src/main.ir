@@ -1,0 +1,13 @@
+module Fixture {
+  public fun opened() -> Object {
+    mut sqrt = %{}
+    sqrt[:convention] = :c
+    sqrt[:parameters] = []
+    sqrt[:result] = :f64
+    sqrt[:errors] = :none
+    mut sidecar = %{}
+    sidecar[:sqrt] = sqrt
+    let library = FFI.open("fixtures/ffi/libfixture", declarations: sidecar)
+    [library.class_name, library.bound?(:sqrt), library.bound?(:unlisted)]
+  }
+}
