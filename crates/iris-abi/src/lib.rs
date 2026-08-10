@@ -18,15 +18,16 @@ mod thread;
 
 pub use barrier::{IrisCallResult, guard};
 pub use exports::{
-    iris_bridge_reset, iris_call_panicking, iris_drain_completions, iris_extension_attach,
-    iris_handle_get_int, iris_handle_release, iris_int_create, iris_post_completion,
-    iris_raise_marker, iris_runtime_reset,
+    iris_bridge_reset, iris_call_panicking, iris_drain_completions, iris_drain_first_completion,
+    iris_extension_attach, iris_handle_get_int, iris_handle_release, iris_int_create,
+    iris_post_completion, iris_raise_marker, iris_runtime_reset,
 };
 pub use fixtures::{
     fixture_host_abi_v1, fixture_manifestless_call_count, fixture_negotiate_v2,
     fixture_panic_does_not_cross, fixture_post_twice, fixture_raise_marker,
-    fixture_raw_pointer_handle, fixture_rooted_handle, fixture_static_api_call_count,
-    fixture_worker_posts, fixture_worker_reads_handle,
+    fixture_raw_pointer_handle, fixture_rooted_handle, fixture_runtime_takes_completion,
+    fixture_static_api_call_count, fixture_worker_completes, fixture_worker_posts,
+    fixture_worker_reads_handle,
 };
 pub use handle::{IrisFrame, IrisHandle, IrisHandleKind};
 pub use manifest::{ManifestRejection, NativeManifest, verify};

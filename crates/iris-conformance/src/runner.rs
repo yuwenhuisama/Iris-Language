@@ -479,6 +479,37 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V005: a worker posts, and the runtime thread completes.
+        "c_worker_completion_round_trip" => {
+            iris_abi::iris_runtime_reset();
+            let token = 5150_u64;
+            let posted = std::thread::scope(|scope| {
+                scope
+                    .spawn(|| iris_abi::fixture_worker_completes(token, 23))
+                    .join()
+                    .unwrap_or(-1)
+            });
+            let mut seen_token = 0_u64;
+            let mut value = 0_i64;
+            let mut count = 0_u32;
+            let status = iris_abi::fixture_runtime_takes_completion(
+                &raw mut seen_token,
+                &raw mut value,
+                &raw mut count,
+            );
+            // The token coming back is what ties the delivered value to the
+            // request that authorized it, rather than to any arrival.
+            if posted == IrisStatus::Success as i32
+                && status == IrisStatus::Success as i32
+                && seen_token == token
+                && value == 23
+                && count == 1
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
         // V064: a digest mismatch aborts the load before binding.
         "metadata_static_api_digest" => {
             match metadata_rejection("conformance/iris-v1/fixtures/metadata/static_api.json") {

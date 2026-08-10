@@ -17,6 +17,7 @@ fn main() {
         "raw_pointer.c",
         "static_api.c",
         "manifestless_native.c",
+        "worker_completion.c",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());

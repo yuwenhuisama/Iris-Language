@@ -52,6 +52,11 @@ void iris_bridge_reset(void);
 IrisStatus iris_post_completion(uint64_t token, int64_t value);
 IrisStatus iris_drain_completions(uint32_t *out_count, int64_t *out_first);
 
+/* IRIS-V1-FFI-C037: the runtime thread learns WHICH token a value belongs to,
+ * so a completion can be matched to its own request. */
+IrisStatus iris_drain_first_completion(uint64_t *out_token, int64_t *out_value,
+                                       uint32_t *out_count);
+
 /* IRIS-V1-FFI-C017/C018: a raise answers a status AND fills a context handle.
  * A string-only error channel is not conforming. */
 IrisStatus iris_raise_marker(int64_t marker, IrisHandle *out_context);

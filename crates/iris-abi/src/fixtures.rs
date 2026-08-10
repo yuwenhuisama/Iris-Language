@@ -30,6 +30,14 @@ unsafe extern "C" {
     pub safe fn fixture_negotiate_v2(out_major: *mut u32) -> i32;
     /// `IRIS-V1-FFI-V008` fixture: a panic beneath the boundary.
     pub safe fn fixture_panic_does_not_cross(out_value: *mut i64, out_resumed: *mut i32) -> i32;
+    /// `IRIS-V1-FFI-V005` fixture: a worker posts a copied completion.
+    pub safe fn fixture_worker_completes(token: u64, value: i64) -> i32;
+    /// `IRIS-V1-FFI-V005` fixture: the runtime thread takes the completion.
+    pub safe fn fixture_runtime_takes_completion(
+        out_token: *mut u64,
+        out_value: *mut i64,
+        out_count: *mut u32,
+    ) -> i32;
     /// `IRIS-V1-FFI-V064` fixture: the entry a refused load must never call.
     pub safe fn fixture_static_api_call_count() -> i32;
     /// `IRIS-V1-FFI-V059` fixture: the entry a manifestless load must not bind.
@@ -47,17 +55,26 @@ mod tests {
     use super::{
         fixture_host_abi_v1, fixture_negotiate_v2, fixture_panic_does_not_cross,
         fixture_post_twice, fixture_raise_marker, fixture_raw_pointer_handle,
-        fixture_rooted_handle, fixture_worker_posts, fixture_worker_reads_handle,
+        fixture_rooted_handle, fixture_runtime_takes_completion, fixture_worker_completes,
+        fixture_worker_posts, fixture_worker_reads_handle,
     };
     use crate::{IrisStatus, iris_runtime_reset};
 
-    /// Serializes scenarios that share the process-wide post queue.
+    /// Serializes every scenario that resets or uses the shared runtime.
     ///
-    /// `IRIS-V1-FFI-C014` makes ONE queue the only cross-thread entry, so two
-    /// scenarios running at once observe each other's completions. Test threads
-    /// run in parallel, which is why this is a lock and not a reset: clearing
-    /// cannot stop a post that lands between the clear and the drain.
+    /// `IRIS-V1-FFI-C014` makes ONE post queue the only cross-thread entry, and
+    /// resetting a runtime clears it. So a reset in ANY parallel test discards
+    /// another scenario's pending post, not just a competing queue test. Test
+    /// threads run in parallel, which is why this is a lock rather than more
+    /// resetting: clearing cannot stop a post landing between clear and drain.
     static QUEUE_SCENARIO: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Takes the scenario lock, ignoring poisoning from an unrelated failure.
+    fn scenario() -> std::sync::MutexGuard<'static, ()> {
+        QUEUE_SCENARIO
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     #[test]
     fn v060_c_code_attaches_and_reads_the_negotiated_versions() {
@@ -77,9 +94,7 @@ mod tests {
 
     #[test]
     fn v062_a_worker_read_is_refused_while_its_copied_post_is_accepted() {
-        let _scenario = QUEUE_SCENARIO
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _scenario = scenario();
         // Given a handle created on the runtime thread
         crate::iris_runtime_reset();
         crate::iris_bridge_reset();
@@ -110,6 +125,7 @@ mod tests {
 
     #[test]
     fn v063_a_native_raise_answers_a_status_and_a_context() {
+        let _scenario = scenario();
         // Given
         crate::iris_runtime_reset();
         let mut context = crate::IrisHandle::NULL;
@@ -127,9 +143,7 @@ mod tests {
 
     #[test]
     fn v066_one_token_authorizes_exactly_one_completion() {
-        let _scenario = QUEUE_SCENARIO
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _scenario = scenario();
         // Given
         crate::iris_bridge_reset();
         let mut second = 0_i32;
@@ -161,6 +175,7 @@ mod tests {
 
     #[test]
     fn v061_a_released_handle_reports_invalid_handle_to_c() {
+        let _scenario = scenario();
         // Given
         iris_runtime_reset();
         let mut before = 0_i64;
@@ -179,6 +194,7 @@ mod tests {
 
     #[test]
     fn v008_a_panic_beneath_the_boundary_does_not_reach_c() {
+        let _scenario = scenario();
         // Given a C caller of a body that unwinds
         iris_runtime_reset();
         let mut value = 0_i64;
@@ -197,6 +213,7 @@ mod tests {
 
     #[test]
     fn v001_a_forged_pointer_handle_is_refused_without_dereference() {
+        let _scenario = scenario();
         // Given a fixture that reinterprets a real address as a handle
         iris_runtime_reset();
         let mut value = 0_i64;
@@ -214,5 +231,36 @@ mod tests {
         assert_ne!(tagged, IrisStatus::Success as i32);
         assert_eq!(touched, 0);
         assert_eq!(value, 0);
+    }
+
+    #[test]
+    fn v005_a_worker_posts_a_completion_the_runtime_thread_takes() {
+        let _scenario = scenario();
+        // Given a runtime thread that owns the queue
+        crate::iris_runtime_reset();
+        let token = 5150_u64;
+
+        // When a WORKER thread posts copied data under that token
+        let posted = std::thread::scope(|scope| {
+            scope
+                .spawn(|| fixture_worker_completes(token, 23))
+                .join()
+                .unwrap_or(-1)
+        });
+
+        // Then the RUNTIME thread is what converts it into a completion, and
+        // the token comes back so the value is matched to its own request
+        // rather than merely observed to have arrived.
+        let mut seen_token = 0_u64;
+        let mut value = 0_i64;
+        let mut count = 0_u32;
+        let status =
+            fixture_runtime_takes_completion(&raw mut seen_token, &raw mut value, &raw mut count);
+
+        assert_eq!(posted, IrisStatus::Success as i32);
+        assert_eq!(status, IrisStatus::Success as i32);
+        assert_eq!(seen_token, token);
+        assert_eq!(value, 23);
+        assert_eq!(count, 1);
     }
 }

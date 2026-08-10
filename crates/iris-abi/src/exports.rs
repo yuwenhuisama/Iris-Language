@@ -115,6 +115,51 @@ pub unsafe extern "C" fn iris_drain_completions(
     }
 }
 
+/// Drains one posted completion, reporting its token.
+///
+/// `IRIS-V1-FFI-C037` makes a token authorize exactly ONE completion, so the
+/// runtime thread has to learn WHICH token a drained value belongs to. Without
+/// the token a caller can only see that some value arrived, which cannot
+/// distinguish a completion matched to its own request from an unrelated one.
+///
+/// # Safety
+/// Every out pointer must be valid and writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_drain_first_completion(
+    out_token: *mut u64,
+    out_value: *mut i64,
+    out_count: *mut u32,
+) -> IrisStatus {
+    if out_token.is_null() || out_value.is_null() || out_count.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    let drained = OWNER.with_borrow(|owner| {
+        owner
+            .as_ref()
+            .map_or(Err(IrisStatus::ThreadAffinity), |(affinity, _)| {
+                shared_queue().drain(affinity)
+            })
+    });
+    match drained {
+        Ok(posts) => {
+            let first = posts.first();
+            let token = first.map_or(0, |post| post.token);
+            let value = first
+                .and_then(|post| post.payload.get(..8))
+                .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+                .map_or(0, i64::from_le_bytes);
+            // SAFETY: all three checked non-null above.
+            unsafe {
+                out_token.write(token);
+                out_value.write(value);
+                out_count.write(u32::try_from(posts.len()).unwrap_or(u32::MAX));
+            }
+            IrisStatus::Success
+        }
+        Err(status) => status,
+    }
+}
+
 /// Raises an Iris value from native code.
 ///
 /// `IRIS-V1-FFI-C017` forbids a status-only answer when the operation raised,
