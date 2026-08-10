@@ -8,6 +8,7 @@
 
 mod barrier;
 mod handle;
+mod manifest;
 mod negotiate;
 mod status;
 mod table;
@@ -15,6 +16,7 @@ mod thread;
 
 pub use barrier::{IrisCallResult, guard};
 pub use handle::{IrisFrame, IrisHandle, IrisHandleKind};
+pub use manifest::{ManifestRejection, NativeManifest, verify};
 pub use negotiate::{ABI_MAJOR, ABI_MINOR, IrisAbiTable, attach};
 pub use status::IrisStatus;
 pub use table::HandleTable;

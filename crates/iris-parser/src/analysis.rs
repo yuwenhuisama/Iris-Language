@@ -2094,6 +2094,17 @@ impl Analyzer {
             Expression::Closure { body, .. } => {
                 self.scoped_body(body, control.entering_closure());
             }
+            // IRIS-V1-FFI-C005 makes the standard `FFI` subsystem the ONLY
+            // script-originated binary path, and IRIS-V1-FFI-C004 forbids an
+            // ordinary script from calling Host ABI tables, extension tables,
+            // raw loader APIs or runtime handles directly. Reaching `HostABI`
+            // from source is therefore rejected before anything loads.
+            Expression::Call { callee, .. }
+                if matches!(callee.as_ref(), Expression::Member { receiver, .. }
+                    if matches!(receiver.as_ref(), Expression::Name(name) if name == "HostABI")) =>
+            {
+                self.report("ffi.host-abi-script-access");
+            }
             Expression::Call {
                 callee,
                 type_arguments,

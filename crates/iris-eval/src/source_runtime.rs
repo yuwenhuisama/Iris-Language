@@ -3331,6 +3331,7 @@ impl SourceEvaluator {
                 let mut bound = library.bound.clone();
                 bound.push(symbol.clone());
                 Ok(Some(Value::Library(Box::new(iris_runtime::LibraryValue {
+                    identity: library.identity,
                     path: library.path.clone(),
                     bound,
                 }))))
@@ -7325,6 +7326,9 @@ impl SourceEvaluator {
                     }
                 }
                 Ok(Value::Library(Box::new(iris_runtime::LibraryValue {
+                    // C043 answers an identity-bearing Library, so each open
+                    // takes a fresh identity rather than being cached by path.
+                    identity: self.next_context_identity().raw(),
                     path,
                     bound,
                 })))
@@ -8248,6 +8252,12 @@ impl SourceEvaluator {
         // Method is reflective, a BoundMethod captures a receiver plus Method,
         // and a Closure is anonymous lexical code. `class_name` names which of
         // the three a callable value actually is.
+        // C043 names the Library Class `FFI::Library`, and V069 reads it as a
+        // String rather than the Symbol the callable kinds answer.
+        if selector == "class_name" && arguments.is_empty() && matches!(receiver, Value::Library(_))
+        {
+            return Ok(Value::Text("FFI::Library".into()));
+        }
         if selector == "class_name" && arguments.is_empty() {
             let kind = match &receiver {
                 Value::Method(_) => Some("Method"),
@@ -8923,6 +8933,16 @@ impl SourceEvaluator {
             // C003 makes an Iterator hash RUNTIME-LOCAL, stable for the
             // lifetime of one identity, so advancing the cursor cannot move it.
             return Ok(Value::Integer(identity.raw().into()));
+        }
+        // C043 makes an FFI::Library IDENTITY-BEARING, so two Libraries are
+        // equal only when they are the same object. Two opens of one path are
+        // two objects, which V069 observes.
+        if matches!(selector, "==" | "!=")
+            && let Value::Library(left) = &receiver
+            && let [Value::Library(right)] = arguments
+        {
+            let equal = left.identity == right.identity;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // C077 makes Regex an immutable identity-LESS value whose equality
         // uses canonical pattern text plus canonical flags, so `/a+/im` and

@@ -556,6 +556,12 @@ pub struct RangeValue {
 /// a verified signature and nothing else is callable through it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibraryValue {
+    /// This Library's own identity.
+    ///
+    /// `IRIS-V1-FFI-C043` makes `FFI.open` answer an IDENTITY-BEARING Library,
+    /// so two opens of one path are two objects. Caching by path would make
+    /// them the same object and break that.
+    pub identity: u64,
     /// The requested library path.
     pub path: String,
     /// Symbols bound with a complete `C047` signature.
