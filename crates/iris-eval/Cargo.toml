@@ -13,6 +13,11 @@ regex = "1"
 # C042 pins Unicode data to 17.0.0 and this crate's UNICODE_VERSION is exactly
 # (17, 0, 0), so C044 graphemes use the required UAX#29 tables.
 unicode-segmentation = "1.13"
+# IRIS-V1-COLLECTIONS-C042 pins Unicode data to 17.0.0. Both crates report
+# UNICODE_VERSION (17, 0, 0), so identifier XID tables, normalization and
+# casefold use the required tables rather than the host's.
+unicode-normalization = "0.1"
+unicode-properties = "0.1"
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }

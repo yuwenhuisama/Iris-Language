@@ -3445,6 +3445,21 @@ impl SourceEvaluator {
             // count Unicode scalars. C073 makes this the same snapshot
             // `to_bytes` answers.
             (Value::Text(text), "bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
+            // C042 ties normalization to the fixed Unicode data version, so
+            // these use the pinned tables rather than a host locale.
+            (Value::Text(_) | Value::MutableString(_), "nfc" | "nfd", []) => {
+                let text = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                use unicode_normalization::UnicodeNormalization;
+                Ok(Some(Value::Text(if selector == "nfc" {
+                    text.nfc().collect()
+                } else {
+                    text.nfd().collect()
+                })))
+            }
             // C044 exposes Unicode GRAPHEME CLUSTERS explicitly, using the
             // fixed Unicode data version, because `length` and indexing count
             // scalars and a cluster may span several of them.
@@ -5344,6 +5359,7 @@ impl SourceEvaluator {
                                     | "File"
                                     | "Package"
                                     | "IrisValue"
+                                    | "Unicode"
                                     | "Encoding::UTF_8"
                                     | "Encoding::UTF_16LE"
                                     | "Encoding::UTF_16BE"
@@ -7210,6 +7226,13 @@ impl SourceEvaluator {
                 }
                 Ok(field("payload").unwrap_or(Value::Nil))
             }
+            // C042 fixes the default Unicode data version for the language
+            // MAJOR, so the version is a language fact rather than a host
+            // reading. Every table used here reports the same version.
+            ("Unicode", "version") => Ok(Value::Text({
+                let (major, minor, patch) = unicode_normalization::UNICODE_VERSION;
+                format!("{major}.{minor}.{patch}")
+            })),
             ("JSON", "encode") => {
                 let [value, rest @ ..] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
