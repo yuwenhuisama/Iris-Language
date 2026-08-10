@@ -65,6 +65,8 @@ struct ArrayCursor {
     values: ArrayRef,
     position: usize,
     expected_version: u64,
+    /// `IRIS-V1-COLLECTIONS-C018` makes an early close permanent.
+    closed: bool,
     /// A `D-142` read-only view cannot be mutated, so its cursor never fails.
     fail_fast: bool,
 }
@@ -105,6 +107,8 @@ struct ByteCursor {
     position: usize,
     expected_version: u64,
     fail_fast: bool,
+    /// `IRIS-V1-COLLECTIONS-C018` makes an early close permanent.
+    closed: bool,
 }
 
 /// A live cursor over a shared Hash body.
@@ -8437,12 +8441,14 @@ impl SourceEvaluator {
                     position: 0,
                     expected_version: 0,
                     fail_fast: false,
+                    closed: false,
                 },
                 Value::Array(values) => ArrayCursor {
                     expected_version: values.version(),
                     values: values.clone(),
                     position: 0,
                     fail_fast: true,
+                    closed: false,
                 },
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             };
@@ -8488,6 +8494,7 @@ impl SourceEvaluator {
                     position: 0,
                     expected_version: 0,
                     fail_fast: false,
+                    closed: false,
                 },
             );
             return Ok(Value::ArrayIterator(identity));
@@ -8541,6 +8548,7 @@ impl SourceEvaluator {
                     position: 0,
                     expected_version: version,
                     fail_fast,
+                    closed: false,
                 },
             );
             return Ok(Value::ByteIterator(identity));
@@ -8563,13 +8571,24 @@ impl SourceEvaluator {
                     if cursor.fail_fast && moved {
                         return Err(EvaluationError::ConcurrentModification);
                     }
-                    let Some(value) = cursor.values.get(cursor.position).cloned() else {
+                    let Some(value) = cursor
+                        .values
+                        .get(cursor.position)
+                        .filter(|_| !cursor.closed)
+                        .cloned()
+                    else {
                         return Ok(Value::IterationDone);
                     };
                     cursor.position += 1;
                     return Ok(Value::IterationYield(Box::new(value)));
                 }
-                "close" if arguments.is_empty() => return Ok(Value::Nil),
+                // C018 enters permanent done state on close, as for arrays.
+                "close" if arguments.is_empty() => {
+                    if let Some(cursor) = self.byte_iterators.get_mut(&identity) {
+                        cursor.closed = true;
+                    }
+                    return Ok(Value::Nil);
+                }
                 _ => {}
             }
         }
@@ -8683,7 +8702,14 @@ impl SourceEvaluator {
                     if cursor.fail_fast && cursor.values.version() != cursor.expected_version {
                         return Err(EvaluationError::ConcurrentModification);
                     }
-                    let Some(value) = cursor.values.get(cursor.position) else {
+                    // C018 makes an early `close()` enter PERMANENT done
+                    // state, so a closed cursor answers done rather than
+                    // resuming where it left off.
+                    let Some(value) = cursor
+                        .values
+                        .get(cursor.position)
+                        .filter(|_| !cursor.closed)
+                    else {
                         // C013 returns the same `Iteration.done` singleton on
                         // every call after exhaustion.
                         return Ok(Value::IterationDone);
@@ -8691,7 +8717,17 @@ impl SourceEvaluator {
                     cursor.position += 1;
                     return Ok(Value::IterationYield(Box::new(value)));
                 }
-                "close" if arguments.is_empty() => return Ok(Value::Nil),
+                // C018 makes `close()` idempotent, returning nil each time and
+                // leaving iterator identity and identity hash unchanged. It
+                // releases the traversal position by entering done state; a
+                // close that only answered nil left the cursor live, so a later
+                // `next()` kept yielding elements the clause says are gone.
+                "close" if arguments.is_empty() => {
+                    if let Some(cursor) = self.array_iterators.get_mut(identity) {
+                        cursor.closed = true;
+                    }
+                    return Ok(Value::Nil);
+                }
                 _ => {}
             }
         }
