@@ -18,6 +18,8 @@ fn main() {
         "static_api.c",
         "manifestless_native.c",
         "worker_completion.c",
+        "payload_resource.c",
+        "payload_trace.c",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());

@@ -65,4 +65,30 @@ IrisStatus iris_raise_marker(int64_t marker, IrisHandle *out_context);
  * No unwinding, exception or long jump reaches this caller. */
 IrisStatus iris_call_panicking(int64_t *out_value);
 
+/* IRIS-V1-FFI-C027: the RUNTIME owns payload storage attached to Iris objects,
+ * so an extension registers a descriptor and never allocates the payload. A
+ * descriptor is validated before registration; C029 refuses one whose final
+ * cleanup claims it may raise into Iris.
+ *
+ * out_diagnostic receives 0 on success, or 1 alignment, 2 size, 3 may-raise. */
+IrisStatus iris_payload_register(uint32_t size, uint32_t alignment,
+                                 int32_t cleanup_may_raise,
+                                 int32_t external_resource,
+                                 uint32_t *out_diagnostic);
+
+/* IRIS-V1-FFI-C030: deterministic release is explicit and IDEMPOTENT. */
+IrisStatus iris_payload_close(void);
+
+/* IRIS-V1-FFI-C029: runs in a GC-safe context and MUST NOT raise into Iris,
+ * so it answers a status only. */
+IrisStatus iris_payload_final_cleanup(void);
+
+uint32_t iris_payload_release_count(void);
+
+/* IRIS-V1-FFI-C028: trace REPORTS managed handles. A payload declares its roots
+ * and the runtime reads them, so there is no extension callback at trace time
+ * that could create Iris values, call Methods, or raise. */
+IrisStatus iris_payload_add_root(IrisHandle handle);
+IrisStatus iris_payload_trace(uint32_t *out_reported, uint32_t *out_live);
+
 #endif /* IRIS_ABI_H */

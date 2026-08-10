@@ -307,9 +307,182 @@ pub unsafe extern "C" fn iris_call_panicking(out_value: *mut i64) -> IrisStatus 
     status
 }
 
+/// The registered payload for the fixture runtime.
+///
+/// `IRIS-V1-FFI-C027` gives the RUNTIME control of payload storage attached to
+/// Iris objects, so the payload lives here rather than in extension memory. A
+/// native extension only names it.
+static PAYLOAD: std::sync::Mutex<Option<crate::NativePayload>> = std::sync::Mutex::new(None);
+
+/// Registers a native payload descriptor.
+///
+/// `IRIS-V1-FFI-C027` requires validation BEFORE the runtime owns any payload
+/// storage, and `C029` refuses a descriptor whose cleanup claims it may raise.
+///
+/// # Safety
+/// `out_diagnostic` must be a valid writable pointer or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_payload_register(
+    size: u32,
+    alignment: u32,
+    cleanup_may_raise: i32,
+    external_resource: i32,
+    out_diagnostic: *mut u32,
+) -> IrisStatus {
+    let descriptor = crate::PayloadDescriptor {
+        size,
+        alignment,
+        trace: crate::TraceReport::default(),
+        cleanup: if cleanup_may_raise == 0 {
+            crate::CleanupPolicy::NoRaise
+        } else {
+            crate::CleanupPolicy::MayRaise
+        },
+        external_resource: external_resource != 0,
+    };
+    match crate::NativePayload::register(descriptor) {
+        Ok(payload) => {
+            let Ok(mut slot) = PAYLOAD.lock() else {
+                return IrisStatus::InvalidRuntime;
+            };
+            *slot = Some(payload);
+            if !out_diagnostic.is_null() {
+                // SAFETY: checked non-null.
+                unsafe { out_diagnostic.write(0) };
+            }
+            IrisStatus::Success
+        }
+        Err(rejection) => {
+            if !out_diagnostic.is_null() {
+                let code = match rejection {
+                    crate::DescriptorRejection::AlignmentNotPowerOfTwo => 1,
+                    crate::DescriptorRejection::SizeNotMultipleOfAlignment => 2,
+                    crate::DescriptorRejection::CleanupMayRaise => 3,
+                };
+                // SAFETY: checked non-null.
+                unsafe { out_diagnostic.write(code) };
+            }
+            IrisStatus::InvalidArgument
+        }
+    }
+}
+
+/// Declares one managed handle as a payload trace root.
+///
+/// `IRIS-V1-FFI-C028` limits payload trace logic to REPORTING managed handles
+/// or roots, and forbids it from creating Iris values, calling Iris Methods,
+/// raising, or dereferencing moved objects. So a payload DECLARES its roots and
+/// the runtime reads them; there is no extension callback to run at trace time,
+/// which is what makes those prohibitions unreachable rather than merely
+/// forbidden.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_payload_add_root(handle: IrisHandle) -> IrisStatus {
+    // C028 forbids depending on worker-thread heap access, and a root names a
+    // managed value, so declaring one is an owning-thread operation.
+    let affinity = owns_runtime();
+    if affinity != IrisStatus::Success {
+        return affinity;
+    }
+    // A root must name a live managed value; a stale or foreign handle is
+    // refused here rather than being reported to the collector.
+    let valid = RUNTIME.with_borrow(|table| table.get(handle).map(|_| ()));
+    if let Err(status) = valid {
+        return status;
+    }
+    let Ok(mut slot) = PAYLOAD.lock() else {
+        return IrisStatus::InvalidRuntime;
+    };
+    slot.as_mut().map_or(IrisStatus::InvalidHandle, |payload| {
+        payload.add_root(handle);
+        IrisStatus::Success
+    })
+}
+
+/// How many roots the payload reports, and whether they are still live.
+///
+/// `IRIS-V1-FFI-C028` makes trace keep reachable targets alive, so the count of
+/// roots that still resolve is what shows the referenced managed values
+/// survived rather than merely having been listed.
+///
+/// # Safety
+/// Both out pointers must be valid and writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_payload_trace(
+    out_reported: *mut u32,
+    out_live: *mut u32,
+) -> IrisStatus {
+    if out_reported.is_null() || out_live.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    let affinity = owns_runtime();
+    if affinity != IrisStatus::Success {
+        return affinity;
+    }
+    let Ok(slot) = PAYLOAD.lock() else {
+        return IrisStatus::InvalidRuntime;
+    };
+    let Some(payload) = slot.as_ref() else {
+        return IrisStatus::InvalidHandle;
+    };
+    let roots = payload.trace();
+    let live = RUNTIME.with_borrow(|table| {
+        roots
+            .iter()
+            .filter(|handle| table.get(**handle).is_ok())
+            .count()
+    });
+    // SAFETY: both checked non-null above.
+    unsafe {
+        out_reported.write(u32::try_from(roots.len()).unwrap_or(u32::MAX));
+        out_live.write(u32::try_from(live).unwrap_or(u32::MAX));
+    }
+    IrisStatus::Success
+}
+
+/// Closes the registered payload's external resource.
+///
+/// `IRIS-V1-FFI-C030` makes deterministic release explicit and IDEMPOTENT, so
+/// a second call succeeds without releasing again.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_payload_close() -> IrisStatus {
+    let Ok(mut slot) = PAYLOAD.lock() else {
+        return IrisStatus::InvalidRuntime;
+    };
+    slot.as_mut()
+        .map_or(IrisStatus::InvalidHandle, crate::NativePayload::close)
+}
+
+/// Runs final cleanup on the registered payload.
+///
+/// `IRIS-V1-FFI-C029` runs this in a GC-safe context where raising into Iris is
+/// prohibited, so it answers a status only.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_payload_final_cleanup() -> IrisStatus {
+    let Ok(mut slot) = PAYLOAD.lock() else {
+        return IrisStatus::InvalidRuntime;
+    };
+    slot.as_mut().map_or(
+        IrisStatus::InvalidHandle,
+        crate::NativePayload::final_cleanup,
+    )
+}
+
+/// How many times the payload's external resource was actually released.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_payload_release_count() -> u32 {
+    PAYLOAD
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(crate::NativePayload::releases))
+        .unwrap_or(u32::MAX)
+}
+
 /// Resets the fixture runtime between scenarios.
 #[unsafe(no_mangle)]
 pub extern "C" fn iris_runtime_reset() {
     RUNTIME.with_borrow_mut(|table| *table = HandleTable::new(1));
+    if let Ok(mut slot) = PAYLOAD.lock() {
+        *slot = None;
+    }
     iris_bridge_reset();
 }

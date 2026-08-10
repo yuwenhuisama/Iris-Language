@@ -479,6 +479,67 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V012/V065: a Closeable native resource closes twice.
+        "c_payload_close_twice" => {
+            iris_abi::iris_runtime_reset();
+            let mut second = 0_i32;
+            let mut releases = 0_u32;
+            let first = iris_abi::fixture_payload_close_twice(&raw mut second, &raw mut releases);
+            // The release count is what separates an idempotent close from a
+            // double release: both calls "succeeding" cannot show that alone.
+            if first == IrisStatus::Success as i32
+                && second == IrisStatus::Success as i32
+                && releases == 1
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
+        // V013: a descriptor whose final cleanup may raise never registers.
+        "c_payload_cleanup_may_raise" => {
+            iris_abi::iris_runtime_reset();
+            let mut diagnostic = 0_u32;
+            let mut releases = 0_u32;
+            let status =
+                iris_abi::fixture_payload_cleanup_may_raise(&raw mut diagnostic, &raw mut releases);
+            // A refused descriptor owns no storage, so `u32::MAX` here means
+            // there was no payload at all rather than one that released zero
+            // times.
+            if status == IrisStatus::InvalidArgument as i32
+                && diagnostic == 3
+                && releases == u32::MAX
+            {
+                "invalid-argument"
+            } else {
+                "unexpected"
+            }
+        }
+        // V011: a payload traces managed roots and keeps them alive.
+        "c_payload_traces_root" => {
+            iris_abi::iris_runtime_reset();
+            let mut value = 0_i64;
+            let mut reported = 0_u32;
+            let mut live = 0_u32;
+            let status = iris_abi::fixture_payload_traces_root(
+                &raw mut value,
+                &raw mut reported,
+                &raw mut live,
+            );
+            let stale = iris_abi::fixture_payload_rejects_stale_root();
+            // `live` and the stale refusal are load-bearing: reporting a root
+            // that had already died would satisfy `reported` on its own.
+            if status == IrisStatus::Success as i32
+                && reported == 1
+                && live == 1
+                && value == 41
+                && stale == IrisStatus::InvalidHandle as i32
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
         // V005: a worker posts, and the runtime thread completes.
         "c_worker_completion_round_trip" => {
             iris_abi::iris_runtime_reset();

@@ -30,6 +30,21 @@ unsafe extern "C" {
     pub safe fn fixture_negotiate_v2(out_major: *mut u32) -> i32;
     /// `IRIS-V1-FFI-V008` fixture: a panic beneath the boundary.
     pub safe fn fixture_panic_does_not_cross(out_value: *mut i64, out_resumed: *mut i32) -> i32;
+    /// `IRIS-V1-FFI-V012`/`V065` fixture: a Closeable payload closed twice.
+    pub safe fn fixture_payload_close_twice(out_second: *mut i32, out_releases: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V011` fixture: a payload declares a managed trace root.
+    pub safe fn fixture_payload_traces_root(
+        out_value: *mut i64,
+        out_reported: *mut u32,
+        out_live: *mut u32,
+    ) -> i32;
+    /// `IRIS-V1-FFI-V011` fixture: a stale root is refused at declaration.
+    pub safe fn fixture_payload_rejects_stale_root() -> i32;
+    /// `IRIS-V1-FFI-V013` fixture: a descriptor whose cleanup may raise.
+    pub safe fn fixture_payload_cleanup_may_raise(
+        out_diagnostic: *mut u32,
+        out_releases: *mut u32,
+    ) -> i32;
     /// `IRIS-V1-FFI-V005` fixture: a worker posts a copied completion.
     pub safe fn fixture_worker_completes(token: u64, value: i64) -> i32;
     /// `IRIS-V1-FFI-V005` fixture: the runtime thread takes the completion.
@@ -54,9 +69,11 @@ unsafe extern "C" {
 mod tests {
     use super::{
         fixture_host_abi_v1, fixture_negotiate_v2, fixture_panic_does_not_cross,
-        fixture_post_twice, fixture_raise_marker, fixture_raw_pointer_handle,
-        fixture_rooted_handle, fixture_runtime_takes_completion, fixture_worker_completes,
-        fixture_worker_posts, fixture_worker_reads_handle,
+        fixture_payload_cleanup_may_raise, fixture_payload_close_twice,
+        fixture_payload_rejects_stale_root, fixture_payload_traces_root, fixture_post_twice,
+        fixture_raise_marker, fixture_raw_pointer_handle, fixture_rooted_handle,
+        fixture_runtime_takes_completion, fixture_worker_completes, fixture_worker_posts,
+        fixture_worker_reads_handle,
     };
     use crate::{IrisStatus, iris_runtime_reset};
 
@@ -262,5 +279,77 @@ mod tests {
         assert_eq!(seen_token, token);
         assert_eq!(value, 23);
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn v012_a_closeable_native_resource_closes_twice() {
+        let _scenario = scenario();
+        // Given a runtime-owned payload registered from C
+        crate::iris_runtime_reset();
+        let mut second = 0_i32;
+        let mut releases = 0_u32;
+
+        // When C closes it twice and final cleanup then runs
+        let first = fixture_payload_close_twice(&raw mut second, &raw mut releases);
+
+        // Then C030 makes both calls succeed while the resource is released
+        // EXACTLY once. Without the count, a double release would look
+        // identical to an idempotent close.
+        assert_eq!(first, IrisStatus::Success as i32);
+        assert_eq!(second, IrisStatus::Success as i32);
+        assert_eq!(releases, 1);
+    }
+
+    #[test]
+    fn v013_a_descriptor_whose_cleanup_may_raise_never_registers() {
+        let _scenario = scenario();
+        // Given a descriptor claiming final cleanup may raise into Iris
+        crate::iris_runtime_reset();
+        let mut diagnostic = 0_u32;
+        let mut releases = 0_u32;
+
+        // When C tries to register it
+        let status = fixture_payload_cleanup_may_raise(&raw mut diagnostic, &raw mut releases);
+
+        // Then C029 refuses it at REGISTRATION rather than accepting it and
+        // containing a raise at drop time, so no storage is ever owned.
+        assert_eq!(status, IrisStatus::InvalidArgument as i32);
+        assert_eq!(diagnostic, 3);
+        assert_eq!(releases, u32::MAX);
+    }
+
+    #[test]
+    fn v011_a_payload_traces_managed_roots_and_keeps_them_alive() {
+        let _scenario = scenario();
+        // Given a payload declaring one managed handle as a trace root
+        crate::iris_runtime_reset();
+        let mut value = 0_i64;
+        let mut reported = 0_u32;
+        let mut live = 0_u32;
+
+        // When the runtime reads the roots back
+        let status = fixture_payload_traces_root(&raw mut value, &raw mut reported, &raw mut live);
+
+        // Then the root is reported AND still resolves. The live count is the
+        // load-bearing part: listing a root that had died would satisfy
+        // `reported` alone.
+        assert_eq!(status, IrisStatus::Success as i32);
+        assert_eq!(reported, 1);
+        assert_eq!(live, 1);
+        assert_eq!(value, 41);
+    }
+
+    #[test]
+    fn c028_a_stale_handle_is_refused_as_a_trace_root() {
+        let _scenario = scenario();
+        // Given a handle released after the payload registered
+        crate::iris_runtime_reset();
+
+        // When it is declared as a root
+        let status = fixture_payload_rejects_stale_root();
+
+        // Then it is refused at DECLARATION rather than being handed to the
+        // collector, which is what keeps trace from reporting a dead target.
+        assert_eq!(status, IrisStatus::InvalidHandle as i32);
     }
 }
