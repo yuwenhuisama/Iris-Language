@@ -285,6 +285,125 @@ fn validate_documentation(record: &Record) -> Outcome {
     }
 }
 
+/// Runs one C ABI scenario for an FFI row.
+///
+/// The FFI vector table describes behaviour AT the C ABI, so a scenario names
+/// an ABI operation and the row states the status it must answer. Nothing here
+/// evaluates Iris source.
+fn validate_abi_scenario(record: &Record) -> Outcome {
+    use iris_abi::{HandleTable, IrisHandleKind, IrisStatus, Post, PostQueue, ThreadAffinity};
+
+    let observed = match record.source.trim() {
+        // C008: a live handle keeps denoting its target across a collection
+        // cycle, which the table models by rooting the value it owns.
+        "handle_survives_collection" => {
+            let mut table = HandleTable::new(1);
+            let handle = table.retain(41_i64, IrisHandleKind::ExplicitRelease);
+            let roots: Vec<_> = table.roots().copied().collect();
+            match table.get(handle) {
+                Ok(41) if roots == vec![41] => "success",
+                _ => "unexpected",
+            }
+        }
+        // C009: a handle belongs to exactly one runtime.
+        "handle_from_another_runtime" => {
+            let mut first = HandleTable::new(1);
+            let second = HandleTable::<i64>::new(2);
+            let handle = first.retain(41, IrisHandleKind::ExplicitRelease);
+            status_name(second.get(handle).err())
+        }
+        // C009: a released handle does not denote its slot after reuse.
+        "released_handle_after_reuse" => {
+            let mut table = HandleTable::new(1);
+            let stale = table.retain(41_i64, IrisHandleKind::ExplicitRelease);
+            table.release(stale);
+            table.retain(7_i64, IrisHandleKind::ExplicitRelease);
+            status_name(table.get(stale).err())
+        }
+        // C012: a worker thread may not read through a handle.
+        "worker_thread_reads_handle" => {
+            let affinity = ThreadAffinity::bind_current();
+            let observed = std::thread::scope(|scope| scope.spawn(|| affinity.check()).join());
+            match observed {
+                Ok(status) => status_name(Some(status)),
+                Err(_) => "unexpected",
+            }
+        }
+        // C037: one completion token authorizes exactly one completion.
+        "duplicate_completion_token" => {
+            let queue = PostQueue::new();
+            let post = || Post {
+                token: 7,
+                payload: vec![9],
+            };
+            if queue.post(post()) != IrisStatus::Success {
+                "unexpected"
+            } else {
+                status_name(Some(queue.post(post())))
+            }
+        }
+        // C039: an ABI major mismatch rejects attachment.
+        "abi_major_mismatch" => status_name(iris_abi::attach(2, 0).err()),
+        // C039: a minor-compatible record appends fields, and a reader only
+        // reads what the supplied size covers.
+        "abi_minor_size_tagged" => {
+            let Ok(table) = iris_abi::attach(1, 0) else {
+                return failed(record, "a compatible request attaches");
+            };
+            let older = iris_abi::IrisAbiTable { size: 8, ..table };
+            if table.covers(16) && !older.covers(16) && older.covers(8) {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
+        other => return failed(record, &format!("unknown ABI scenario {other}")),
+    };
+
+    let expected = crate::model::parse_expect(&record.expect)
+        .ok()
+        .and_then(|value| {
+            crate::model::object(&value)
+                .ok()
+                .and_then(|value| value.get("abi_status").cloned())
+        });
+    match expected {
+        Some(crate::json::Value::String(wanted)) if wanted == observed => Outcome::Passed {
+            id: record.id.clone(),
+        },
+        Some(crate::json::Value::String(wanted)) => Outcome::Failed {
+            id: record.id.clone(),
+            expected: wanted,
+            actual: observed.to_owned(),
+        },
+        _ => failed(record, "abi_status expected"),
+    }
+}
+
+/// The stable name of an ABI status, for a vector to state.
+fn status_name(status: Option<iris_abi::IrisStatus>) -> &'static str {
+    match status {
+        None => "success",
+        Some(iris_abi::IrisStatus::Success) => "success",
+        Some(iris_abi::IrisStatus::InvalidHandle) => "invalid-handle",
+        Some(iris_abi::IrisStatus::InvalidRuntime) => "invalid-runtime",
+        Some(iris_abi::IrisStatus::ThreadAffinity) => "thread-affinity",
+        Some(iris_abi::IrisStatus::Raised) => "raised",
+        Some(iris_abi::IrisStatus::DuplicateCompletion) => "duplicate-completion",
+        Some(iris_abi::IrisStatus::IncompatibleAbi) => "incompatible-abi",
+        Some(iris_abi::IrisStatus::InvalidArgument) => "invalid-argument",
+        Some(iris_abi::IrisStatus::InvalidBoundary) => "invalid-boundary",
+    }
+}
+
+fn failed(record: &Record, detail: &str) -> Outcome {
+    Outcome::Failed {
+        id: record.id.clone(),
+        expected: "a stated ABI status".into(),
+        actual: detail.to_owned(),
+    }
+}
+
 fn execute_runtime_record(record: &Record) -> Outcome {
     match record
         .tags
@@ -304,6 +423,11 @@ fn execute_runtime_record(record: &Record) -> Outcome {
         // record rather than any language behaviour, so it is checked as data
         // against its own stated expectation instead of being executed.
         Some("record-validation") => validate_record_shape(record),
+        // An FFI row observes C ABI behaviour: handle validity, runtime
+        // ownership, thread affinity, completion tokens and ABI negotiation.
+        // Those are not language behaviour, so the scenario names an ABI
+        // operation and the row states the status it must answer.
+        Some("abi") => validate_abi_scenario(record),
         // An IDENTITY documentation row asserts facts about the artifact tree
         // itself, so it is checked against the workspace rather than executed.
         Some("documentation") => validate_documentation(record),

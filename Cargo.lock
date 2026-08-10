@@ -187,6 +187,7 @@ version = "0.1.0"
 name = "iris-conformance"
 version = "0.1.0"
 dependencies = [
+ "iris-abi",
  "iris-eval",
  "iris-lexer",
  "iris-parser",

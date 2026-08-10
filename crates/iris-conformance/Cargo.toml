@@ -8,6 +8,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+# FFI rows observe C ABI behaviour directly, not language behaviour.
+iris-abi = { path = "../iris-abi" }
 iris-eval = { path = "../iris-eval" }
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
