@@ -228,6 +228,37 @@ pub extern "C" fn iris_handle_release(handle: IrisHandle) -> IrisStatus {
     RUNTIME.with_borrow_mut(|table| table.release(handle))
 }
 
+/// Calls a body that unwinds, from C.
+///
+/// `IRIS-V1-FFI-C019` forbids a Rust panic from crossing the C ABI and requires
+/// the wrapper to catch it BEFORE it reaches C. Unit-testing `guard` in Rust
+/// cannot show that: the panic must actually be raised beneath an `extern "C"`
+/// frame and observed by a C caller as an ordinary returned status.
+///
+/// # Safety
+/// `out_value` must be a valid, writable `i64` or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_call_panicking(out_value: *mut i64) -> IrisStatus {
+    if out_value.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    // The default hook would print a backtrace for a panic this fixture raises
+    // ON PURPOSE, so it is silenced for the duration of the guarded call only.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let (status, value) = crate::guard(-1_i64, || {
+        // An out-of-bounds index is an ordinary panic, which avoids the
+        // explicit `panic!` the workspace lint forbids.
+        let empty: [i64; 0] = [];
+        let index = std::hint::black_box(0_usize);
+        empty[index]
+    });
+    std::panic::set_hook(previous);
+    // SAFETY: checked non-null above.
+    unsafe { out_value.write(value) };
+    status
+}
+
 /// Resets the fixture runtime between scenarios.
 #[unsafe(no_mangle)]
 pub extern "C" fn iris_runtime_reset() {

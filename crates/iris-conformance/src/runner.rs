@@ -449,6 +449,44 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V001: a raw pointer forged into a handle never crosses.
+        "c_raw_pointer_handle" => {
+            iris_abi::iris_runtime_reset();
+            let mut value = 0_i64;
+            let mut touched = 0_i32;
+            let mut tagged = 0_i32;
+            let status = iris_abi::fixture_raw_pointer_handle(
+                &raw mut value,
+                &raw mut touched,
+                &raw mut tagged,
+            );
+            // `touched` is the load-bearing check: the pointee is 41, so
+            // observing it through either forgery would mean the runtime
+            // followed an address instead of an opaque table name.
+            if status == IrisStatus::InvalidRuntime as i32
+                && tagged != IrisStatus::Success as i32
+                && touched == 0
+                && value == 0
+            {
+                "invalid-runtime"
+            } else {
+                "unexpected"
+            }
+        }
+        // V008: an unwind beneath the boundary becomes a status.
+        "c_panic_does_not_cross" => {
+            iris_abi::iris_runtime_reset();
+            let mut value = 0_i64;
+            let mut resumed = 0_i32;
+            let status = iris_abi::fixture_panic_does_not_cross(&raw mut value, &raw mut resumed);
+            // `resumed` is the real evidence: had the unwind crossed, the C
+            // frame would never have reached the line that sets it.
+            if status == IrisStatus::InvalidBoundary as i32 && resumed == 1 && value == -1 {
+                "invalid-boundary"
+            } else {
+                "unexpected"
+            }
+        }
         // C039: an ABI major mismatch rejects attachment.
         "abi_major_mismatch" => status_name(iris_abi::attach(2, 0).err()),
         // C039: a minor-compatible record appends fields, and a reader only

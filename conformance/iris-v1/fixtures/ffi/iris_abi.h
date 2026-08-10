@@ -56,4 +56,8 @@ IrisStatus iris_drain_completions(uint32_t *out_count, int64_t *out_first);
  * A string-only error channel is not conforming. */
 IrisStatus iris_raise_marker(int64_t marker, IrisHandle *out_context);
 
+/* IRIS-V1-FFI-C019: a panic beneath the boundary becomes a returned status.
+ * No unwinding, exception or long jump reaches this caller. */
+IrisStatus iris_call_panicking(int64_t *out_value);
+
 #endif /* IRIS_ABI_H */

@@ -28,12 +28,21 @@ unsafe extern "C" {
     ) -> i32;
     /// `IRIS-V1-FFI-V067` fixture.
     pub safe fn fixture_negotiate_v2(out_major: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V008` fixture: a panic beneath the boundary.
+    pub safe fn fixture_panic_does_not_cross(out_value: *mut i64, out_resumed: *mut i32) -> i32;
+    /// `IRIS-V1-FFI-V001` fixture: an address forged into a handle.
+    pub safe fn fixture_raw_pointer_handle(
+        out_value: *mut i64,
+        out_touched: *mut i32,
+        out_tagged_status: *mut i32,
+    ) -> i32;
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        fixture_host_abi_v1, fixture_negotiate_v2, fixture_post_twice, fixture_raise_marker,
+        fixture_host_abi_v1, fixture_negotiate_v2, fixture_panic_does_not_cross,
+        fixture_post_twice, fixture_raise_marker, fixture_raw_pointer_handle,
         fixture_rooted_handle, fixture_worker_posts, fixture_worker_reads_handle,
     };
     use crate::{IrisStatus, iris_runtime_reset};
@@ -148,5 +157,44 @@ mod tests {
         assert_eq!(status, IrisStatus::Success as i32);
         assert_eq!(before, 41);
         assert_eq!(after, IrisStatus::InvalidHandle as i32);
+    }
+
+    #[test]
+    fn v008_a_panic_beneath_the_boundary_does_not_reach_c() {
+        // Given a C caller of a body that unwinds
+        iris_runtime_reset();
+        let mut value = 0_i64;
+        let mut resumed = 0_i32;
+
+        // When the panic happens beneath the C ABI frame
+        let status = fixture_panic_does_not_cross(&raw mut value, &raw mut resumed);
+
+        // Then C observes an ordinary status and keeps running. `resumed` is
+        // the real evidence: had the unwind crossed, the C frame would never
+        // have reached the line that sets it.
+        assert_eq!(status, IrisStatus::InvalidBoundary as i32);
+        assert_eq!(resumed, 1);
+        assert_eq!(value, -1);
+    }
+
+    #[test]
+    fn v001_a_forged_pointer_handle_is_refused_without_dereference() {
+        // Given a fixture that reinterprets a real address as a handle
+        iris_runtime_reset();
+        let mut value = 0_i64;
+        let mut touched = 0_i32;
+        let mut tagged = 0_i32;
+
+        // When both forgeries cross the boundary
+        let status = fixture_raw_pointer_handle(&raw mut value, &raw mut touched, &raw mut tagged);
+
+        // Then both are refused. `touched` is the load-bearing assertion: the
+        // pointee is 41, so observing 41 through either path would mean the
+        // runtime followed the address instead of treating the handle as an
+        // opaque table name.
+        assert_eq!(status, IrisStatus::InvalidRuntime as i32);
+        assert_ne!(tagged, IrisStatus::Success as i32);
+        assert_eq!(touched, 0);
+        assert_eq!(value, 0);
     }
 }

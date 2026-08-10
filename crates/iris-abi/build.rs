@@ -13,6 +13,8 @@ fn main() {
         "native_error.c",
         "async_once.c",
         "negotiate_v2.c",
+        "panic_barrier.c",
+        "raw_pointer.c",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());
