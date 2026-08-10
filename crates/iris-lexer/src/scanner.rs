@@ -392,6 +392,14 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 }
                 Ok(None) => {
                     let end = identifier_end(bytes, index);
+                    // C009 forbids Pattern_Syntax, Pattern_White_Space,
+                    // controls and default-ignorable code points in an
+                    // identifier. Such a scalar yields an EMPTY identifier, and
+                    // reporting it here is what stops the scanner from making
+                    // no progress and looping forever.
+                    if end == index {
+                        return fail(Diagnostic::new("LEX_INVALID_IDENTIFIER", offset, position));
+                    }
                     // C019 admits a selector SUFFIX before `=` in a setter
                     // selector, naming both `ready?=` and `value!=`. Only `?=`
                     // was recognised, so `value!=` lexed as `value` plus the
@@ -641,17 +649,56 @@ fn line_end(bytes: &[u8], mut index: usize) -> usize {
     }
     index
 }
+/// Whether a byte can OPEN an identifier.
+///
+/// `IRIS-V1-GRAMMAR-C009` makes identifier start Unicode XID_Start or `_`, so
+/// a non-ASCII lead byte is admitted here and the scalar itself is classified
+/// in `identifier_end`, which walks scalars rather than bytes.
 fn is_identifier_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
+    byte.is_ascii_alphabetic() || byte == b'_' || byte >= 0x80
 }
-fn identifier_end(bytes: &[u8], mut index: usize) -> usize {
-    while bytes
-        .get(index)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-    {
-        index += 1;
+
+/// The end of an identifier starting at `index`.
+///
+/// `C009` classifies start by XID_Start and continuation by XID_Continue, both
+/// under the `IRIS-V1-COLLECTIONS-C042` Unicode version, and forbids
+/// Pattern_Syntax, Pattern_White_Space, controls and default-ignorable code
+/// points even when Unicode would otherwise admit them.
+fn identifier_end(bytes: &[u8], index: usize) -> usize {
+    let Ok(text) = core::str::from_utf8(&bytes[index..]) else {
+        return index;
+    };
+    let mut end = index;
+    for (offset, scalar) in text.char_indices() {
+        let admitted = if offset == 0 {
+            scalar == '_' || xid_start(scalar)
+        } else {
+            scalar == '_' || xid_continue(scalar)
+        };
+        if !admitted || forbidden_in_identifier(scalar) {
+            break;
+        }
+        end = index + offset + scalar.len_utf8();
     }
-    index
+    end
+}
+
+fn xid_start(scalar: char) -> bool {
+    icu_properties::CodePointSetData::new::<icu_properties::props::XidStart>().contains(scalar)
+}
+
+fn xid_continue(scalar: char) -> bool {
+    icu_properties::CodePointSetData::new::<icu_properties::props::XidContinue>().contains(scalar)
+}
+
+/// `C009` forbids these in an identifier even when Unicode classifies them.
+fn forbidden_in_identifier(scalar: char) -> bool {
+    icu_properties::CodePointSetData::new::<icu_properties::props::PatternSyntax>().contains(scalar)
+        || icu_properties::CodePointSetData::new::<icu_properties::props::PatternWhiteSpace>()
+            .contains(scalar)
+        || icu_properties::CodePointSetData::new::<icu_properties::props::DefaultIgnorableCodePoint>()
+            .contains(scalar)
+        || scalar.is_control()
 }
 fn keyword(text: &[u8]) -> bool {
     matches!(

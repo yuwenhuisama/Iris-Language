@@ -8,5 +8,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+# C009 classifies identifiers by Unicode XID under the C042 version.
+icu_properties = "2"
 iris-lexer = { path = "../iris-lexer" }
 iris-syntax = { path = "../iris-syntax" }

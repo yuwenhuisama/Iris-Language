@@ -18,6 +18,12 @@ unicode-segmentation = "1.13"
 # casefold use the required tables rather than the host's.
 unicode-normalization = "0.1"
 unicode-properties = "0.1"
+# C042 also governs casefold and the identifier XID tables. `caseless` was
+# rejected: its case_folding_data declares UNICODE_VERSION (16, 0, 0). ICU
+# accepts U+1C89 as XID_Start, which IRIS-V1-COLLECTIONS-V334 names as the
+# 17.0.0 discriminator.
+icu_casemap = "2"
+icu_properties = "2"
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }

@@ -3445,6 +3445,20 @@ impl SourceEvaluator {
             // count Unicode scalars. C073 makes this the same snapshot
             // `to_bytes` answers.
             (Value::Text(text), "bytes", []) => Ok(Some(Value::Bytes(text.as_bytes().to_vec()))),
+            // C042 ties casefold to the fixed Unicode data version, so `ß`
+            // folds to `ss` under every host locale rather than following one.
+            (Value::Text(_) | Value::MutableString(_), "casefold", []) => {
+                let text = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+                };
+                Ok(Some(Value::Text(
+                    icu_casemap::CaseMapper::new()
+                        .fold_string(&text)
+                        .into_owned(),
+                )))
+            }
             // C042 ties normalization to the fixed Unicode data version, so
             // these use the pinned tables rather than a host locale.
             (Value::Text(_) | Value::MutableString(_), "nfc" | "nfd", []) => {

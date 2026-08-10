@@ -6,3 +6,9 @@ rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+# IRIS-V1-GRAMMAR-C009 defines identifiers by Unicode XID_Start/XID_Continue,
+# and IRIS-V1-COLLECTIONS-C042 pins that data to 17.0.0. ICU accepts U+1C89 as
+# XID_Start, which IRIS-V1-COLLECTIONS-V334 names as the 17.0.0 discriminator.
+icu_properties = "2"

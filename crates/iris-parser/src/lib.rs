@@ -131,10 +131,19 @@ fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
         | TokenKind::RightShiftEqual
         | TokenKind::AndAndEqual
         | TokenKind::PipePipeEqual => 3,
+        // C009 continues an identifier by Unicode XID_Continue, so the width
+        // is measured in SCALARS. Counting ASCII bytes truncated every
+        // non-ASCII identifier mid-scalar.
         TokenKind::Identifier | TokenKind::Keyword | TokenKind::SetterSelector => remaining
-            .bytes()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-            .count(),
+            .char_indices()
+            .take_while(|(_, scalar)| {
+                *scalar == '_'
+                    || icu_properties::CodePointSetData::new::<icu_properties::props::XidContinue>()
+                        .contains(*scalar)
+            })
+            .map(|(offset, scalar)| offset + scalar.len_utf8())
+            .last()
+            .unwrap_or(0),
         TokenKind::StringLiteral
         | TokenKind::MutableStringLiteral
         | TokenKind::BytesLiteral
@@ -2004,10 +2013,14 @@ pub(crate) enum Associativity {
 }
 
 fn is_identifier(value: &str) -> bool {
-    value
-        .as_bytes()
-        .first()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+    // `IRIS-V1-GRAMMAR-C009` makes identifier start Unicode XID_Start or `_`,
+    // under the `IRIS-V1-COLLECTIONS-C042` version. Testing only ASCII here
+    // rejected every non-ASCII identifier the lexer had already accepted.
+    value.chars().next().is_some_and(|scalar| {
+        scalar == '_'
+            || icu_properties::CodePointSetData::new::<icu_properties::props::XidStart>()
+                .contains(scalar)
+    })
 }
 
 fn is_meta_capability(value: &str) -> bool {
