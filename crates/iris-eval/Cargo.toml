@@ -8,6 +8,10 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+# IRIS-V1-FFI-C018 lets native code raise ONLY through an ABI operation that
+# creates an ExceptionContext, so the native raise a script catches has to come
+# from the real C ABI rather than from a raise fabricated in the interpreter.
+iris-abi = { path = "../iris-abi" }
 # C078/C079: the engine enforces the linear-time, no-backtracking subset.
 regex = "1"
 # C042 pins Unicode data to 17.0.0 and this crate's UNICODE_VERSION is exactly

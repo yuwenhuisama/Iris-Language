@@ -5445,6 +5445,12 @@ impl SourceEvaluator {
                                 && self.class_name(name).ok().flatten().is_none())
                             || (name == "FFI"
                                 && selector == "open"
+                                && self.class_name(name).ok().flatten().is_none())
+                            // C018 makes a native raise reach Iris only through
+                            // an ABI operation, so the fixture that performs one
+                            // is a service receiver like the others.
+                            || (name == "NativeFixture"
+                                && selector == "raise"
                                 && self.class_name(name).ok().flatten().is_none())) =>
                     {
                         let Expression::Name(namespace) = target.as_ref() else {
@@ -7402,6 +7408,62 @@ impl SourceEvaluator {
                     path,
                     bound,
                 })))
+            }
+            // C018 lets native code raise ONLY through an ABI operation that
+            // creates an ExceptionContext, and C017 forbids a status-only
+            // answer when the operation raised. So this calls the REAL C ABI
+            // and converts its status plus context handle into the ordinary
+            // Iris exception a `catch` observes; C020 is what makes that a
+            // conversion rather than a long jump across the native frame.
+            ("NativeFixture", "raise") => {
+                let [marker] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let Value::Integer(marker) = marker else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let Some(marker) = marker.to_i128().and_then(|value| i64::try_from(value).ok())
+                else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                iris_abi::iris_runtime_reset();
+                let mut context = iris_abi::IrisHandle::NULL;
+                // SAFETY: `context` is a live local, so the out pointer is valid.
+                let status = unsafe { iris_abi::iris_raise_marker(marker, &raw mut context) };
+                if status != iris_abi::IrisStatus::Raised {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                // C017 makes a status alone insufficient: the raise is only
+                // real if the ABI also handed back a context handle.
+                if context.is_null() {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                // C018 keeps the RAISED VALUE an ordinary Iris value while the
+                // native bridge record belongs to the context. The value is read
+                // back THROUGH the context handle rather than recomputed here,
+                // so a boundary that returned no usable context cannot still
+                // produce a correct-looking exception.
+                let mut carried = 0_i64;
+                // SAFETY: `carried` is a live local, so the out pointer is valid.
+                let read = unsafe { iris_abi::iris_handle_get_int(context, &raw mut carried) };
+                if read != iris_abi::IrisStatus::Success {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                let Ok(recovered) = u64::try_from(carried) else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let raised = Value::Integer(recovered.into());
+                let identity = self.next_context_identity();
+                let location = self.source_location(0);
+                self.active_context = Some(Value::ExceptionContext(
+                    identity,
+                    Box::new(raised.clone()),
+                    Box::new(Value::Nil),
+                    Vec::new(),
+                    Vec::new(),
+                    Box::new(location),
+                ));
+                Err(EvaluationError::Raised(raised))
             }
             ("Host", "run") => {
                 let [Value::Task(identity)] = arguments else {
