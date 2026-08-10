@@ -12,7 +12,7 @@ FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differenti
 IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
 CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
-ASYNC    passed: 39, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (39 records, buckets sum 39)
+ASYNC    passed: 40, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0      (40 records, buckets sum 40)
 RUNTIME  passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records, buckets sum 109)
 CONTROL  passed: 129, failed: 0, needs_subsystem: 5                                  (134 records, buckets sum 134)
 TYPES    passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0     (79 records, buckets sum 79)
@@ -261,7 +261,7 @@ folding 14 locally authored `V###A` rows into the spec count.
 
 | Chapter | Spec transcribed | Spec rows | Missing | Local rows |
 | --- | --- | --- | --- | --- |
-| ASYNC | 39 | 40 | 1 | 0 |
+| ASYNC | 40 | 40 | 0 | 0 |
 | COLLECTIONS | 118 | 122 | 4 | 0 |
 | CONFORMANCE | 3 | 3 | 0 | 0 |
 | CONTROL | 120 | 120 | 0 | 14 |
@@ -272,11 +272,11 @@ folding 14 locally authored `V###A` rows into the spec count.
 | META | 51 | 51 | 0 | 0 |
 | RUNTIME | 109 | 109 | 0 | 0 |
 | TYPES | 79 | 80 | 1 | 0 |
-| **Total** | **615** | **624** | **9** | **14** |
+| **Total** | **616** | **624** | **8** | **14** |
 
-**615 of 624 spec rows transcribed (98.6%), plus 14 locally authored rows.**
+**616 of 624 spec rows transcribed (98.7%), plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 629 records in the corpus, 595
+Transcribed is not the same as passing. Of the 630 records in the corpus, 596
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 
@@ -293,7 +293,7 @@ coverage:
 
 - `COLLECTIONS`: `V295` `V296` `V330` `V350`
 - `IDENTITY`: `V002` `V014`
-- `ASYNC-V012`, `GRAMMAR-V008`, `TYPES-V208`
+- `GRAMMAR-V008`, `TYPES-V208`
 
 Five chapters are complete. The 13 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
