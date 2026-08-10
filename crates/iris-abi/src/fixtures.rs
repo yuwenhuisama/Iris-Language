@@ -10,11 +10,32 @@ unsafe extern "C" {
     pub safe fn fixture_host_abi_v1(out_major: *mut u32, out_minor: *mut u32) -> i32;
     /// `IRIS-V1-FFI-V061` fixture.
     pub safe fn fixture_rooted_handle(out_before: *mut i64, out_after: *mut i32) -> i32;
+    /// `IRIS-V1-FFI-V062` fixture: a worker reads through a handle.
+    pub safe fn fixture_worker_reads_handle(handle: crate::IrisHandle, out_value: *mut i64) -> i32;
+    /// `IRIS-V1-FFI-V062` fixture: a worker posts copied data.
+    pub safe fn fixture_worker_posts(token: u64, value: i64) -> i32;
+    /// `IRIS-V1-FFI-V063` fixture.
+    pub safe fn fixture_raise_marker(
+        out_context: *mut crate::IrisHandle,
+        out_marker: *mut i64,
+    ) -> i32;
+    /// `IRIS-V1-FFI-V066` fixture.
+    pub safe fn fixture_post_twice(
+        token: u64,
+        out_second: *mut i32,
+        out_count: *mut u32,
+        out_value: *mut i64,
+    ) -> i32;
+    /// `IRIS-V1-FFI-V067` fixture.
+    pub safe fn fixture_negotiate_v2(out_major: *mut u32) -> i32;
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{fixture_host_abi_v1, fixture_rooted_handle};
+    use super::{
+        fixture_host_abi_v1, fixture_negotiate_v2, fixture_post_twice, fixture_raise_marker,
+        fixture_rooted_handle, fixture_worker_posts, fixture_worker_reads_handle,
+    };
     use crate::{IrisStatus, iris_runtime_reset};
 
     #[test]
@@ -31,6 +52,84 @@ mod tests {
         assert_eq!(status, IrisStatus::Success as i32);
         assert_eq!(major, crate::ABI_MAJOR);
         assert_eq!(minor, crate::ABI_MINOR);
+    }
+
+    #[test]
+    fn v062_a_worker_read_is_refused_while_its_copied_post_is_accepted() {
+        // Given a handle created on the runtime thread
+        crate::iris_runtime_reset();
+        crate::iris_bridge_reset();
+        let mut handle = crate::IrisHandle::NULL;
+        // SAFETY:  is a live local, so the out pointer is valid.
+        unsafe { crate::iris_int_create(41, &raw mut handle) };
+
+        // When a worker reads through it and then posts copied data
+        let observed = std::thread::scope(|scope| {
+            scope
+                .spawn(move || {
+                    let mut value = 0_i64;
+                    let read = fixture_worker_reads_handle(handle, &raw mut value);
+                    (read, value, fixture_worker_posts(7, 7))
+                })
+                .join()
+        });
+        let Ok((read, value, posted)) = observed else {
+            unreachable!("the worker returns its statuses")
+        };
+
+        // Then C012 refuses the read with no value written, while C013 accepts
+        // the copied post.
+        assert_eq!(read, IrisStatus::ThreadAffinity as i32);
+        assert_eq!(value, 0);
+        assert_eq!(posted, IrisStatus::Success as i32);
+    }
+
+    #[test]
+    fn v063_a_native_raise_answers_a_status_and_a_context() {
+        // Given
+        crate::iris_runtime_reset();
+        let mut context = crate::IrisHandle::NULL;
+        let mut marker = 0_i64;
+
+        // When C raises through the Host ABI
+        let status = fixture_raise_marker(&raw mut context, &raw mut marker);
+
+        // Then C017 answers a status AND fills the context, so the raised value
+        // stays an ordinary Iris value rather than a string in the status.
+        assert_eq!(status, IrisStatus::Raised as i32);
+        assert!(!context.is_null());
+        assert_eq!(marker, 41);
+    }
+
+    #[test]
+    fn v066_one_token_authorizes_exactly_one_completion() {
+        // Given
+        crate::iris_bridge_reset();
+        let mut second = 0_i32;
+        let mut count = 0_u32;
+        let mut value = 0_i64;
+
+        // When C posts the same token twice
+        let status = fixture_post_twice(99, &raw mut second, &raw mut count, &raw mut value);
+
+        // Then C037 makes the first stand and refuses the second.
+        assert_eq!(status, IrisStatus::Success as i32);
+        assert_eq!(second, IrisStatus::DuplicateCompletion as i32);
+        assert_eq!(count, 1);
+        assert_eq!(value, 9);
+    }
+
+    #[test]
+    fn v067_an_abi_major_mismatch_publishes_no_table() {
+        // Given
+        let mut major = 0_u32;
+
+        // When C requests major 2 from a major 1 runtime
+        let status = fixture_negotiate_v2(&raw mut major);
+
+        // Then C039 rejects outright and the record stays untouched.
+        assert_eq!(status, IrisStatus::IncompatibleAbi as i32);
+        assert_eq!(major, 0);
     }
 
     #[test]

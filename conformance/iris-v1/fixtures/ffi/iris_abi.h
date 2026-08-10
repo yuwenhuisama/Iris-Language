@@ -45,5 +45,15 @@ IrisStatus iris_int_create(int64_t value, IrisHandle *out_handle);
 IrisStatus iris_handle_get_int(IrisHandle handle, int64_t *out_value);
 IrisStatus iris_handle_release(IrisHandle handle);
 void iris_runtime_reset(void);
+void iris_bridge_reset(void);
+
+/* IRIS-V1-FFI-C013: an external thread posts COPIED data only, never a handle.
+ * C037 makes the first completion for a token stand. */
+IrisStatus iris_post_completion(uint64_t token, int64_t value);
+IrisStatus iris_drain_completions(uint32_t *out_count, int64_t *out_first);
+
+/* IRIS-V1-FFI-C017/C018: a raise answers a status AND fills a context handle.
+ * A string-only error channel is not conforming. */
+IrisStatus iris_raise_marker(int64_t marker, IrisHandle *out_context);
 
 #endif /* IRIS_ABI_H */

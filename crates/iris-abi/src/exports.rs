@@ -5,8 +5,12 @@
 //! and answers a status per `IRIS-V1-FFI-C017`. No Rust type, trait, vtable,
 //! allocator or panic may appear in a signature.
 
-use crate::{HandleTable, IrisAbiTable, IrisHandle, IrisHandleKind, IrisStatus};
+use crate::{
+    HandleTable, IrisAbiTable, IrisHandle, IrisHandleKind, IrisStatus, Post, PostQueue,
+    ThreadAffinity,
+};
 use std::cell::RefCell;
+use std::sync::OnceLock;
 
 thread_local! {
     /// The runtime this thread owns, for the fixtures to drive.
@@ -15,6 +19,121 @@ thread_local! {
     /// fixtures drive one implicit runtime, which keeps the C signatures the
     /// same shape while avoiding a second lifetime concern in the harness.
     static RUNTIME: RefCell<HandleTable<i64>> = const { RefCell::new(HandleTable::new(1)) };
+}
+
+thread_local! {
+    /// This thread's own affinity token and post queue.
+    ///
+    /// A runtime binds ONE owning thread. Recording that per thread lets
+    /// several runtimes exist in one process, which is what `IRIS-V1-FFI-C009`
+    /// already assumes when it forbids passing a handle between runtimes.
+    static OWNER: RefCell<Option<(ThreadAffinity, PostQueue)>> = const { RefCell::new(None) };
+}
+
+/// The post queue shared with worker threads.
+///
+/// `IRIS-V1-FFI-C014` makes the post queue the ONLY cross-thread entry, so a
+/// worker reaches it while the handle table stays thread-local and
+/// unreachable.
+fn shared_queue() -> &'static PostQueue {
+    static QUEUE: OnceLock<PostQueue> = OnceLock::new();
+    QUEUE.get_or_init(PostQueue::new)
+}
+
+/// Whether the caller owns the runtime it is touching.
+///
+/// `IRIS-V1-FFI-C012` answers a thread-affinity status rather than racing the
+/// heap, so a thread that never bound a runtime is refused too.
+fn owns_runtime() -> IrisStatus {
+    OWNER.with_borrow(|owner| {
+        owner
+            .as_ref()
+            .map_or(IrisStatus::ThreadAffinity, |(affinity, _)| affinity.check())
+    })
+}
+
+/// Binds the calling thread as the runtime owner.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_bridge_reset() {
+    OWNER.with_borrow_mut(|owner| {
+        *owner = Some((ThreadAffinity::bind_current(), shared_queue().clone()));
+    });
+}
+
+/// Posts one copied completion from any thread.
+///
+/// `IRIS-V1-FFI-C013` lets an external thread post COPIED data only, never a
+/// handle, and `C037` makes the first completion for a token stand.
+#[unsafe(no_mangle)]
+pub extern "C" fn iris_post_completion(token: u64, value: i64) -> IrisStatus {
+    shared_queue().post(Post {
+        token,
+        payload: value.to_le_bytes().to_vec(),
+    })
+}
+
+/// Drains posted completions on the runtime thread.
+///
+/// `IRIS-V1-FFI-C013` makes the RUNTIME thread the one that converts posted
+/// data into Iris values, so draining is itself an owning-thread operation.
+///
+/// # Safety
+/// `out_count` and `out_first` must be valid writable pointers or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_drain_completions(
+    out_count: *mut u32,
+    out_first: *mut i64,
+) -> IrisStatus {
+    if out_count.is_null() || out_first.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    let drained = OWNER.with_borrow(|owner| {
+        owner
+            .as_ref()
+            .map_or(Err(IrisStatus::ThreadAffinity), |(affinity, _)| {
+                shared_queue().drain(affinity)
+            })
+    });
+    match drained {
+        Ok(posts) => {
+            let first = posts
+                .first()
+                .and_then(|post| post.payload.get(..8))
+                .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+                .map_or(0, i64::from_le_bytes);
+            // SAFETY: both checked non-null above.
+            unsafe {
+                out_count.write(u32::try_from(posts.len()).unwrap_or(u32::MAX));
+                out_first.write(first);
+            }
+            IrisStatus::Success
+        }
+        Err(status) => status,
+    }
+}
+
+/// Raises an Iris value from native code.
+///
+/// `IRIS-V1-FFI-C017` forbids a status-only answer when the operation raised,
+/// and `C018` keeps the raised value an ordinary Iris value while the context
+/// carries the bridge record. So this answers `Raised` AND fills the context
+/// handle; a string-only error channel would not conform.
+///
+/// # Safety
+/// `out_context` must be a valid writable `IrisHandle` or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_raise_marker(
+    marker: i64,
+    out_context: *mut IrisHandle,
+) -> IrisStatus {
+    if out_context.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    let handle =
+        RUNTIME.with_borrow_mut(|table| table.retain(marker, IrisHandleKind::ExplicitRelease));
+    // SAFETY: checked non-null above.
+    unsafe { out_context.write(handle) };
+    IrisStatus::Raised
 }
 
 /// Negotiates an extension attachment.
@@ -78,6 +197,14 @@ pub unsafe extern "C" fn iris_handle_get_int(
     if out_value.is_null() {
         return IrisStatus::InvalidArgument;
     }
+    // C012 requires every call touching a handle to run on the OWNING runtime
+    // thread and to answer a thread-affinity status otherwise. Without this a
+    // worker reached its own empty thread-local table and got `invalid-handle`,
+    // which reports the wrong reason and hides the affinity violation.
+    let affinity = owns_runtime();
+    if affinity != IrisStatus::Success {
+        return affinity;
+    }
     RUNTIME.with_borrow(|table| match table.get(handle) {
         Ok(value) => {
             // SAFETY: checked non-null above.
@@ -94,6 +221,10 @@ pub unsafe extern "C" fn iris_handle_get_int(
 /// already issued for the slot detectably stale afterwards.
 #[unsafe(no_mangle)]
 pub extern "C" fn iris_handle_release(handle: IrisHandle) -> IrisStatus {
+    let affinity = owns_runtime();
+    if affinity != IrisStatus::Success {
+        return affinity;
+    }
     RUNTIME.with_borrow_mut(|table| table.release(handle))
 }
 
@@ -101,4 +232,5 @@ pub extern "C" fn iris_handle_release(handle: IrisHandle) -> IrisStatus {
 #[unsafe(no_mangle)]
 pub extern "C" fn iris_runtime_reset() {
     RUNTIME.with_borrow_mut(|table| *table = HandleTable::new(1));
+    iris_bridge_reset();
 }

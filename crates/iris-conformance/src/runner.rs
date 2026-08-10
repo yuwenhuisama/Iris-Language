@@ -373,6 +373,82 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V062: a worker read is refused while its copied post is accepted.
+        "c_worker_reads_handle" => {
+            iris_abi::iris_runtime_reset();
+            let mut handle = iris_abi::IrisHandle::NULL;
+            // SAFETY: `handle` is a live local, so the out pointer is valid.
+            unsafe { iris_abi::iris_int_create(41, &raw mut handle) };
+            let observed = std::thread::scope(|scope| {
+                scope
+                    .spawn(move || {
+                        let mut value = 0_i64;
+                        let read = iris_abi::fixture_worker_reads_handle(handle, &raw mut value);
+                        (read, value, iris_abi::fixture_worker_posts(4242, 7))
+                    })
+                    .join()
+            });
+            let Ok((read, value, posted)) = observed else {
+                return failed(record, "the worker returns its statuses");
+            };
+            if read == IrisStatus::ThreadAffinity as i32
+                && value == 0
+                && posted == IrisStatus::Success as i32
+            {
+                "thread-affinity"
+            } else {
+                "unexpected"
+            }
+        }
+        // V063: a native raise answers a status AND fills a context handle.
+        "c_native_raise" => {
+            iris_abi::iris_runtime_reset();
+            let mut context = iris_abi::IrisHandle::NULL;
+            let mut marker = 0_i64;
+            let status = iris_abi::fixture_raise_marker(&raw mut context, &raw mut marker);
+            if status == IrisStatus::Raised as i32 && !context.is_null() && marker == 41 {
+                "raised"
+            } else {
+                "unexpected"
+            }
+        }
+        // V066: one token authorizes exactly one completion.
+        "c_post_twice_one_token" => {
+            iris_abi::iris_runtime_reset();
+            // C014 shares one queue across producers, so an earlier scenario's
+            // accepted post is still pending. Draining first is what makes this
+            // row observe its OWN completion count rather than a shared total.
+            let mut discarded_count = 0_u32;
+            let mut discarded_value = 0_i64;
+            // SAFETY: both locals are live, so the out pointers are valid.
+            unsafe {
+                iris_abi::iris_drain_completions(&raw mut discarded_count, &raw mut discarded_value)
+            };
+            let mut second = 0_i32;
+            let mut count = 0_u32;
+            let mut value = 0_i64;
+            let status =
+                iris_abi::fixture_post_twice(7777, &raw mut second, &raw mut count, &raw mut value);
+            if status == IrisStatus::Success as i32
+                && second == IrisStatus::DuplicateCompletion as i32
+                && count == 1
+                && value == 9
+            {
+                "duplicate-completion"
+            } else {
+                "unexpected"
+            }
+        }
+        // V067: a major mismatch publishes no table.
+        "c_negotiate_v2" => {
+            let mut major = 0_u32;
+            let status = iris_abi::fixture_negotiate_v2(&raw mut major);
+            if status == IrisStatus::IncompatibleAbi as i32 && major == 0 {
+                "incompatible-abi"
+            } else {
+                "unexpected"
+            }
+        }
         // C039: an ABI major mismatch rejects attachment.
         "abi_major_mismatch" => status_name(iris_abi::attach(2, 0).err()),
         // C039: a minor-compatible record appends fields, and a reader only

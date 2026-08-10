@@ -6,7 +6,14 @@
 
 fn main() {
     let fixtures = std::path::Path::new("../../conformance/iris-v1/fixtures/ffi");
-    let sources = ["host_abi_v1.c", "rooted_handle.c"];
+    let sources = [
+        "host_abi_v1.c",
+        "rooted_handle.c",
+        "thread_affinity.c",
+        "native_error.c",
+        "async_once.c",
+        "negotiate_v2.c",
+    ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());
     }
