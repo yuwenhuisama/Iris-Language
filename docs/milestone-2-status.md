@@ -8,7 +8,7 @@
 
 ```
 COLLECTIONS passed: 115, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (115 records, buckets sum 115)
-FFI         passed: 12, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (12 records, buckets sum 12)
+FFI         passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
 IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records, buckets sum 14)
 CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (3 records, buckets sum 3)
@@ -260,11 +260,11 @@ Six chapters, 435 of 462 vector rows, every chapter reporting `failed: 0`.
 | META | 51 | 51 |
 | ASYNC | 39 | 40 |
 | COLLECTIONS | 115 | 122 |
-| FFI | 12 | 32 |
+| FFI | 14 | 32 |
 | LIBRARY | 14 | 14 |
 | IDENTITY | 3 | 5 |
 | CONFORMANCE | 3 | 3 |
-| **Total** | **606** | **637** |
+| **Total** | **608** | **637** |
 
 Three chapters are complete. The 27 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately

@@ -342,6 +342,37 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 status_name(Some(queue.post(post())))
             }
         }
+        // V060: a C-compiled fixture attaches and reads the negotiated
+        // versions back, which only holds if the record layout is the C one.
+        "c_extension_attach" => {
+            let mut major = 0_u32;
+            let mut minor = 0_u32;
+            let status = iris_abi::fixture_host_abi_v1(&raw mut major, &raw mut minor);
+            if status == IrisStatus::Success as i32
+                && major == iris_abi::ABI_MAJOR
+                && minor == iris_abi::ABI_MINOR
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
+        // V061: C creates, reads, releases, then reads again. The second read
+        // must be refused, so the C009 generation check survives the crossing.
+        "c_rooted_handle_release" => {
+            iris_abi::iris_runtime_reset();
+            let mut before = 0_i64;
+            let mut after = 0_i32;
+            let status = iris_abi::fixture_rooted_handle(&raw mut before, &raw mut after);
+            if status == IrisStatus::Success as i32
+                && before == 41
+                && after == IrisStatus::InvalidHandle as i32
+            {
+                "invalid-handle"
+            } else {
+                "unexpected"
+            }
+        }
         // C039: an ABI major mismatch rejects attachment.
         "abi_major_mismatch" => status_name(iris_abi::attach(2, 0).err()),
         // C039: a minor-compatible record appends fields, and a reader only

@@ -6,3 +6,10 @@ rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[build-dependencies]
+# IRIS-V1-FFI-V060 requires the fixture to be COMPILED AS C and called through
+# the Host table, so the conformance C fixtures are built here and linked into
+# the test binary. This is what proves the boundary is a real C ABI rather than
+# a Rust-shaped interface that merely looks like one.
+cc = "1"

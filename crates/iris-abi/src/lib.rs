@@ -7,6 +7,8 @@
 //! helpers on top; those belong to the wrapper, never to this surface.
 
 mod barrier;
+mod exports;
+pub mod fixtures;
 mod handle;
 mod manifest;
 mod negotiate;
@@ -15,6 +17,11 @@ mod table;
 mod thread;
 
 pub use barrier::{IrisCallResult, guard};
+pub use exports::{
+    iris_extension_attach, iris_handle_get_int, iris_handle_release, iris_int_create,
+    iris_runtime_reset,
+};
+pub use fixtures::{fixture_host_abi_v1, fixture_rooted_handle};
 pub use handle::{IrisFrame, IrisHandle, IrisHandleKind};
 pub use manifest::{ManifestRejection, NativeManifest, verify};
 pub use negotiate::{ABI_MAJOR, ABI_MINOR, IrisAbiTable, attach};
