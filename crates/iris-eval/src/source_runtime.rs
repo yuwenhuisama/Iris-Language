@@ -3441,6 +3441,10 @@ impl SourceEvaluator {
                 text.set(replacement);
                 Ok(Some(receiver.clone()))
             }
+            // C044 exposes a MutableString's UTF-8 bytes explicitly. C061
+            // makes the view a live Iterable over the receiver, not a detached
+            // Array, so a later content change invalidates an active cursor.
+            (Value::MutableString(_), "bytes", []) => Ok(Some(receiver.clone())),
             // C044 exposes UTF-8 bytes EXPLICITLY, since `length` and indexing
             // count Unicode scalars. C073 makes this the same snapshot
             // `to_bytes` answers.
@@ -5374,6 +5378,7 @@ impl SourceEvaluator {
                                     | "Package"
                                     | "IrisValue"
                                     | "Unicode"
+                                    | "Encoding"
                                     | "Encoding::UTF_8"
                                     | "Encoding::UTF_16LE"
                                     | "Encoding::UTF_16BE"
@@ -7243,6 +7248,12 @@ impl SourceEvaluator {
             // C042 fixes the default Unicode data version for the language
             // MAJOR, so the version is a language fact rather than a host
             // reading. Every table used here reports the same version.
+            // C022 makes strict handling the default and forbids selecting a
+            // Host or locale default implicitly, so asking for "the default"
+            // names no Encoding at all and is refused.
+            ("Encoding", "default") => {
+                Err(EvaluationError::LexicalDiagnostic("EncodingSelectionError"))
+            }
             ("Unicode", "version") => Ok(Value::Text({
                 let (major, minor, patch) = unicode_normalization::UNICODE_VERSION;
                 format!("{major}.{minor}.{patch}")
