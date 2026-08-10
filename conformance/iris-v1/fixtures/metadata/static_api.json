@@ -1,0 +1,8 @@
+{
+  "package": "fixture.static_api",
+  "reflection_policy": "default",
+  "abi_major": "1",
+  "abi_minor": "0",
+  "artifact": "conformance/iris-v1/fixtures/ffi/static_api.c",
+  "digest": "0000000000000000000000000000000000000000000000000000000000000011"
+}

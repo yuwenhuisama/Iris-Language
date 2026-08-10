@@ -30,6 +30,10 @@ unsafe extern "C" {
     pub safe fn fixture_negotiate_v2(out_major: *mut u32) -> i32;
     /// `IRIS-V1-FFI-V008` fixture: a panic beneath the boundary.
     pub safe fn fixture_panic_does_not_cross(out_value: *mut i64, out_resumed: *mut i32) -> i32;
+    /// `IRIS-V1-FFI-V064` fixture: the entry a refused load must never call.
+    pub safe fn fixture_static_api_call_count() -> i32;
+    /// `IRIS-V1-FFI-V059` fixture: the entry a manifestless load must not bind.
+    pub safe fn fixture_manifestless_call_count() -> i32;
     /// `IRIS-V1-FFI-V001` fixture: an address forged into a handle.
     pub safe fn fixture_raw_pointer_handle(
         out_value: *mut i64,
@@ -46,6 +50,14 @@ mod tests {
         fixture_rooted_handle, fixture_worker_posts, fixture_worker_reads_handle,
     };
     use crate::{IrisStatus, iris_runtime_reset};
+
+    /// Serializes scenarios that share the process-wide post queue.
+    ///
+    /// `IRIS-V1-FFI-C014` makes ONE queue the only cross-thread entry, so two
+    /// scenarios running at once observe each other's completions. Test threads
+    /// run in parallel, which is why this is a lock and not a reset: clearing
+    /// cannot stop a post that lands between the clear and the drain.
+    static QUEUE_SCENARIO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn v060_c_code_attaches_and_reads_the_negotiated_versions() {
@@ -65,6 +77,9 @@ mod tests {
 
     #[test]
     fn v062_a_worker_read_is_refused_while_its_copied_post_is_accepted() {
+        let _scenario = QUEUE_SCENARIO
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Given a handle created on the runtime thread
         crate::iris_runtime_reset();
         crate::iris_bridge_reset();
@@ -112,6 +127,9 @@ mod tests {
 
     #[test]
     fn v066_one_token_authorizes_exactly_one_completion() {
+        let _scenario = QUEUE_SCENARIO
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Given
         crate::iris_bridge_reset();
         let mut second = 0_i32;

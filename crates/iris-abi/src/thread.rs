@@ -101,6 +101,19 @@ impl PostQueue {
         IrisStatus::Success
     }
 
+    /// Discards every pending post and spent token.
+    ///
+    /// `IRIS-V1-FFI-C014` makes this queue process-wide, so one scenario's
+    /// accepted post outlives it and the next scenario would observe a shared
+    /// total. Resetting a runtime therefore has to clear the queue too, or the
+    /// reset is not a reset.
+    pub fn clear(&self) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.pending.clear();
+            state.spent.clear();
+        }
+    }
+
     /// Drains accepted posts in submission order, on the runtime thread.
     pub fn drain(&self, affinity: &ThreadAffinity) -> Result<Vec<Post>, IrisStatus> {
         // C013 makes the RUNTIME thread the one that converts posted data into

@@ -15,6 +15,8 @@ fn main() {
         "negotiate_v2.c",
         "panic_barrier.c",
         "raw_pointer.c",
+        "static_api.c",
+        "manifestless_native.c",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());

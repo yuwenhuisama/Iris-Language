@@ -293,6 +293,7 @@ fn validate_documentation(record: &Record) -> Outcome {
 fn validate_abi_scenario(record: &Record) -> Outcome {
     use iris_abi::{HandleTable, IrisHandleKind, IrisStatus, Post, PostQueue, ThreadAffinity};
 
+    let mut observed_diagnostic: Option<&'static str> = None;
     let observed = match record.source.trim() {
         // C008: a live handle keeps denoting its target across a collection
         // cycle, which the table models by rooting the value it owns.
@@ -415,15 +416,6 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
         // V066: one token authorizes exactly one completion.
         "c_post_twice_one_token" => {
             iris_abi::iris_runtime_reset();
-            // C014 shares one queue across producers, so an earlier scenario's
-            // accepted post is still pending. Draining first is what makes this
-            // row observe its OWN completion count rather than a shared total.
-            let mut discarded_count = 0_u32;
-            let mut discarded_value = 0_i64;
-            // SAFETY: both locals are live, so the out pointers are valid.
-            unsafe {
-                iris_abi::iris_drain_completions(&raw mut discarded_count, &raw mut discarded_value)
-            };
             let mut second = 0_i32;
             let mut count = 0_u32;
             let mut value = 0_i64;
@@ -487,6 +479,41 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V064: a digest mismatch aborts the load before binding.
+        "metadata_static_api_digest" => {
+            match metadata_rejection("conformance/iris-v1/fixtures/metadata/static_api.json") {
+                Err(reason) => return failed(record, &reason),
+                Ok(None) => "unexpected",
+                Ok(Some(rejection)) => {
+                    observed_diagnostic = Some(rejection.diagnostic());
+                    // The artifact exports a working entry, so a zero call
+                    // count is what shows the refusal happened BEFORE binding
+                    // rather than after something was already invoked.
+                    if iris_abi::fixture_static_api_call_count() == 0 {
+                        "metadata-mismatch"
+                    } else {
+                        "unexpected"
+                    }
+                }
+            }
+        }
+        // V059: absent package identity refuses the load before any digest work.
+        "metadata_manifestless_native" => {
+            match metadata_rejection(
+                "conformance/iris-v1/fixtures/metadata/manifestless_native.json",
+            ) {
+                Err(reason) => return failed(record, &reason),
+                Ok(None) => "unexpected",
+                Ok(Some(rejection)) => {
+                    observed_diagnostic = Some(rejection.diagnostic());
+                    if iris_abi::fixture_manifestless_call_count() == 0 {
+                        "metadata-mismatch"
+                    } else {
+                        "unexpected"
+                    }
+                }
+            }
+        }
         // C039: an ABI major mismatch rejects attachment.
         "abi_major_mismatch" => status_name(iris_abi::attach(2, 0).err()),
         // C039: a minor-compatible record appends fields, and a reader only
@@ -512,6 +539,20 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 .ok()
                 .and_then(|value| value.get("abi_status").cloned())
         });
+    // A row that names a diagnostic must observe THAT diagnostic, not merely a
+    // refusal: `C022` and `C023` fail for different reasons and a load that
+    // reported the wrong one would hide which check actually ran.
+    if let Ok(value) = crate::model::parse_expect(&record.expect)
+        && let Ok(fields) = crate::model::object(&value)
+        && let Some(crate::json::Value::String(wanted)) = fields.get("diagnostic")
+        && Some(wanted.as_str()) != observed_diagnostic
+    {
+        return Outcome::Failed {
+            id: record.id.clone(),
+            expected: wanted.clone(),
+            actual: observed_diagnostic.unwrap_or("no diagnostic").to_owned(),
+        };
+    }
     match expected {
         Some(crate::json::Value::String(wanted)) if wanted == observed => Outcome::Passed {
             id: record.id.clone(),
@@ -539,6 +580,40 @@ fn status_name(status: Option<iris_abi::IrisStatus>) -> &'static str {
         Some(iris_abi::IrisStatus::InvalidArgument) => "invalid-argument",
         Some(iris_abi::IrisStatus::InvalidBoundary) => "invalid-boundary",
     }
+}
+
+/// Verifies one native metadata record against the artifact it points at.
+///
+/// `IRIS-V1-FFI-C023` verifies the LOADED artifact against the resolved
+/// metadata, so the digest is computed from the file's real bytes here rather
+/// than restated in the vector. A vector that hard-coded the mismatch would
+/// still pass if the verifier stopped checking.
+fn metadata_rejection(relative: &str) -> Result<Option<iris_abi::ManifestRejection>, String> {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = std::fs::read_to_string(root.join(relative)).map_err(|error| error.to_string())?;
+    let parsed = crate::json::parse(&text)?;
+    let fields = crate::model::object(&parsed)?;
+    let text_of = |key: &str| match fields.get(key) {
+        Some(crate::json::Value::String(value)) => Some(value.clone()),
+        _ => None,
+    };
+    let number_of = |key: &str| -> Result<u32, String> {
+        text_of(key)
+            .ok_or_else(|| format!("{key} missing"))?
+            .parse::<u32>()
+            .map_err(|error| error.to_string())
+    };
+    let artifact = text_of("artifact").ok_or("artifact missing")?;
+    let bytes = std::fs::read(root.join(&artifact)).map_err(|error| error.to_string())?;
+    let manifest = iris_abi::NativeManifest {
+        package: text_of("package"),
+        reflection_policy: text_of("reflection_policy"),
+        digest: text_of("digest"),
+        abi_major: number_of("abi_major")?,
+        abi_minor: number_of("abi_minor")?,
+    };
+    let digest = iris_runtime::artifact_digest(&bytes);
+    Ok(iris_abi::verify(&manifest, &digest, iris_abi::ABI_MAJOR).err())
 }
 
 fn failed(record: &Record, detail: &str) -> Outcome {

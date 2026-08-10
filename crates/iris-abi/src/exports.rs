@@ -55,6 +55,9 @@ fn owns_runtime() -> IrisStatus {
 /// Binds the calling thread as the runtime owner.
 #[unsafe(no_mangle)]
 pub extern "C" fn iris_bridge_reset() {
+    // The queue is process-wide, so a reset that left it populated would let
+    // one scenario's accepted post be counted by the next one.
+    shared_queue().clear();
     OWNER.with_borrow_mut(|owner| {
         *owner = Some((ThreadAffinity::bind_current(), shared_queue().clone()));
     });
