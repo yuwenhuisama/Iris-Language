@@ -2012,6 +2012,22 @@ pub(crate) enum Associativity {
     NonAssociative,
 }
 
+/// Joins two adjacent String literal tokens into one literal.
+///
+/// `IRIS-V1-COLLECTIONS-C051` makes adjacent String literal segments ONE
+/// expression, so the two token texts are merged into a single literal whose
+/// body is their concatenation. Returns `None` when either token is not a
+/// simple quoted literal, which leaves the caller's first segment alone.
+pub(crate) fn join_string_literals(left: &str, right: &str) -> Option<String> {
+    let quote = left.chars().next()?;
+    if right.chars().next()? != quote {
+        return None;
+    }
+    let left_body = left.strip_prefix(quote)?.strip_suffix(quote)?;
+    let right_body = right.strip_prefix(quote)?.strip_suffix(quote)?;
+    Some(format!("{quote}{left_body}{right_body}{quote}"))
+}
+
 fn is_identifier(value: &str) -> bool {
     // `IRIS-V1-GRAMMAR-C009` makes identifier start Unicode XID_Start or `_`,
     // under the `IRIS-V1-COLLECTIONS-C042` version. Testing only ASCII here

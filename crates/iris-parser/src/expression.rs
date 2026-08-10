@@ -414,6 +414,22 @@ impl Parser {
             return None;
         };
         if self.is_literal(&value) {
+            // `IRIS-V1-COLLECTIONS-C051` concatenates ADJACENT String literal
+            // segments into one expression. Only String literals join: a
+            // Symbol, Bytes or arbitrary expression beside one does not.
+            if value.starts_with('"') || value.starts_with('\'') {
+                let mut joined = value;
+                while let Some(next) = self.peek()
+                    && (next.starts_with('"') || next.starts_with('\''))
+                    && self.is_literal(next)
+                {
+                    let Some(segment) = self.advance().map(|token| token.text) else {
+                        break;
+                    };
+                    joined = crate::join_string_literals(&joined, &segment)?;
+                }
+                return Some(Expression::Literal(joined));
+            }
             return Some(Expression::Literal(value));
         }
         // Only an ordinary identifier may become a Name here. Accepting any
