@@ -20,6 +20,7 @@ fn main() {
         "worker_completion.c",
         "payload_resource.c",
         "payload_trace.c",
+        "extension_digest.c",
     ];
     for source in sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());

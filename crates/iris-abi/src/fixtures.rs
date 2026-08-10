@@ -32,6 +32,10 @@ unsafe extern "C" {
     pub safe fn fixture_panic_does_not_cross(out_value: *mut i64, out_resumed: *mut i32) -> i32;
     /// `IRIS-V1-FFI-V012`/`V065` fixture: a Closeable payload closed twice.
     pub safe fn fixture_payload_close_twice(out_second: *mut i32, out_releases: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V009` fixture: an extension artifact digest mismatch.
+    pub safe fn fixture_extension_digest_mismatch(out_major: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V009` fixture: the same load with a matching digest.
+    pub safe fn fixture_extension_digest_matches(out_major: *mut u32) -> i32;
     /// `IRIS-V1-FFI-V011` fixture: a payload declares a managed trace root.
     pub safe fn fixture_payload_traces_root(
         out_value: *mut i64,
@@ -68,12 +72,12 @@ unsafe extern "C" {
 #[cfg(test)]
 mod tests {
     use super::{
-        fixture_host_abi_v1, fixture_negotiate_v2, fixture_panic_does_not_cross,
-        fixture_payload_cleanup_may_raise, fixture_payload_close_twice,
-        fixture_payload_rejects_stale_root, fixture_payload_traces_root, fixture_post_twice,
-        fixture_raise_marker, fixture_raw_pointer_handle, fixture_rooted_handle,
-        fixture_runtime_takes_completion, fixture_worker_completes, fixture_worker_posts,
-        fixture_worker_reads_handle,
+        fixture_extension_digest_matches, fixture_extension_digest_mismatch, fixture_host_abi_v1,
+        fixture_negotiate_v2, fixture_panic_does_not_cross, fixture_payload_cleanup_may_raise,
+        fixture_payload_close_twice, fixture_payload_rejects_stale_root,
+        fixture_payload_traces_root, fixture_post_twice, fixture_raise_marker,
+        fixture_raw_pointer_handle, fixture_rooted_handle, fixture_runtime_takes_completion,
+        fixture_worker_completes, fixture_worker_posts, fixture_worker_reads_handle,
     };
     use crate::{IrisStatus, iris_runtime_reset};
 
@@ -351,5 +355,31 @@ mod tests {
         // Then it is refused at DECLARATION rather than being handed to the
         // collector, which is what keeps trace from reporting a dead target.
         assert_eq!(status, IrisStatus::InvalidHandle as i32);
+    }
+
+    #[test]
+    fn v009_an_extension_artifact_digest_mismatch_aborts_the_load() {
+        // Given an extension whose artifact does not hash to its metadata
+        let mut major = 0_u32;
+
+        // When it loads
+        let status = fixture_extension_digest_mismatch(&raw mut major);
+
+        // Then C023 aborts before binding and no table is published. The
+        // sentinel surviving is the evidence: a negotiated table would mean an
+        // unverified extension had already received authority.
+        assert_eq!(status, IrisStatus::IncompatibleAbi as i32);
+        assert_eq!(major, 99);
+    }
+
+    #[test]
+    fn c023_a_matching_extension_artifact_attaches() {
+        // The same path with a matching digest must attach, which is what
+        // shows the refusal comes from verification rather than from the
+        // extension path being broken outright.
+        let mut major = 0_u32;
+        let status = fixture_extension_digest_matches(&raw mut major);
+        assert_eq!(status, IrisStatus::Success as i32);
+        assert_eq!(major, crate::ABI_MAJOR);
     }
 }

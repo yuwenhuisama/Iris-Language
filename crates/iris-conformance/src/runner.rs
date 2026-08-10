@@ -571,6 +571,25 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V009: an EXTENSION artifact digest mismatch aborts the load.
+        "c_extension_digest_mismatch" => {
+            let mut refused_major = 0_u32;
+            let refused = iris_abi::fixture_extension_digest_mismatch(&raw mut refused_major);
+            let mut accepted_major = 0_u32;
+            let accepted = iris_abi::fixture_extension_digest_matches(&raw mut accepted_major);
+            // The sentinel surviving shows no table was published. The matching
+            // load attaching shows the refusal comes from verification rather
+            // than from the extension path being broken outright.
+            if refused == IrisStatus::IncompatibleAbi as i32
+                && refused_major == 99
+                && accepted == IrisStatus::Success as i32
+                && accepted_major == iris_abi::ABI_MAJOR
+            {
+                "incompatible-abi"
+            } else {
+                "unexpected"
+            }
+        }
         // V064: a digest mismatch aborts the load before binding.
         "metadata_static_api_digest" => {
             match metadata_rejection("conformance/iris-v1/fixtures/metadata/static_api.json") {

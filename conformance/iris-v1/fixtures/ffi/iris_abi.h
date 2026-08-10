@@ -41,6 +41,15 @@ typedef struct {
 IrisStatus iris_extension_attach(uint32_t requested_major,
                                  uint32_t minimum_minor,
                                  IrisAbiTable *out_table);
+/* IRIS-V1-FFI-C023: an EXTENSION load verifies its artifact against the
+ * declared metadata digest BEFORE negotiating. iris_extension_attach performs
+ * C038 version negotiation only, so a mismatched artifact that called it would
+ * receive the table without its bytes ever being checked. */
+IrisStatus iris_extension_load(const char *declared_digest,
+                               const char *actual_digest,
+                               uint32_t requested_major,
+                               uint32_t minimum_minor, IrisAbiTable *out_table);
+
 IrisStatus iris_int_create(int64_t value, IrisHandle *out_handle);
 IrisStatus iris_handle_get_int(IrisHandle handle, int64_t *out_value);
 IrisStatus iris_handle_release(IrisHandle handle);

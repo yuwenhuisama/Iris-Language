@@ -211,6 +211,55 @@ pub unsafe extern "C" fn iris_extension_attach(
     }
 }
 
+/// Loads an extension, verifying its artifact before negotiating.
+///
+/// `IRIS-V1-FFI-C023` makes runtime native load verify the artifact against its
+/// metadata, and `V009` aborts an EXTENSION load on a digest mismatch just as a
+/// package load aborts. `iris_extension_attach` performs `C038` version
+/// negotiation only, so this is the entry an extension load actually uses: a
+/// mismatched artifact never reaches the table.
+///
+/// # Safety
+/// `declared_digest` and `actual_digest` must be valid NUL-terminated C strings,
+/// and `out_table` a valid writable record or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iris_extension_load(
+    declared_digest: *const core::ffi::c_char,
+    actual_digest: *const core::ffi::c_char,
+    requested_major: u32,
+    minimum_minor: u32,
+    out_table: *mut IrisAbiTable,
+) -> IrisStatus {
+    if out_table.is_null() || declared_digest.is_null() || actual_digest.is_null() {
+        return IrisStatus::InvalidArgument;
+    }
+    // SAFETY: both checked non-null; the caller supplies NUL-terminated bytes.
+    let (declared, actual) = unsafe {
+        (
+            core::ffi::CStr::from_ptr(declared_digest),
+            core::ffi::CStr::from_ptr(actual_digest),
+        )
+    };
+    let (Ok(declared), Ok(actual)) = (declared.to_str(), actual.to_str()) else {
+        return IrisStatus::InvalidArgument;
+    };
+    let manifest = crate::NativeManifest {
+        package: Some("fixture.extension".into()),
+        reflection_policy: Some("default".into()),
+        digest: Some(declared.to_owned()),
+        abi_major: crate::ABI_MAJOR,
+        abi_minor: crate::ABI_MINOR,
+    };
+    match crate::load_extension(&manifest, actual, requested_major, minimum_minor) {
+        Ok(table) => {
+            // SAFETY: checked non-null above.
+            unsafe { out_table.write(table) };
+            IrisStatus::Success
+        }
+        Err(status) => status,
+    }
+}
+
 /// Creates an Iris Integer and roots it as a handle.
 ///
 /// `IRIS-V1-FFI-C007` makes the answer an opaque handle rather than an address.

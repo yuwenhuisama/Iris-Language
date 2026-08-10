@@ -44,12 +44,36 @@ impl IrisAbiTable {
     }
 }
 
+/// Loads an extension: verifies its artifact, THEN negotiates.
+///
+/// `IRIS-V1-FFI-C023` requires runtime native load to verify that the loaded
+/// artifact matches its metadata, and `IRIS-V1-FFI-V009` makes a digest
+/// mismatch abort PACKAGE OR EXTENSION load before binding. Negotiating first
+/// and verifying later would hand an unverified extension the authority
+/// `C038` withholds until declaration, so verification runs first and a
+/// rejected extension never receives the table.
+pub fn load_extension(
+    manifest: &crate::NativeManifest,
+    artifact_digest: &str,
+    requested_major: u32,
+    minimum_minor: u32,
+) -> Result<IrisAbiTable, IrisStatus> {
+    // C023 verifies the artifact against the metadata BEFORE binding. Without
+    // this the extension path negotiated a version and handed over the table
+    // while the artifact bytes were never checked at all.
+    crate::verify(manifest, artifact_digest, ABI_MAJOR).map_err(|_| IrisStatus::IncompatibleAbi)?;
+    attach(requested_major, minimum_minor)
+}
+
 /// Negotiates an extension attachment.
 ///
 /// `IRIS-V1-FFI-C038` makes every participant declare its required major and
 /// minimum minor BEFORE receiving authority to create or observe Iris values,
 /// so this runs before any handle exists. `IRIS-V1-FFI-C039` rejects a major
 /// mismatch outright while a newer runtime minor stays compatible.
+///
+/// This is version negotiation ONLY. `C023` artifact verification belongs to
+/// [`load_extension`], which is the entry a real extension load uses.
 pub fn attach(requested_major: u32, minimum_minor: u32) -> Result<IrisAbiTable, IrisStatus> {
     if requested_major != ABI_MAJOR || minimum_minor > ABI_MINOR {
         return Err(IrisStatus::IncompatibleAbi);
