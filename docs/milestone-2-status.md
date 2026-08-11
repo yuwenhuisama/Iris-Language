@@ -7,17 +7,17 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 120, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 1 (121 records)
-FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (32 records)
-IDENTITY    passed: 4, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (4 records)
-LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records)
-CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (3 records)
-ASYNC       passed: 40, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (40 records)
-RUNTIME     passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3   (109 records)
-CONTROL     passed: 129, failed: 0, needs_subsystem: 5                                 (134 records)
-TYPES       passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (79 records)
-META        passed: 51, failed: 0, needs_subsystem: 0                                  (51 records)
-GRAMMAR     passed: 33, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (48 records)
+RUNTIME     passed: 96,  failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3  (109 records)
+GRAMMAR     passed: 33,  failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (48 records)
+CONTROL     passed: 129, failed: 0, needs_subsystem: 5                                  (134 records)
+TYPES       passed: 79,  failed: 0, needs_subsystem: 1                                  (80 records)
+META        passed: 51,  failed: 0                                                      (51 records)
+ASYNC       passed: 40,  failed: 0                                                      (40 records)
+COLLECTIONS passed: 120, failed: 0, needs_subsystem: 1, differential: 1                 (122 records)
+FFI         passed: 31,  failed: 0, needs_subsystem: 1                                  (32 records)
+IDENTITY    passed: 4,   failed: 0, needs_subsystem: 1                                  (5 records)
+LIBRARY     passed: 14,  failed: 0                                                      (14 records)
+CONFORMANCE passed: 3,   failed: 0                                                      (3 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -262,79 +262,48 @@ folding 14 locally authored `V###A` rows into the spec count.
 | Chapter | Spec transcribed | Spec rows | Missing | Local rows |
 | --- | --- | --- | --- | --- |
 | ASYNC | 40 | 40 | 0 | 0 |
-| COLLECTIONS | 121 | 122 | 1 | 0 |
+| COLLECTIONS | 122 | 122 | 0 | 0 |
 | CONFORMANCE | 3 | 3 | 0 | 0 |
 | CONTROL | 120 | 120 | 0 | 14 |
 | FFI | 32 | 32 | 0 | 0 |
 | GRAMMAR | 48 | 48 | 0 | 0 |
-| IDENTITY | 4 | 5 | 1 | 0 |
+| IDENTITY | 5 | 5 | 0 | 0 |
 | LIBRARY | 14 | 14 | 0 | 0 |
 | META | 51 | 51 | 0 | 0 |
 | RUNTIME | 109 | 109 | 0 | 0 |
-| TYPES | 79 | 80 | 1 | 0 |
-| **Total** | **621** | **624** | **3** | **14** |
+| TYPES | 80 | 80 | 0 | 0 |
+| **Total** | **624** | **624** | **0** | **14** |
 
-**621 of 624 spec rows transcribed (99.5%), plus 14 locally authored rows.**
+**All 624 spec rows transcribed, plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 635 records in the corpus, 600
+Transcribed is not the same as passing. Of the 638 records in the corpus, 600
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 
 | Bucket | Count | Meaning |
 | --- | --- | --- |
 | unrunnable_source | 9 | The frozen row supplies prose, not an executable fixture |
-| needs_subsystem | 11 | Requires a subsystem that does not exist yet |
+| needs_subsystem | 14 | Requires a subsystem that does not exist yet |
 | no_fixture | 5 | No fixture exists for the row |
 | authored_expect | 5 | The frozen row names no stable diagnostic code |
 | differential | 4 | Requires interpreter/JIT comparison that does not exist |
 | deferred | 1 | Deferred by the row itself |
 
-### Missing spec rows
+### Held in needs-subsystem
 
-- `COLLECTIONS-V350` (generic Contract declaration and
-  builtin iterator requirement reflection)
-- `IDENTITY-V014` and `TYPES-V208` (explicit revision migration and static
-  member-existence checking)
+Every spec row is transcribed. Four are recorded in non-passing buckets
+because the machinery they observe does not exist, rather than being
+approximated:
 
-Five chapters are complete. The 13 open rows are NOT spread thin: they group
-into subsystems that each need an external boundary this milestone deliberately
-did not invent.
-
-### Blocked on an external completion source
-
-RESOLVED. `Gate` supplies the external completion post `C014` names, so `V006`, `V081` and `V084` are transcribed. What still needs a driver-level surface is `V010` unobserved-failure diagnostics and `V012` cooperative cancellation. Original text: these rows need a genuinely INCOMPLETE Awaitable.
-Nothing in this milestone can produce one: `IRIS-V1-ASYNC-C012` completes every
-async body synchronously when no incomplete await is reached, so `C014`'s FIFO
-continuation queue has no input and suspension across `using` or `for` cannot be
-triggered. Building the queue anyway would have produced code no vector could
-falsify.
-
-### Blocked on their own subsystems
-
-`V019`-`V025` and `V028` need structured diagnostic reporting, revision event
-delivery, `GapEvent`, and audit history recovery. `V073`-`V084` continue the
-same surfaces. Each is comparable in size to the `using` work this milestone
-closed with.
-
-### Remaining single rows
-
-- `TYPES-V208`: blocked on static member-existence checking, recorded.
-
-### Errata published this milestone
-
-Nine clauses, each closing a gap where a published requirement had no spelling:
-`TYPES-C098`, `TYPES-C099`, `CONTROL-C080`, `META-C125`, `META-C126`,
-`GRAMMAR-C071`, `GRAMMAR-C072`, `ASYNC-C063`, and the v1.21-v1.27 set. The
-reserved keyword inventory was widened once more, to 50, for `yield`.
-
-### What the engine does and does not do
-
-Generators and async bodies are stackless: a generator is re-entered on each
-`next()` rather than resumed on a captured native stack. Ordinary synchronous
-evaluation is UNCHANGED, which `IRIS-V1-ASYNC-C011` requires by forbidding
-preemption between suspension boundaries. Synchronous recursion still uses the
-native stack and its existing depth budget; making that stackless was considered
-and rejected as outside what v1 specifies.
+- `TYPES-V208` needs static member-existence checking. Measured: a static
+  caller of a runtime-added member is currently PERMITTED and answers 9,
+  and the reflective path errors, so both directions are wrong.
+- `IDENTITY-V014` needs `migrate_revision`, the same reflection/meta-operation
+  API `RUNTIME-V085` is held on.
+- `COLLECTIONS-V350` needs generic Contract declaration, which does not
+  parse today, plus builtin iterator requirement reflection.
+- `COLLECTIONS-V330` is differential and needs real concurrency primitives
+  and a JIT to disagree with.
 
 ## Corpus Accounting
 
