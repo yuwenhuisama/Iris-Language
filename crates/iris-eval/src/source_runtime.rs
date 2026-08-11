@@ -2979,7 +2979,15 @@ impl SourceEvaluator {
                             }
                         }
                     }
-                    None => Value::Nil,
+                    // C057: when `raise value` occurs WHILE HANDLING an active
+                    // propagation, the active ExceptionContext becomes the
+                    // automatic cause. Only an explicit `from` replaces or
+                    // suppresses it. Defaulting to nil dropped the chain, so a
+                    // re-raise of a caught value produced an unlinked context.
+                    None => match self.active_context.clone() {
+                        Some(active) if self.active_exception.is_some() => active,
+                        Some(_) | None => Value::Nil,
+                    },
                 };
                 let identity = self.next_context_identity();
                 let location = self.source_location(raise_offset);
@@ -5722,15 +5730,14 @@ impl SourceEvaluator {
                         })));
                     }
                     BinaryOperator::Identity => {
-                        // C050 makes a Contract view an identity-LESS capability
-                        // value, so an identity question about one raises rather
-                        // than silently comparing the underlying receiver.
-                        if matches!(left, Value::ContractView(..))
-                            || matches!(right, Value::ContractView(..))
-                        {
-                            return Err(EvaluationError::IdentityError);
-                        }
-                        return Ok(Value::Bool(same_identity(&left, &right)));
+                        // C029 makes `same?` ONE primitive whichever way it is
+                        // spelled, so the infix form dispatches the same
+                        // selector as `a.same?(b)` instead of carrying its own
+                        // comparison. The private helper compared with `==`,
+                        // which answered on CONTENTS: two distinct Arrays with
+                        // equal elements reported the same identity, and an
+                        // identity-less Integer answered instead of raising.
+                        return self.send(left, "same?", &[right]);
                     }
                     BinaryOperator::Is => {
                         return self.type_test(&left, &right);
@@ -6288,12 +6295,97 @@ impl SourceEvaluator {
         }
     }
 
+    /// Answers `IRIS-V1-RUNTIME-C029` primitive identity.
+    ///
+    /// `same?` bypasses Method lookup, accepts only identity-bearing
+    /// operands, and raises `IdentityError` for identity-less ones, so it
+    /// is one rule rather than a per-receiver behaviour.
+    fn same_question(&mut self, receiver: &Value, other: &Value) -> Result<Value, EvaluationError> {
+        match (receiver, other) {
+            // C050 makes a Contract view an identity-LESS capability value, so
+            // an identity question about one raises rather than silently
+            // comparing the underlying receiver.
+            (Value::ContractView(..), _) | (_, Value::ContractView(..)) => {
+                Err(EvaluationError::IdentityError)
+            }
+            // C006 classifies String, Symbol, Tuple, Range, Bytes, Regex and
+            // the NUMERIC categories as identity-less immutable values, so the
+            // question has no answer to give for them.
+            // A Module is REPRESENTED as a Symbol here, and C006 makes Module
+            // objects identity-bearing definition objects, so a declared module
+            // name is answered before the identity-less Symbol rule below.
+            (Value::Symbol(left), Value::Symbol(right))
+                if self.module_names.contains_key(left)
+                    || self.module_names.contains_key(right) =>
+            {
+                Ok(Value::Bool(
+                    self.module_names.contains_key(left)
+                        && self.module_names.get(left) == self.module_names.get(right),
+                ))
+            }
+            (
+                Value::Text(_)
+                | Value::Symbol(_)
+                | Value::Tuple(_)
+                | Value::Range(_)
+                | Value::Bytes(_)
+                | Value::Regex(_)
+                | Value::Integer(_)
+                | Value::Float32(_)
+                | Value::Float64(_),
+                _,
+            ) => Err(EvaluationError::IdentityError),
+            // C089 forbids falling back to object identity for an identity-less
+            // wrapper, so this raises rather than comparing.
+            (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => {
+                Err(EvaluationError::IdentityError)
+            }
+            // C067 makes ExceptionContext equality IDENTITY by default. A
+            // structural comparison would answer false for one CONTINUED
+            // context, because a bare `raise` appends a re-raise site to it and
+            // C061 says that is still the same propagation.
+            (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {
+                Ok(Value::Bool(left == right))
+            }
+            // C011 makes an Iterator identity-bearing with a mutable cursor, so
+            // identity is the handle rather than its position.
+            (Value::ArrayIterator(left), Value::ArrayIterator(right))
+            | (Value::HashIterator(left), Value::HashIterator(right))
+            | (Value::ByteIterator(left), Value::ByteIterator(right)) => {
+                Ok(Value::Bool(left == right))
+            }
+            // C003 classifies Array, Hash, MutableString and ByteArray as
+            // IDENTITY-BEARING, so this asks whether the two handles denote one
+            // container rather than whether contents match.
+            (Value::Array(left), Value::Array(right)) => Ok(Value::Bool(left.same(right))),
+            (Value::Hash(left), Value::Hash(right)) => Ok(Value::Bool(left.same(right))),
+            (Value::MutableString(left), Value::MutableString(right)) => {
+                Ok(Value::Bool(left.same(right)))
+            }
+            (Value::ByteArray(left), Value::ByteArray(right)) => Ok(Value::Bool(left.same(right))),
+            // Everything else reaching here is an identity-bearing runtime
+            // object: nil and the Bool singletons, a Class, Contract, Type,
+            // Method, Closure, Task, Library or ordinary Object.
+            _ => Ok(Value::Bool(receiver == other)),
+        }
+    }
+
     fn send(
         &mut self,
         receiver: Value,
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // C029 makes `same?` a PRIMITIVE that bypasses Method lookup, so it is
+        // answered before any receiver-specific dispatch. Deciding it further
+        // down meant every receiver kind handled earlier in this match never
+        // reached the rule: a Class answered `MessageNotFoundError` and a
+        // Contract view answered false where C050 requires a raise.
+        if selector == "same?"
+            && let [other] = arguments
+        {
+            return self.same_question(&receiver, other);
+        }
         match receiver {
             // C125 fixes the MINIMAL Transformation surface: `empty`, `kind`
             // and `add_method(selector, body)`. The staged Methods are carried
@@ -9055,54 +9147,6 @@ impl SourceEvaluator {
         {
             let equal = &receiver == other;
             return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
-        }
-        if selector == "same?"
-            && let [other] = arguments
-        {
-            match (&receiver, other) {
-                (Value::IterationDone, Value::IterationDone) => return Ok(Value::Bool(true)),
-                // C003 classifies String, Symbol, Tuple, Range, Bytes and Regex
-                // as IDENTITY-LESS, and C089 forbids falling back to object
-                // identity for such a value, so an identity question about one
-                // has no answer to give and raises.
-                (
-                    Value::Text(_)
-                    | Value::Symbol(_)
-                    | Value::Tuple(_)
-                    | Value::Range(_)
-                    | Value::Bytes(_)
-                    | Value::Regex(_),
-                    _,
-                ) => return Err(EvaluationError::IdentityError),
-                // C089 forbids falling back to object identity for an
-                // identity-less wrapper, so this raises rather than comparing.
-                (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => {
-                    return Err(EvaluationError::IdentityError);
-                }
-                // C011 makes an Iterator identity-bearing with a mutable
-                // cursor, so identity is the handle rather than its position.
-                (Value::ArrayIterator(left), Value::ArrayIterator(right))
-                | (Value::HashIterator(left), Value::HashIterator(right))
-                | (Value::ByteIterator(left), Value::ByteIterator(right)) => {
-                    return Ok(Value::Bool(left == right));
-                }
-                // C003 classifies Array, Hash, MutableString and ByteArray as
-                // IDENTITY-BEARING, so `same?` asks whether the two handles
-                // denote one container rather than whether contents match.
-                (Value::Array(left), Value::Array(right)) => {
-                    return Ok(Value::Bool(left.same(right)));
-                }
-                (Value::Hash(left), Value::Hash(right)) => {
-                    return Ok(Value::Bool(left.same(right)));
-                }
-                (Value::MutableString(left), Value::MutableString(right)) => {
-                    return Ok(Value::Bool(left.same(right)));
-                }
-                (Value::ByteArray(left), Value::ByteArray(right)) => {
-                    return Ok(Value::Bool(left.same(right)));
-                }
-                _ => {}
-            }
         }
         // C011 makes an Iterator identity-bearing, so two DISTINCT cursors over
         // equal contents are not equal, and advancing one does not change its

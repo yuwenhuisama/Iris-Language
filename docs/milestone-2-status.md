@@ -7,17 +7,17 @@
 ## Current Conformance
 
 ```
-RUNTIME     passed: 96,  failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3  (109 records)
+RUNTIME     passed: 105, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3 (118 records)
 GRAMMAR     passed: 33,  failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (48 records)
-CONTROL     passed: 129, failed: 0, needs_subsystem: 5                                  (134 records)
-TYPES       passed: 79,  failed: 0, needs_subsystem: 1                                  (80 records)
-META        passed: 51,  failed: 0                                                      (51 records)
-ASYNC       passed: 40,  failed: 0                                                      (40 records)
-COLLECTIONS passed: 120, failed: 0, needs_subsystem: 1, differential: 1                 (122 records)
-FFI         passed: 31,  failed: 0, needs_subsystem: 1                                  (32 records)
-IDENTITY    passed: 4,   failed: 0, needs_subsystem: 1                                  (5 records)
-LIBRARY     passed: 14,  failed: 0                                                      (14 records)
-CONFORMANCE passed: 3,   failed: 0                                                      (3 records)
+CONTROL     passed: 131, failed: 0, needs_subsystem: 5                                 (136 records)
+TYPES       passed: 79,  failed: 0, needs_subsystem: 1                                 (80 records)
+META        passed: 51,  failed: 0                                                     (51 records)
+ASYNC       passed: 40,  failed: 0                                                     (40 records)
+COLLECTIONS passed: 120, failed: 0, needs_subsystem: 1, differential: 1                (122 records)
+FFI         passed: 31,  failed: 0, needs_subsystem: 1                                 (32 records)
+IDENTITY    passed: 4,   failed: 0, needs_subsystem: 1                                 (5 records)
+LIBRARY     passed: 14,  failed: 0                                                     (14 records)
+CONFORMANCE passed: 3,   failed: 0                                                     (3 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -276,7 +276,7 @@ folding 14 locally authored `V###A` rows into the spec count.
 
 **All 624 spec rows transcribed, plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 638 records in the corpus, 600
+Transcribed is not the same as passing. Of the 649 records in the corpus, 611
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 

@@ -1106,9 +1106,14 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
 fn c056_gives_every_propagation_event_a_distinct_identity() {
     // Given a re-raise of the CAUGHT value. The payload is identical, so a
     // structurally compared context would wrongly report the same event.
+    // The second element used to ask `second.value same? first.value`, but C006
+    // classifies a Symbol as identity-less and C029 gives that question no
+    // answer, so it now compares the CONTEXTS rather than the payloads: a
+    // re-raise of the caught value is a distinct event whose automatic cause is
+    // the handled one.
     let reraised = "try { raise :same } catch value, first { \
                     try { raise value } catch _, second { \
-                    [second same? first, second.value same? first.value] } }";
+                    [second same? first, second.cause same? first] } }";
     // A context is still `same?` itself, so the identity is stable rather than
     // merely always-unequal.
     let reflexive = "try { raise :x } catch _, c { c same? c }";
