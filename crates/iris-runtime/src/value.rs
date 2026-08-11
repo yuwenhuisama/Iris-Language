@@ -162,6 +162,17 @@ impl ArrayRef {
         })))
     }
 
+    /// How many live references share this Array body.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C017` and `C018` require an Iterator to RELEASE its
+    /// source on exhaustion or close, which is an ownership fact rather than a
+    /// timing one. Exposing the share count lets a vector observe that release
+    /// directly, instead of needing a collector to run and a finalizer to fire.
+    #[must_use]
+    pub fn share_count(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
+
     /// Reads the current elements.
     #[must_use]
     pub fn elements(&self) -> Vec<Value> {

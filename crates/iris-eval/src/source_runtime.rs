@@ -62,11 +62,16 @@ fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<us
 /// rather than a private copy of the elements.
 #[derive(Debug)]
 struct ArrayCursor {
-    values: ArrayRef,
+    /// The source, dropped on exhaustion or close.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C017` releases the source on the first `next()`
+    /// that answers done, and `C018` releases it on early close. Keeping the
+    /// handle here after either point would retain the container the clauses
+    /// say is already let go, so this is an Option that is TAKEN rather than a
+    /// permanent reference with a separate done flag.
+    values: Option<ArrayRef>,
     position: usize,
     expected_version: u64,
-    /// `IRIS-V1-COLLECTIONS-C018` makes an early close permanent.
-    closed: bool,
     /// A `D-142` read-only view cannot be mutated, so its cursor never fails.
     fail_fast: bool,
 }
@@ -8437,18 +8442,16 @@ impl SourceEvaluator {
                 // A D-142 read-only view cannot be mutated at all, so its
                 // cursor is detached and never fails fast.
                 Value::ReadonlyArray(values) => ArrayCursor {
-                    values: ArrayRef::new(values.clone()),
+                    values: Some(ArrayRef::new(values.clone())),
                     position: 0,
                     expected_version: 0,
                     fail_fast: false,
-                    closed: false,
                 },
                 Value::Array(values) => ArrayCursor {
                     expected_version: values.version(),
-                    values: values.clone(),
+                    values: Some(values.clone()),
                     position: 0,
                     fail_fast: true,
-                    closed: false,
                 },
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             };
@@ -8490,11 +8493,10 @@ impl SourceEvaluator {
             self.array_iterators.insert(
                 identity,
                 ArrayCursor {
-                    values: ArrayRef::new(values),
+                    values: Some(ArrayRef::new(values)),
                     position: 0,
                     expected_version: 0,
                     fail_fast: false,
-                    closed: false,
                 },
             );
             return Ok(Value::ArrayIterator(identity));
@@ -8577,15 +8579,25 @@ impl SourceEvaluator {
                         .filter(|_| !cursor.closed)
                         .cloned()
                     else {
+                        // C017 releases the source at the FIRST done, so a
+                        // later `next()` answers done without touching it.
+                        cursor.closed = true;
+                        cursor.source = None;
+                        cursor.text_source = None;
+                        cursor.values = Vec::new();
                         return Ok(Value::IterationDone);
                     };
                     cursor.position += 1;
                     return Ok(Value::IterationYield(Box::new(value)));
                 }
-                // C018 enters permanent done state on close, as for arrays.
+                // C018 releases source, current-entry and traversal references
+                // on early close, as for arrays, and enters permanent done.
                 "close" if arguments.is_empty() => {
                     if let Some(cursor) = self.byte_iterators.get_mut(&identity) {
                         cursor.closed = true;
+                        cursor.source = None;
+                        cursor.text_source = None;
+                        cursor.values = Vec::new();
                     }
                     return Ok(Value::Nil);
                 }
@@ -8697,34 +8709,38 @@ impl SourceEvaluator {
                     let Some(cursor) = self.array_iterators.get_mut(identity) else {
                         return Err(EvaluationError::UnsupportedConstruct);
                     };
+                    // A released source means permanent done state, whether it
+                    // was released by exhaustion under C017 or by close under
+                    // C018. `next()` then answers done WITHOUT touching the
+                    // source, which is why the handle is gone rather than
+                    // retained beside a flag.
+                    let Some(values) = cursor.values.as_ref() else {
+                        return Ok(Value::IterationDone);
+                    };
                     // C026 makes an active Array iterator fail fast on its next
                     // advance once the Array's content version has moved.
-                    if cursor.fail_fast && cursor.values.version() != cursor.expected_version {
+                    if cursor.fail_fast && values.version() != cursor.expected_version {
                         return Err(EvaluationError::ConcurrentModification);
                     }
-                    // C018 makes an early `close()` enter PERMANENT done
-                    // state, so a closed cursor answers done rather than
-                    // resuming where it left off.
-                    let Some(value) = cursor
-                        .values
-                        .get(cursor.position)
-                        .filter(|_| !cursor.closed)
-                    else {
-                        // C013 returns the same `Iteration.done` singleton on
-                        // every call after exhaustion.
+                    let Some(value) = values.get(cursor.position) else {
+                        // C017 enters permanent done state on the FIRST done and
+                        // releases the source there, so a later `next()` answers
+                        // done from an already-released cursor.
+                        cursor.values = None;
                         return Ok(Value::IterationDone);
                     };
                     cursor.position += 1;
                     return Ok(Value::IterationYield(Box::new(value)));
                 }
                 // C018 makes `close()` idempotent, returning nil each time and
-                // leaving iterator identity and identity hash unchanged. It
-                // releases the traversal position by entering done state; a
-                // close that only answered nil left the cursor live, so a later
-                // `next()` kept yielding elements the clause says are gone.
+                // leaving iterator identity and identity hash unchanged. Early
+                // close RELEASES the source and traversal references and enters
+                // permanent done state; a close that only answered nil left the
+                // cursor live, so a later `next()` kept yielding elements the
+                // clause says are gone.
                 "close" if arguments.is_empty() => {
                     if let Some(cursor) = self.array_iterators.get_mut(identity) {
-                        cursor.closed = true;
+                        cursor.values = None;
                     }
                     return Ok(Value::Nil);
                 }
@@ -8773,6 +8789,20 @@ impl SourceEvaluator {
                 (Value::ReadonlyArray(values), "length") => {
                     return Ok(Value::Integer(
                         u64::try_from(values.len()).unwrap_or_default().into(),
+                    ));
+                }
+                // C017 and C018 require an Iterator to RELEASE its source, an
+                // ownership fact rather than a timing one. This answers how
+                // many live references share the Array body, so a vector can
+                // observe the release directly instead of needing a collector
+                // to run and a finalizer to fire. It is a conformance probe on
+                // representation, which is why it is not part of the Array
+                // surface the specification defines for programs.
+                (Value::Array(values), "share_count") => {
+                    return Ok(Value::Integer(
+                        u64::try_from(values.share_count())
+                            .unwrap_or_default()
+                            .into(),
                     ));
                 }
                 (Value::Bytes(bytes), "length") => {
