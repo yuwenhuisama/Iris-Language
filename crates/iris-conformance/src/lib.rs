@@ -18,6 +18,27 @@ pub fn run(corpus: &Corpus) -> Result<Report, String> {
 mod tests {
     use super::{Corpus, Outcome, run};
 
+    /// Counts committed vector files for one chapter.
+    ///
+    /// Derived rather than restated: a literal has to be chased on every
+    /// addition, and a count mismatch says nothing about what these tests
+    /// actually guard, which is that every committed file parses into a record
+    /// and lands in exactly one report bucket.
+    fn committed(chapter: &str) -> Result<usize, String> {
+        Ok(std::fs::read_dir(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../conformance/iris-v1/vectors")
+                .join(chapter),
+        )
+        .map_err(|error| error.to_string())?
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .is_ok_and(|entry| entry.path().extension().is_some_and(|kind| kind == "json"))
+        })
+        .count())
+    }
+
     #[test]
     fn loads_all_committed_records() -> Result<(), String> {
         // Given
@@ -27,7 +48,7 @@ mod tests {
         let records = corpus.records()?;
 
         // Then
-        assert_eq!(records.len(), 48);
+        assert_eq!(records.len(), committed("GRAMMAR")?);
         Ok(())
     }
 
@@ -40,7 +61,7 @@ mod tests {
         let report = run(&corpus)?;
 
         // Then
-        assert_eq!(report.total(), 48);
+        assert_eq!(report.total(), committed("GRAMMAR")?);
         Ok(())
     }
 
@@ -115,18 +136,7 @@ mod tests {
         // restated, so adding a vector cannot fail this test for a reason that
         // has nothing to do with loading. What it actually guards is that every
         // committed file parses into a record.
-        let committed = std::fs::read_dir(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../conformance/iris-v1/vectors/RUNTIME"),
-        )
-        .map_err(|error| error.to_string())?
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .is_ok_and(|entry| entry.path().extension().is_some_and(|kind| kind == "json"))
-        })
-        .count();
-        assert_eq!(records.len(), committed);
+        assert_eq!(records.len(), committed("RUNTIME")?);
         Ok(())
     }
 
