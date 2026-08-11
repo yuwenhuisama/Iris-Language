@@ -4639,9 +4639,18 @@ impl SourceEvaluator {
                     mutable,
                     name,
                     value,
+                    annotation,
                     ..
                 } => {
                     let value = self.expression(value, &locals, receiver.clone())?;
+                    // C004 makes a written annotation a runtime boundary guard
+                    // wherever it appears. This path discarded the annotation,
+                    // so `let s: String = 1` was checked at top level but NOT
+                    // inside a Method or Closure body, which is where most
+                    // bindings actually live.
+                    if let Some(annotation) = annotation {
+                        self.check_binding_annotation(&value, annotation)?;
+                    }
                     if *mutable {
                         locals.remove(name);
                         shadowed.push((name.clone(), self.names.get(name).cloned()));
