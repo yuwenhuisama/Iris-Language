@@ -7,37 +7,48 @@
 ## Current Conformance
 
 ```
-RUNTIME     passed: 105, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3 (118 records)
-GRAMMAR     passed: 33,  failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (48 records)
-CONTROL     passed: 131, failed: 0, needs_subsystem: 5                                 (136 records)
-TYPES       passed: 79,  failed: 0, needs_subsystem: 1                                 (80 records)
-META        passed: 51,  failed: 0                                                     (51 records)
-ASYNC       passed: 40,  failed: 0                                                     (40 records)
-COLLECTIONS passed: 120, failed: 0, needs_subsystem: 1, differential: 1                (122 records)
-FFI         passed: 31,  failed: 0, needs_subsystem: 1                                 (32 records)
-IDENTITY    passed: 4,   failed: 0, needs_subsystem: 1                                 (5 records)
-LIBRARY     passed: 14,  failed: 0                                                     (14 records)
-CONFORMANCE passed: 3,   failed: 0                                                     (3 records)
+RUNTIME     passed: 151, failed: 0, needs_subsystem: 5, no_fixture: 5, differential: 3  (164 records)
+GRAMMAR     passed: 36, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9  (51 records)
+CONTROL     passed: 152, failed: 0, needs_subsystem: 5, no_fixture: 0, differential: 0  (157 records)
+TYPES       passed: 88, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0  (89 records)
+META        passed: 58, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (58 records)
+ASYNC       passed: 43, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (43 records)
+COLLECTIONS passed: 125, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 1  (127 records)
+FFI         passed: 32, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0  (33 records)
+IDENTITY    passed: 7, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0  (8 records)
+LIBRARY     passed: 19, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (19 records)
+CONFORMANCE passed: 7, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (7 records)
+TRACE       passed: 2, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (2 records)
+MIGRATION   passed: 2, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0  (2 records)
 ```
 
-Milestone 2 opened at RUNTIME 41 and closed at 94.
+Milestone 2 opened at RUNTIME 41 and closed at 94. The higher counts above are
+later clause-coverage work, which adds locally authored rows for clauses no
+spec row enumerates.
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
 cargo run -p iris-conformance -- --chapter GRAMMAR
 cargo run -p iris-conformance -- --chapter CONTROL
+# ... and TYPES META ASYNC COLLECTIONS FFI IDENTITY LIBRARY CONFORMANCE TRACE MIGRATION
 ```
 
 ## Quality Gates
 
-All four must pass before any commit. Capture exit codes without piping first — a pipe replaces `$LASTEXITCODE` with the filter's code, which once hid a real clippy failure.
+All six must pass before any commit. Capture exit codes without piping first — a pipe replaces `$LASTEXITCODE` with the filter's code, which once hid a real clippy failure.
 
 ```bash
 cargo test --workspace
 cargo test -p iris-lexer        # 44 tests, must finish instantly
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
+python3 tools/corpus-audit.py   # CONFORMANCE rules over the vector corpus
+python3 tools/spec-audit.py     # TRACE and MIGRATION rules over the spec text
 ```
+
+Chain the gates into the commit with `&&`, not `;`. A `;` chain once let a
+commit land while the workspace tests were red, because the failing exit code
+did not stop the sequence.
 
 ## Language Capabilities Implemented
 
@@ -251,95 +262,157 @@ inherited. Six rows were narrowed to a strictly smaller blocker in the process.
 
 Every chapter reports `failed: 0`.
 
-Two numbers are counted separately here, because merging them once overstated
-coverage. **Spec rows** are vector IDs the frozen specification declares.
-**Local rows** are additional vectors this implementation authored to pin
-behaviour a spec row named but did not enumerate; they cite real clauses, but
-counting them toward specification coverage would inflate both sides of the
-ratio. An earlier revision of this table reported CONTROL as 134 of 134 by
-folding 14 locally authored `V###A` rows into the spec count.
+Two numbers are counted separately here. **Spec rows** are vector IDs the
+frozen specification declares. **Local rows** are additional vectors this
+implementation authored to pin clauses no spec row enumerates; they cite real
+clauses, but counting them toward specification coverage would inflate both
+sides of the ratio.
+
+An earlier revision of this table reported CONTROL as 134 of 134, and a
+correction then moved 14 `V###A` ids out of the spec count as locally authored.
+That correction was itself wrong. All 14 are published rows in the CONTROL
+vector table, so the spec declares 134 CONTROL rows and the "fix" understated
+coverage. The cause was an id pattern capturing `V\d+`, which truncates `V288A`
+to `V288`; the same truncation later made a spec-published id look local during
+the corpus audit. Both counts below come from matching the full id, trailing
+letter included.
 
 | Chapter | Spec transcribed | Spec rows | Missing | Local rows |
 | --- | --- | --- | --- | --- |
-| ASYNC | 40 | 40 | 0 | 0 |
-| COLLECTIONS | 122 | 122 | 0 | 0 |
-| CONFORMANCE | 3 | 3 | 0 | 0 |
-| CONTROL | 120 | 120 | 0 | 14 |
-| FFI | 32 | 32 | 0 | 0 |
-| GRAMMAR | 48 | 48 | 0 | 0 |
-| IDENTITY | 5 | 5 | 0 | 0 |
-| LIBRARY | 14 | 14 | 0 | 0 |
-| META | 51 | 51 | 0 | 0 |
-| RUNTIME | 109 | 109 | 0 | 0 |
-| TYPES | 80 | 80 | 0 | 0 |
-| **Total** | **624** | **624** | **0** | **14** |
+| ASYNC | 40 | 40 | 0 | 3 |
+| COLLECTIONS | 122 | 122 | 0 | 5 |
+| CONFORMANCE | 3 | 3 | 0 | 4 |
+| CONTROL | 134 | 134 | 0 | 23 |
+| FFI | 32 | 32 | 0 | 1 |
+| GRAMMAR | 48 | 48 | 0 | 3 |
+| IDENTITY | 5 | 5 | 0 | 3 |
+| LIBRARY | 14 | 14 | 0 | 5 |
+| META | 51 | 51 | 0 | 7 |
+| MIGRATION | 0 | 0 | 0 | 2 |
+| RUNTIME | 109 | 109 | 0 | 55 |
+| TRACE | 0 | 0 | 0 | 2 |
+| TYPES | 80 | 80 | 0 | 9 |
+| **Total** | **638** | **638** | **0** | **122** |
 
-**All 624 spec rows transcribed, plus 14 locally authored rows.**
+**All 638 spec rows transcribed, plus 122 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 649 records in the corpus, 611
-pass and 34 are recorded in non-passing buckets rather than counted as
+TRACE and MIGRATION declare no vector rows of their own. Their clauses
+constrain how the specification is written, so the local rows there run through
+the documentation validator against the spec text.
+
+Transcribed is not the same as passing. Of the 760 records in the corpus, 722
+pass and 38 are recorded in non-passing buckets rather than counted as
 coverage:
 
 | Bucket | Count | Meaning |
 | --- | --- | --- |
-| unrunnable_source | 9 | The frozen row supplies prose, not an executable fixture |
 | needs_subsystem | 14 | Requires a subsystem that does not exist yet |
+| unrunnable_source | 9 | The frozen row supplies prose, not an executable fixture |
 | no_fixture | 5 | No fixture exists for the row |
 | authored_expect | 5 | The frozen row names no stable diagnostic code |
 | differential | 4 | Requires interpreter/JIT comparison that does not exist |
 | deferred | 1 | Deferred by the row itself |
 
-### Held in needs-subsystem
+## Clause Coverage
 
-Every spec row is transcribed. Four are recorded in non-passing buckets
-because the machinery they observe does not exist, rather than being
-approximated:
+A vector row and a normative clause are different units: one row can rest on
+several clauses, and many clauses are named by no row at all. Behaviour that is
+correct but uncited is behaviour a refactor can break with nothing failing,
+which is how this project's iterator-close and extension-digest defects
+survived. `tools/clause-coverage.py` reports the gap.
 
+| Chapter | Clauses | Cited | Open |
+| --- | --- | --- | --- |
+| ASYNC | 62 | 30 | 14 |
+| COLLECTIONS | 100 | 77 | 6 |
+| CONFORMANCE | 75 | 9 | 48 |
+| CONTROL | 80 | 35 | 26 |
+| FFI | 58 | 29 | 12 |
+| GRAMMAR | 72 | 51 | 4 |
+| IDENTITY | 36 | 7 | 25 |
+| LIBRARY | 41 | 18 | 10 |
+| META | 126 | 62 | 32 |
+| MIGRATION | 12 | 2 | 3 |
+| RUNTIME | 161 | 84 | 61 |
+| TRACE | 22 | 2 | 12 |
+| TYPES | 99 | 52 | 15 |
+| **Total** | **944** | **458** | **268** |
+
+**458 of 944 clauses cited (48.5%).** `Open` counts uncited clauses carrying
+MUST or SHALL; the remainder scope a chapter, defer to another, or introduce a
+table, and are not obligations a vector can observe.
+
+Sampling confirmed the gap is evidence rather than function: the clauses
+checked were already implemented correctly and simply had nothing pinning them.
+Closing it found seven real defects, each fixed with a vector that fails when
+the fix is reverted:
+
+- `same?` compared CONTENTS through a private infix helper, so two distinct
+  Arrays reported the same identity
+- `raise value` while handling did not link the active context as automatic
+  cause, and three committed vectors had been written against that behaviour
+- Iterator `close()` entered done state without RELEASING the source
+- `Integer & | ^` did not exist at all
+- numeric `<=>` raised on a nonnumeric operand instead of answering nil
+- a binding annotation was not enforced inside a Method or Closure body
+- JSON decoding built a Hash holding two entries under one key
+
+## Corpus And Specification Audits
+
+Two chapters constrain artifacts rather than behaviour, so their clauses cannot
+be observed by a vector that runs a program:
+
+```bash
+python3 tools/corpus-audit.py     # CONFORMANCE rules over the vector corpus
+python3 tools/spec-audit.py       # TRACE and MIGRATION rules over the spec text
+```
+
+The corpus audit found 91 records outside the C013 category vocabulary and 111
+locally authored ids using a spelling C008 forbids. Neither was visible to any
+test. The spec audit found TRACE-C005 holding across 614 normative paragraphs,
+and MIGRATION-C001 across all 37 ledger rows.
+
+### Held in non-passing buckets
+
+Every spec row is transcribed. 18 are recorded in non-passing buckets because
+the machinery they observe does not exist, rather than being approximated. An
+earlier revision of this section said "Four", which counted only the rows
+transcribed last rather than the whole set the runner reports.
+
+Needing a subsystem:
+
+- `RUNTIME-V064`, `V079`, `V085`, `V110`, `V111` and `IDENTITY-V014` need the
+  reflection/meta-operation API, including `migrate_revision`.
+- `CONTROL-V004`, `V007`, `V026`, `V030`, `V041` need structured diagnostic
+  reporting and revision event delivery.
 - `TYPES-V208` needs static member-existence checking. Measured: a static
-  caller of a runtime-added member is currently PERMITTED and answers 9,
-  and the reflective path errors, so both directions are wrong.
-- `IDENTITY-V014` needs `migrate_revision`, the same reflection/meta-operation
-  API `RUNTIME-V085` is held on.
-- `COLLECTIONS-V350` needs generic Contract declaration, which does not
-  parse today, plus builtin iterator requirement reflection.
-- `COLLECTIONS-V330` is differential and needs real concurrency primitives
-  and a JIT to disagree with.
+  caller of a runtime-added member is currently PERMITTED and answers 9, and
+  the reflective path errors, so both directions are wrong.
+- `COLLECTIONS-V350` needs generic Contract declaration, which does not parse
+  today, plus builtin iterator requirement reflection.
+- `FFI-V065` needs script-level binding of a native-backed object.
+
+Needing a second backend:
+
+- `RUNTIME-V052`, `V066`, `V073` and `COLLECTIONS-V330` are differential. They
+  require interpreter and JIT agreement, and there is no JIT; `V330` also needs
+  real concurrency primitives.
 
 ## Corpus Accounting
 
-The five chapters this milestone covers hold 422 vector rows, not the 415 an
-earlier count in this document used. That figure omitted seven GRAMMAR rows
-(`V001`, `V002`, `V004`-`V008`) which are stated in chapter 02 as prose rather
-than in the chapter's vector TABLE, so a table-driven count missed them.
+Superseded by the Milestone Close table above, which counts every chapter
+rather than the five this milestone opened with. That earlier table read 420 of
+422 rows across five chapters and listed eight open rows, including
+`GRAMMAR-V008` as untranscribable and `GRAMMAR-V001` as needing an owner
+ruling. Both were later resolved: `V008`'s defining record was found in the
+CONFORMANCE chapter's own fixture, and `V001` was transcribed against the
+v1.33 count. Keeping the old numbers here alongside the corrected ones would
+leave two accounts of the same corpus disagreeing.
 
-| Chapter | Transcribed | Rows |
-| --- | --- | --- |
-| RUNTIME | 109 | 109 |
-| GRAMMAR | 47 | 48 |
-| CONTROL | 134 | 134 |
-| TYPES | 79 | 80 |
-| META | 51 | 51 |
-| **Total** | **420** | **422** |
-
-Four chapters are complete. The eight open rows are:
-
-- `GRAMMAR-V005`, `V006`, `V007` are transcribed. `V007` needed
-  `PARSE_BAD_PARAMETER_ORDER`, which the grammar's `parameter_sequence`
-  requires and nothing enforced.
-- `GRAMMAR-V004` is transcribed. It needed two parser gaps closed: a Regex
-  literal had no primary production, and the lexer recognised `?=` but not `!=`
-  as a setter selector, both of which `IRIS-V1-GRAMMAR-C019` and `C023` require.
-- `GRAMMAR-V002` is transcribed. It needed `=~` and `!~`, two of C016's fixed
-  spellings that the lexer never produced.
-- `GRAMMAR-V001` is transcribed against the v1.33 count of 50. Its stated
-  "exactly 48
-  reserved keywords" while `IRIS-V1-GRAMMAR-C013` fixes the count at 49 after
-  the v1.1 `typeof` errata, so the row and the clause it cites disagree and the
-  row needs an owner ruling before it can be transcribed against either
-  number.
-- `GRAMMAR-V008`: recorded in `docs/spec-defects-v1.md` since milestone 1 as
-  having no defining row in chapter 02.
-- `TYPES-V208`: blocked on static member-existence checking, recorded.
+One accounting note from that section is still worth keeping. A table-driven
+count of GRAMMAR misses seven rows (`V001`, `V002`, `V004`-`V008`) because
+chapter 02 states them as prose rather than in its vector table, which is why
+the transcribed count is derived from the spec text rather than from the tables.
 
 ## META Chapter Status
 
