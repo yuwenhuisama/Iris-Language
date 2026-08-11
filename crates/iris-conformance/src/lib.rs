@@ -27,7 +27,7 @@ mod tests {
         let records = corpus.records()?;
 
         // Then
-        assert_eq!(records.len(), 47);
+        assert_eq!(records.len(), 48);
         Ok(())
     }
 
@@ -40,7 +40,7 @@ mod tests {
         let report = run(&corpus)?;
 
         // Then
-        assert_eq!(report.total(), 47);
+        assert_eq!(report.total(), 48);
         Ok(())
     }
 

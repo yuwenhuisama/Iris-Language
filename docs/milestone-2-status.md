@@ -17,7 +17,7 @@ RUNTIME     passed: 96, failed: 0, needs_subsystem: 5, no_fixture: 5, differenti
 CONTROL     passed: 129, failed: 0, needs_subsystem: 5                                 (134 records)
 TYPES       passed: 79, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (79 records)
 META        passed: 51, failed: 0, needs_subsystem: 0                                  (51 records)
-GRAMMAR     passed: 32, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (47 records)
+GRAMMAR     passed: 33, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9 (48 records)
 ```
 
 Milestone 2 opened at RUNTIME 41 and closed at 94.
@@ -266,17 +266,17 @@ folding 14 locally authored `V###A` rows into the spec count.
 | CONFORMANCE | 3 | 3 | 0 | 0 |
 | CONTROL | 120 | 120 | 0 | 14 |
 | FFI | 32 | 32 | 0 | 0 |
-| GRAMMAR | 47 | 48 | 1 | 0 |
+| GRAMMAR | 48 | 48 | 0 | 0 |
 | IDENTITY | 4 | 5 | 1 | 0 |
 | LIBRARY | 14 | 14 | 0 | 0 |
 | META | 51 | 51 | 0 | 0 |
 | RUNTIME | 109 | 109 | 0 | 0 |
 | TYPES | 79 | 80 | 1 | 0 |
-| **Total** | **620** | **624** | **4** | **14** |
+| **Total** | **621** | **624** | **3** | **14** |
 
-**620 of 624 spec rows transcribed (99.4%), plus 14 locally authored rows.**
+**621 of 624 spec rows transcribed (99.5%), plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 634 records in the corpus, 599
+Transcribed is not the same as passing. Of the 635 records in the corpus, 600
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 
@@ -295,7 +295,6 @@ coverage:
   builtin iterator requirement reflection)
 - `IDENTITY-V014` and `TYPES-V208` (explicit revision migration and static
   member-existence checking)
-- `GRAMMAR-V008` (no defining row in chapter 02, recorded since milestone 1)
 
 Five chapters are complete. The 13 open rows are NOT spread thin: they group
 into subsystems that each need an external boundary this milestone deliberately
@@ -319,7 +318,6 @@ closed with.
 
 ### Remaining single rows
 
-- `GRAMMAR-V008`: no defining row in chapter 02, recorded since milestone 1.
 - `TYPES-V208`: blocked on static member-existence checking, recorded.
 
 ### Errata published this milestone
