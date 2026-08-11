@@ -35,9 +35,15 @@ fn main() -> ExitCode {
         [flag, chapter] if flag == "--chapter" && chapter == "CONFORMANCE" => {
             iris_conformance::Chapter::Conformance
         }
+        [flag, chapter] if flag == "--chapter" && chapter == "TRACE" => {
+            iris_conformance::Chapter::Trace
+        }
+        [flag, chapter] if flag == "--chapter" && chapter == "MIGRATION" => {
+            iris_conformance::Chapter::Migration
+        }
         _ => {
             eprintln!(
-                "usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META|ASYNC|COLLECTIONS|FFI|IDENTITY|LIBRARY|CONFORMANCE"
+                "usage: iris-conformance --chapter GRAMMAR|RUNTIME|CONTROL|TYPES|META|ASYNC|COLLECTIONS|FFI|IDENTITY|LIBRARY|CONFORMANCE|TRACE|MIGRATION"
             );
             return ExitCode::from(2);
         }
@@ -63,7 +69,11 @@ fn main() -> ExitCode {
                 | iris_conformance::Chapter::Ffi
                 | iris_conformance::Chapter::Identity
                 | iris_conformance::Chapter::Library
-                | iris_conformance::Chapter::Conformance => iris_conformance::execute_runtime(&records),
+                | iris_conformance::Chapter::Conformance
+                // TRACE and MIGRATION rows validate specification text through
+                // the documentation validator, which the runtime path routes.
+                | iris_conformance::Chapter::Trace
+                | iris_conformance::Chapter::Migration => iris_conformance::execute_runtime(&records),
         }) {
         Ok(outcomes) => {
             let report = iris_conformance::report(&outcomes);
@@ -85,7 +95,9 @@ fn main() -> ExitCode {
                 | iris_conformance::Chapter::Ffi
                 | iris_conformance::Chapter::Identity
                 | iris_conformance::Chapter::Library
-                | iris_conformance::Chapter::Conformance => {
+                | iris_conformance::Chapter::Conformance
+                | iris_conformance::Chapter::Trace
+                | iris_conformance::Chapter::Migration => {
                     println!(
                         "passed: {}, failed: {}, needs_subsystem: {}, no_fixture: {}, differential: {}",
                         report.passed,

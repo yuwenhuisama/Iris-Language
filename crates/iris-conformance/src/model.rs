@@ -55,6 +55,14 @@ pub enum Chapter {
     Library,
     /// The conformance chapter, whose rows validate record shape.
     Conformance,
+    /// The traceability chapter, whose rows validate specification text.
+    ///
+    /// `IRIS-V1-TRACE-C002` and its siblings constrain how the specification
+    /// is WRITTEN rather than how an implementation behaves, so these rows go
+    /// through the documentation validator.
+    Trace,
+    /// The migration ledger chapter, whose rows validate ledger text.
+    Migration,
 }
 
 impl Chapter {
@@ -71,6 +79,8 @@ impl Chapter {
             Self::Identity => "IDENTITY",
             Self::Library => "LIBRARY",
             Self::Conformance => "CONFORMANCE",
+            Self::Trace => "TRACE",
+            Self::Migration => "MIGRATION",
         }
     }
 }
