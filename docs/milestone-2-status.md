@@ -7,9 +7,9 @@
 ## Current Conformance
 
 ```
-COLLECTIONS passed: 120, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0 (120 records)
+COLLECTIONS passed: 120, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 1 (121 records)
 FFI         passed: 31, failed: 0, needs_subsystem: 1, no_fixture: 0, differential: 0   (32 records)
-IDENTITY    passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (3 records)
+IDENTITY    passed: 4, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (4 records)
 LIBRARY     passed: 14, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (14 records)
 CONFORMANCE passed: 3, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0    (3 records)
 ASYNC       passed: 40, failed: 0, needs_subsystem: 0, no_fixture: 0, differential: 0   (40 records)
@@ -262,21 +262,21 @@ folding 14 locally authored `V###A` rows into the spec count.
 | Chapter | Spec transcribed | Spec rows | Missing | Local rows |
 | --- | --- | --- | --- | --- |
 | ASYNC | 40 | 40 | 0 | 0 |
-| COLLECTIONS | 120 | 122 | 2 | 0 |
+| COLLECTIONS | 121 | 122 | 1 | 0 |
 | CONFORMANCE | 3 | 3 | 0 | 0 |
 | CONTROL | 120 | 120 | 0 | 14 |
 | FFI | 32 | 32 | 0 | 0 |
 | GRAMMAR | 47 | 48 | 1 | 0 |
-| IDENTITY | 3 | 5 | 2 | 0 |
+| IDENTITY | 4 | 5 | 1 | 0 |
 | LIBRARY | 14 | 14 | 0 | 0 |
 | META | 51 | 51 | 0 | 0 |
 | RUNTIME | 109 | 109 | 0 | 0 |
 | TYPES | 79 | 80 | 1 | 0 |
-| **Total** | **618** | **624** | **6** | **14** |
+| **Total** | **620** | **624** | **4** | **14** |
 
-**618 of 624 spec rows transcribed (99.0%), plus 14 locally authored rows.**
+**620 of 624 spec rows transcribed (99.4%), plus 14 locally authored rows.**
 
-Transcribed is not the same as passing. Of the 632 records in the corpus, 598
+Transcribed is not the same as passing. Of the 634 records in the corpus, 599
 pass and 34 are recorded in non-passing buckets rather than counted as
 coverage:
 
@@ -286,15 +286,15 @@ coverage:
 | needs_subsystem | 11 | Requires a subsystem that does not exist yet |
 | no_fixture | 5 | No fixture exists for the row |
 | authored_expect | 5 | The frozen row names no stable diagnostic code |
-| differential | 3 | Requires interpreter/JIT comparison that does not exist |
+| differential | 4 | Requires interpreter/JIT comparison that does not exist |
 | deferred | 1 | Deferred by the row itself |
 
 ### Missing spec rows
 
-- `COLLECTIONS`: `V330` (differential), `V350` (generic Contract declaration and
+- `COLLECTIONS-V350` (generic Contract declaration and
   builtin iterator requirement reflection)
-- `IDENTITY-V002` (documentation validator), `IDENTITY-V014` and `TYPES-V208`
-  (explicit revision migration and static member-existence checking)
+- `IDENTITY-V014` and `TYPES-V208` (explicit revision migration and static
+  member-existence checking)
 - `GRAMMAR-V008` (no defining row in chapter 02, recorded since milestone 1)
 
 Five chapters are complete. The 13 open rows are NOT spread thin: they group

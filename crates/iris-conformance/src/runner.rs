@@ -259,6 +259,22 @@ fn validate_documentation(record: &Record) -> Outcome {
                 }
             }
         }
+        // `IRIS-V1-IDENTITY-V002` accepts a corpus only when the identity
+        // surfaces are present AND not replaced by source-compatible Legacy
+        // Iris restoration claims. Presence alone cannot show the second half,
+        // so a row may also state text that MUST NOT appear.
+        if let Some(claims) = expected.get("denies") {
+            for (path, unwanted) in crate::model::object(claims)? {
+                let crate::json::Value::String(unwanted) = unwanted else {
+                    return Err("denial expects a string".into());
+                };
+                let text =
+                    std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())?;
+                if text.to_lowercase().contains(&unwanted.to_lowercase()) {
+                    return Err(format!("{path} claims {unwanted}"));
+                }
+            }
+        }
         if let Some(claims) = expected.get("declares") {
             for (path, wanted) in crate::model::object(claims)? {
                 let crate::json::Value::String(wanted) = wanted else {
