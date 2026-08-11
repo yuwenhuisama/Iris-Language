@@ -38,6 +38,7 @@ ARTIFACTS = {
 # A sentinel no program answers, so the runner always reports a mismatch and
 # the mismatch text carries the observed value.
 SENTINEL = {"value": {"symbol": "IRIS_PROBE_SENTINEL"}}
+DIAGNOSTIC_SENTINEL = {"diagnostics": [{"code": "IRIS_PROBE_SENTINEL"}]}
 
 
 def scratch_path(chapter: str) -> str:
@@ -70,10 +71,15 @@ def record(chapter: str, source: str) -> dict:
     }
 
 
-def observe(chapter: str, source: str) -> str:
+def observe(chapter: str, source: str, expect: dict | None = None) -> str:
     path = scratch_path(chapter)
+    entry = record(chapter, source)
+    if expect is not None:
+        entry["expect"] = expect
+        entry["category"] = "diagnostic"
+        entry["tags"] = ["bucket:executable", "phase:parse"]
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(record(chapter, source), handle)
+        json.dump(entry, handle)
     try:
         completed = subprocess.run(
             ["cargo", "run", "-q", "-p", "iris-conformance", "--", "--chapter", chapter],
@@ -84,6 +90,12 @@ def observe(chapter: str, source: str) -> str:
         )
     finally:
         os.remove(path)
+    # A parse diagnostic is reported on its own line rather than as a value,
+    # so a probe that only reads the value line would show the program's
+    # result and hide the rejection entirely.
+    for line in completed.stdout.splitlines():
+        if "diagnostics expected" in line:
+            return line.rsplit("actual", 1)[1].strip()
     for line in completed.stdout.splitlines():
         if "actual:" in line:
             # A value mismatch repeats the expectation before the observation,
@@ -110,7 +122,12 @@ def main() -> int:
         probes = rest
     for probe in probes:
         name, _, source = probe.partition("=")
-        print(f"{name[:36]:<38} -> {observe(chapter, source)[:150]}")
+        seen = observe(chapter, source)
+        # A program rejected before evaluation reports no value, so ask again
+        # for a diagnostic the runner cannot match and report what it saw.
+        if "UnsupportedConstruct" in seen or "ParseDiagnostic" in seen:
+            seen = f"{seen} | diagnostics {observe(chapter, source, DIAGNOSTIC_SENTINEL)}"
+        print(f"{name[:36]:<38} -> {seen[:150]}")
     return 0
 
 
