@@ -313,6 +313,33 @@ coverage:
 | differential | 4 | Requires interpreter/JIT comparison that does not exist |
 | deferred | 1 | Deferred by the row itself |
 
+## Freeze-Gate Clauses Left Open
+
+Eight CONFORMANCE clauses stay uncited. Each names an obligation that no
+artifact in this repository can discharge, so a vector claiming otherwise would
+be fabricated coverage rather than evidence.
+
+- `C041` requires float literal vectors to agree across compiler hosts,
+  interpreter, JIT and target platforms. There is one backend.
+- `C046`, `C048`, `C049` bind a freeze GATE that decides chapter completeness
+  from required vector classes. No release pipeline exists to run it, and the
+  per-chapter class table it consumes is not yet transcribed.
+- `C057`, `C059` reject a corpus at freeze over uncovered or deferred clauses.
+  Same missing gate; the coverage input exists as `tools/clause-coverage.py`,
+  but nothing consumes it as a release blocker.
+- `C060` rejects backend-dependent behaviour. Detecting a divergence needs a
+  second backend to diverge FROM.
+- `C064` forbids Legacy Iris scripts, old parser output and current
+  implementation quirks from acting as normative authority. That is a human
+  judgement about provenance, not a property of a file.
+
+The remaining chapter-12 clauses are enforced. `tools/corpus-audit.py` now
+checks record shape (C010, C013, C016, C017, C021, C026, C027, C056), manifest
+and fixture integrity (C043, C052, C053, C062), and corpus placement and
+anchoring (C004, C051, C058, C063, C071). Every check was verified by
+introducing the violation it targets and observing a clause-named non-zero
+exit.
+
 ## Clause Coverage
 
 A vector row and a normative clause are different units: one row can rest on

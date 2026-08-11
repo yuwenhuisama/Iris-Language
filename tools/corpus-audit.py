@@ -22,6 +22,12 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import corpus_freeze_rules
+import corpus_manifest_rules
+import corpus_record_rules
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 VECTOR_ID = re.compile(r"^IRIS-V1-[A-Z]+-V\d+$")
@@ -163,6 +169,8 @@ def main() -> int:
                 if not isinstance(applicability.get("reason"), str) or not applicability["reason"]:
                     problems.append(f"C024 applicability reason: {name}")
 
+        corpus_record_rules.check(record, name, problems)
+
         tags = record.get("tags")
         if not isinstance(tags, list):
             problems.append(f"C034 tags are not an array: {name}")
@@ -172,6 +180,9 @@ def main() -> int:
                     problems.append(f"C034 tag spelling {tag!r}: {name}")
                 elif tag.startswith("legacy:") and tag not in LEGACY_TAGS:
                     problems.append(f"C035 legacy tag {tag!r}: {name}")
+
+    corpus_manifest_rules.check(ROOT, problems)
+    corpus_freeze_rules.check(ROOT, problems)
 
     local = [name for name in seen if name not in declared]
     print(f"records: {len(corpus)}")
