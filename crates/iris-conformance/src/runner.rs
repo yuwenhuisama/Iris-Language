@@ -311,6 +311,28 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
 
     let mut observed_diagnostic: Option<&'static str> = None;
     let observed = match record.source.trim() {
+        // C010: a scoped handle stays STRONGLY ROOTED until its frame closes,
+        // and closing the frame bulk-releases every live handle it owns.
+        "scoped_frame_release" => {
+            let mut table = HandleTable::new(1);
+            let frame = table.open_frame();
+            let scoped = table.retain(41_i64, IrisHandleKind::Scoped);
+            let explicit = table.retain(7_i64, IrisHandleKind::ExplicitRelease);
+            let rooted_while_open = table.get(scoped).is_ok();
+            let closed = table.close_frame(frame);
+            // The explicit handle is NOT owned by the frame, so it must survive
+            // the close; otherwise the row would pass for an implementation
+            // that simply cleared the whole table.
+            if rooted_while_open
+                && closed == IrisStatus::Success
+                && table.get(scoped) == Err(IrisStatus::InvalidHandle)
+                && table.get(explicit) == Ok(&7)
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
         // C008: a live handle keeps denoting its target across a collection
         // cycle, which the table models by rooting the value it owns.
         "handle_survives_collection" => {
