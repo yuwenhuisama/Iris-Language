@@ -111,8 +111,22 @@ mod tests {
         // When
         let records = corpus.runtime_records()?;
 
-        // Then
-        assert_eq!(records.len(), 109);
+        // Then. The count is DERIVED from the committed files rather than
+        // restated, so adding a vector cannot fail this test for a reason that
+        // has nothing to do with loading. What it actually guards is that every
+        // committed file parses into a record.
+        let committed = std::fs::read_dir(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../conformance/iris-v1/vectors/RUNTIME"),
+        )
+        .map_err(|error| error.to_string())?
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .is_ok_and(|entry| entry.path().extension().is_some_and(|kind| kind == "json"))
+        })
+        .count();
+        assert_eq!(records.len(), committed);
         Ok(())
     }
 
