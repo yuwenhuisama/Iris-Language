@@ -169,6 +169,43 @@ impl Numeric {
         Ok(IntegerValue::from_bigint(!value.as_bigint()))
     }
 
+    /// Bitwise-ands two Integers under infinite two's-complement semantics.
+    ///
+    /// `IRIS-V1-RUNTIME-C127` lists `&`, `|`, `^`, `~`, `<<` and `>>` together
+    /// under one abstract infinite sign-extended model, so these three are not
+    /// a host-width operation on a machine word.
+    pub fn integer_and(
+        left: &NumericValue,
+        right: &NumericValue,
+    ) -> Result<IntegerValue, NumericError> {
+        let (left, right) = Self::integer_pair(left, right)?;
+        Ok(IntegerValue::from_bigint(
+            left.as_bigint() & right.as_bigint(),
+        ))
+    }
+
+    /// Bitwise-ors two Integers under infinite two's-complement semantics.
+    pub fn integer_or(
+        left: &NumericValue,
+        right: &NumericValue,
+    ) -> Result<IntegerValue, NumericError> {
+        let (left, right) = Self::integer_pair(left, right)?;
+        Ok(IntegerValue::from_bigint(
+            left.as_bigint() | right.as_bigint(),
+        ))
+    }
+
+    /// Bitwise-xors two Integers under infinite two's-complement semantics.
+    pub fn integer_xor(
+        left: &NumericValue,
+        right: &NumericValue,
+    ) -> Result<IntegerValue, NumericError> {
+        let (left, right) = Self::integer_pair(left, right)?;
+        Ok(IntegerValue::from_bigint(
+            left.as_bigint() ^ right.as_bigint(),
+        ))
+    }
+
     /// Shifts an Integer left, reversing direction for negative counts.
     pub fn integer_shift_left(
         value: &NumericValue,

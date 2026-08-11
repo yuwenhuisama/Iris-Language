@@ -20,6 +20,9 @@ pub enum NativeSelector {
     ShiftLeft,
     ShiftRight,
     BitwiseNot,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
     Equal,
     NotEqual,
     Less,
@@ -61,6 +64,9 @@ impl NativeSelector {
             "<<" => Some(Self::ShiftLeft),
             ">>" => Some(Self::ShiftRight),
             "~" => Some(Self::BitwiseNot),
+            "&" => Some(Self::BitwiseAnd),
+            "|" => Some(Self::BitwiseOr),
+            "^" => Some(Self::BitwiseXor),
             "==" => Some(Self::Equal),
             "!=" => Some(Self::NotEqual),
             "<" => Some(Self::Less),
@@ -122,6 +128,9 @@ impl NativeSelector {
             Self::IsZero => 31,
             Self::SignBit => 32,
             Self::ToBits => 33,
+            Self::BitwiseAnd => 34,
+            Self::BitwiseOr => 35,
+            Self::BitwiseXor => 36,
         }
     }
     const fn from_raw(raw: u64) -> Option<Self> {
@@ -159,6 +168,9 @@ impl NativeSelector {
             31 => Some(Self::IsZero),
             32 => Some(Self::SignBit),
             33 => Some(Self::ToBits),
+            34 => Some(Self::BitwiseAnd),
+            35 => Some(Self::BitwiseOr),
+            36 => Some(Self::BitwiseXor),
             _ => None,
         }
     }
@@ -322,6 +334,9 @@ impl Kernel {
                 NativeSelector::ShiftLeft,
                 NativeSelector::ShiftRight,
                 NativeSelector::BitwiseNot,
+                NativeSelector::BitwiseAnd,
+                NativeSelector::BitwiseOr,
+                NativeSelector::BitwiseXor,
                 NativeSelector::Equal,
                 NativeSelector::NotEqual,
                 NativeSelector::Less,
@@ -588,6 +603,17 @@ impl Kernel {
             NativeSelector::BitwiseNot => {
                 Ok(Value::Integer(Numeric::integer_not(&numeric(&receiver)?)?))
             }
+            // C127 puts `&`, `|` and `^` under the same infinite
+            // two's-complement model as `~`, `<<` and `>>`.
+            NativeSelector::BitwiseAnd => {
+                self.integer_binary(receiver, arguments, Numeric::integer_and)
+            }
+            NativeSelector::BitwiseOr => {
+                self.integer_binary(receiver, arguments, Numeric::integer_or)
+            }
+            NativeSelector::BitwiseXor => {
+                self.integer_binary(receiver, arguments, Numeric::integer_xor)
+            }
             NativeSelector::Equal => {
                 Ok(Value::Bool(match singleton_equal(&receiver, arguments)? {
                     Some(equal) => equal,
@@ -670,7 +696,16 @@ impl Kernel {
             (Value::Bool(left), Value::Bool(right)) => Ok(Some(left.cmp(right))),
             (Value::Nil, Value::Nil) => Ok(Some(Ordering::Equal)),
             (Value::Bool(_) | Value::Nil, _) | (_, Value::Bool(_) | Value::Nil) => Ok(None),
-            _ => Ok(Numeric::compare(&numeric(receiver)?, &numeric(argument)?)),
+            // C132 makes a numeric `<=>` accept `other: Object` and answer
+            // `Integer?`, returning nil for a NONNUMERIC operand. Converting
+            // the argument unconditionally raised TypeError instead, which
+            // reports the operand as invalid rather than as unordered, and a
+            // `<=>` that raises cannot be used to sort a mixed collection.
+            _ => match (numeric(receiver), numeric(argument)) {
+                (Ok(left), Ok(right)) => Ok(Numeric::compare(&left, &right)),
+                (Err(error), _) => Err(error),
+                (Ok(_), Err(_)) => Ok(None),
+            },
         }
     }
 

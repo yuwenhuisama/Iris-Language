@@ -1941,9 +1941,11 @@ fn c016_interns_a_composed_type_in_its_normal_form() {
     let non_nil_removal = "((String | Nil) & NonNil).type same? String.type";
     let non_nil_impossible = "(Nil & NonNil).type same? (Never).type";
     // C065 confines the Type reading to a `.type` lookahead, so a parenthesized
-    // expression NOT followed by `.type` keeps the OPERATOR reading. Bitwise or
-    // on Integer is not implemented, so reaching its dispatch at all proves the
-    // Type reading was not taken.
+    // expression NOT followed by `.type` keeps the OPERATOR reading. This used
+    // to assert an unresolved selector, because bitwise or on Integer was not
+    // implemented; C127 requires it, so the reading is now proved by the
+    // ARITHMETIC answer instead, which is a stronger check than a dispatch
+    // failure that any missing selector would have produced.
     let operator_reading = "let a = 6; let b = 3; (a | b)";
 
     // When / Then
@@ -1963,7 +1965,7 @@ fn c016_interns_a_composed_type_in_its_normal_form() {
     ] {
         assert_eq!(rendered(source), "Bool(true)", "law failed: {source}");
     }
-    assert!(rendered(operator_reading).contains("selector: \"|\""));
+    assert_eq!(rendered(operator_reading), "Integer(IntegerValue(7))");
 }
 
 #[test]
