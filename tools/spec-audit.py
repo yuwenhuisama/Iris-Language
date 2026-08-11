@@ -49,6 +49,9 @@ INFORMATIVE_LABELS = (
 # `IRIS-V1-TRACE-C002` fixes the product inventory under spec/iris-v1.
 PRODUCT_ARTIFACTS = 14
 
+# `IRIS-V1-MIGRATION-C001` fixes the disposition vocabulary for a ledger row.
+DISPOSITIONS = ("preserve", "intentional-divergence", "removed", "deferred")
+
 
 def chapters() -> list[str]:
     paths = glob.glob(os.path.join(ROOT, "spec/iris-v1/*.md"))
@@ -95,7 +98,23 @@ def main() -> int:
     if len(artifacts) != PRODUCT_ARTIFACTS:
         problems.append(f"C002 product artifacts: expected {PRODUCT_ARTIFACTS}, found {len(artifacts)}")
 
+    # `IRIS-V1-MIGRATION-C001` requires every ledger row to record legacy
+    # evidence, a v1 replacement, rationale, a migration example, and EXACTLY
+    # one disposition tag. A row carrying two tags, or none, has no disposition.
+    ledger = os.path.join(ROOT, "spec/iris-v1/11-migration-divergence.md")
+    with open(ledger, encoding="utf-8") as handle:
+        rows = [line for line in handle.read().splitlines() if line.startswith("| IRIS-V1-MIG-")]
+    for row in rows:
+        cells = [cell.strip() for cell in row.split("|")[1:-1]]
+        name = cells[0] if cells else "?"
+        if len(cells) < 5 or any(not cell for cell in cells):
+            problems.append(f"C001 ledger row incomplete: {name}")
+        tags = [tag for tag in DISPOSITIONS if f"`{tag}`" in row]
+        if len(tags) != 1:
+            problems.append(f"C001 ledger row disposition tags {tags}: {name}")
+
     print(f"product artifacts: {len(artifacts)}")
+    print(f"migration ledger rows: {len(rows)}")
     print(f"normative paragraphs: {normative}")
     print(f"labelled informative paragraphs: {labelled}")
     if problems:
