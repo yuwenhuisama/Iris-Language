@@ -619,6 +619,7 @@ pub(super) struct SourceEvaluator {
     static_superclasses: HashMap<ClassId, Option<ClassId>>,
     lexical_class: Option<ClassId>,
     current_method: Option<Method>,
+    current_contract: Option<iris_runtime::ContractId>,
     /// The `main` Class whose top-level body is currently executing.
     ///
     /// `IRIS-V1-CONTROL-C012` makes a top-level `f()` a PRIVILEGED implicit
@@ -782,6 +783,7 @@ impl SourceEvaluator {
             static_superclasses: HashMap::new(),
             lexical_class: None,
             current_method: None,
+            current_contract: None,
             module_body_main: None,
             open_target: None,
             generator: None,
@@ -6245,13 +6247,15 @@ impl SourceEvaluator {
             // argument list to it, so direct application of a Closure is not a
             // call at all. Only the `call` selector reaches invoke_closure.
             Value::Closure(_) => Err(EvaluationError::UnsupportedConstruct),
-            Value::Class(class) => match self.kernel.construct(class, arguments) {
+            Value::Class(class) if self.is_builtin_class(class) => match self
+                .kernel
+                .construct(class, arguments)
+            {
                 Ok(value) => Ok(value),
-                Err(iris_runtime::KernelError::Type) => {
-                    self.construct(class, arguments).map(Value::Object)
-                }
+                Err(iris_runtime::KernelError::Type) => Err(EvaluationError::UnsupportedConstruct),
                 Err(error) => Err(EvaluationError::Runtime(error)),
             },
+            Value::Class(_) => Err(EvaluationError::UnsupportedConstruct),
             Value::BoundMethod(bound) => self.invoke_method(
                 self.validate_bound_method(bound)?,
                 match bound.receiver() {
@@ -7864,6 +7868,22 @@ impl SourceEvaluator {
         value: Value,
     ) -> Result<Value, EvaluationError> {
         let selector = self.selector_id(name)?;
+        let identityless = match target {
+            Value::Nil => Some(iris_runtime::BuiltinClass::Nil),
+            Value::Bool(_) => Some(iris_runtime::BuiltinClass::Bool),
+            Value::Integer(_) => Some(iris_runtime::BuiltinClass::Integer),
+            Value::Float32(_) => Some(iris_runtime::BuiltinClass::Float32),
+            Value::Float64(_) => Some(iris_runtime::BuiltinClass::Float64),
+            Value::Text(_) => Some(iris_runtime::BuiltinClass::String),
+            _ => None,
+        };
+        if let Some(class) = identityless {
+            return Err(EvaluationError::Construction(
+                iris_runtime::ConstructionError::InstanceState {
+                    class: self.kernel.class(class).map_err(EvaluationError::Runtime)?,
+                },
+            ));
+        }
         match target {
             Value::Object(object) => self.runtime.assign_raw_ivar(*object, selector, value),
             Value::Class(class) => self.runtime.assign_class_raw_ivar(*class, selector, value),
@@ -9815,7 +9835,10 @@ impl SourceEvaluator {
                 ));
             }
         };
-        self.invoke_method(method, Value::Object(object), arguments)
+        let previous_contract = self.current_contract.replace(contract);
+        let result = self.invoke_method(method, Value::Object(object), arguments);
+        self.current_contract = previous_contract;
+        result
     }
 
     /// Reports whether an unqualified `impl` member satisfies a Contract slot.
@@ -10438,6 +10461,41 @@ impl SourceEvaluator {
                     .runtime
                     .class_of(object)
                     .map_err(EvaluationError::Construction)?;
+                if let Some(contract) = self.current_contract {
+                    let owner = method.owner();
+                    let mro = self
+                        .runtime
+                        .registry()
+                        .active(class)
+                        .map_err(EvaluationError::Class)?
+                        .mro();
+                    let owner_index = mro
+                        .iter()
+                        .position(|entry| match (entry, owner) {
+                            (iris_runtime::MroEntry::Class(entry), MethodOwner::Class(owner)) => {
+                                *entry == owner
+                            }
+                            (iris_runtime::MroEntry::Module(entry), MethodOwner::Module(owner)) => {
+                                *entry == owner
+                            }
+                            _ => false,
+                        })
+                        .ok_or(EvaluationError::UnsupportedConstruct)?;
+                    let successor = mro[owner_index + 1..].iter().find_map(|entry| {
+                        let iris_runtime::MroEntry::Class(class) = entry else {
+                            return None;
+                        };
+                        self.qualified_methods
+                            .get(&(*class, contract, selector))
+                            .copied()
+                    });
+                    let successor = successor.ok_or(EvaluationError::Runtime(
+                        iris_runtime::KernelError::Dispatch(
+                            iris_runtime::DispatchError::NoSuperMethod { selector },
+                        ),
+                    ))?;
+                    return self.invoke_method(successor, receiver, arguments);
+                }
                 self.runtime
                     .registry()
                     .dispatch_super_selector(class, method, selector)
@@ -10586,9 +10644,21 @@ const fn compound_selector(operator: &iris_syntax::AssignmentOperator) -> Option
 /// `InvalidInstanceVariableNameError` for both.
 fn validate_ivar_name(argument: Option<&Value>) -> Result<(), EvaluationError> {
     let Some(Value::Symbol(name)) = argument else {
-        return Ok(());
+        return Err(EvaluationError::InvalidInstanceVariableName);
     };
-    if name.starts_with("@@") || !name.starts_with('@') {
+    let Some(identifier) = name.strip_prefix('@') else {
+        return Err(EvaluationError::InvalidInstanceVariableName);
+    };
+    let mut scalars = identifier.chars();
+    let Some(first) = scalars.next() else {
+        return Err(EvaluationError::InvalidInstanceVariableName);
+    };
+    let xid_start = icu_properties::CodePointSetData::new::<icu_properties::props::XidStart>();
+    let xid_continue =
+        icu_properties::CodePointSetData::new::<icu_properties::props::XidContinue>();
+    if (first != '_' && !xid_start.contains(first))
+        || scalars.any(|scalar| scalar != '_' && !xid_continue.contains(scalar))
+    {
         return Err(EvaluationError::InvalidInstanceVariableName);
     }
     Ok(())
@@ -10681,6 +10751,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::NoSuperMethod { .. },
         )) => "NoSuperMethodError",
+        EvaluationError::Construction(iris_runtime::ConstructionError::InstanceState {
+            ..
+        }) => "InstanceStateError",
         EvaluationError::MessageNotFound { .. } => "MessageNotFound",
         _ => return None,
     };

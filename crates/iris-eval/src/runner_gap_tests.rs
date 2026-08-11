@@ -110,6 +110,13 @@ fn initialize_explicit_self_send_constructs_the_instance() {
 }
 
 #[test]
+fn user_class_name_is_not_constructor_syntax() {
+    let source = "class A { }; A()";
+
+    assert_eq!(evaluate(source), Err(EvaluationError::UnsupportedConstruct));
+}
+
+#[test]
 fn initialize_self_send_propagates_its_raised_value_without_an_instance() {
     // Given
     let source = "class A { public fun initialize() { fail() } public fun fail() { raise :sentinel } }; A.new()";
@@ -213,6 +220,20 @@ fn reflection_object_ivar_operations_are_layered_under_reflection_object() {
             RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol("@x".into())])),
             RuntimeValue::Symbol("value".into()),
             RuntimeValue::Nil,
+        ])))
+    );
+}
+
+#[test]
+fn reflection_ivar_boundaries_report_the_specified_errors() {
+    let source = "class A { }; let a = A.new(); [try { Reflection::Object.get_ivar(a, \"@x\") } catch e { e }, try { Reflection::Object.get_ivar(a, :\"@1x\") } catch e { e }, try { Reflection::Object.set_ivar(1, :@x, 1) } catch e { e }]";
+
+    assert_eq!(
+        evaluate(source),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("InvalidInstanceVariableNameError".into()),
+            RuntimeValue::Symbol("InvalidInstanceVariableNameError".into()),
+            RuntimeValue::Symbol("InstanceStateError".into()),
         ])))
     );
 }

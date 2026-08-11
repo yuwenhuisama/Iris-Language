@@ -27,6 +27,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VECTOR_ID = re.compile(r"^IRIS-V1-[A-Z]+-V\d+$")
 SCHEMA_VERSION = "iris-v1-vector-schema-1"
 CATEGORIES = {"positive", "negative", "diagnostic", "differential"}
+CHAPTERS = {
+    "IDENTITY", "GRAMMAR", "RUNTIME", "CONTROL", "TYPES", "COLLECTIONS",
+    "ASYNC", "META", "FFI", "LIBRARY", "MIGRATION", "CONFORMANCE", "TRACE",
+}
+TOP_LEVEL_FIELDS = {
+    "schema_version", "id", "name", "category", "source", "input",
+    "applicability", "expect", "tags",
+}
+APPLICABILITY_VALUES = {"required", "optional", "not_applicable", "prohibited"}
+LEGACY_TAGS = {
+    "legacy:preserve", "legacy:intentional-divergence", "legacy:removed",
+    "legacy:deferred", "legacy:not-applicable",
+}
+CLAUSE_ID = re.compile(r"^IRIS-V1-[A-Z]+-C\d+[A-Z]?$")
+DECISION_ID = re.compile(r"^D-\d{3}$")
+TAG = re.compile(r"^[a-z0-9][a-z0-9:_-]*$")
 
 # `IRIS-V1-CONFORMANCE-C008` admits digits only, but the CONTROL vector table
 # PUBLISHES these ids with a trailing letter, and C008 equally requires a
@@ -75,14 +91,27 @@ def spec_vector_ids() -> set[str]:
     return names
 
 
+def spec_ids(pattern: re.Pattern[str]) -> set[str]:
+    names: set[str] = set()
+    for path in glob.glob(os.path.join(ROOT, "spec/iris-v1/*.md")):
+        with open(path, encoding="utf-8") as handle:
+            names.update(pattern.findall(handle.read()))
+    return names
+
+
 def main() -> int:
     corpus, declared = records(), spec_vector_ids()
+    clauses = spec_ids(re.compile(r"IRIS-V1-[A-Z]+-C\d+[A-Z]?"))
+    decisions = spec_ids(re.compile(r"(?<![A-Z0-9-])(D-\d{3})(?!\d)"))
     problems: list[str] = []
     seen: dict[str, str] = {}
 
     for path, record in corpus:
         name = record.get("id", "")
         relative = os.path.relpath(path, ROOT)
+
+        if set(record) != TOP_LEVEL_FIELDS:
+            problems.append(f"C018/C019 stable top-level fields: {name} ({relative})")
 
         # C008: the id shape, and one file per id.
         if not VECTOR_ID.match(name) and name not in SPEC_PUBLISHED_EXCEPTIONS:
@@ -104,6 +133,45 @@ def main() -> int:
         # C009 requires a human-readable name distinct from identity.
         if not record.get("name"):
             problems.append(f"C009 missing name: {name}")
+
+        source = record.get("source")
+        if not isinstance(source, dict):
+            problems.append(f"C020 source is not an object: {name}")
+            source = {}
+        else:
+            if set(source) != {"chapter", "artifact", "clauses", "decisions"}:
+                problems.append(f"C020 source fields: {name}")
+            if source.get("chapter") not in CHAPTERS:
+                problems.append(f"C054 unknown chapter {source.get('chapter')!r}: {name}")
+            for clause in source.get("clauses", []):
+                if not isinstance(clause, str) or not CLAUSE_ID.fullmatch(clause) or clause not in clauses:
+                    problems.append(f"C054 unresolved source clause {clause!r}: {name}")
+            for decision in source.get("decisions", []):
+                if not isinstance(decision, str) or not DECISION_ID.fullmatch(decision) or decision not in decisions:
+                    problems.append(f"C054 unresolved D-ID {decision!r}: {name}")
+
+        applicability = record.get("applicability")
+        if not isinstance(applicability, dict):
+            problems.append(f"C023 applicability is not an object: {name}")
+        else:
+            backend_keys = {"interpreter", "jit", "native"}
+            if not backend_keys <= set(applicability):
+                problems.append(f"C023 applicability backends: {name}")
+            if any(applicability.get(backend) not in APPLICABILITY_VALUES for backend in backend_keys):
+                problems.append(f"C023 applicability values: {name}")
+            if any(applicability.get(backend) != "required" for backend in backend_keys):
+                if not isinstance(applicability.get("reason"), str) or not applicability["reason"]:
+                    problems.append(f"C024 applicability reason: {name}")
+
+        tags = record.get("tags")
+        if not isinstance(tags, list):
+            problems.append(f"C034 tags are not an array: {name}")
+        else:
+            for tag in tags:
+                if not isinstance(tag, str) or not TAG.fullmatch(tag):
+                    problems.append(f"C034 tag spelling {tag!r}: {name}")
+                elif tag.startswith("legacy:") and tag not in LEGACY_TAGS:
+                    problems.append(f"C035 legacy tag {tag!r}: {name}")
 
     local = [name for name in seen if name not in declared]
     print(f"records: {len(corpus)}")

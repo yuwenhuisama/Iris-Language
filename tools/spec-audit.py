@@ -53,6 +53,11 @@ PRODUCT_ARTIFACTS = 14
 DISPOSITIONS = ("preserve", "intentional-divergence", "removed", "deferred")
 
 
+def text(path: str) -> str:
+    with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
+        return handle.read()
+
+
 def chapters() -> list[str]:
     paths = glob.glob(os.path.join(ROOT, "spec/iris-v1/*.md"))
     return sorted(p for p in paths if re.search(r"/\d\d-|README|traceability", p))
@@ -112,6 +117,49 @@ def main() -> int:
         tags = [tag for tag in DISPOSITIONS if f"`{tag}`" in row]
         if len(tags) != 1:
             problems.append(f"C001 ledger row disposition tags {tags}: {name}")
+
+    # C008: clause IDs must begin their paragraph so tooling can locate them
+    # without parsing prose. Headings remain ordinary GitHub Markdown headings.
+    for path in chapters():
+        relative = os.path.relpath(path, ROOT)
+        for block in paragraphs(path):
+            if not block.startswith(("#", "|")) and NORMATIVE.search(block) and not CLAUSE_ID.match(block):
+                problems.append(f"C008 normative clause is not paragraph-addressable: {relative}")
+
+    grammar = text("spec/iris-v1/02-lexical-grammar.md")
+    # C010: the D-509 errata makes `typeof` the one widened keyword and C013
+    # states the authoritative count.
+    keyword_clause = re.search(r"IRIS-V1-GRAMMAR-C013:(.*?)(?=\n\nIRIS-V1-)", grammar, re.S)
+    if keyword_clause is None or "exactly 49 lowercase words" not in keyword_clause.group(1) or "`typeof`" not in keyword_clause.group(1):
+        problems.append("C010 reserved-keyword errata inventory is missing its 49-word typeof revision")
+
+    readme = text("spec/iris-v1/README.md")
+    # C016: the terminology table carries the fixed canonical vocabulary.
+    for term in ("Iris v1", "Legacy Iris", "Contract", "MutableString", "ReflectionPolicy", "DEFERRED V1"):
+        if f"| {term} |" not in readme:
+            problems.append(f"C016 canonical terminology entry missing: {term}")
+
+    # C019-C022: the frozen revision procedure must keep its four distinct
+    # safeguards, rather than silently reducing errata to a generic note.
+    revision_requirements = {
+        "C019": ("recorded owner approval",),
+        "C020": ("MUST increment the specification revision", "Simplified Chinese translation"),
+        "C021": ("MUST NOT reinterpret a decided semantic", "new total explicitly"),
+        "C022": ("committed conformance corpus", "MUST NOT adjust, retag, or delete a vector"),
+    }
+    for clause, required in revision_requirements.items():
+        match = re.search(rf"^IRIS-V1-TRACE-{clause}:(.*?)(?=\n\n(?:^IRIS-V1-|##)|\Z)", readme, re.M | re.S)
+        if match is None or any(item not in match.group(1) for item in required):
+            problems.append(f"{clause} revision-procedure safeguard missing")
+
+    migration = text("spec/iris-v1/11-migration-divergence.md")
+    # C012 explicitly excludes D-509/review-only extras from C011's exact
+    # Notepad++ inventory. Parse its rows rather than merely checking prose.
+    extras = re.search(r"IRIS-V1-MIGRATION-C012:.*?\n\n(\| Word .*?)(?=\n\n##)", migration, re.S)
+    expected_extras = {"and", "defer", "implements", "involve", "native", "not", "or", "repeat", "satisfies", "undef"}
+    found_extras = set(re.findall(r"(?m)^\| `([a-z]+)` \|", extras.group(1))) if extras else set()
+    if found_extras != expected_extras:
+        problems.append(f"C012 non-highlighter extras mismatch: expected {sorted(expected_extras)}, found {sorted(found_extras)}")
 
     print(f"product artifacts: {len(artifacts)}")
     print(f"migration ledger rows: {len(rows)}")

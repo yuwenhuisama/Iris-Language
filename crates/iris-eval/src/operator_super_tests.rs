@@ -113,6 +113,15 @@ fn qualified_super_uses_the_superclass_method_and_bare_super_still_works() {
 }
 
 #[test]
+fn contract_qualified_super_stays_in_the_contract_slot() {
+    let source = "contract C { }; class B for C { impl fun C::m() { :base } }; \
+                  class A extends B for C { override impl fun C::m() { super() } \
+                  public fun m() { :ordinary } }; (A.new() as C)..m()";
+
+    assert_eq!(evaluate(source), Ok(RuntimeValue::Symbol("base".into())));
+}
+
+#[test]
 fn logical_operators_cannot_be_declared_as_class_methods() {
     // Given
     let sources = [
