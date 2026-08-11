@@ -122,11 +122,13 @@ def main() -> int:
         probes = rest
     for probe in probes:
         name, _, source = probe.partition("=")
+        # Value and diagnostics are separate channels: a program can answer a
+        # value AND raise diagnostics, so reporting only the value would hide a
+        # rejection the vector needs to state. Both are always read.
         seen = observe(chapter, source)
-        # A program rejected before evaluation reports no value, so ask again
-        # for a diagnostic the runner cannot match and report what it saw.
-        if "UnsupportedConstruct" in seen or "ParseDiagnostic" in seen:
-            seen = f"{seen} | diagnostics {observe(chapter, source, DIAGNOSTIC_SENTINEL)}"
+        diagnostics = observe(chapter, source, DIAGNOSTIC_SENTINEL)
+        if diagnostics not in ("[]", "(no result; the program may not have run)"):
+            seen = f"{seen} | diagnostics {diagnostics}"
         print(f"{name[:36]:<38} -> {seen[:150]}")
     return 0
 
