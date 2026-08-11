@@ -412,6 +412,9 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::SerializationError => "SerializationError".into(),
         EvaluationError::JsonLimitError => "JSONLimitError".into(),
         EvaluationError::JsonSyntaxError => "JSONSyntaxError".into(),
+        // C014 names duplicate-name rejection as its own condition, distinct
+        // from a syntax failure: the input is well formed.
+        EvaluationError::JsonDuplicateNameError => "JSONDuplicateNameError".into(),
         // C013 makes suspension a control signal, so it never reaches user
         // code and has no Iris error name. Reaching here means an async body
         // suspended with no driver to resume it.

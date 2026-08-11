@@ -213,6 +213,13 @@ pub enum EvaluationError {
     JsonLimitError,
     /// JSON input was not well formed.
     JsonSyntaxError,
+    /// A JSON object repeated a member name.
+    ///
+    /// `IRIS-V1-LIBRARY-C014` makes duplicate-name handling a documented
+    /// option whose SAFE DEFAULT rejects, so this is its own condition rather
+    /// than a syntax failure: the input is well formed and the refusal is a
+    /// policy the clause names.
+    JsonDuplicateNameError,
     /// An async body awaited an incomplete Awaitable and must suspend.
     ///
     /// `IRIS-V1-ASYNC-C013` requires the continuation to be registered and

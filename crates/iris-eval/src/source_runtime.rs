@@ -4295,6 +4295,15 @@ impl SourceEvaluator {
                             return Err(EvaluationError::JsonSyntaxError);
                         }
                         let held = Self::decode_json(cursor, depth_limit, depth + 1)?;
+                        // C014 makes the SAFE DEFAULT reject duplicate names
+                        // unless a caller selects last-wins, first-wins or
+                        // collect-all. Pushing unconditionally built a Hash
+                        // holding two entries under one key, which is not just
+                        // the wrong policy but a structurally invalid Hash:
+                        // `length` answered 2 while `fetch` answered one value.
+                        if entries.iter().any(|(existing, _)| *existing == key) {
+                            return Err(EvaluationError::JsonDuplicateNameError);
+                        }
                         entries.push((key, held));
                     }
                     while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
@@ -10638,6 +10647,7 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::SerializationError => "SerializationError",
         EvaluationError::JsonLimitError => "JSONLimitError",
         EvaluationError::JsonSyntaxError => "JSONSyntaxError",
+        EvaluationError::JsonDuplicateNameError => "JSONDuplicateNameError",
         EvaluationError::HostDriveUnavailable => "HostDriveUnavailableError",
         EvaluationError::MetaTransactionSuspension => "MetaTransactionError",
         EvaluationError::IdentityError => "IdentityError",
