@@ -315,30 +315,41 @@ coverage:
 
 ## Freeze-Gate Clauses Left Open
 
-One CONFORMANCE clause stays uncited and one is partially enforced, for two
-DIFFERENT reasons. An earlier revision of this section grouped all eight as needing "a
+One CONFORMANCE clause stays uncited. An earlier revision of this section grouped all eight as needing "a
 freeze pipeline, a second backend and human review", which hid that five were
 decidable from the artifacts already on disk.
 
 - `C041` needs a SECOND BACKEND. It compares emitted float bits across
   interpreter, JIT and native; only the interpreter exists.
-- `C064` is HALF enforced and half open. Its citation rule is mechanical and is
-  checked: a vector touching a Legacy script, generated parser file, old PDF or
-  native extension example must cite a frozen clause that explicitly disposes of
-  that source, and the permitted clause set is derived from the specification
-  rather than listed, so a clause reworded later is picked up. Its other half is
-  NOT decidable here. Whether an expectation rests on a "current implementation
-  quirk" is a judgement about WHY a value was written, which no property of a
-  file records, and it awaits an owner ruling.
+- `C064` is now enforced in both halves, one mechanically and one by a
+  heuristic that had to be validated before it was trusted. The citation half
+  requires a vector touching a Legacy script, generated parser file, old PDF or
+  native extension example to cite a frozen clause disposing of that source, and
+  the permitted clause set is derived from the specification rather than listed.
 
-  The evidence for that ruling is gathered. Only two vectors reference a
-  forbidden source at all: `GRAMMAR-V903` cites `GRAMMAR-C002`, which makes
-  historical files evidence only, and `MIGRATION-V901` cites `MIGRATION-C003`,
-  which forbids PDF-only evidence from justifying preservation. Both assert a
-  REFUSAL rather than resting on the source, so on my reading both are compliant
-  and the corpus rests on no forbidden authority. That reading is not a ruling.
+  The quirk half turns on a distinction that IS recorded in the files, contrary
+  to what this section previously claimed. A test picks its own symbols freely
+  and those appear in the vector's OWN source: `break :stopped` justifies
+  expecting `:stopped`. A symbol appearing in NEITHER the specification NOR the
+  vector's source came from the runtime, and that is a current implementation
+  quirk recorded as though it were the rule.
 
-The other six are now enforced in `tools/corpus_gate_rules.py`: `C046`
+  A one-by-one review of all 204 locally authored executable rows narrowed to
+  six candidates, of which five were false positives of my own scan: their
+  symbols are the test's own choice, written in the source beside the
+  expectation. The sixth was real. `ASYNC-V909` asserted the diagnostic event
+  label `UnobservedFailure` and a four-slot tuple shape, while `ASYNC-C040`
+  requires only that the event carry an `ExceptionContext` rather than the bare
+  raised value. A rename would have failed the row with no clause violated.
+
+  The row is narrowed to the clause's substance, and the narrowing keeps its
+  teeth: swapping the context slot for the bare raised value is still caught,
+  which is exactly the distinction C040 draws. Choosing narrowing over accepting
+  the shape was MY call, taken because it is the reversible one; it has not been
+  ruled on by the owner, and accepting the richer shape instead would be a
+  one-line change to that vector.
+
+The other seven are now enforced in `tools/corpus_gate_rules.py`: `C046`
 preserves every published vector id, `C049` requires each chapter to state both
 a positive and a refusing vector, `C057` rejects a newly uncovered obligation,
 `C059` rejects a deferred item tested as normative, `C060` rejects a backend

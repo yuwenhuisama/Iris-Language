@@ -254,6 +254,47 @@ def check_forbidden_authority(root: str, corpus: list[dict], problems: list[str]
             )
 
 
+def check_expectation_provenance(root: str, corpus: list[dict], problems: list[str]) -> None:
+    """C064: an expectation must not invent an identifier the runtime chose.
+
+    A test picks its own symbols freely, and those appear in the vector's OWN
+    source: `break :stopped` justifies expecting `:stopped`. A symbol appearing
+    in NEITHER the specification NOR the vector's source came from the runtime,
+    which is a current implementation quirk recorded as though it were the rule.
+
+    Found exactly one: ASYNC-V909 asserted the diagnostic event label
+    `UnobservedFailure` and a four-slot tuple shape, while its clause requires
+    only that the event carry an ExceptionContext rather than the bare raised
+    value. The label and shape are implementation-chosen and appear nowhere in
+    the specification, so a rename would have failed the row with no clause
+    violated.
+
+    Scoped to locally authored rows. A spec-declared row transcribes a published
+    table row, so its values carry the specification's authority by definition.
+    """
+    spec = " ".join(_spec_text(root).values())
+    declared: set[str] = set()
+    for text in _spec_text(root).values():
+        declared.update(VECTOR_ID.findall(text))
+    for record in corpus:
+        if record["id"] in declared:
+            continue
+        if "bucket:executable" not in record.get("tags", []):
+            continue
+        source = json.dumps(record.get("input", {}))
+        values = set(
+            re.findall(r'"(?:symbol|string)":\s*"([^"]+)"', json.dumps(record.get("expect", {})))
+        )
+        orphans = sorted(
+            value for value in values if value not in spec and value not in source
+        )
+        if orphans:
+            problems.append(
+                f"C064 expectation names an identifier from neither the specification "
+                f"nor its own source: {record['id']} {orphans}"
+            )
+
+
 def check(root: str, problems: list[str]) -> None:
     corpus = _corpus(root)
     check_published_ids(root, corpus, problems)
@@ -263,3 +304,4 @@ def check(root: str, problems: list[str]) -> None:
     check_clause_coverage(root, corpus, problems)
     check_chapter_coverage(root, corpus, problems)
     check_forbidden_authority(root, corpus, problems)
+    check_expectation_provenance(root, corpus, problems)

@@ -5,11 +5,11 @@
   "hash_schema_version": "iris-v1-stable-hash-1",
   "source_spec_revision": "v1.34",
   "iris_value_format": "DEFERRED V1 to format specification",
-  "vector_count": 964,
+  "vector_count": 965,
   "vectors_by_chapter": {
     "ASYNC": 56,
     "COLLECTIONS": 133,
-    "CONFORMANCE": 39,
+    "CONFORMANCE": 40,
     "CONTROL": 183,
     "FFI": 44,
     "GRAMMAR": 55,

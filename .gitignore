@@ -226,3 +226,6 @@ Iris.VC.db
 
 # Codegraph index
 /.codegraph/
+# Generated Python bytecode from tools/
+__pycache__/
+*.pyc
