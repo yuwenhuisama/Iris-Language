@@ -7947,6 +7947,28 @@ impl SourceEvaluator {
         receiver: Value,
         args: &[Value],
     ) -> Result<Value, EvaluationError> {
+        // `IRIS-V1-META-C118` requires a Module-side `invoke`. A Module name
+        // evaluates to its Symbol rather than to a Module value, so a Module
+        // receiver arrives as a Symbol and resolves through the same name map
+        // an ordinary `Mo.h()` send uses. Its binding check compares the
+        // Method's owner to that Module directly: a Module's backing Class is
+        // defined with an empty spine, so the Module is not in its own MRO and
+        // the Class-side check would refuse every Module method.
+        if let Value::Symbol(ref name) = receiver
+            && let Some(module) = self.module_names.get(name).copied()
+        {
+            return if method.owner() == MethodOwner::Module(module) {
+                self.invoke_method(method, receiver, args)
+            } else {
+                Err(EvaluationError::Runtime(
+                    iris_runtime::KernelError::Dispatch(
+                        iris_runtime::DispatchError::MethodBinding {
+                            selector: method.selector(),
+                        },
+                    ),
+                ))
+            };
+        }
         let class = match receiver {
             Value::Object(object) => self.runtime.class_of(object),
             Value::Class(class) => Ok(class),

@@ -239,6 +239,19 @@ fn reflection_ivar_boundaries_report_the_specified_errors() {
 }
 
 #[test]
+fn reflection_module_invoke_reaches_a_module_method() {
+    // Given: IRIS-V1-META-C118 names `Reflection::Module.invoke(method, receiver, args)`
+    // as the Module-side counterpart of the Class form.
+    let source = "module Mo { public fun h() -> Integer { 8 } }; let m = Reflection::Module.method(Mo, :h); Reflection::Module.invoke(m, Mo, [])";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Integer(8_u64.into())));
+}
+
+#[test]
 fn reflection_class_and_class_mixin_share_method_and_module_operations() {
     // Given
     let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let reflected = Reflection::Class.method(A, :m); let direct = A.method(:m); let a = A.new(); let before = Reflection::Class.invoke(reflected, a, []); let same = Reflection::Class.invoke(direct, a, []); let ignored = A.remove_module(M); [before, same, ignored]";

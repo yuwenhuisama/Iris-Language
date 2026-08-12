@@ -5,7 +5,7 @@
   "hash_schema_version": "iris-v1-stable-hash-1",
   "source_spec_revision": "v1.34",
   "iris_value_format": "DEFERRED V1 to format specification",
-  "vector_count": 951,
+  "vector_count": 952,
   "vectors_by_chapter": {
     "ASYNC": 56,
     "COLLECTIONS": 133,
@@ -15,7 +15,7 @@
     "GRAMMAR": 55,
     "IDENTITY": 21,
     "LIBRARY": 29,
-    "META": 90,
+    "META": 91,
     "MIGRATION": 5,
     "RUNTIME": 194,
     "TRACE": 7,
