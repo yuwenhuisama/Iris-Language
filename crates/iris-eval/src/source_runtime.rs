@@ -6943,6 +6943,45 @@ impl SourceEvaluator {
                 };
                 self.subtype(left, *right)
             }
+            // `IRIS-V1-TYPES-C079` gives `assignable?` the same rules as the
+            // compiler's guards, and assignment runs the subtype test in the
+            // opposite direction: a target accepts a value whose Type is a
+            // subtype of it.
+            Value::Type(target, _) if selector == "assignable?" => {
+                let [Value::Type(source, _)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.subtype(*source, target)
+            }
+            // `D-206` interns a closed generic identity by definition AND
+            // normalized arguments, so the arguments travel with the ClassId
+            // and a non-generic Type answers an empty list rather than failing.
+            Value::Type(_, ref arguments) if selector == "arguments" => {
+                Ok(Value::Array(ArrayRef::new(
+                    arguments
+                        .iter()
+                        .map(|argument| Value::Type(*argument, Vec::new()))
+                        .collect(),
+                )))
+            }
+            // C075 reports NORMALIZED identity, so members are the selectors
+            // the active revision publishes rather than source spelling.
+            Value::Type(class, _) if selector == "members" => {
+                let selectors: Vec<_> = self
+                    .runtime
+                    .registry()
+                    .active(class)
+                    .map_err(EvaluationError::Class)?
+                    .methods()
+                    .keys()
+                    .copied()
+                    .collect();
+                let names = selectors
+                    .into_iter()
+                    .map(|selector| Value::Symbol(self.selector_name(selector)))
+                    .collect();
+                Ok(Value::Array(ArrayRef::new(names)))
+            }
             // C064 puts class-level storage on the Class object, so a read of
             // a DECLARED class-level property answers its slot rather than
             // dispatching to a Method that does not exist. A setter spelling

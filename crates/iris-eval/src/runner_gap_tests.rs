@@ -239,6 +239,31 @@ fn reflection_ivar_boundaries_report_the_specified_errors() {
 }
 
 #[test]
+fn type_reflection_exposes_the_five_c075_queries() {
+    // Given: IRIS-V1-TYPES-C075 requires at least `kind`, `arguments`,
+    // `members`, `subtype?` and `assignable?` on a Type object.
+    let source = "class A { public fun g() -> Integer { 1 } } class B extends A { } [A.type.kind(), A.type.arguments(), A.type.members(), B.type.subtype?(A.type), A.type.assignable?(B.type)]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("nominal".into()),
+            RuntimeValue::Array(ArrayRef::new(Vec::new())),
+            RuntimeValue::Array(ArrayRef::new(vec![
+                RuntimeValue::Symbol("to_bool".into()),
+                RuntimeValue::Symbol("g".into()),
+            ])),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+        ])))
+    );
+}
+
+#[test]
 fn reflection_module_invoke_reaches_a_module_method() {
     // Given: IRIS-V1-META-C118 names `Reflection::Module.invoke(method, receiver, args)`
     // as the Module-side counterpart of the Class form.
