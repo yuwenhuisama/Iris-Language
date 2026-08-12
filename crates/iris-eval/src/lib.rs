@@ -360,6 +360,7 @@ pub fn evaluate_packages_with_probe(
     if let Some((entry, source)) = programs.last() {
         evaluator.enter_package(entry, source);
     }
+    evaluator.enter_observation();
     evaluator.program(&parsed.program)
 }
 

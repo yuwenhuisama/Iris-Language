@@ -589,6 +589,16 @@ pub(super) struct SourceEvaluator {
     contract_parents: HashMap<iris_runtime::ContractId, Vec<iris_runtime::ContractId>>,
     next_contract: u64,
     module_names: HashMap<String, ModuleId>,
+    /// The package that declared each Module, and the Modules each package
+    /// imported.
+    ///
+    /// `IRIS-V1-META-C014` introduces ONLY the Modules a source requests, so a
+    /// consumer package must not reach a Module it never imported. Resolution
+    /// keyed on the name alone made every declared Module globally visible,
+    /// which is the flat cross-package namespace `D-431` says does not exist.
+    module_packages: HashMap<String, String>,
+    imported_modules: HashMap<String, Vec<String>>,
+    observing: bool,
     module_classes: HashMap<ModuleId, ClassId>,
     /// The constants each Module declares, keyed by `(module, name)`.
     ///
@@ -766,6 +776,9 @@ impl SourceEvaluator {
             contract_parents: HashMap::new(),
             next_contract: 0,
             module_names: HashMap::new(),
+            module_packages: HashMap::new(),
+            imported_modules: HashMap::new(),
+            observing: false,
             pending_class_properties: HashMap::new(),
             materialized_constructions: std::collections::HashSet::new(),
             module_classes: HashMap::new(),
@@ -2596,6 +2609,8 @@ impl SourceEvaluator {
                     .define_module_with_composition_edges(&components, capabilities)
                     .map_err(EvaluationError::Class)?;
                 self.module_names.insert(declaration.name.clone(), module);
+                self.module_packages
+                    .insert(declaration.name.clone(), self.package.clone());
                 let module_class = self
                     .runtime
                     .registry_mut()
@@ -2775,6 +2790,10 @@ impl SourceEvaluator {
     /// therefore recorded in its own tier rather than as a lexical binding, so
     /// a later `let` of the same name still wins.
     fn import(&mut self, import: &iris_syntax::ImportDeclaration) -> Result<(), EvaluationError> {
+        self.imported_modules
+            .entry(self.package.clone())
+            .or_default()
+            .push(import.target.clone());
         let Some(module) = self.module_names.get(&import.target).copied() else {
             // A target this runtime has not loaded needs the package subsystem
             // to resolve, so nothing is bound rather than a name being invented.
@@ -5193,8 +5212,7 @@ impl SourceEvaluator {
                 // and the current module's own declarations.
                 .or_else(|| self.imported_names.get(name).cloned())
                 .or_else(|| {
-                    self.module_names
-                        .contains_key(name)
+                    (self.module_names.contains_key(name) && self.module_visible(name))
                         .then(|| Value::Symbol(name.clone()))
                 })
                 // C013 resolves a bare `name` against visible DECLARATIONS as
@@ -5320,6 +5338,7 @@ impl SourceEvaluator {
                 selector,
             } if matches!(target.as_ref(), Expression::Name(name)
                 if self.module_names.contains_key(name)
+                    && self.module_visible(name)
                     && !self.names.contains_key(name)) =>
             {
                 let Expression::Name(name) = target.as_ref() else {
@@ -5527,7 +5546,8 @@ impl SourceEvaluator {
                     Expression::Member {
                         receiver: target,
                         selector,
-                    } if matches!(target.as_ref(), Expression::Name(name) if self.module_names.contains_key(name)) =>
+                    } if matches!(target.as_ref(), Expression::Name(name)
+                        if self.module_names.contains_key(name) && self.module_visible(name)) =>
                     {
                         let Expression::Name(name) = target.as_ref() else {
                             return Err(EvaluationError::UnsupportedConstruct);
@@ -7633,6 +7653,15 @@ impl SourceEvaluator {
                 // into the caller's namespace, which is the whole point of
                 // C020's `MUST NOT retroactively add names` requirement.
                 let prelinked = id.rsplit("::").next().unwrap_or(id).to_owned();
+                // C020 forbids adding names to an already compiled namespace,
+                // but the loading package must still be able to USE the handle
+                // it was just returned. Recording the reach here keeps the
+                // dynamic load out of static import scope while leaving the
+                // caller able to resolve what it explicitly loaded.
+                self.imported_modules
+                    .entry(self.package.clone())
+                    .or_default()
+                    .push(prelinked.clone());
                 match self.module_names.get(&prelinked).copied() {
                     Some(module) => Ok(Value::Symbol(
                         self.module_names
@@ -8366,6 +8395,39 @@ impl SourceEvaluator {
     /// the registry answers this directly.
     pub(super) fn module_published(&self, name: &str) -> bool {
         self.module_names.contains_key(name)
+    }
+
+    /// Reports whether the CURRENT package may resolve a Module name.
+    ///
+    /// `IRIS-V1-META-C014` introduces only what a source imports, so a Module
+    /// declared by another package is reachable only through an import naming
+    /// it. A Module declared by the current package, or one whose declaring
+    /// package was never recorded because it predates package tracking, stays
+    /// visible: this constrains CROSS-package reach without changing how a
+    /// single program sees its own Modules.
+    fn module_visible(&self, name: &str) -> bool {
+        if self.observing {
+            return true;
+        }
+        let Some(owner) = self.module_packages.get(name) else {
+            return true;
+        };
+        if *owner == self.package {
+            return true;
+        }
+        self.imported_modules
+            .get(&self.package)
+            .is_some_and(|imports| imports.iter().any(|target| target == name))
+    }
+
+    /// Suspends package visibility for a conformance probe.
+    ///
+    /// A probe is an OBSERVER evaluated after the load, not code belonging to
+    /// any package, so `IRIS-V1-META-C014`'s import rule does not govern it.
+    /// Applying package scope to the probe would hide exactly the Modules a
+    /// row loads a package tree in order to observe.
+    pub(super) fn enter_observation(&mut self) {
+        self.observing = true;
     }
 
     /// The Class object naming `ExceptionContext`, creating it on first use.
@@ -10303,9 +10365,38 @@ impl SourceEvaluator {
             self.invocation_depth -= 1;
             return Err(EvaluationError::StepBudgetExhausted);
         }
+        // A Module method body resolves names as ITS package, so an observing
+        // probe's exemption does not follow the call into package code.
+        let restore = self.owning_package(method).map(|owner| {
+            let previous = (self.package.clone(), self.observing);
+            self.package = owner;
+            self.observing = false;
+            previous
+        });
         let result = self.invoke_method_body(method, receiver, arguments);
+        if let Some((package, observing)) = restore {
+            self.package = package;
+            self.observing = observing;
+        }
         self.invocation_depth -= 1;
         result
+    }
+
+    /// The package whose import list governs a Module method's body.
+    ///
+    /// A method body belongs to the package that DECLARED its Module, not to
+    /// whatever context invoked it. Judging visibility by the caller let a
+    /// conformance probe's observation mode leak into package code and made
+    /// every unimported Module reachable again from inside a method.
+    fn owning_package(&self, method: Method) -> Option<String> {
+        let MethodOwner::Module(module) = method.owner() else {
+            return None;
+        };
+        let name = self
+            .module_names
+            .iter()
+            .find_map(|(name, id)| (*id == module).then_some(name))?;
+        self.module_packages.get(name).cloned()
     }
 
     fn invoke_method_body(

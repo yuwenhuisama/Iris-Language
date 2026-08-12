@@ -2512,6 +2512,40 @@ fn c067_admits_a_bare_closed_generic_name_as_a_value() {
 }
 
 #[test]
+fn an_unimported_module_from_another_package_does_not_resolve() {
+    // Given: IRIS-V1-META-C014 says static imports introduce ONLY the Modules
+    // a source requests. The reach is asserted from INSIDE the consuming
+    // package, because a probe is an observer outside every package.
+    let consumer = |body: &str| {
+        let packages = [
+            (
+                "a".to_owned(),
+                "module Pub { public fun shown() -> Integer { 1 } }; module Hidden { public fun secret() -> Integer { 2 } }"
+                    .to_owned(),
+            ),
+            (
+                "b".to_owned(),
+                format!("import Pub; module Consumer {{ public fun reach() -> Integer {{ {body} }} }}"),
+            ),
+        ];
+        format!(
+            "{:?}",
+            crate::evaluate_packages_with_probe(&packages, Some("Consumer.reach()"))
+        )
+    };
+
+    // When / Then: the imported Module resolves from the consumer.
+    assert_eq!(consumer("Pub.shown()"), "Ok(Integer(IntegerValue(1)))");
+
+    // When / Then: the unimported one does not.
+    let hidden = consumer("Hidden.secret()");
+    assert!(
+        hidden.starts_with("Err("),
+        "an unimported Module resolved: {hidden}"
+    );
+}
+
+#[test]
 fn package_sources_observe_a_declared_module_through_a_probe() {
     // Given: IRIS-V1-META-C011 makes a package source file declarations only,
     // so a row observing a Module member needs a probe evaluated AFTER the
