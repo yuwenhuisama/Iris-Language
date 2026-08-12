@@ -25,6 +25,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import corpus_freeze_rules
+import corpus_gate_rules
 import corpus_manifest_rules
 import corpus_record_rules
 
@@ -183,6 +184,7 @@ def main() -> int:
 
     corpus_manifest_rules.check(ROOT, problems)
     corpus_freeze_rules.check(ROOT, problems)
+    corpus_gate_rules.check(ROOT, problems)
 
     local = [name for name in seen if name not in declared]
     print(f"records: {len(corpus)}")

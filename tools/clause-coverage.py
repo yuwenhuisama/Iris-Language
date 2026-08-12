@@ -25,8 +25,12 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # A clause DEFINITION starts a line; a mention inside prose or a table does not.
+# The trailing letter is part of the id. Capturing `C\d+` alone made
+# `GRAMMAR-C048A`, `C053A` and `C053B` invisible to this report: they were never
+# counted as declared, so they could never be counted as open. This is the same
+# truncation that once made `V288A` look locally authored.
 CLAUSE_DEFINITION = re.compile(
-    r"^(IRIS-V1-([A-Z]+)-C\d+): (.*?)(?=\n\nIRIS-V1-|\n\n#|\Z)", re.M | re.S
+    r"^(IRIS-V1-([A-Z]+)-C\d+[A-Z]?): (.*?)(?=\n\nIRIS-V1-|\n\n#|\Z)", re.M | re.S
 )
 
 # Clauses whose text only scopes a chapter, defers to another, or introduces a
@@ -68,6 +72,13 @@ def kind(text: str) -> str:
     return "obligation" if OBLIGATION.search(text) else "prose"
 
 
+def clause_order(row: tuple) -> tuple[int, str]:
+    """Sorts `C053` before `C053A` before `C053B` rather than failing on the letter."""
+    tail = row[0].rsplit("C", 1)[1]
+    digits = tail.rstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    return (int(digits), tail[len(digits) :])
+
+
 def main() -> int:
     clauses, covered = declared(), cited()
     chapter = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else None
@@ -78,7 +89,7 @@ def main() -> int:
             for name, (owner, body) in sorted(clauses.items())
             if owner == chapter and name not in covered and kind(body) == "obligation"
         ]
-        rows.sort(key=lambda row: int(row[0].rsplit("C", 1)[1]))
+        rows.sort(key=clause_order)
         if "--ids" in sys.argv:
             print(" ".join(name for name, _ in rows))
             return 0
