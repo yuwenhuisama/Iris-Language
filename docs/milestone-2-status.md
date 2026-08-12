@@ -402,26 +402,37 @@ correct but uncited is behaviour a refactor can break with nothing failing,
 which is how this project's iterator-close and extension-digest defects
 survived. `tools/clause-coverage.py` reports the gap.
 
-| Chapter | Clauses | Cited | Open |
-| --- | --- | --- | --- |
-| ASYNC | 62 | 30 | 14 |
-| COLLECTIONS | 100 | 77 | 6 |
-| CONFORMANCE | 75 | 9 | 48 |
-| CONTROL | 80 | 35 | 26 |
-| FFI | 58 | 29 | 12 |
-| GRAMMAR | 72 | 51 | 4 |
-| IDENTITY | 36 | 7 | 25 |
-| LIBRARY | 41 | 18 | 10 |
-| META | 126 | 62 | 32 |
-| MIGRATION | 12 | 2 | 3 |
-| RUNTIME | 161 | 84 | 61 |
-| TRACE | 22 | 2 | 12 |
-| TYPES | 99 | 52 | 15 |
-| **Total** | **944** | **458** | **268** |
+| Chapter | Duties | Met | Open | Other | Clauses |
+| --- | --- | --- | --- | --- | --- |
+| ASYNC | 36 | 36 | 0 | 26 | 62 |
+| COLLECTIONS | 42 | 42 | 0 | 58 | 100 |
+| CONFORMANCE | 56 | 55 | 1 | 19 | 75 |
+| CONTROL | 55 | 55 | 0 | 25 | 80 |
+| FFI | 35 | 35 | 0 | 23 | 58 |
+| GRAMMAR | 40 | 40 | 0 | 35 | 75 |
+| IDENTITY | 31 | 31 | 0 | 5 | 36 |
+| LIBRARY | 25 | 25 | 0 | 16 | 41 |
+| META | 64 | 64 | 0 | 62 | 126 |
+| MIGRATION | 5 | 5 | 0 | 7 | 12 |
+| RUNTIME | 136 | 136 | 0 | 25 | 161 |
+| TRACE | 14 | 14 | 0 | 8 | 22 |
+| TYPES | 48 | 48 | 0 | 51 | 99 |
+| **TOTAL** | **587** | **586** | **1** | **360** | **947** |
 
-**458 of 944 clauses cited (48.5%).** `Open` counts uncited clauses carrying
-MUST or SHALL; the remainder scope a chapter, defer to another, or introduce a
-table, and are not obligations a vector can observe.
+**586 of 587 obligations cited (99.8%).** `Duties` carry MUST or SHALL and are
+the only clauses a vector can observe. `Other` are chapter scope statements,
+table lead-ins and cross-referencing prose; writing a vector for one would
+produce a row that cannot fail.
+
+An earlier revision of this section reported a single blended ratio, 728 of 947
+clauses or 76.9%. That divided met obligations by EVERY clause, so 360 headers
+and prose paragraphs counted as though they were unmet work, and the figure
+understated the milestone by twenty points. The one open obligation is
+`IRIS-V1-CONFORMANCE-C041`, deferred to the virtual machine.
+
+Clause coverage is also not the same question as implemented behaviour. An
+obligation counts as met once a vector cites it, and 71 of those vectors are
+held for a missing subsystem rather than passing.
 
 Sampling confirmed the gap is evidence rather than function: the clauses
 checked were already implemented correctly and simply had nothing pinning them.
