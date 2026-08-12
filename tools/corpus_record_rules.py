@@ -140,9 +140,29 @@ def check_differential(record: dict, name: str, problems: list[str]) -> None:
             problems.append(f"C017 backend {backend!r} is not_applicable without a reason: {name}")
 
 
+HELD_BUCKETS = {"bucket:needs-subsystem", "bucket:no-fixture", "bucket:differential"}
+
+
+def check_held_reason(record: dict, name: str, problems: list[str]) -> None:
+    """A held row must say WHY, because a held row never runs.
+
+    Nothing contradicts the reason on a row the runner skips, so an expired
+    blocker stays invisible: five rows in this corpus were satisfiable for a
+    whole milestone behind reasons that had gone stale. An unstated blocker
+    cannot be re-probed at all.
+    """
+    buckets = {tag for tag in record.get("tags", []) if tag.startswith("bucket:")}
+    if not buckets & HELD_BUCKETS:
+        return
+    reason = record.get("applicability", {}).get("reason", "")
+    if not isinstance(reason, str) or not reason.strip():
+        problems.append(f"C024 held row states no blocking reason: {name}")
+
+
 def check(record: dict, name: str, problems: list[str]) -> None:
     check_input(record, name, problems)
     check_value_forms(record, name, problems)
     check_streams(record, name, problems)
     check_category_fields(record, name, problems)
     check_differential(record, name, problems)
+    check_held_reason(record, name, problems)
