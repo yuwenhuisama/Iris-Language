@@ -2638,3 +2638,16 @@ fn call_evaluates_the_receiver_expression_before_its_arguments() {
         ])))
     );
 }
+
+#[test]
+fn iteration_compares_as_unordered_against_a_non_iteration() {
+    // Given: IRIS-V1-COLLECTIONS-C015 returns nil between an Iteration and a
+    // non-Iteration, alongside 0 for done <=> done and a forwarded payload
+    // comparison for two yields.
+    let unordered = "module M { public fun run() -> Object { Iteration.yield(1) <=> 1 } } M.run()";
+    let done_vs_value = "module M { public fun run() -> Object { Iteration.done <=> 1 } } M.run()";
+
+    // When / Then
+    assert_eq!(evaluate(unordered), Ok(RuntimeValue::Nil));
+    assert_eq!(evaluate(done_vs_value), Ok(RuntimeValue::Nil));
+}

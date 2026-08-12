@@ -9378,6 +9378,14 @@ impl SourceEvaluator {
                     }
                     return Ok(ordering);
                 }
+                // C015 also answers nil between an Iteration and a
+                // NON-Iteration. Falling through left the send to reach
+                // ordinary dispatch, which has no `<=>` for the Iteration
+                // class and reported MessageNotFoundError instead.
+                (Value::IterationDone | Value::IterationYield(_), _)
+                | (_, Value::IterationDone | Value::IterationYield(_)) => {
+                    return Ok(Value::Nil);
+                }
                 _ => {}
             }
         }
