@@ -208,6 +208,52 @@ def check_chapter_coverage(root: str, corpus: list[dict], problems: list[str]) -
         )
 
 
+FORBIDDEN_SOURCE = re.compile(
+    r"legacy/|Legacy Iris|\.pdf|lex\.yy|y\.tab|Pointer Extension|File Extension",
+    re.I,
+)
+DISPOSES = re.compile(r"MUST NOT|evidence only", re.I)
+
+
+def check_forbidden_authority(root: str, corpus: list[dict], problems: list[str]) -> None:
+    """C064: a forbidden source may be referenced only under a clause adopting it.
+
+    The clause forbids Legacy Iris scripts, generated parser files, old PDF text
+    and native extension examples from acting as normative authority, EXCEPT
+    where a vector cites a frozen clause that explicitly disposes of the
+    behaviour. Both halves are checked here: which vectors touch such a source,
+    and whether each cites a clause that actually names one.
+
+    The permitted clause set is DERIVED from the specification rather than
+    listed, so a clause added or reworded later is picked up instead of silently
+    falling outside a hardcoded allowance.
+
+    C064's remaining half is NOT decidable here. Whether an expectation rests on
+    a "current implementation quirk" is a judgement about why a value was
+    written, which no property of the file records; that half is reported by
+    `docs/milestone-2-status.md` as requiring owner review.
+    """
+    disposing: set[str] = set()
+    for text in _spec_text(root).values():
+        for match in CLAUSE_BLOCK.finditer(text):
+            body = match.group(2)
+            if FORBIDDEN_SOURCE.search(body) and DISPOSES.search(body):
+                disposing.add(match.group(1))
+    if not disposing:
+        problems.append("C064 no frozen clause disposes of a forbidden source")
+        return
+
+    for record in corpus:
+        blob = json.dumps(record)
+        if not FORBIDDEN_SOURCE.search(blob):
+            continue
+        if not set(record["source"]["clauses"]) & disposing:
+            problems.append(
+                f"C064 references a forbidden source without citing a clause that "
+                f"disposes of it: {record['id']}"
+            )
+
+
 def check(root: str, problems: list[str]) -> None:
     corpus = _corpus(root)
     check_published_ids(root, corpus, problems)
@@ -216,3 +262,4 @@ def check(root: str, problems: list[str]) -> None:
     check_backend_reasons(corpus, problems)
     check_clause_coverage(root, corpus, problems)
     check_chapter_coverage(root, corpus, problems)
+    check_forbidden_authority(root, corpus, problems)

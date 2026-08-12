@@ -315,15 +315,28 @@ coverage:
 
 ## Freeze-Gate Clauses Left Open
 
-Two CONFORMANCE clauses stay uncited, for two DIFFERENT reasons. An earlier revision of this section grouped all eight as needing "a
+One CONFORMANCE clause stays uncited and one is partially enforced, for two
+DIFFERENT reasons. An earlier revision of this section grouped all eight as needing "a
 freeze pipeline, a second backend and human review", which hid that five were
 decidable from the artifacts already on disk.
 
 - `C041` needs a SECOND BACKEND. It compares emitted float bits across
   interpreter, JIT and native; only the interpreter exists.
-- `C064` needs a HUMAN. Deciding whether a behaviour's normative authority is a
-  Legacy Iris script, old PDF text or an implementation quirk is a judgement
-  about provenance, not a property of any file.
+- `C064` is HALF enforced and half open. Its citation rule is mechanical and is
+  checked: a vector touching a Legacy script, generated parser file, old PDF or
+  native extension example must cite a frozen clause that explicitly disposes of
+  that source, and the permitted clause set is derived from the specification
+  rather than listed, so a clause reworded later is picked up. Its other half is
+  NOT decidable here. Whether an expectation rests on a "current implementation
+  quirk" is a judgement about WHY a value was written, which no property of a
+  file records, and it awaits an owner ruling.
+
+  The evidence for that ruling is gathered. Only two vectors reference a
+  forbidden source at all: `GRAMMAR-V903` cites `GRAMMAR-C002`, which makes
+  historical files evidence only, and `MIGRATION-V901` cites `MIGRATION-C003`,
+  which forbids PDF-only evidence from justifying preservation. Both assert a
+  REFUSAL rather than resting on the source, so on my reading both are compliant
+  and the corpus rests on no forbidden authority. That reading is not a ruling.
 
 The other six are now enforced in `tools/corpus_gate_rules.py`: `C046`
 preserves every published vector id, `C049` requires each chapter to state both
