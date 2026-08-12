@@ -239,6 +239,26 @@ fn reflection_ivar_boundaries_report_the_specified_errors() {
 }
 
 #[test]
+fn type_identity_reports_package_and_a_stable_hash() {
+    // Given: IRIS-V1-TYPES-C078 derives publishable nominal identity from
+    // package ID, API major and qualified name, never from display name alone.
+    let source = "class A { } class B { } [A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("runtime-local".into()),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+        ])))
+    );
+}
+
+#[test]
 fn type_reflection_exposes_the_five_c075_queries() {
     // Given: IRIS-V1-TYPES-C075 requires at least `kind`, `arguments`,
     // `members`, `subtype?` and `assignable?` on a Type object.

@@ -6937,6 +6937,16 @@ impl SourceEvaluator {
                 };
                 Ok(Value::Array(ArrayRef::new(members)))
             }
+            // C078 derives publishable nominal identity from package ID, API
+            // major and fully qualified name, and explicitly NOT from display
+            // name alone, member shape, or allocation order. The same helper
+            // the Contract path uses supplies exactly those three facts.
+            // C078 derives publishable nominal identity from package ID, API
+            // major and fully qualified name, and explicitly NOT from display
+            // name alone, member shape, or allocation order. The same helper
+            // the Contract path uses supplies exactly those three facts.
+            Value::Type(class, _) if selector == "hash" => self.type_identity_hash(class),
+            Value::Type(..) if selector == "package" => Ok(Value::Symbol(self.package.clone())),
             Value::Type(left, _) if selector == "subtype?" => {
                 let [Value::Type(right, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -8162,6 +8172,33 @@ impl SourceEvaluator {
     /// Contract name and major-version contract identity, so two Contracts
     /// with identical declarations stay distinct and moving one between
     /// packages changes its Type identity.
+    /// The `IRIS-V1-TYPES-C078` publishable identity hash of a nominal Type.
+    ///
+    /// Kept out of the send match arm and out of line: that function already
+    /// sits at the stack budget the non-termination test measures, and an
+    /// inlined arm body overflowed it.
+    #[inline(never)]
+    fn type_identity_hash(&self, class: ClassId) -> Result<Value, EvaluationError> {
+        let name = self.class_display_name(class);
+        Ok(Value::Integer(iris_runtime::contract_type_hash(
+            &self.package,
+            &name,
+            self.api_major,
+        )))
+    }
+
+    /// The source name bound to a Class, for `IRIS-V1-TYPES-C078` identity.
+    #[inline(never)]
+    fn class_display_name(&self, class: ClassId) -> String {
+        self.names
+            .iter()
+            .find_map(|(name, binding)| {
+                matches!(binding.value(), Value::Class(bound) if bound == class)
+                    .then(|| name.clone())
+            })
+            .unwrap_or_default()
+    }
+
     fn contract_type_hash(
         &self,
         contract: iris_runtime::ContractId,
