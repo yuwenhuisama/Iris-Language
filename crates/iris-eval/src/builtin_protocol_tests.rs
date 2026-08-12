@@ -2512,6 +2512,32 @@ fn c067_admits_a_bare_closed_generic_name_as_a_value() {
 }
 
 #[test]
+fn package_sources_observe_a_declared_module_through_a_probe() {
+    // Given: IRIS-V1-META-C011 makes a package source file declarations only,
+    // so a row observing a Module member needs a probe evaluated AFTER the
+    // load rather than a trailing statement inside the package.
+    let packages = [
+        (
+            "a".to_owned(),
+            "module Mo { public fun h() -> Integer { 8 } }".to_owned(),
+        ),
+        (
+            "b".to_owned(),
+            "module Other { public fun k() -> Integer { 1 } }".to_owned(),
+        ),
+    ];
+
+    // When
+    let result = format!(
+        "{:?}",
+        crate::evaluate_packages_with_probe(&packages, Some("Mo.h()"))
+    );
+
+    // Then
+    assert_eq!(result, "Ok(Integer(IntegerValue(8)))");
+}
+
+#[test]
 fn d431_scopes_a_global_to_its_declaring_package() {
     // D-431 makes a global's TRUE identity `(package_id, $name)`, unique
     // within a package and separately instantiated per runtime, with NO flat

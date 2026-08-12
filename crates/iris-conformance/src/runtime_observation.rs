@@ -22,7 +22,10 @@ pub fn compare_runtime(record: &Record) -> Result<(), String> {
     // D-431 needs two packages sharing ONE runtime, unlike independent
     // sources, whose programs each run against a fresh runtime.
     if !record.package_sources.is_empty() {
-        let outcome = iris_eval::evaluate_packages(&record.package_sources);
+        let outcome = iris_eval::evaluate_packages_with_probe(
+            &record.package_sources,
+            record.package_probe.as_deref(),
+        );
         return match expected.get("error") {
             Some(error) => values::compare_evaluated_error(error, outcome),
             None => values::compare_evaluated(expected, outcome),

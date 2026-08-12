@@ -321,6 +321,20 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
 /// the LAST value is reported, so a later package can read what an earlier one
 /// published through its own package identity.
 pub fn evaluate_packages(programs: &[(String, String)]) -> Result<RuntimeValue, EvaluationError> {
+    evaluate_packages_with_probe(programs, None)
+}
+
+/// Evaluates ordered per-package programs, then one probe against the result.
+///
+/// `IRIS-V1-META-C011` makes a package source file declarations only, so a row
+/// observing a Module member has nowhere to put the send: a declarations-only
+/// program has no last value, and reporting that absence as a failure made
+/// every such row answer `UnsupportedConstruct`. The probe supplies the send
+/// AFTER the load, exactly as the on-disk fixture path already does.
+pub fn evaluate_packages_with_probe(
+    programs: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<RuntimeValue, EvaluationError> {
     let mut evaluator = source_runtime::SourceEvaluator::new_in_package("")?;
     let mut last = RuntimeValue::Nil;
     for (package, source) in programs {
@@ -329,9 +343,24 @@ pub fn evaluate_packages(programs: &[(String, String)]) -> Result<RuntimeValue, 
             return Err(EvaluationError::ParseDiagnostic);
         }
         evaluator.enter_package(package, source);
-        last = evaluator.program(&parsed.program)?;
+        let declarations_only = parsed.program.statements.is_empty();
+        match evaluator.program(&parsed.program) {
+            Ok(value) => last = value,
+            Err(EvaluationError::UnsupportedConstruct) if declarations_only => {}
+            Err(error) => return Err(error),
+        }
     }
-    Ok(last)
+    let Some(probe) = probe else {
+        return Ok(last);
+    };
+    let parsed = parse(probe);
+    if !parsed.program_accepted {
+        return Err(EvaluationError::ParseDiagnostic);
+    }
+    if let Some((entry, source)) = programs.last() {
+        evaluator.enter_package(entry, source);
+    }
+    evaluator.program(&parsed.program)
 }
 
 /// Loads one package's ordered source files and reports its initialized Modules.
