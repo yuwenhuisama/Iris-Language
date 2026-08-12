@@ -315,25 +315,26 @@ coverage:
 
 ## Freeze-Gate Clauses Left Open
 
-Three CONFORMANCE clauses stay uncited, and they are open for three DIFFERENT
-reasons. An earlier revision of this section grouped all eight as needing "a
+Two CONFORMANCE clauses stay uncited, for two DIFFERENT reasons. An earlier revision of this section grouped all eight as needing "a
 freeze pipeline, a second backend and human review", which hid that five were
 decidable from the artifacts already on disk.
 
 - `C041` needs a SECOND BACKEND. It compares emitted float bits across
   interpreter, JIT and native; only the interpreter exists.
-- `C048` needs the per-chapter required-vector-class table `C046` refers to.
-  Chapter 12 states it as prose and it is not transcribed, so there is no
-  machine-readable input to gate on.
 - `C064` needs a HUMAN. Deciding whether a behaviour's normative authority is a
   Legacy Iris script, old PDF text or an implementation quirk is a judgement
   about provenance, not a property of any file.
 
-The other five are now enforced in `tools/corpus_gate_rules.py`: `C046`
+The other six are now enforced in `tools/corpus_gate_rules.py`: `C046`
 preserves every published vector id, `C049` requires each chapter to state both
 a positive and a refusing vector, `C057` rejects a newly uncovered obligation,
-`C059` rejects a deferred item tested as normative, and `C060` rejects a backend
-excluded without a reason. Each was verified by introducing the violation it
+`C059` rejects a deferred item tested as normative, `C060` rejects a backend
+excluded without a reason, and `C048` rejects a chapter carrying normative
+clauses with no vector coverage. `C048` reads the required-class table out of
+`C046` rather than restating it, so a table edited without updating the corpus
+fails; CONFORMANCE and TRACE carry clauses without a table row, and the
+traceability matrix cites both, which is the documentation-structure exception
+C048 allows. Each was verified by introducing the violation it
 targets and observing a clause-named non-zero exit.
 
 `C049` found a real gap when it was written: CONFORMANCE, MIGRATION and TRACE

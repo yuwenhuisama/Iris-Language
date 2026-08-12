@@ -162,6 +162,52 @@ KNOWN_OPEN = {
 }
 
 
+def check_chapter_coverage(root: str, corpus: list[dict], problems: list[str]) -> None:
+    """C048: a chapter with normative clauses needs vector class coverage.
+
+    The required-class table lives in C046 as Markdown, one row per chapter, so
+    it is read from the specification rather than restated here: a table edited
+    without updating the corpus must fail, which a hardcoded copy could not
+    detect.
+
+    Two chapters carry normative clauses without a table row, CONFORMANCE and
+    TRACE, because the table predates them owning executable obligations. C048
+    excepts a clause the traceability matrix marks as documentation structure,
+    and both chapters are cited there, so their coverage is required from the
+    corpus rather than from a row they do not have.
+    """
+    text = _spec_text(root).get("12-conformance.md", "")
+    try:
+        table = text[
+            text.index("IRIS-V1-CONFORMANCE-C046:") : text.index(
+                "IRIS-V1-CONFORMANCE-C047:"
+            )
+        ]
+    except ValueError:
+        problems.append("C048 the C046 required-class table is not locatable")
+        return
+    listed = {name for name, _ in re.findall(r"^\| `([A-Z]+)` \| (.+?) \|$", table, re.M)}
+    if not listed:
+        problems.append("C048 the C046 required-class table declares no chapter")
+        return
+
+    with_clauses: set[str] = set()
+    for name, body in _spec_text(root).items():
+        for match in CLAUSE_BLOCK.finditer(body):
+            with_clauses.add(match.group(1).split("-")[2])
+
+    covered = {record["source"]["chapter"] for record in corpus}
+    for chapter in sorted(with_clauses):
+        if chapter not in covered:
+            problems.append(
+                f"C048 chapter {chapter} has normative clauses and no vector coverage"
+            )
+    for chapter in sorted(listed - with_clauses):
+        problems.append(
+            f"C048 the required-class table lists {chapter}, which declares no clause"
+        )
+
+
 def check(root: str, problems: list[str]) -> None:
     corpus = _corpus(root)
     check_published_ids(root, corpus, problems)
@@ -169,3 +215,4 @@ def check(root: str, problems: list[str]) -> None:
     check_deferred(root, corpus, problems)
     check_backend_reasons(corpus, problems)
     check_clause_coverage(root, corpus, problems)
+    check_chapter_coverage(root, corpus, problems)
