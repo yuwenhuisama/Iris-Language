@@ -924,6 +924,12 @@ impl SourceEvaluator {
                         mixins.push(CompositionEdge::new(*module, mixin.private_access));
                     } else if let Some(class) = self.class_name(name)? {
                         class_mixins.push(class);
+                    } else {
+                        // C054 validates composition BEFORE publication. A name
+                        // matching neither a Module nor a Class was silently
+                        // dropped, so `class A mixin Nope { }` published a
+                        // Class whose declared composition did not exist.
+                        return Err(EvaluationError::UnsupportedConstruct);
                     }
                 }
                 // D-219 reifies and interns a CLOSED Module Type such as

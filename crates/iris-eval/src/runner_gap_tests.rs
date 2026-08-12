@@ -1277,8 +1277,11 @@ fn source_member_read_creates_a_fresh_bound_method_while_parenthesized_send_invo
 
 #[test]
 fn source_single_mixin_class_body_keeps_its_own_methods() {
-    // Given
-    let source = "class C mixin A { public fun t() -> Integer { 1 } }; C.new().t()";
+    // Given: the mixed-in Module is DECLARED. This test previously named an
+    // undeclared `A`, which composed silently; IRIS-V1-META-C054 validates
+    // composition before publication, so that name is now refused and the
+    // test states the case it was actually written to cover.
+    let source = "module A { } class C mixin A { public fun t() -> Integer { 1 } }; C.new().t()";
 
     // When
     let result = evaluate(source);
@@ -2650,4 +2653,23 @@ fn iteration_compares_as_unordered_against_a_non_iteration() {
     // When / Then
     assert_eq!(evaluate(unordered), Ok(RuntimeValue::Nil));
     assert_eq!(evaluate(done_vs_value), Ok(RuntimeValue::Nil));
+}
+
+#[test]
+fn composition_rejects_a_mixin_naming_nothing() {
+    // Given: IRIS-V1-META-C054 validates composition BEFORE publication, so a
+    // mixin naming neither a Module nor a Class cannot reach a published Class.
+    let unknown = "class A mixin Nope { } A.new()";
+
+    // When / Then: the declaration is refused rather than silently composing.
+    assert_eq!(
+        evaluate(unknown),
+        Err(EvaluationError::UnsupportedConstruct)
+    );
+
+    // And a mixin that DOES name a Module still composes.
+    assert_eq!(
+        evaluate("module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } A.new().h()"),
+        Ok(RuntimeValue::Integer(8_u64.into()))
+    );
 }
