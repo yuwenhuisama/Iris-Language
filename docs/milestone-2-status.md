@@ -315,12 +315,41 @@ coverage:
 
 ## Freeze-Gate Clauses Left Open
 
-One CONFORMANCE clause stays uncited. An earlier revision of this section grouped all eight as needing "a
-freeze pipeline, a second backend and human review", which hid that five were
-decidable from the artifacts already on disk.
+One CONFORMANCE clause stays uncited, and it is deferred rather than open: it
+awaits the virtual machine. An earlier revision of this section grouped all
+eight as needing "a freeze pipeline, a second backend and human review", which
+hid that seven were decidable from the artifacts already on disk.
 
-- `C041` needs a SECOND BACKEND. It compares emitted float bits across
-  interpreter, JIT and native; only the interpreter exists.
+- `C041` is DEFERRED to the virtual machine, by owner decision. It is the only
+  clause in this chapter that no amount of work on the current tree can close,
+  because it asks for an agreement between backends and there is one backend.
+
+  Its SEMANTICS are already implemented and verified, so the deferral is about
+  the comparison, not the behaviour. Probing the five cases D-049 and D-050
+  govern gives bit patterns identical to IEEE-754:
+
+  | Source literal | Emitted bits | IEEE-754 |
+  | --- | --- | --- |
+  | `0.1f32` | `1036831949` | `1036831949` |
+  | `1.0000000000000002f64` | `4607182418800017409` | same |
+  | `1e400f64`, overflow to infinity | `9218868437227405312` | same |
+  | `1e-320f64`, gradual underflow | `2024` | `2024` |
+  | `1e-400f64`, underflow to zero | `0` | `0` |
+
+  `PRECISION_WARNING` fires exactly where D-050 requires it, on a finite nonzero
+  literal rounding to infinity or zero, and stays silent for a representable
+  subnormal.
+
+  What is missing is a second implementation to disagree with. `RUNTIME-V066`
+  states the test: with the host rounding mode forced to `toward_negative`,
+  interpreter and JIT must still emit the same bits under `roundTiesToEven`.
+  Comparing one backend against itself would assert nothing, which is why the
+  row is held rather than authored around.
+
+  Three sibling rows wait on the same second backend and should be revisited in
+  the same pass: `RUNTIME-V052` for Integer representation, `RUNTIME-V073` for
+  public hash agreement, and `COLLECTIONS-V330` for concurrent MutableString
+  append.
 - `C064` is now enforced in both halves, one mechanically and one by a
   heuristic that had to be validated before it was trusted. The citation half
   requires a vector touching a Legacy script, generated parser file, old PDF or

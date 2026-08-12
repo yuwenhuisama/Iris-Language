@@ -295,6 +295,32 @@ def check_expectation_provenance(root: str, corpus: list[dict], problems: list[s
             )
 
 
+DIFFERENTIAL_CLAUSES = {"IRIS-V1-CONFORMANCE-C041"}
+
+
+def check_differential_claims(corpus: list[dict], problems: list[str]) -> None:
+    """A clause requiring backend agreement may only be cited by a differential row.
+
+    `C041` compares emitted float bits ACROSS interpreter, JIT and native. Only
+    the interpreter exists, so the clause is deferred to the virtual machine.
+    The hazard is that deferral looks identical to completion once someone cites
+    the clause from an ordinary single-backend row: coverage would report it
+    satisfied while nothing compared anything.
+
+    A row claiming such a clause must therefore be tagged `bucket:differential`,
+    which the runner reports separately and never counts as passing.
+    """
+    for record in corpus:
+        claimed = set(record["source"]["clauses"]) & DIFFERENTIAL_CLAUSES
+        if not claimed:
+            continue
+        if "bucket:differential" not in record.get("tags", []):
+            problems.append(
+                f"C041 backend-agreement clause {sorted(claimed)} cited by a row that "
+                f"is not differential: {record['id']}"
+            )
+
+
 def check(root: str, problems: list[str]) -> None:
     corpus = _corpus(root)
     check_published_ids(root, corpus, problems)
@@ -305,3 +331,4 @@ def check(root: str, problems: list[str]) -> None:
     check_chapter_coverage(root, corpus, problems)
     check_forbidden_authority(root, corpus, problems)
     check_expectation_provenance(root, corpus, problems)
+    check_differential_claims(corpus, problems)
