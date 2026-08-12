@@ -5022,6 +5022,275 @@ impl SourceEvaluator {
         })
     }
 
+    /// Sends to a computed receiver in `IRIS-V1-CONTROL-C033` order.
+    ///
+    /// The receiver expression is evaluated BEFORE the arguments. It lives in
+    /// its own frame so no receiver `Value` is held across the argument
+    /// collection in `call_expression`, which recurses per nested expression.
+    #[inline(never)]
+    fn ordered_send(
+        &mut self,
+        target: &Expression,
+        selector: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let target = self.expression(target, locals, receiver.clone())?;
+        let arguments = arguments
+            .iter()
+            .map(|argument| self.expression(argument, locals, receiver.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.send(target, selector, &arguments)
+    }
+
+    /// Evaluates a call expression.
+    ///
+    /// Extracted from `expression` rather than living in its match. That
+    /// function is one 992-line match, so EVERY arm's locals sum into a single
+    /// frame, and it recurses once per nested expression. It sat so close to
+    /// the budget that adding one inert `Option<Value>` local overflowed the
+    /// non-termination test, which measures the remaining host stack.
+    #[inline(never)]
+    fn call_expression(
+        &mut self,
+        callee: &Expression,
+        arguments: &[Expression],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        // C033 fixes call order as receiver expression FIRST, then positional
+        // arguments left-to-right. Only a non-`Name` target is routed: a bare
+        // name runs no user code so its position is unobservable, and the
+        // Module and Reflection arms below read the NAME rather than a value.
+        if let Expression::Member {
+            receiver: target,
+            selector,
+        } = callee
+            && !matches!(target.as_ref(), Expression::Name(_))
+            && !matches!(selector.as_str(), "method" | "remove_module")
+        {
+            return self.ordered_send(target, selector, arguments, locals, receiver);
+        }
+        let arguments = arguments
+            .iter()
+            .map(|argument| self.expression(argument, locals, receiver.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        match callee {
+            Expression::ContractView {
+                receiver: target,
+                selector,
+            } => {
+                let view = self.expression(target, locals, receiver.clone())?;
+                self.qualified_send(view, selector, &arguments)
+            }
+            // `Iteration.yield(value)` and `Iteration.done` are the
+            // IRIS-V1-COLLECTIONS-C013 iteration results, not Class
+            // sends, so they are built here rather than dispatched.
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::Name(name) if name == "Iteration")
+                && selector == "yield" =>
+            {
+                let [value] = arguments.as_slice() else {
+                    return Err(EvaluationError::ArgumentError);
+                };
+                Ok(Value::IterationYield(Box::new(value.clone())))
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::Name(name)
+                if name.starts_with("Reflection::")
+                    // C050 names the Host drive surface, but `Host` is
+                    // an ordinary identifier a program may declare.
+                    // Routing it unconditionally hijacked a user Class
+                    // of that name, so a DECLARED name wins.
+                    || (name == "Host"
+                        && selector == "run"
+                        && self.class_name(name).ok().flatten().is_none())
+                    // C043 names `FFI` the standard service Class, and
+                    // it is an ordinary identifier for the same reason
+                    // `Host` is, so a DECLARED `FFI` wins over it.
+                    || (matches!(
+                        name.as_str(),
+                        "Revision"
+                            | "RevisionHistory"
+                            | "Gate"
+                            | "Diagnostics"
+                            | "JSON"
+                            | "File"
+                            | "Package"
+                            | "IrisValue"
+                            | "Unicode"
+                            | "Encoding"
+                            | "Encoding::UTF_8"
+                            | "Encoding::UTF_16LE"
+                            | "Encoding::UTF_16BE"
+                            | "Encoding::Latin_1"
+                    )
+                        && self.class_name(name).ok().flatten().is_none())
+                    || (name == "FFI"
+                        && selector == "open"
+                        && self.class_name(name).ok().flatten().is_none())
+                    // C018 makes a native raise reach Iris only through
+                    // an ABI operation, so the fixture that performs one
+                    // is a service receiver like the others.
+                    || (name == "NativeFixture"
+                        && selector == "raise"
+                        && self.class_name(name).ok().flatten().is_none())) =>
+            {
+                let Expression::Name(namespace) = target.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.reflection(namespace, selector, &arguments)
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(selector.as_str(), "method" | "remove_module")
+                && !matches!(target.as_ref(), Expression::Name(name) if self.module_names.contains_key(name)) =>
+            {
+                let target = self.expression(target, locals, receiver)?;
+                self.send(target, selector, &arguments)
+            }
+            Expression::Name(name) if name == "super" => {
+                self.super_send(receiver, &arguments, None)
+            }
+            // C032 makes `using` an ordinary HELPER reached by a bare
+            // call. C014 keeps it an ordinary Method name, so a
+            // DECLARED `using` wins and only an undeclared one reaches
+            // the standard helper.
+            Expression::Name(name)
+                if name == "using"
+                    && !self.names.contains_key(name)
+                    && self.main_bound_method(name, receiver.as_ref()).is_none() =>
+            {
+                self.reflection("Iris", "using", &arguments)
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::Name(name) if name == "super") => {
+                self.super_send(receiver, &arguments, Some(selector))
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
+            } if matches!(target.as_ref(), Expression::Name(name)
+                if self.module_names.contains_key(name) && self.module_visible(name)) =>
+            {
+                let Expression::Name(name) = target.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let module = *self
+                    .module_names
+                    .get(name)
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                // V358 observes that a Module written without `mixin` has an
+                // EMPTY edge list, so no implicit composition edge may appear.
+                if selector == "method" {
+                    let [Value::Symbol(name)] = arguments.as_slice() else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    let selector = self.selector(name);
+                    return Ok(self
+                        .module_methods
+                        .get(&(module, selector))
+                        .copied()
+                        .map(Value::Method)
+                        .unwrap_or(Value::Nil));
+                }
+                if selector == "invoke" {
+                    let [Value::Method(method), receiver, Value::Array(args)] =
+                        arguments.as_slice()
+                    else {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    };
+                    return self.reflective_invoke(*method, receiver.clone(), &args.elements());
+                }
+                let selector_name = selector.clone();
+                let selector = self.selector(&selector_name);
+                let method = self
+                    .module_methods
+                    .get(&(module, selector))
+                    .copied()
+                    .ok_or(EvaluationError::MessageNotFound {
+                        receiver_class: "Module".into(),
+                        selector: selector_name,
+                    })?;
+                // An `M.name()` send from outside the Module is
+                // EXTERNAL, so a private Method is denied. Reading the
+                // method map directly bypassed visibility entirely,
+                // which let a private top-level helper be called by an
+                // importer against IRIS-V1-CONTROL-C012.
+                if method.visibility() != iris_runtime::Visibility::Public {
+                    return Err(EvaluationError::Construction(
+                        iris_runtime::ConstructionError::Dispatch(
+                            iris_runtime::DispatchError::VisibilityDenied { selector },
+                        ),
+                    ));
+                }
+                self.invoke_method(method, Value::Symbol(name.clone()), &arguments)
+            }
+            Expression::Member {
+                receiver: target,
+                selector,
+            } => {
+                let target = self.expression(target, locals, receiver)?;
+                self.send(target, selector, &arguments)
+            }
+            // A local binding shadows a self-send: `b()` where `b` is a
+            // parameter invokes that value rather than sending `b` to
+            // self. This must cover EVERY local, not just callable ones,
+            // because falling through for a nil block would send `b` to
+            // self, reach method_missing, and re-evaluate `b()` forever.
+            Expression::Name(selector) if locals.contains_key(selector) => {
+                let callee = locals
+                    .get(selector)
+                    .cloned()
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                self.call(callee, &arguments)
+            }
+            // C013 looks up `name(args...)` in the LEXICAL/declaration
+            // callable first. A binding holding a BoundMethod is such a
+            // callable, so it is invoked rather than being re-sent to
+            // `self` as a selector that does not exist.
+            Expression::Name(selector)
+                if matches!(
+                    self.names.get(selector).map(Binding::value),
+                    Some(Value::BoundMethod(_))
+                ) =>
+            {
+                let callee = self
+                    .names
+                    .get(selector)
+                    .map(Binding::value)
+                    .ok_or(EvaluationError::NameError)?;
+                self.call(callee, &arguments)
+            }
+            // C012 makes a bare `f(...)` inside a Module a PRIVILEGED
+            // implicit send to that Module's own members, and C024
+            // falls back to the current `self` or Module `main`
+            // receiver. A Module name evaluates to a Symbol, so sending
+            // to the evaluated receiver looked for the helper on Symbol
+            // and reported a missing message instead.
+            Expression::Name(selector)
+                if !locals.contains_key(selector)
+                    && let Some(value) = self.module_self_send(selector, &arguments)? =>
+            {
+                Ok(value)
+            }
+            Expression::Name(selector) => match receiver {
+                Some(receiver) => self.send(receiver, selector, &arguments),
+                None => self
+                    .expression(callee, locals, None)
+                    .and_then(|value| self.call(value, &arguments)),
+            },
+            _ => Err(EvaluationError::UnsupportedConstruct),
+        }
+    }
     fn expression(
         &mut self,
         expression: &Expression,
@@ -5439,230 +5708,7 @@ impl SourceEvaluator {
             }
             Expression::Call {
                 callee, arguments, ..
-            } => {
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| self.expression(argument, locals, receiver.clone()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                match callee.as_ref() {
-                    Expression::ContractView {
-                        receiver: target,
-                        selector,
-                    } => {
-                        let view = self.expression(target, locals, receiver.clone())?;
-                        self.qualified_send(view, selector, &arguments)
-                    }
-                    // `Iteration.yield(value)` and `Iteration.done` are the
-                    // IRIS-V1-COLLECTIONS-C013 iteration results, not Class
-                    // sends, so they are built here rather than dispatched.
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(target.as_ref(), Expression::Name(name) if name == "Iteration")
-                        && selector == "yield" =>
-                    {
-                        let [value] = arguments.as_slice() else {
-                            return Err(EvaluationError::ArgumentError);
-                        };
-                        Ok(Value::IterationYield(Box::new(value.clone())))
-                    }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(target.as_ref(), Expression::Name(name)
-                        if name.starts_with("Reflection::")
-                            // C050 names the Host drive surface, but `Host` is
-                            // an ordinary identifier a program may declare.
-                            // Routing it unconditionally hijacked a user Class
-                            // of that name, so a DECLARED name wins.
-                            || (name == "Host"
-                                && selector == "run"
-                                && self.class_name(name).ok().flatten().is_none())
-                            // C043 names `FFI` the standard service Class, and
-                            // it is an ordinary identifier for the same reason
-                            // `Host` is, so a DECLARED `FFI` wins over it.
-                            || (matches!(
-                                name.as_str(),
-                                "Revision"
-                                    | "RevisionHistory"
-                                    | "Gate"
-                                    | "Diagnostics"
-                                    | "JSON"
-                                    | "File"
-                                    | "Package"
-                                    | "IrisValue"
-                                    | "Unicode"
-                                    | "Encoding"
-                                    | "Encoding::UTF_8"
-                                    | "Encoding::UTF_16LE"
-                                    | "Encoding::UTF_16BE"
-                                    | "Encoding::Latin_1"
-                            )
-                                && self.class_name(name).ok().flatten().is_none())
-                            || (name == "FFI"
-                                && selector == "open"
-                                && self.class_name(name).ok().flatten().is_none())
-                            // C018 makes a native raise reach Iris only through
-                            // an ABI operation, so the fixture that performs one
-                            // is a service receiver like the others.
-                            || (name == "NativeFixture"
-                                && selector == "raise"
-                                && self.class_name(name).ok().flatten().is_none())) =>
-                    {
-                        let Expression::Name(namespace) = target.as_ref() else {
-                            return Err(EvaluationError::UnsupportedConstruct);
-                        };
-                        self.reflection(namespace, selector, &arguments)
-                    }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(selector.as_str(), "method" | "remove_module")
-                        && !matches!(target.as_ref(), Expression::Name(name) if self.module_names.contains_key(name)) =>
-                    {
-                        let target = self.expression(target, locals, receiver)?;
-                        self.send(target, selector, &arguments)
-                    }
-                    Expression::Name(name) if name == "super" => {
-                        self.super_send(receiver, &arguments, None)
-                    }
-                    // C032 makes `using` an ordinary HELPER reached by a bare
-                    // call. C014 keeps it an ordinary Method name, so a
-                    // DECLARED `using` wins and only an undeclared one reaches
-                    // the standard helper.
-                    Expression::Name(name)
-                        if name == "using"
-                            && !self.names.contains_key(name)
-                            && self.main_bound_method(name, receiver.as_ref()).is_none() =>
-                    {
-                        self.reflection("Iris", "using", &arguments)
-                    }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(target.as_ref(), Expression::Name(name) if name == "super") => {
-                        self.super_send(receiver, &arguments, Some(selector))
-                    }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } if matches!(target.as_ref(), Expression::Name(name)
-                        if self.module_names.contains_key(name) && self.module_visible(name)) =>
-                    {
-                        let Expression::Name(name) = target.as_ref() else {
-                            return Err(EvaluationError::UnsupportedConstruct);
-                        };
-                        let module = *self
-                            .module_names
-                            .get(name)
-                            .ok_or(EvaluationError::UnsupportedConstruct)?;
-                        // V358 observes that a Module written without `mixin` has an
-                        // EMPTY edge list, so no implicit composition edge may appear.
-                        if selector == "method" {
-                            let [Value::Symbol(name)] = arguments.as_slice() else {
-                                return Err(EvaluationError::UnsupportedConstruct);
-                            };
-                            let selector = self.selector(name);
-                            return Ok(self
-                                .module_methods
-                                .get(&(module, selector))
-                                .copied()
-                                .map(Value::Method)
-                                .unwrap_or(Value::Nil));
-                        }
-                        if selector == "invoke" {
-                            let [Value::Method(method), receiver, Value::Array(args)] =
-                                arguments.as_slice()
-                            else {
-                                return Err(EvaluationError::UnsupportedConstruct);
-                            };
-                            return self.reflective_invoke(
-                                *method,
-                                receiver.clone(),
-                                &args.elements(),
-                            );
-                        }
-                        let selector_name = selector.clone();
-                        let selector = self.selector(&selector_name);
-                        let method = self
-                            .module_methods
-                            .get(&(module, selector))
-                            .copied()
-                            .ok_or(EvaluationError::MessageNotFound {
-                                receiver_class: "Module".into(),
-                                selector: selector_name,
-                            })?;
-                        // An `M.name()` send from outside the Module is
-                        // EXTERNAL, so a private Method is denied. Reading the
-                        // method map directly bypassed visibility entirely,
-                        // which let a private top-level helper be called by an
-                        // importer against IRIS-V1-CONTROL-C012.
-                        if method.visibility() != iris_runtime::Visibility::Public {
-                            return Err(EvaluationError::Construction(
-                                iris_runtime::ConstructionError::Dispatch(
-                                    iris_runtime::DispatchError::VisibilityDenied { selector },
-                                ),
-                            ));
-                        }
-                        self.invoke_method(method, Value::Symbol(name.clone()), &arguments)
-                    }
-                    Expression::Member {
-                        receiver: target,
-                        selector,
-                    } => {
-                        let target = self.expression(target, locals, receiver)?;
-                        self.send(target, selector, &arguments)
-                    }
-                    // A local binding shadows a self-send: `b()` where `b` is a
-                    // parameter invokes that value rather than sending `b` to
-                    // self. This must cover EVERY local, not just callable ones,
-                    // because falling through for a nil block would send `b` to
-                    // self, reach method_missing, and re-evaluate `b()` forever.
-                    Expression::Name(selector) if locals.contains_key(selector) => {
-                        let callee = locals
-                            .get(selector)
-                            .cloned()
-                            .ok_or(EvaluationError::UnsupportedConstruct)?;
-                        self.call(callee, &arguments)
-                    }
-                    // C013 looks up `name(args...)` in the LEXICAL/declaration
-                    // callable first. A binding holding a BoundMethod is such a
-                    // callable, so it is invoked rather than being re-sent to
-                    // `self` as a selector that does not exist.
-                    Expression::Name(selector)
-                        if matches!(
-                            self.names.get(selector).map(Binding::value),
-                            Some(Value::BoundMethod(_))
-                        ) =>
-                    {
-                        let callee = self
-                            .names
-                            .get(selector)
-                            .map(Binding::value)
-                            .ok_or(EvaluationError::NameError)?;
-                        self.call(callee, &arguments)
-                    }
-                    // C012 makes a bare `f(...)` inside a Module a PRIVILEGED
-                    // implicit send to that Module's own members, and C024
-                    // falls back to the current `self` or Module `main`
-                    // receiver. A Module name evaluates to a Symbol, so sending
-                    // to the evaluated receiver looked for the helper on Symbol
-                    // and reported a missing message instead.
-                    Expression::Name(selector)
-                        if !locals.contains_key(selector)
-                            && let Some(value) = self.module_self_send(selector, &arguments)? =>
-                    {
-                        Ok(value)
-                    }
-                    Expression::Name(selector) => match receiver {
-                        Some(receiver) => self.send(receiver, selector, &arguments),
-                        None => self
-                            .expression(callee, locals, None)
-                            .and_then(|value| self.call(value, &arguments)),
-                    },
-                    _ => Err(EvaluationError::UnsupportedConstruct),
-                }
-            }
+            } => self.call_expression(callee.as_ref(), arguments, locals, receiver),
             Expression::Binary {
                 left,
                 operator,

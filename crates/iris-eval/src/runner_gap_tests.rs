@@ -2617,3 +2617,24 @@ fn c024_writes_use_negative_resolution_and_raise_index_error() {
         Ok(RuntimeValue::Nil)
     );
 }
+
+#[test]
+fn call_evaluates_the_receiver_expression_before_its_arguments() {
+    // Given: IRIS-V1-CONTROL-C033 fixes call evaluation order as receiver
+    // expression, then positional arguments left-to-right, then invocation.
+    let source = "mut log = []; class A { public fun s(x, y) -> Integer { log.append(:call); 1 } } class Mk { public fun make() -> Object { log.append(:receiver); A.new() } } module M { public fun run() -> Object { Mk.new().make().s(log.append(:one), log.append(:two)); log } } M.run()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(
+        result,
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("receiver".into()),
+            RuntimeValue::Symbol("one".into()),
+            RuntimeValue::Symbol("two".into()),
+            RuntimeValue::Symbol("call".into()),
+        ])))
+    );
+}
