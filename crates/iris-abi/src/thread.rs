@@ -67,6 +67,11 @@ struct QueueState {
     ///
     /// `IRIS-V1-FFI-C037` makes the FIRST completion stand.
     spent: Vec<u64>,
+    /// Whether the runtime has shut down.
+    ///
+    /// `IRIS-V1-FFI-C036` requires a post after shutdown to answer a closed
+    /// status rather than letting a worker reach Iris state after close.
+    closed: bool,
 }
 
 impl Default for PostQueue {
@@ -92,6 +97,9 @@ impl PostQueue {
         let Ok(mut state) = self.inner.lock() else {
             return IrisStatus::InvalidRuntime;
         };
+        if state.closed {
+            return IrisStatus::InvalidRuntime;
+        }
         if state.spent.contains(&post.token)
             || state.pending.iter().any(|held| held.token == post.token)
         {
@@ -99,6 +107,16 @@ impl PostQueue {
         }
         state.pending.push(post);
         IrisStatus::Success
+    }
+
+    /// Closes the queue for runtime shutdown.
+    ///
+    /// `IRIS-V1-FFI-C036`: after this, a post answers `InvalidRuntime` and a
+    /// drain refuses, so no worker thread can use Iris handles after close.
+    pub fn close(&self) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.closed = true;
+        }
     }
 
     /// Discards every pending post and spent token.
@@ -111,6 +129,7 @@ impl PostQueue {
         if let Ok(mut state) = self.inner.lock() {
             state.pending.clear();
             state.spent.clear();
+            state.closed = false;
         }
     }
 
@@ -124,6 +143,11 @@ impl PostQueue {
         let Ok(mut state) = self.inner.lock() else {
             return Err(IrisStatus::InvalidRuntime);
         };
+        // C036: a closed runtime refuses the drain too, so a pending post
+        // cannot be converted into Iris values after shutdown.
+        if state.closed {
+            return Err(IrisStatus::InvalidRuntime);
+        }
         let drained = std::mem::take(&mut state.pending);
         for post in &drained {
             state.spent.push(post.token);
@@ -136,6 +160,36 @@ impl PostQueue {
 mod tests {
     use super::{Post, PostQueue, ThreadAffinity};
     use crate::IrisStatus;
+
+    #[test]
+    fn c036_a_post_after_shutdown_answers_closed() {
+        // Given: IRIS-V1-FFI-C036 requires posting after runtime shutdown to
+        // answer a closed status rather than letting a worker thread use Iris
+        // handles after close.
+        let queue = PostQueue::new();
+        assert_eq!(
+            queue.post(Post {
+                token: 1,
+                payload: vec![7]
+            }),
+            IrisStatus::Success
+        );
+
+        // When the runtime closes
+        queue.close();
+
+        // Then a later completion is refused, and draining is refused too, so
+        // no worker can reach Iris state through the queue after close.
+        assert_eq!(
+            queue.post(Post {
+                token: 2,
+                payload: vec![9]
+            }),
+            IrisStatus::InvalidRuntime
+        );
+        let affinity = ThreadAffinity::bind_current();
+        assert_eq!(queue.drain(&affinity), Err(IrisStatus::InvalidRuntime));
+    }
 
     #[test]
     fn c012_the_owning_thread_may_touch_iris_state() {

@@ -469,6 +469,50 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // C040: handle IDs are RUNTIME-LOCAL. Two runtimes issue the same slot
+        // as different ids, and neither id resolves in the other runtime, so an
+        // id cannot serve as cross-run identity.
+        "runtime_local_native_ids" => {
+            let mut first = HandleTable::new(1);
+            let mut second = HandleTable::new(2);
+            let here = first.retain(41_i64, IrisHandleKind::ExplicitRelease);
+            let there = second.retain(41_i64, IrisHandleKind::ExplicitRelease);
+            let same_slot = here.slot() == there.slot();
+            let distinct_runtime = here.runtime() != there.runtime();
+            let distinct_id = here != there;
+            let not_portable = second.get(here) == Err(IrisStatus::InvalidRuntime)
+                && first.get(there) == Err(IrisStatus::InvalidRuntime);
+            if same_slot && distinct_runtime && distinct_id && not_portable {
+                "runtime-local"
+            } else {
+                "unexpected"
+            }
+        }
+        // C036: posting after runtime shutdown answers a closed status, and
+        // the drain refuses too, so no worker reaches Iris state after close.
+        "post_after_shutdown" => {
+            let queue = PostQueue::new();
+            let accepted = queue.post(Post {
+                token: 1,
+                payload: vec![7],
+            });
+            queue.close();
+            let refused = queue.post(Post {
+                token: 2,
+                payload: vec![9],
+            });
+            let affinity = ThreadAffinity::bind_current();
+            let drained = queue.drain(&affinity);
+            queue.clear();
+            if accepted == IrisStatus::Success
+                && refused == IrisStatus::InvalidRuntime
+                && drained == Err(IrisStatus::InvalidRuntime)
+            {
+                "closed"
+            } else {
+                "unexpected"
+            }
+        }
         // V067: a major mismatch publishes no table.
         "c_negotiate_v2" => {
             let mut major = 0_u32;
