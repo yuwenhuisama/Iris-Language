@@ -469,6 +469,41 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // C031: an extension keeps its own non-managed pointers inside runtime
+        // storage, but a script never receives a raw address. The payload
+        // reaches Iris ONLY through opaque handles, and a handle is not an
+        // address: it resolves through a runtime table and is refused by
+        // another runtime, so it cannot be read as one.
+        "extension_pointers_stay_internal" => {
+            let descriptor = iris_abi::PayloadDescriptor {
+                size: 16,
+                alignment: 8,
+                trace: iris_abi::TraceReport::default(),
+                cleanup: iris_abi::CleanupPolicy::NoRaise,
+                external_resource: true,
+            };
+            let Ok(mut payload) = iris_abi::NativePayload::register(descriptor) else {
+                return Outcome::Failed {
+                    id: record.id.clone(),
+                    expected: "a registrable payload descriptor".into(),
+                    actual: "descriptor refused".into(),
+                };
+            };
+            let mut table = HandleTable::new(1);
+            let rooted = table.retain(41_i64, IrisHandleKind::ExplicitRelease);
+            payload.add_root(rooted);
+            let other = HandleTable::<i64>::new(2);
+            // Every root is a handle, and that handle resolves only in its
+            // OWN runtime, which is what makes it an identity rather than an
+            // address a script could dereference.
+            let roots_are_handles = payload.trace() == [rooted];
+            let not_an_address = other.get(rooted) == Err(IrisStatus::InvalidRuntime);
+            if roots_are_handles && not_an_address {
+                "internal-only"
+            } else {
+                "unexpected"
+            }
+        }
         // C040: handle IDs are RUNTIME-LOCAL. Two runtimes issue the same slot
         // as different ids, and neither id resolves in the other runtime, so an
         // id cannot serve as cross-run identity.
