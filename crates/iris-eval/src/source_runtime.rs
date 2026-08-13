@@ -9999,14 +9999,44 @@ impl SourceEvaluator {
         // value Class may be viewed as well as an identity-bearing object.
         // Restricting this to `Value::Object` made `1 as N` unconstructible.
         let class = self.class_of_value(&value)?;
-        if !self
-            .class_contracts
-            .get(&class)
-            .is_some_and(|declared| declared.contains(contract))
-        {
+        // C019 draws nominal subtyping from immutable superclass AND declared
+        // Contract facts, so a subclass of a Class declaring `for C` conforms
+        // to C as well. Consulting only the receiver's OWN declarations made
+        // `A.new() as C` unconstructible whenever `A extends B for C`, even
+        // though the inherited `impl` answered an ordinary send.
+        if !self.conforms_through_ancestry(class, *contract)? {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         }
         Ok(Value::ContractView(Box::new(value), *contract))
+    }
+
+    /// Reports whether `class` or any ancestor declares `contract`.
+    #[inline(never)]
+    fn conforms_through_ancestry(
+        &self,
+        class: ClassId,
+        contract: iris_runtime::ContractId,
+    ) -> Result<bool, EvaluationError> {
+        if self
+            .class_contracts
+            .get(&class)
+            .is_some_and(|declared| declared.contains(&contract))
+        {
+            return Ok(true);
+        }
+        let mro = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .mro();
+        Ok(mro.iter().any(|entry| {
+            matches!(entry, iris_runtime::MroEntry::Class(ancestor)
+                if self
+                    .class_contracts
+                    .get(ancestor)
+                    .is_some_and(|declared| declared.contains(&contract)))
+        }))
     }
 
     /// Sends `view..member(args)` to the Contract-qualified slot.
@@ -10074,9 +10104,12 @@ impl SourceEvaluator {
         contract: iris_runtime::ContractId,
         selector: &str,
     ) -> bool {
-        self.class_contracts
-            .get(&class)
-            .is_some_and(|declared| declared.contains(&contract))
+        // C019 makes a declared Contract an INHERITED nominal fact, so a
+        // subclass satisfies its superclass's Contract through the same
+        // unqualified `impl`. Checking the receiver's own declarations alone
+        // refused every inherited conformance.
+        self.conforms_through_ancestry(class, contract)
+            .unwrap_or(false)
             && self
                 .contract_requirements
                 .get(&contract)
@@ -10730,13 +10763,31 @@ impl SourceEvaluator {
                             _ => false,
                         })
                         .ok_or(EvaluationError::UnsupportedConstruct)?;
+                    // C082 keeps qualified `super` inside the Contract slot,
+                    // and C047 makes ONE unqualified `impl` satisfy a declared
+                    // requirement. Searching only the qualified table therefore
+                    // missed an ancestor whose `impl` is unqualified, which is
+                    // the ordinary way a Contract is implemented, and answered
+                    // NoSuperMethodError for it.
                     let successor = mro[owner_index + 1..].iter().find_map(|entry| {
-                        let iris_runtime::MroEntry::Class(class) = entry else {
+                        let iris_runtime::MroEntry::Class(ancestor) = entry else {
                             return None;
                         };
                         self.qualified_methods
-                            .get(&(*class, contract, selector))
+                            .get(&(*ancestor, contract, selector))
                             .copied()
+                            .or_else(|| {
+                                if !self
+                                    .conforms_through_ancestry(*ancestor, contract)
+                                    .unwrap_or(false)
+                                {
+                                    return None;
+                                }
+                                match self.runtime.registry().dispatch(*ancestor, selector) {
+                                    Ok(iris_runtime::DispatchOutcome::Invoke(found)) => Some(found),
+                                    _ => None,
+                                }
+                            })
                     });
                     let successor = successor.ok_or(EvaluationError::Runtime(
                         iris_runtime::KernelError::Dispatch(

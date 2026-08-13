@@ -2673,3 +2673,31 @@ fn composition_rejects_a_mixin_naming_nothing() {
         Ok(RuntimeValue::Integer(8_u64.into()))
     );
 }
+
+#[test]
+fn a_subclass_inherits_its_superclass_declared_contract() {
+    // Given: IRIS-V1-TYPES-C019 draws nominal subtyping from immutable
+    // superclass and DECLARED CONTRACT facts, so a subclass of a Class
+    // declaring `for C` conforms to C as well and may be viewed as one.
+    let source = "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class A extends B { } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("base".into())));
+}
+
+#[test]
+fn qualified_super_reaches_an_unqualified_ancestor_impl() {
+    // Given: IRIS-V1-RUNTIME-C082 keeps qualified `super` inside the Contract
+    // slot, and IRIS-V1-TYPES-C047 makes one unqualified `impl` satisfy a
+    // declared requirement, so super must find an ancestor's plain `impl`.
+    let source = "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class A extends B { public override impl fun n() -> Symbol { super() } } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("base".into())));
+}
