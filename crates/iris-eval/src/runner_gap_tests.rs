@@ -2701,3 +2701,18 @@ fn qualified_super_reaches_an_unqualified_ancestor_impl() {
     // Then
     assert_eq!(result, Ok(RuntimeValue::Symbol("base".into())));
 }
+
+#[test]
+fn a_checked_cast_returns_the_value_or_raises() {
+    // Given: IRIS-V1-TYPES-C029 evaluates the operand once, returns the SAME
+    // value when it satisfies the reified Type, and raises TypeError when not.
+    let ok = "class A { } class B extends A { } module M { public fun run() -> Object { let b = B.new(); (b as A) is A } } M.run()";
+    let bad = "class A { } class Z { } module M { public fun run() -> Object { let z = Z.new(); (z as A) } } M.run()";
+
+    // When / Then
+    assert_eq!(evaluate(ok), Ok(RuntimeValue::Bool(true)));
+    assert_eq!(
+        evaluate(bad),
+        Err(EvaluationError::Runtime(iris_runtime::KernelError::Type))
+    );
+}

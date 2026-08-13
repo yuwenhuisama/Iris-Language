@@ -5834,9 +5834,11 @@ impl SourceEvaluator {
                     BinaryOperator::Is => {
                         return self.type_test(&left, &right);
                     }
-                    BinaryOperator::As => {
-                        return self.contract_view(left, &right);
-                    }
+                    // C029: `value as T` evaluates the operand once, returns
+                    // the SAME value when it satisfies reified `T`, and raises
+                    // TypeError otherwise. Only the Contract case was handled,
+                    // so an ordinary `b as A` answered UnsupportedConstruct.
+                    BinaryOperator::As => return self.checked_cast(left, &right),
                     // IRIS-V1-TYPES-C030: `value as? T` evaluates `value` ONCE
                     // and returns the SAME underlying value on success, or
                     // `nil` on a failed runtime check. It never converts.
@@ -10008,6 +10010,27 @@ impl SourceEvaluator {
             return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         }
         Ok(Value::ContractView(Box::new(value), *contract))
+    }
+
+    /// Evaluates `value as T` under `IRIS-V1-TYPES-C029`.
+    ///
+    /// The operand is already evaluated once by the caller. A Contract target
+    /// builds a view; any other reified Type returns the SAME value when the
+    /// test passes and raises TypeError when it does not. Only the Contract
+    /// case existed, so an ordinary `b as A` answered UnsupportedConstruct.
+    ///
+    /// Out of line because the binary-operator arm lives in `expression`, one
+    /// large match whose locals share a frame that recurses per nested
+    /// expression; inlining this overflowed the non-termination test.
+    #[inline(never)]
+    fn checked_cast(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
+        if matches!(target, Value::Contract(_)) {
+            return self.contract_view(value, target);
+        }
+        match self.type_test(&value, target)? {
+            Value::Bool(true) => Ok(value),
+            _ => Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+        }
     }
 
     /// Reports whether `class` or any ancestor declares `contract`.
