@@ -7937,6 +7937,32 @@ impl SourceEvaluator {
                 };
                 self.set_superclass(*target, *superclass)
             }
+            // C016 makes a ClassRevision a read-only metadata object, and
+            // C017/C018 fix its per-Class number and runtime-wide commit_id.
+            // Both are already tracked; nothing exposed them to source.
+            ("Reflection::Class", "revision") => {
+                let [Value::Class(target)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let revision = self
+                    .runtime
+                    .registry()
+                    .active(*target)
+                    .map_err(EvaluationError::Class)?;
+                let number = revision.number();
+                let commit = revision.commit_id();
+                let entries = vec![
+                    (
+                        Value::Symbol("number".to_owned()),
+                        Value::Integer(number.into()),
+                    ),
+                    (
+                        Value::Symbol("commit_id".to_owned()),
+                        Value::Integer(commit.into()),
+                    ),
+                ];
+                Ok(Value::Hash(iris_runtime::HashRef::new(entries)))
+            }
             ("Reflection::Class", "ancestors") => {
                 let [Value::Class(target)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
