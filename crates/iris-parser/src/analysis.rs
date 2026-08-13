@@ -1905,7 +1905,24 @@ impl Analyzer {
                     self.expression(value, control);
                 }
             }
-            Statement::Match { subject, arms, .. } => {
+            Statement::Match {
+                subject,
+                arms,
+                fallback,
+            } => {
+                // C050 rejects a match whose arms are not provably exhaustive
+                // unless it includes `else`, and D-441 requires a fallback for
+                // Dynamic or open-ended domains. A binding pattern and `_` both
+                // match every value, so either one proves exhaustiveness here;
+                // nothing else in the v1 pattern vocabulary can, since a
+                // literal, an alternative set and a destructuring pattern all
+                // leave values unmatched.
+                let irrefutable = arms.iter().any(|arm| {
+                    arm.guard.is_none() && matches!(&arm.pattern, iris_syntax::Pattern::Name(_))
+                });
+                if fallback.is_none() && !irrefutable {
+                    self.report("MATCH_NOT_EXHAUSTIVE");
+                }
                 self.expression(subject, control);
                 for arm in arms {
                     match &arm.body {
@@ -2281,6 +2298,19 @@ mod tests {
         assert!(codes("mut x: Integer").is_empty());
         assert!(codes("let x = 1").is_empty());
         assert!(codes("mut x = 1").is_empty());
+    }
+
+    #[test]
+    fn c050_requires_a_match_to_be_exhaustive_or_carry_a_fallback() {
+        // C050 rejects a match whose arms are not provably exhaustive unless it
+        // includes `else`, and D-441 requires a fallback for open-ended domains.
+        assert_eq!(codes("match 1 { 2 => :two }"), ["MATCH_NOT_EXHAUSTIVE"]);
+
+        // A fallback arm makes it exhaustive, and so does a bare binding or `_`,
+        // both of which match every value.
+        assert!(codes("match 1 { 2 => :two, else => :other }").is_empty());
+        assert!(codes("match 1 { _ => :any }").is_empty());
+        assert!(codes("match 1 { other => other }").is_empty());
     }
 
     #[test]
