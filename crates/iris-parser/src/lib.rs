@@ -722,6 +722,8 @@ impl Parser {
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
         self.expect("{")?;
         let mut parameters = Vec::new();
+        let mut return_type = None;
+        let mut has_header = false;
         // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
         // parameter list, but `||` lexes as ONE logical-or token, so a bare
         // `{ ||; ... }` never reached the header at all. An empty header is
@@ -738,13 +740,15 @@ impl Parser {
         }
         if self.empty_closure_header {
             self.empty_closure_header = false;
+            has_header = true;
             self.advance();
             if self.consume("-") {
                 self.expect(">")?;
-                self.type_expression()?;
+                return_type = Some(self.type_expression()?);
             }
             self.consume_terminators();
         } else if self.consume("|") {
+            has_header = true;
             let outer = std::mem::replace(&mut self.no_type_union, true);
             while !self.check("|") && !self.at_end() {
                 let Some(parameter) = self.binding_name() else {
@@ -766,7 +770,10 @@ impl Parser {
             self.expect("|")?;
             if self.consume("-") {
                 self.expect(">")?;
-                self.type_expression()?;
+                // C017 needs the annotation to SURVIVE parsing: an annotated
+                // and a bare Closure were the same AST node, so the omission
+                // it diagnoses could not be observed.
+                return_type = Some(self.type_expression()?);
             }
             self.consume_terminators();
         }
@@ -781,7 +788,12 @@ impl Parser {
             self.consume_terminators();
         }
         self.expect("}")?;
-        Some(Expression::Closure { parameters, body })
+        Some(Expression::Closure {
+            parameters,
+            return_type,
+            has_header,
+            body,
+        })
     }
 
     fn body(&mut self) -> Option<Vec<Statement>> {

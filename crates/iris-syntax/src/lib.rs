@@ -462,6 +462,18 @@ pub enum Expression {
     /// distinct Closure each time it is reached.
     Closure {
         parameters: Vec<String>,
+        /// The `-> Type` header annotation, absent when omitted.
+        ///
+        /// `IRIS-V1-CONTROL-C017` diagnoses an omitted Closure return
+        /// annotation where no unique expected callable type exists, so an
+        /// annotated Closure must be distinguishable from a bare one.
+        return_type: Option<TypeExpression>,
+        /// Whether a `|...|` header was written.
+        ///
+        /// A header-less `{ ... }` block body shares this node but is not a
+        /// Closure literal, and `{ || 7 }` has an EMPTY header rather than
+        /// none, so the two cannot be told apart by parameters alone.
+        has_header: bool,
         body: Vec<Statement>,
     },
     Call {

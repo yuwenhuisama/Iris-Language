@@ -1787,7 +1787,9 @@ impl SourceEvaluator {
         }
         let [
             Expression::Symbol(name),
-            Expression::Closure { parameters, body },
+            Expression::Closure {
+                parameters, body, ..
+            },
         ] = arguments.as_slice()
         else {
             return Err(EvaluationError::UnsupportedConstruct);
@@ -5458,7 +5460,9 @@ impl SourceEvaluator {
                 }
                 Ok(Value::Hash(HashRef::new(built)))
             }
-            Expression::Closure { parameters, body } => {
+            Expression::Closure {
+                parameters, body, ..
+            } => {
                 // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
                 // with its own captured environment, so this never caches.
                 let object = iris_runtime::ObjectId::new(self.next_closure);

@@ -1741,6 +1741,13 @@ impl Analyzer {
                 if *constant {
                     self.publish_qualified_name(name);
                 }
+                // C017 diagnoses an omitted Closure return annotation where no
+                // unique expected callable type exists. A binding annotation is
+                // that expected type, so only an UNANNOTATED binding leaves the
+                // Closure's public type unsupplied.
+                if annotation.is_none() {
+                    self.check_closure_return_annotation(value);
+                }
                 self.expression(value, control);
                 // C005: an annotation is the contract when written, otherwise
                 // the initializer's precise static Type becomes the fixed one.
@@ -2282,6 +2289,29 @@ impl Analyzer {
     }
 }
 
+impl Analyzer {
+    /// Reports a Closure literal whose return annotation is omitted where no
+    /// unique expected callable type supplies it.
+    ///
+    /// `IRIS-V1-CONTROL-C017` keeps this distinct from the Method rule: a
+    /// Method return annotation defaults to `Dynamic<Object>`, but a Closure's
+    /// public type MUST NOT be defaulted, so the omission is diagnosed.
+    fn check_closure_return_annotation(&mut self, value: &Expression) {
+        // A header-less `{ ... }` body is represented by the same node, as in
+        // `let c = { break }`, and is not a Closure literal with a public type
+        // to omit. `{ || 7 }` has an EMPTY header rather than none, so the
+        // written header is what distinguishes them.
+        if let Expression::Closure {
+            return_type: None,
+            has_header: true,
+            ..
+        } = value
+        {
+            self.report("CALLABLE_MISSING_CLOSURE_RETURN_TYPE");
+        }
+    }
+}
+
 fn pattern_names(pattern: &iris_syntax::Pattern) -> Vec<String> {
     match pattern {
         iris_syntax::Pattern::Name(name) => vec![name.clone()],
@@ -2303,6 +2333,43 @@ mod tests {
             .into_iter()
             .map(|diagnostic| diagnostic.code)
             .collect()
+    }
+
+    #[test]
+    fn c017_diagnoses_a_closure_return_annotation_with_no_expected_type() {
+        // C017: an omitted Closure return annotation MUST NOT default the
+        // Closure's public type where no unique expected callable type exists.
+        // A bare `let` supplies no expected callable type, so the omission is
+        // diagnosed rather than defaulted to Dynamic<Object>.
+        assert_eq!(
+            codes("let cl = { |x| x }"),
+            vec!["CALLABLE_MISSING_CLOSURE_RETURN_TYPE"]
+        );
+
+        // An explicit annotation supplies the public type, so nothing is
+        // diagnosed; C017 concerns the OMISSION only.
+        assert!(codes("let cl = { |x: Integer| -> Integer x }").is_empty());
+        assert!(codes("let cl = { |x: Integer| -> Integer | Nil x }").is_empty());
+
+        // A declared callable type on the binding is a unique expected callable
+        // type, so the omission is admitted there.
+        assert!(codes("let cl: Closure<(Integer) -> Integer> = { |x| x }").is_empty());
+
+        // V926's fixture: an EMPTY header is still a Closure literal, so the
+        // omission is diagnosed there too.
+        assert_eq!(
+            codes("let closure = { || 7 }"),
+            vec!["CALLABLE_MISSING_CLOSURE_RETURN_TYPE"]
+        );
+        assert!(codes("let closure = { || -> Integer 7 }").is_empty());
+
+        // A header-less block body shares the Closure node but has no Closure
+        // public type to omit, so it is untouched by this rule.
+        assert!(codes("mut x = 1; let c = { x = 2 }").is_empty());
+        assert_eq!(
+            codes("mut i = 0; while i < 3 { let c = { break }; i = i + 1 }"),
+            ["CONTROL_TARGET_CROSSES_CLOSURE"]
+        );
     }
 
     #[test]
