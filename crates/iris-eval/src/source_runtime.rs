@@ -1077,6 +1077,14 @@ impl SourceEvaluator {
                 ))]),
             });
             let selector = self.selector("to_bool");
+            // C017 makes declaring a Class ONE publication, numbered 1. The
+            // implicit `to_bool` used to publish its own revision before the
+            // body's transaction opened, so `class A { }` reported 3. Staging
+            // the origin first folds both into the origin revision.
+            self.runtime
+                .registry_mut()
+                .begin_origin_transaction(class)
+                .map_err(EvaluationError::Class)?;
             self.runtime
                 .registry_mut()
                 .publish_origin_method(class, selector, body, iris_runtime::Visibility::Public)
@@ -1175,9 +1183,11 @@ impl SourceEvaluator {
         // members are installed outside this transaction model.
         let transactional = !builtin;
         if transactional {
+            // Joins the origin candidate staged above when present, so the
+            // body's members seal into the origin revision.
             self.runtime
                 .registry_mut()
-                .begin_transaction(class)
+                .begin_origin_transaction(class)
                 .map_err(EvaluationError::Class)?;
         }
         let outcome = self
@@ -1191,7 +1201,7 @@ impl SourceEvaluator {
                 Ok(()) => self
                     .runtime
                     .registry_mut()
-                    .commit_transaction(class)
+                    .commit_origin_transaction(class)
                     .map_err(EvaluationError::Class)?,
                 // C034 rolls the candidate back on exception, validation error
                 // or capability denial and publishes nothing.

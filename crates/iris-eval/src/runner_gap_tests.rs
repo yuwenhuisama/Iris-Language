@@ -2292,7 +2292,8 @@ fn c080_confines_a_getter_replacement_to_ordinary_reads() {
 fn c099_refuses_removing_a_declared_contract() {
     // C099 supplies the SPELLING the refusal needs to be observable; C045 makes
     // declared conformance immutable, so the attempt is refused before commit
-    // and the target keeps its conformance.
+    // and the target keeps its conformance. C017 numbers the origin 1, and the
+    // refused removal publishes nothing, so the revision stays 1.
     let declared = "contract C { fun m() -> Nil } \
                     class A for C { public impl fun m() -> Nil { nil } } \
                     let refused = try { A.remove_contract(C) } catch e { e }; \
@@ -2301,7 +2302,7 @@ fn c099_refuses_removing_a_declared_contract() {
         evaluate(declared),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("TypeContractError".into()),
-            RuntimeValue::Integer(3_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
         ])))
     );
 
@@ -2714,5 +2715,52 @@ fn a_checked_cast_returns_the_value_or_raises() {
     assert_eq!(
         evaluate(bad),
         Err(EvaluationError::Runtime(iris_runtime::KernelError::Type))
+    );
+}
+
+#[test]
+fn an_origin_class_declaration_publishes_revision_one() {
+    // Given: IRIS-V1-RUNTIME-C017 makes the origin Class revision number 1 and
+    // gives the next per-Class integer to each successful structural
+    // PUBLICATION. Declaring a Class is ONE publication.
+    let bare = "class A { } A.active_revision";
+    let with_member = "class A { public fun g() -> Integer { 1 } } A.active_revision";
+
+    // When / Then: neither the implicit `to_bool` nor a declared member is a
+    // separate publication, so both declarations sit at the origin number.
+    assert_eq!(evaluate(bare), Ok(RuntimeValue::Integer(1_u8.into())));
+    assert_eq!(
+        evaluate(with_member),
+        Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+
+    // And: a structural change AFTER the declaration is the next publication.
+    let reopened = "class A { } \
+                    let ignored = A.define_method(:h) { 1 }; \
+                    A.active_revision";
+    assert_eq!(evaluate(reopened), Ok(RuntimeValue::Integer(2_u8.into())));
+}
+
+#[test]
+fn v959_revision_metadata_is_read_only_and_monotonic() {
+    // C017: a failed candidate publishes nothing, so it consumes no number.
+    let failed = "contract C { fun m() -> Nil } \
+                  class A { } \
+                  let refused = try { A.add_contract(C) } catch e { e }; \
+                  A.active_revision";
+    assert_eq!(evaluate(failed), Ok(RuntimeValue::Integer(1_u8.into())));
+
+    // C018: one successful publication takes one number and one commit_id.
+    let committed = "class A { } \
+                     let first = Reflection::Class.revision(A).fetch(:commit_id); \
+                     let done = A.define_method(:h) { 1 }; \
+                     let second = Reflection::Class.revision(A).fetch(:commit_id); \
+                     [A.active_revision, first == second]";
+    assert_eq!(
+        evaluate(committed),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(2_u8.into()),
+            RuntimeValue::Bool(false),
+        ])))
     );
 }

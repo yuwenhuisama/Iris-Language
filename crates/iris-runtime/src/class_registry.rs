@@ -415,6 +415,60 @@ impl ClassRegistry {
         Ok(())
     }
 
+    /// Stages the members a Class DECLARATION installs onto its origin.
+    ///
+    /// `IRIS-V1-RUNTIME-C017` makes the origin revision number 1 and gives the
+    /// next per-Class integer to each successful structural PUBLICATION.
+    /// Declaring a Class is ONE publication, so the members its body installs
+    /// belong to the origin revision instead of taking further numbers.
+    pub fn begin_origin_transaction(&mut self, class: ClassId) -> Result<(), ClassError> {
+        if !self.staged.contains_key(&class) {
+            let active = self.active(class)?;
+            let mut candidate = CandidateRevision::from_revision(active)
+                .ok_or(ClassError::RevisionNumberExhausted { class })?;
+            // Sealing the origin in place, so the number does not advance.
+            candidate.number = active.number();
+            self.staged.insert(class, candidate);
+        }
+        Ok(())
+    }
+
+    /// Seals a staged origin candidate as the Class's origin revision.
+    ///
+    /// This replaces the origin rather than publishing on top of it, so it
+    /// deliberately does NOT take `publish_all`'s `base + 1` path, which exists
+    /// to order successive publications against a live active revision.
+    pub fn commit_origin_transaction(&mut self, class: ClassId) -> Result<(), ClassError> {
+        let Some(mut candidate) = self.staged.remove(&class) else {
+            return Ok(());
+        };
+        crate::decorator::apply_pending(&mut candidate)?;
+        candidate.mro = self.compute_mro(&candidate)?;
+        candidate.meta_capabilities = self
+            .effective_meta_capabilities(candidate.static_spine, candidate.runtime_superclass)?
+            .narrowed_by(candidate.meta_capabilities)
+            .narrowed_by(self.mro_meta_capabilities(&candidate.mro)?);
+        let revision = RevisionId::new(self.next_revision_id);
+        let next_revision_id = self
+            .next_revision_id
+            .checked_add(1)
+            .ok_or(ClassError::RevisionIdentityExhausted)?;
+        let next_commit_id = self
+            .next_commit_id
+            .checked_add(1)
+            .ok_or(ClassError::CommitIdentityExhausted)?;
+        let capabilities = candidate.meta_capabilities;
+        self.revisions.insert(
+            revision,
+            ClassRevision::from_candidate(candidate, revision, next_commit_id, capabilities),
+        );
+        self.classes
+            .insert(class, LogicalClass::new(class, revision));
+        self.next_revision_id = next_revision_id;
+        self.next_commit_id = next_commit_id;
+        Ok(())
+    }
+
     /// Publishes the candidate staged for `class`, if any.
     ///
     /// `IRIS-V1-META-C022` validates the COMPLETE candidate and publishes it
