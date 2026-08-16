@@ -1925,6 +1925,26 @@ impl Analyzer {
                 }
                 self.expression(subject, control);
                 for arm in arms {
+                    // C053 requires union alternatives to bind IDENTICAL names,
+                    // so a name bound by one alternative and not another leaves
+                    // the arm body with a binding that may not exist. `_`
+                    // discards and creates no binding, so it never mismatches.
+                    if let iris_syntax::Pattern::Alternatives(alternatives) = &arm.pattern {
+                        let mut bindings = alternatives.iter().map(|alternative| {
+                            let mut names = pattern_names(alternative)
+                                .into_iter()
+                                .filter(|name| name != "_")
+                                .collect::<Vec<_>>();
+                            names.sort();
+                            names.dedup();
+                            names
+                        });
+                        if let Some(first) = bindings.next()
+                            && !bindings.all(|names| names == first)
+                        {
+                            self.report("PATTERN_UNION_BINDING_MISMATCH");
+                        }
+                    }
                     match &arm.body {
                         iris_syntax::MatchBody::Expression(value) => {
                             self.expression(value, control);
@@ -2283,6 +2303,25 @@ mod tests {
             .into_iter()
             .map(|diagnostic| diagnostic.code)
             .collect()
+    }
+
+    #[test]
+    fn c053_union_alternatives_must_bind_identical_names() {
+        // C053: union alternatives MUST bind identical names, so alternatives
+        // binding different names are refused.
+        assert_eq!(
+            codes("match [1] { [a] | [b] => 1, _ => 0 }"),
+            vec!["PATTERN_UNION_BINDING_MISMATCH"]
+        );
+        assert_eq!(
+            codes("match [1] { [a] | [a, c] => 1, _ => 0 }"),
+            vec!["PATTERN_UNION_BINDING_MISMATCH"]
+        );
+
+        // Identical bindings are admitted, and `_` discards rather than
+        // binding, so it creates no mismatch.
+        assert!(codes("match [1] { [a] | [a] => a, _ => 0 }").is_empty());
+        assert!(codes("match [1] { [_] | [_] => 1, _ => 0 }").is_empty());
     }
 
     #[test]

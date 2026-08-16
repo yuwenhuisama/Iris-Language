@@ -2764,3 +2764,64 @@ fn v959_revision_metadata_is_read_only_and_monotonic() {
         ])))
     );
 }
+
+#[test]
+fn an_array_pattern_destructures_and_binds() {
+    // C051 admits `[a, b]` array destructuring in the pattern vocabulary, so
+    // an arity-matching subject binds each element positionally.
+    assert_eq!(
+        evaluate("match [1, 2] { [a, b] => a + b, _ => 0 }"),
+        Ok(RuntimeValue::Integer(3_u8.into()))
+    );
+
+    // A shape that does not match falls through to the next arm rather than
+    // binding, because destructuring is part of the match test.
+    assert_eq!(
+        evaluate("match [1, 2, 3] { [a, b] => a + b, _ => 99 }"),
+        Ok(RuntimeValue::Integer(99_u8.into()))
+    );
+    assert_eq!(
+        evaluate("match 1 { [a] => a, _ => 99 }"),
+        Ok(RuntimeValue::Integer(99_u8.into()))
+    );
+
+    // Nested patterns and literal elements compose.
+    assert_eq!(
+        evaluate("match [1, [2, 3]] { [a, [b, c]] => a + b + c, _ => 0 }"),
+        Ok(RuntimeValue::Integer(6_u8.into()))
+    );
+    assert_eq!(
+        evaluate("match [1, 2] { [1, b] => b, _ => 0 }"),
+        Ok(RuntimeValue::Integer(2_u8.into()))
+    );
+
+    // The empty array pattern matches only an empty array.
+    assert_eq!(
+        evaluate("match [] { [] => 7, _ => 0 }"),
+        Ok(RuntimeValue::Integer(7_u8.into()))
+    );
+}
+
+#[test]
+fn c053_binding_only_destructuring_mismatch_raises() {
+    // C053: a `for` binding is a BINDING-ONLY destructuring context, so an
+    // arity mismatch there raises PatternMatchError rather than skipping.
+    assert_eq!(
+        evaluate("mut t = 0; for [k, v] in [[1, 2], [3, 4]] { t = t + k + v }; t"),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Integer(10_u8.into()),
+        ])))
+    );
+    assert_eq!(
+        evaluate("mut t = 0; for [k, v] in [[1]] { t = t + k }; t"),
+        Err(EvaluationError::PatternMatchError)
+    );
+
+    // By contrast an ordinary match arm TESTS the shape, so a mismatch simply
+    // does not select that arm.
+    assert_eq!(
+        evaluate("match [1] { [a, b] => a + b, _ => 42 }"),
+        Ok(RuntimeValue::Integer(42_u8.into()))
+    );
+}

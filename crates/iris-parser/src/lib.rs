@@ -1409,6 +1409,12 @@ impl Parser {
     /// A literal, `nil`, or a Bool literal compares by value; anything else is a
     /// binding pattern, and `_` discards without binding.
     fn pattern_alternative(&mut self) -> Option<Pattern> {
+        // `IRIS-V1-CONTROL-C051` admits `[a, b]` array destructuring in the
+        // pattern vocabulary, so this is checked before the literal and name
+        // forms; elements are patterns themselves and therefore nest.
+        if self.check("[") {
+            return self.array_pattern();
+        }
         if let Some(token) = self.peek()
             && (self.is_literal(token) || matches!(token, "nil" | "true" | "false"))
         {
@@ -1416,6 +1422,19 @@ impl Parser {
             return Some(Pattern::Literal(literal));
         }
         self.name().map(Pattern::Name)
+    }
+
+    fn array_pattern(&mut self) -> Option<Pattern> {
+        self.expect("[")?;
+        let mut elements = Vec::new();
+        while !self.check("]") && !self.at_end() {
+            elements.push(self.pattern()?);
+            if !self.consume(",") {
+                break;
+            }
+        }
+        self.expect("]")?;
+        Some(Pattern::Array(elements))
     }
 
     fn generic_parameters(&mut self) -> Vec<String> {
