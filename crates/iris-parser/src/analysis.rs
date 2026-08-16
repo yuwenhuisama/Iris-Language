@@ -994,15 +994,30 @@ impl Analyzer {
                     .collect()
             })
             .collect();
+        let declared_classes: Vec<String> = program
+            .declarations
+            .iter()
+            .map(unwrap_export)
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Class(value) => Some(value.name.clone()),
+                _ => None,
+            })
+            .collect();
         for (applied, category) in applications {
             let Some((_, contract)) = self
                 .decorator_kinds
                 .iter()
                 .find(|(name, _)| *name == applied)
             else {
-                // A decorator this pass never saw declared contributes no
-                // category, so the application is left alone rather than
-                // rejected on incomplete information.
+                // C122 makes a decorator a Class declaring `for` a Decorator
+                // Contract, so a Class DECLARED in this program that conforms
+                // to none of them cannot be applied as one.
+                if declared_classes.contains(&applied) {
+                    self.report("IRIS-DECORATOR-KIND");
+                }
+                // A name this pass never saw declared may be imported from
+                // another Module under C070, so the application is left alone
+                // rather than rejected on incomplete information.
                 continue;
             };
             if decorator_target(contract) != Some(category) {
@@ -2333,6 +2348,31 @@ mod tests {
             .into_iter()
             .map(|diagnostic| diagnostic.code)
             .collect()
+    }
+
+    #[test]
+    fn c122_requires_an_applied_decorator_to_be_a_decorator_class() {
+        // C122: a decorator IS a Class declaring `for` one of the Decorator
+        // Contracts, so a Class declared in this program that conforms to none
+        // of them cannot be applied as one.
+        assert_eq!(
+            codes("class S { } @S() class A { }"),
+            vec!["IRIS-DECORATOR-KIND"]
+        );
+
+        // A Class that does declare the matching Contract is admitted, and a
+        // mismatched category stays the IRIS-DECORATOR-KIND it already was.
+        assert!(codes("class S for ClassDecorator { } @S() class A { }").is_empty());
+        assert_eq!(
+            codes("class S for MethodDecorator { } @S() class A { }"),
+            vec!["IRIS-DECORATOR-KIND"]
+        );
+
+        // A name this pass never saw declared may be imported from another
+        // Module under C070, so it is left alone rather than rejected on
+        // incomplete information.
+        assert!(codes("@Undeclared() class A { }").is_empty());
+        assert!(codes("@D::Stamp() class A { }").is_empty());
     }
 
     #[test]
