@@ -2825,3 +2825,75 @@ fn c053_binding_only_destructuring_mismatch_raises() {
         Ok(RuntimeValue::Integer(42_u8.into()))
     );
 }
+
+#[test]
+fn c087_applies_a_decorator_transform_to_the_candidate() {
+    // C122/C125: the runtime phase RETURNS a Transformation, and
+    // `add_method` stages one Method onto the target candidate, so the
+    // generated Method is present on the published Class.
+    let staged = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class Stamp for ClassDecorator { ",
+        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
+        "Transformation.empty.add_method(:stamped) { 7 } } } ",
+        "@Stamp() class Box { } Box.new().stamped()"
+    );
+    assert_eq!(evaluate(staged), Ok(RuntimeValue::Integer(7_u8.into())));
+
+    // C017 still counts the decorated declaration as ONE publication, so the
+    // staged Method joins the origin revision rather than taking a number.
+    let revision = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class Stamp for ClassDecorator { ",
+        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
+        "Transformation.empty.add_method(:stamped) { 7 } } } ",
+        "@Stamp() class Box { } Box.active_revision"
+    );
+    assert_eq!(evaluate(revision), Ok(RuntimeValue::Integer(1_u8.into())));
+}
+
+#[test]
+fn c091_aborts_a_forbidden_static_spine_change_from_a_decorator() {
+    // C091 forbids a decorator from changing an immutable superclass bound,
+    // and C086/C091 require the target to retain no candidate: the change must
+    // ABORT the declaration rather than be silently dropped.
+    let source = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class P { } ",
+        "class S for ClassDecorator { ",
+        "public impl fun transform(d, a, c) -> Transformation { ",
+        "Reflection::Class.set_superclass(d, P); Transformation.empty } } ",
+        "@S() class Box { } Box.new() is P"
+    );
+    assert_eq!(
+        evaluate(source),
+        Err(EvaluationError::Class(
+            iris_runtime::ClassError::DecoratorViolation {
+                class: iris_runtime::ClassId::new(9),
+                violation: iris_runtime::DecoratorViolation::NominalIdentity,
+            }
+        ))
+    );
+
+    // An ORDINARY open transaction may still change the superclass, so the
+    // refusal is scoped to the decorator phase rather than to the operation.
+    assert_eq!(
+        evaluate(
+            "class P { } class Box { } Reflection::Class.set_superclass(Box, P); Box.new() is P"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Bool(true),
+        ])))
+    );
+
+    // A decorator that changes nothing still publishes normally, so the
+    // refusal comes from the forbidden change rather than from decorating.
+    let ordinary = concat!(
+        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
+        "class S for ClassDecorator { ",
+        "public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } ",
+        "@S() class Box { } Box.active_revision"
+    );
+    assert_eq!(evaluate(ordinary), Ok(RuntimeValue::Integer(1_u8.into())));
+}

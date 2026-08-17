@@ -642,6 +642,13 @@ pub(super) struct SourceEvaluator {
     /// reach the CURRENT candidate, so the block needs to know which target is
     /// open rather than inferring it from the receiver alone.
     open_target: Option<ClassId>,
+    /// The target whose decorator RUNTIME transform phase is executing.
+    ///
+    /// `IRIS-V1-META-C091` forbids a decorator from changing a forbidden
+    /// static-spine fact, and C086/C091 require the target to retain no
+    /// candidate, so this is distinct from `open_target`: an ordinary open
+    /// transaction MAY perform those structural changes.
+    decorating_target: Option<ClassId>,
     /// The generator body currently running, when one is.
     ///
     /// `IRIS-V1-GRAMMAR-C072` resumes a generator by re-entering its body and
@@ -799,6 +806,7 @@ impl SourceEvaluator {
             current_contract: None,
             module_body_main: None,
             open_target: None,
+            decorating_target: None,
             generator: None,
             async_depth: 0,
             closure_depth: 0,
@@ -2437,6 +2445,7 @@ impl SourceEvaluator {
         // WITH the target as the open transaction and an `await` inside it
         // raises MetaTransactionError. V431 observes that nothing publishes.
         let previous_open = self.open_target.replace(class);
+        let previous_decorating = self.decorating_target.replace(class);
         let produced = self.invoke_method(
             method,
             receiver,
@@ -2447,6 +2456,7 @@ impl SourceEvaluator {
             ],
         );
         self.open_target = previous_open;
+        self.decorating_target = previous_decorating;
         let produced = produced?;
         self.apply_transformation(class, produced)
     }
@@ -8179,6 +8189,18 @@ impl SourceEvaluator {
         target: ClassId,
         superclass: ClassId,
     ) -> Result<Value, EvaluationError> {
+        // C091 forbids a decorator from changing the immutable superclass
+        // bound. The change used to `open` and `publish` its own revision,
+        // which the declaration's later origin seal then overwrote, so it was
+        // silently DROPPED where C086/C091 require the candidate to abort.
+        if self.decorating_target == Some(target) {
+            return Err(EvaluationError::Class(
+                iris_runtime::ClassError::DecoratorViolation {
+                    class: target,
+                    violation: iris_runtime::DecoratorViolation::NominalIdentity,
+                },
+            ));
+        }
         if self.is_builtin_class(target) {
             return Err(EvaluationError::Class(
                 iris_runtime::ClassError::ProtectedSuperclass { class: target },
