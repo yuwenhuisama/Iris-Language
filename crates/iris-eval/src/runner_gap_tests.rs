@@ -3109,3 +3109,23 @@ fn c094_reflects_decorator_arguments_and_phase_participation() {
         Ok(RuntimeValue::Symbol("ReadonlyMutationError".into()))
     );
 }
+
+#[test]
+fn a_bare_raise_in_a_catch_appends_a_re_raise_step() {
+    // A bare `raise` inside a catch continues the SAME context rather than
+    // starting a new one, and the re-raise is recorded as an appended step.
+    assert_eq!(
+        evaluate("try { raise :a } catch e, c { c.re_raise_sites.length }"),
+        Ok(RuntimeValue::Integer(0_u8.into()))
+    );
+    assert_eq!(
+        evaluate(
+            "try { try { raise :a } catch e { raise } } catch f, d { \
+             [f, d.re_raise_sites.length] }"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("a".into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+}
