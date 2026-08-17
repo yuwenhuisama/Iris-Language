@@ -2924,3 +2924,51 @@ fn a_declared_module_wins_over_a_builtin_service_name() {
         Ok(RuntimeValue::Text("1".into()))
     );
 }
+
+#[test]
+fn c036_reports_safe_decoder_diagnostics() {
+    // C036 requires a safe decoding diagnostic to identify the decoder, the
+    // format version when known, the byte offset when available, and the
+    // violated limit or expected Contract. The raised value carried the error
+    // symbol alone, so a caller could not tell WHICH decode failed or where.
+    assert_eq!(
+        evaluate(
+            "try { JSON.decode(\"[1,2\") } catch v, c { [v, c.decoder, c.offset, c.expected] }"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("JSONSyntaxError".into()),
+            RuntimeValue::Symbol("JSON".into()),
+            RuntimeValue::Integer(4_u8.into()),
+            RuntimeValue::Symbol("value".into()),
+        ])))
+    );
+
+    // C066 forbids a FABRICATED diagnostic, so a context raised by something
+    // other than a decode carries none, and a later unrelated raise does not
+    // inherit the last decode's record.
+    assert_eq!(
+        evaluate("try { raise :plain } catch v, c { [c.decoder, c.offset, c.expected] }"),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+        ])))
+    );
+    assert_eq!(
+        evaluate(
+            "let first = try { JSON.decode(\"[1,2\") } catch v, c { c.decoder }; \
+             try { raise :later } catch v, c { c.decoder }"
+        ),
+        Ok(RuntimeValue::Nil)
+    );
+
+    // C036 also forbids leaking anything beyond the fragment needed to report
+    // the failure, so the diagnostic carries no Host path or address.
+    assert_eq!(
+        evaluate("try { JSON.decode(\"{\") } catch v, c { [c.decoder, c.offset] }"),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("JSON".into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+}

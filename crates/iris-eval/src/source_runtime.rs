@@ -31,6 +31,18 @@ pub(super) fn evaluate(program: &Program, source: &str) -> Result<Value, Evaluat
 /// `IRIS-V1-RUNTIME-C072` requires a Closure created in an instance Method to
 /// capture its CURRENT receiver and keep reading and writing that receiver's raw
 /// ivars after escape, so the receiver is stored alongside the captured locals.
+/// One safe-decoding diagnostic under `IRIS-V1-LIBRARY-C036`.
+///
+/// C036 requires the decoder, the offset when available and the violated limit
+/// or expected Contract, and FORBIDS Host paths, raw pointers, addresses or
+/// private data, so only these three fields exist to report.
+#[derive(Clone, Copy, Debug)]
+struct DecoderDiagnostic {
+    decoder: &'static str,
+    offset: usize,
+    expected: &'static str,
+}
+
 struct ClosureRecord {
     parameters: Vec<String>,
     body: Vec<Statement>,
@@ -468,6 +480,12 @@ pub(super) struct SourceEvaluator {
     /// It is created on first mention rather than at startup, so a program that
     /// never names it publishes no extra Class.
     exception_context_class: Option<ClassId>,
+    /// The last safe-decoding diagnostic, for `IRIS-V1-LIBRARY-C036`.
+    ///
+    /// C036 requires the diagnostic to identify the decoder, offset and
+    /// violated limit or expected Contract, and forbids leaking Host paths,
+    /// pointers or addresses, so only those three fields are retained.
+    decoder_diagnostic: Option<DecoderDiagnostic>,
     /// Each permission the Host granted, as `(name, scope)`.
     ///
     /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently, and
@@ -760,6 +778,7 @@ impl SourceEvaluator {
             package: package.to_owned(),
             api_major: 1,
             exception_context_class: None,
+            decoder_diagnostic: None,
             grants: Vec::new(),
             artifact: None,
             package_version: None,
@@ -3040,6 +3059,10 @@ impl SourceEvaluator {
                 };
                 let identity = self.next_context_identity();
                 let location = self.source_location(raise_offset);
+                // C066 forbids a fabricated diagnostic, and an ordinary raise
+                // is not a decode failure, so it must not inherit the last
+                // decode's record.
+                self.decoder_diagnostic = None;
                 self.active_context = Some(Value::ExceptionContext(
                     identity,
                     Box::new(value.clone()),
@@ -7630,9 +7653,32 @@ impl SourceEvaluator {
                     },
                     _ => None,
                 });
+                // C036 requires a safe decoding diagnostic to identify the
+                // decoder, the offset when available and the violated limit or
+                // expected Contract. The cursor is counted so the offset is the
+                // scalars CONSUMED before the refusal rather than a guess.
+                let total = text.chars().count();
                 let mut cursor = text.chars().peekable();
-                let decoded = Self::decode_json(&mut cursor, depth_limit, 0)?;
-                Ok(decoded)
+                let decoded = Self::decode_json(&mut cursor, depth_limit, 0);
+                match decoded {
+                    Ok(decoded) => {
+                        self.decoder_diagnostic = None;
+                        Ok(decoded)
+                    }
+                    Err(error) => {
+                        let remaining = cursor.count();
+                        self.decoder_diagnostic = Some(DecoderDiagnostic {
+                            decoder: "JSON",
+                            offset: total.saturating_sub(remaining),
+                            expected: match error {
+                                EvaluationError::JsonLimitError => "depth",
+                                EvaluationError::JsonDuplicateNameError => "unique-name",
+                                _ => "value",
+                            },
+                        });
+                        Err(error)
+                    }
+                }
             }
             ("FFI", "open") => {
                 let [path, ..] = arguments else {
@@ -8792,6 +8838,22 @@ impl SourceEvaluator {
                 // itself, which names the context's own Class rather than the
                 // Class of the value it carries.
                 "class_name" => return Ok(Value::Symbol("ExceptionContext".into())),
+                // C036 identifies the decoder, the offset when available and
+                // the violated limit or expected Contract. A context raised by
+                // something other than a decode carries none, so each answers
+                // nil rather than a fabricated value, which C066 forbids.
+                "decoder" | "offset" | "expected" => {
+                    return Ok(match (self.decoder_diagnostic, selector) {
+                        (Some(diagnostic), "decoder") => {
+                            Value::Symbol(diagnostic.decoder.to_owned())
+                        }
+                        (Some(diagnostic), "offset") => {
+                            Value::Integer(u64::try_from(diagnostic.offset).unwrap_or(0).into())
+                        }
+                        (Some(diagnostic), _) => Value::Symbol(diagnostic.expected.to_owned()),
+                        (None, _) => Value::Nil,
+                    });
+                }
                 _ => {}
             }
         }
