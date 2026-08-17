@@ -219,6 +219,18 @@ fn render_json(value: &crate::json::Value) -> String {
     }
 }
 
+/// Splits a `|`-separated audit pattern into lowercase needles.
+///
+/// The corpus carries no regex dependency, so an audit row states alternatives
+/// explicitly rather than a full expression.
+fn regex_lite(pattern: &str) -> Vec<String> {
+    pattern
+        .split('|')
+        .map(|needle| needle.trim().to_lowercase())
+        .filter(|needle| !needle.is_empty())
+        .collect()
+}
+
 /// Validates a documentation claim for an IDENTITY row.
 ///
 /// The row states facts about the artifact tree, so each is checked against the
@@ -273,6 +285,50 @@ fn validate_documentation(record: &Record) -> Outcome {
                 if text.to_lowercase().contains(&unwanted.to_lowercase()) {
                     return Err(format!("{path} claims {unwanted}"));
                 }
+            }
+        }
+        // `IRIS-V1-TYPES-C086` makes Contract terminology exclusive OUTSIDE
+        // clearly labeled history or migration replacement text, so an audit
+        // has to distinguish the concept sense from unrelated senses: a
+        // networking protocol, the `to_bool` protocol and the C ABI are all
+        // legitimate. A row therefore states the concept-sense pattern and the
+        // labels that exempt a line, and the audit reports any line matching
+        // the former without the latter.
+        if let Some(audit) = expected.get("absent_pattern") {
+            let audit = crate::model::object(audit)?;
+            let text_field = |name: &str| -> Result<String, String> {
+                match audit.get(name) {
+                    Some(crate::json::Value::String(value)) => Ok(value.clone()),
+                    _ => Err(format!("absent_pattern expects a string {name}")),
+                }
+            };
+            let concept = regex_lite(&text_field("concept")?);
+            let exempt = regex_lite(&text_field("exempt")?);
+            let directory = text_field("directory")?;
+            let mut offenders = Vec::new();
+            let mut entries = std::fs::read_dir(root.join(&directory))
+                .map_err(|error| error.to_string())?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|kind| kind == "md"))
+                .collect::<Vec<_>>();
+            entries.sort();
+            for path in entries {
+                let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
+                for (number, line) in text.lines().enumerate() {
+                    let lowered = line.to_lowercase();
+                    if concept.iter().any(|needle| lowered.contains(needle))
+                        && !exempt.iter().any(|needle| lowered.contains(needle))
+                    {
+                        offenders.push(format!("{}:{}", path.display(), number + 1));
+                    }
+                }
+            }
+            if !offenders.is_empty() {
+                return Err(format!(
+                    "non-canonical terminology at {}",
+                    offenders.join(", ")
+                ));
             }
         }
         if let Some(claims) = expected.get("declares") {
