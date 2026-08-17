@@ -3047,3 +3047,65 @@ fn c006_validates_a_nominal_stream_before_publishing() {
     let unknown = run(stream("s[\"schema_version\"] = 1;").replace(":User", ":Absent"));
     assert_eq!(evaluate(&unknown), Err(EvaluationError::SerializationError));
 }
+
+#[test]
+fn c094_reflects_decorator_arguments_and_phase_participation() {
+    // C094 exposes ordered decorator IDENTITY, ARGUMENTS, and static/runtime
+    // phase participation. Only the identities were reported, so a caller
+    // could not tell `@Stamp(1)` from `@Stamp(2)`.
+    let base = "contract ClassDecorator { fun transform(declaration, arguments, context) } \
+                class First for ClassDecorator { \
+                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                class Second for ClassDecorator { \
+                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                @First(1, :two) @Second() class Box { } ";
+
+    // Ordered identity is preserved, which already worked.
+    assert_eq!(
+        evaluate(&format!("{base} Box.decorators")),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("First".into()),
+            RuntimeValue::Symbol("Second".into()),
+        ])))
+    );
+
+    // Each applied decorator reports its own arguments IN ORDER, and one
+    // applied with none reports an empty list rather than nil.
+    assert_eq!(
+        evaluate(&format!("{base} Box.decorator_arguments")),
+        Ok(RuntimeValue::ReadonlyArray(vec![
+            RuntimeValue::ReadonlyArray(vec![
+                RuntimeValue::Integer(1_u8.into()),
+                RuntimeValue::Symbol("two".into()),
+            ]),
+            RuntimeValue::ReadonlyArray(Vec::new()),
+        ]))
+    );
+
+    // C122 makes a decorator declare both phase members, so participation is
+    // read from which the Class actually declares: both declare `transform`
+    // and neither declares `plan`, so each participates at runtime only.
+    assert_eq!(
+        evaluate(&format!("{base} Box.decorator_phases")),
+        Ok(RuntimeValue::ReadonlyArray(vec![
+            RuntimeValue::Symbol("runtime".into()),
+            RuntimeValue::Symbol("runtime".into()),
+        ]))
+    );
+
+    // C094 exposes these as IMMUTABLE views and forbids exposing mutable
+    // transform internals, so a mutating selector is refused rather than
+    // silently editing a copy the caller believes is the real metadata.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let v = Box.decorator_arguments; try {{ v.append([9]) }} catch e {{ e }}"
+        )),
+        Ok(RuntimeValue::Symbol("ReadonlyMutationError".into()))
+    );
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let v = Box.decorator_phases; try {{ v.append(:x) }} catch e {{ e }}"
+        )),
+        Ok(RuntimeValue::Symbol("ReadonlyMutationError".into()))
+    );
+}

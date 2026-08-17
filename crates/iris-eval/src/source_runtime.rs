@@ -2539,13 +2539,136 @@ impl SourceEvaluator {
             .map(|decorator| {
                 iris_runtime::DecoratorTransform::metadata(
                     decorator.name.clone(),
-                    decorator
-                        .arguments
-                        .iter()
-                        .map(|argument| format!("{argument:?}")),
+                    // C094 reflects decorator ARGUMENTS, so each is recorded in
+                    // a form that reads back as the value written. A Rust
+                    // `{:?}` of the AST node cannot, which is why an
+                    // application site's arguments were previously unreadable.
+                    decorator.arguments.iter().map(Self::decorator_literal),
                 )
             })
             .collect()
+    }
+
+    /// Each applied decorator's arguments, in application order.
+    ///
+    /// `IRIS-V1-META-C094` exposes ordered decorator arguments, and a
+    /// decorator applied with none reports an EMPTY list rather than nil.
+    fn decorator_arguments(&mut self, class: ClassId) -> Result<Value, EvaluationError> {
+        let arguments: Vec<Vec<String>> = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .decorators()
+            .iter()
+            .map(|decorator| decorator.arguments().to_vec())
+            .collect();
+        // C094 exposes this as an IMMUTABLE permission-filtered view and
+        // forbids exposing mutable transform internals, so both the outer list
+        // and each argument list are readonly, matching how `Box.methods`
+        // already answers a reflection view.
+        Ok(Value::ReadonlyArray(
+            arguments
+                .into_iter()
+                .map(|arguments| {
+                    Value::ReadonlyArray(
+                        arguments
+                            .iter()
+                            .map(|argument| Self::decorator_argument_value(argument))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        ))
+    }
+
+    /// Each applied decorator's C087 phase participation, in order.
+    fn decorator_phases(&mut self, class: ClassId) -> Result<Value, EvaluationError> {
+        let identities: Vec<String> = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .decorators()
+            .iter()
+            .map(|decorator| decorator.identity().to_owned())
+            .collect();
+        let mut phases = Vec::new();
+        for identity in identities {
+            phases.push(Value::Symbol(self.decorator_phase(&identity)?));
+        }
+        // C094 keeps the phase view immutable for the same reason.
+        Ok(Value::ReadonlyArray(phases))
+    }
+
+    /// Reads a recorded decorator argument back as the value written.
+    ///
+    /// `IRIS-V1-META-C094` exposes the arguments, so the literal forms a
+    /// decorator application accepts are reported as their values. An argument
+    /// that was not a literal was never recorded, so it reports nil rather
+    /// than a fabricated value, which `IRIS-V1-CONTROL-C066` forbids.
+    fn decorator_argument_value(argument: &str) -> Value {
+        if argument.is_empty() {
+            return Value::Nil;
+        }
+        if let Some(symbol) = argument.strip_prefix(':') {
+            return Value::Symbol(symbol.to_owned());
+        }
+        if let Ok(integer) = argument.parse::<u64>() {
+            return Value::Integer(integer.into());
+        }
+        match argument {
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
+            "nil" => Value::Nil,
+            _ => Value::Text(argument.trim_matches('"').to_owned()),
+        }
+    }
+
+    /// Which C087 phases a decorator Class participates in.
+    ///
+    /// `IRIS-V1-META-C122` requires a conforming decorator to declare BOTH
+    /// `plan` and `transform`, with the phase it does not participate in
+    /// returning the empty Plan or Transformation. Participation is therefore
+    /// read from which members the Class declares a body for.
+    fn decorator_phase(&mut self, identity: &str) -> Result<String, EvaluationError> {
+        let Some(class) = self.class_name(identity)? else {
+            return Ok("none".to_owned());
+        };
+        let plan = self.selector("plan");
+        let transform = self.selector("transform");
+        let declares = |runtime: &Self, selector| {
+            matches!(
+                runtime.runtime.registry().dispatch(class, selector),
+                Ok(iris_runtime::DispatchOutcome::Invoke(_))
+            )
+        };
+        let plans = declares(self, plan);
+        let transforms = declares(self, transform);
+        Ok(match (plans, transforms) {
+            (true, true) => "static-and-runtime".to_owned(),
+            (true, false) => "static".to_owned(),
+            (false, true) => "runtime".to_owned(),
+            (false, false) => "none".to_owned(),
+        })
+    }
+
+    /// Renders one decorator argument so reflection can read it back.
+    ///
+    /// `IRIS-V1-META-C088` restricts a decorator's inputs to its identity,
+    /// arguments and immutable declaration metadata, and C094 exposes those
+    /// arguments. Only literal forms are recorded, because anything else would
+    /// have to be EVALUATED to be reported, which C088 forbids the static
+    /// phase from depending on.
+    fn decorator_literal(argument: &Expression) -> String {
+        match argument {
+            Expression::Literal(text) => text.clone(),
+            // A Symbol argument is its own Expression rather than a literal,
+            // and `@Stamp(:two)` is an ordinary application form, so it is
+            // recorded with the leading colon it was written with.
+            Expression::Symbol(name) => format!(":{name}"),
+            _ => String::new(),
+        }
     }
 
     /// Registers a declared Contract as an object with its own identity.
@@ -6860,6 +6983,16 @@ impl SourceEvaluator {
                     identities.into_iter().map(Value::Symbol).collect(),
                 ))
             }
+            // C094 exposes ordered decorator ARGUMENTS alongside the
+            // identities, so `@Stamp(1)` is distinguishable from `@Stamp(2)`,
+            // and reports STATIC and RUNTIME phase participation. Both are
+            // computed OUT OF LINE: this dispatch function is recursive, and
+            // widening its frame here overflowed the stack on a deliberately
+            // deep program.
+            Value::Class(class) if selector == "decorator_arguments" => {
+                self.decorator_arguments(class)
+            }
+            Value::Class(class) if selector == "decorator_phases" => self.decorator_phases(class),
             Value::Class(class) if selector == "contracts" => Ok(Value::Array(
                 self.class_contracts
                     .get(&class)
