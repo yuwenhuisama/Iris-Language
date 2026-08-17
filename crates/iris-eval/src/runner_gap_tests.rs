@@ -2972,3 +2972,78 @@ fn c036_reports_safe_decoder_diagnostics() {
         ])))
     );
 }
+
+#[test]
+fn c020_decodes_a_nominal_value_through_a_declared_factory() {
+    // C020: nominal deserialization MUST call only DECLARED standard
+    // deserialization factories, and C004 makes participation opt-in through
+    // `for Serializable`. A conforming Class's factory rebuilds the value.
+    let stream = "mut s = %{}; s[\"magic\"] = \"IRISVALUE\"; s[\"format_version\"] = 1; \
+                  s[\"nominal\"] = :User; s[\"schema_version\"] = 1; s[\"payload\"] = 7; ";
+    let declared = format!(
+        "contract Serializable {{ fun serialize() -> Object }} \
+         class User for Serializable {{ \
+           public fun serialize() -> Object {{ 1 }} \
+           public class fun deserialize(representation) -> Object {{ :rebuilt }} }} \
+         module M {{ public fun run() -> Object {{ {stream} IrisValue.decode(s) }} }} M.run()"
+    );
+    assert_eq!(
+        evaluate(&declared),
+        Ok(RuntimeValue::Symbol("rebuilt".into()))
+    );
+
+    // C020 rejects an UNDECLARED factory without invoking it, and C004 forbids
+    // duck typing from implying eligibility, so a Class with a matching method
+    // but no declared conformance is refused rather than called.
+    let ghost = stream.replace(":User", ":Ghost");
+    let undeclared = format!(
+        "contract Serializable {{ fun serialize() -> Object }} \
+         class Ghost {{ \
+           public class fun deserialize(representation) -> Object {{ :leaked }} }} \
+         module M {{ public fun run() -> Object {{ {ghost} IrisValue.decode(s) }} }} M.run()"
+    );
+    assert_eq!(
+        evaluate(&undeclared),
+        Err(EvaluationError::SerializationError)
+    );
+}
+
+#[test]
+fn c006_validates_a_nominal_stream_before_publishing() {
+    let base = "contract Serializable { fun serialize() -> Object } \
+                class User for Serializable { \
+                  public fun serialize() -> Object { 1 } \
+                  public class fun deserialize(representation) -> Object { :rebuilt } } ";
+    let stream = |schema: &str| {
+        format!(
+            "mut s = %{{}}; s[\"magic\"] = \"IRISVALUE\"; s[\"format_version\"] = 1; \
+             s[\"nominal\"] = :User; {schema} s[\"payload\"] = 7; "
+        )
+    };
+    let run = |body: String| {
+        format!(
+            "{base} module M {{ public fun run() -> Object {{ {body} IrisValue.decode(s) }} }} M.run()"
+        )
+    };
+
+    // C006 validates the DECLARED schema version before publishing, so a
+    // stream declaring an unknown one is refused rather than rebuilt.
+    assert_eq!(
+        evaluate(&run(stream("s[\"schema_version\"] = 2;"))),
+        Err(EvaluationError::LexicalDiagnostic(
+            "IRISVALUE_INCOMPATIBLE_HEADER"
+        ))
+    );
+
+    // The matching schema version rebuilds, so the refusal comes from the
+    // mismatch rather than from validating at all.
+    assert_eq!(
+        evaluate(&run(stream("s[\"schema_version\"] = 1;"))),
+        Ok(RuntimeValue::Symbol("rebuilt".into()))
+    );
+
+    // C006 also refuses a nominal name that resolves to no Class, publishing
+    // nothing rather than reporting a missing message from a later send.
+    let unknown = run(stream("s[\"schema_version\"] = 1;").replace(":User", ":Absent"));
+    assert_eq!(evaluate(&unknown), Err(EvaluationError::SerializationError));
+}

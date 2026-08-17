@@ -4244,6 +4244,48 @@ impl SourceEvaluator {
     /// visibility, `to_string`, `inspect`, raw ivar access and public property
     /// presence from implying eligibility, so an ordinary object is refused
     /// here rather than serialized by inspection.
+    /// Rebuilds a nominal value through its DECLARED deserialization factory.
+    ///
+    /// `IRIS-V1-LIBRARY-C020` calls only declared standard factories, and
+    /// `IRIS-V1-LIBRARY-C004` makes participation an opt-in `for Serializable`
+    /// promise that duck typing, reflection visibility or a merely matching
+    /// method MUST NOT imply. `IRIS-V1-LIBRARY-C006` validates conformance and
+    /// the declared schema version BEFORE publishing, and publishes nothing on
+    /// failure, so every check happens before the factory is invoked.
+    fn decode_nominal(
+        &mut self,
+        nominal: &str,
+        schema: Option<Value>,
+        payload: Value,
+    ) -> Result<Value, EvaluationError> {
+        let Some(class) = self.class_name(nominal)? else {
+            return Err(EvaluationError::SerializationError);
+        };
+        let serializable = self.contract_names.get("Serializable").copied();
+        let declares = serializable.is_some_and(|wanted| {
+            self.class_contracts
+                .get(&class)
+                .is_some_and(|contracts| contracts.contains(&wanted))
+        });
+        if !declares {
+            return Err(EvaluationError::SerializationError);
+        }
+        // C016 carries the schema version so it can be validated before a
+        // payload depending on it is decoded. Only version 1 is defined, so a
+        // stream declaring another is refused rather than guessed at.
+        let schema_ok = match schema {
+            None => true,
+            Some(Value::Integer(ref version)) => version.to_usize() == Some(1),
+            Some(_) => false,
+        };
+        if !schema_ok {
+            return Err(EvaluationError::LexicalDiagnostic(
+                "IRISVALUE_INCOMPATIBLE_HEADER",
+            ));
+        }
+        self.send(Value::Class(class), "deserialize", &[payload])
+    }
+
     fn serializable_representation(&mut self, value: &Value) -> Result<Value, EvaluationError> {
         let Value::Object(object) = value else {
             return Ok(value.clone());
@@ -7600,7 +7642,16 @@ impl SourceEvaluator {
                         "IRISVALUE_LIMIT_OR_STRUCTURE",
                     ));
                 }
-                Ok(field("payload").unwrap_or(Value::Nil))
+                let payload = field("payload").unwrap_or(Value::Nil);
+                // C020 routes a NOMINAL value through a declared factory, and
+                // C006 validates conformance and schema BEFORE publishing. A
+                // stream naming no nominal Class stays ordinary decoded data,
+                // which C010 requires by refusing to instantiate Classes from
+                // type names by default.
+                let Some(Value::Symbol(nominal)) = field("nominal") else {
+                    return Ok(payload);
+                };
+                self.decode_nominal(&nominal, field("schema_version"), payload)
             }
             // C042 fixes the default Unicode data version for the language
             // MAJOR, so the version is a language fact rather than a host
