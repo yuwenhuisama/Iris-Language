@@ -1,0 +1,4 @@
+package_id = "std/regex-pcre@2"
+api_major = 2
+replaces_core_regex_literals = true
+sources = ["src/pcre.ir"]

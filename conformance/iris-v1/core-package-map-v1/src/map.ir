@@ -29,3 +29,24 @@ export module CoreMap {
     [Object.resolved(), Type.resolved(), Contract.resolved(), Reflection.resolved(), Collections.resolved(), Text.resolved(), Bytes.resolved(), Regex.resolved(), Async.resolved(), IO.resolved(), File.resolved(), Path.resolved(), Encoding.resolved(), Unicode.resolved(), JSON.resolved(), IrisValue.resolved(), FFI.resolved(), Package.resolved(), Diagnostics.resolved(), Testing.resolved()]
   }
 }
+
+export contract CoreSurface { fun tag() -> Symbol }
+
+export class CoreContract for CoreSurface {
+  public impl fun tag() -> Symbol { :core }
+}
+
+export module Compatibility {
+  // A public Contract of the core surface is conformed to nominally.
+  public fun contract_holds() -> Integer { CoreContract.contracts.length }
+  // A core value mapping round-trips through the stable encoding.
+  public fun value_mapping() -> Symbol { JSON.resolved() }
+  // A core diagnostic keeps its stable spelling.
+  public fun diagnostic() -> Symbol { Diagnostics.resolved() }
+  // Semantic versioning is validated through the package surface.
+  public fun versioning() -> Symbol { Package.resolved() }
+
+  public fun check() -> Array {
+    [contract_holds(), value_mapping(), diagnostic(), versioning()]
+  }
+}

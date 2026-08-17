@@ -19,6 +19,12 @@ pub struct Package {
     /// The manifest's `package_id`, which `D-431` makes part of a global's
     /// identity and `D-243` makes part of a named nominal Type's identity.
     pub package_id: String,
+    /// Whether the manifest claims a language-core privilege.
+    ///
+    /// `IRIS-V1-LIBRARY-C033` forbids a deferred package from claiming
+    /// language-core ABI status, and C034 forbids an advanced Regex package
+    /// from replacing core literal semantics.
+    pub core_claim: bool,
     /// The manifest's `api_major`.
     pub api_major: u32,
     /// The manifest's `version`, when it declares one.
@@ -99,6 +105,7 @@ pub fn load(directory: &Path) -> Result<Package, String> {
         Err(_) => Vec::new(),
     };
     Ok(Package {
+        core_claim: manifest.core_claim,
         package_id: manifest.package_id,
         api_major: manifest.api_major,
         sources,
@@ -156,6 +163,13 @@ struct Manifest {
     dependencies: Vec<String>,
     version: Option<String>,
     permissions: Vec<(String, String, bool)>,
+    /// Whether the manifest claims a language-core privilege.
+    ///
+    /// `IRIS-V1-LIBRARY-C033` forbids a deferred package from claiming
+    /// language-core ABI status, and `IRIS-V1-LIBRARY-C034` forbids an
+    /// advanced Regex package from replacing core literal semantics. Both are
+    /// rejected as `PACKAGE_CORE_ABI_CLAIM`.
+    core_claim: bool,
 }
 
 /// Parses the manifest subset chapter 08 vectors observe.
@@ -171,6 +185,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
     let mut dependencies = Vec::new();
     let mut version = None;
     let mut permissions = Vec::new();
+    let mut core_claim = false;
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or_default().trim();
         if line.is_empty() || line.starts_with('[') {
@@ -204,6 +219,12 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
             "permissions.optional" => {
                 permissions.extend(parse_permissions(value, false)?);
             }
+            // C033 forbids claiming language-core ABI status and C034 forbids
+            // replacing core Regex literals, so a manifest asserting either is
+            // a claim to REJECT rather than a key to ignore.
+            "core_abi" | "replaces_core_regex_literals" => {
+                core_claim = core_claim || value.trim() == "true";
+            }
             // A manifest key this loader does not model is IGNORED rather than
             // rejected, so a fixture may carry the version, dependency or
             // permission fields `C003` lists without this pretending to honour
@@ -212,6 +233,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
         }
     }
     Ok(Manifest {
+        core_claim,
         package_id: package_id.ok_or("manifest declares no package_id")?,
         api_major: api_major.ok_or("manifest declares no api_major")?,
         sources,

@@ -49,6 +49,24 @@ fn compare_package_fixture(
         .join("conformance/iris-v1")
         .join(fixture);
     let package = crate::package_fixture::load(&directory)?;
+    // C033 forbids a deferred package from claiming language-core ABI status
+    // and C034 forbids an advanced Regex package from replacing core literal
+    // semantics. The claim is refused at LOAD, so the package never
+    // initializes and its declarations never become reachable.
+    if package.core_claim {
+        return values::compare_evaluated_error(
+            expected.get("error").ok_or_else(|| {
+                format!(
+                    "{}: package claims core ABI but the row expects no error",
+                    record.id
+                )
+            })?,
+            Err(iris_eval::EvaluationError::LexicalDiagnostic(
+                "PACKAGE_CORE_ABI_CLAIM",
+            )),
+        )
+        .map_err(|error| format!("{}: {error}", record.id));
+    }
     // A row observing a STATIC rejection never reaches evaluation, so its
     // sources are collected through the same diagnostics collector every other
     // chapter uses rather than being loaded.

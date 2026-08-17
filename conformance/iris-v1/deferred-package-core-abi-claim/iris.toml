@@ -1,0 +1,4 @@
+package_id = "std/http@1"
+api_major = 1
+core_abi = true
+sources = ["src/http.ir"]

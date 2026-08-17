@@ -21,6 +21,7 @@ fn it_loads_a_manifest_and_its_ordered_sources() {
     assert_eq!(
         package,
         Ok(Package {
+            core_claim: false,
             package_id: "org.iris.test".into(),
             api_major: 1,
             sources: vec![
@@ -81,6 +82,7 @@ fn an_unmodelled_manifest_key_is_ignored_rather_than_honoured() {
     assert_eq!(
         load(&directory),
         Ok(Package {
+            core_claim: false,
             package_id: "org.iris.test".into(),
             api_major: 1,
             sources: vec![],
@@ -175,4 +177,36 @@ fn c007_aborts_on_a_missing_or_cyclic_dependency() {
     for directory in [missing, cyclic] {
         let _ = std::fs::remove_dir_all(&directory);
     }
+}
+
+#[test]
+fn a_manifest_records_a_language_core_privilege_claim() {
+    // C033 forbids a deferred package from claiming language-core ABI status
+    // and C034 forbids an advanced Regex package from replacing core literal
+    // semantics, so both are RECORDED rather than ignored as unknown keys.
+    let directory = tempdir("core-claim");
+    write(
+        &directory,
+        "iris.toml",
+        "package_id = \"std/http@1\"\napi_major = 1\ncore_abi = true\n",
+    );
+    assert_eq!(load(&directory).map(|package| package.core_claim), Ok(true));
+
+    let regex = tempdir("regex-claim");
+    write(
+        &regex,
+        "iris.toml",
+        "package_id = \"std/regex-pcre@2\"\napi_major = 2\nreplaces_core_regex_literals = true\n",
+    );
+    assert_eq!(load(&regex).map(|package| package.core_claim), Ok(true));
+
+    // A manifest making no such claim stays unclaimed, so the flag reports the
+    // claim rather than merely the presence of the key.
+    let plain = tempdir("no-claim");
+    write(
+        &plain,
+        "iris.toml",
+        "package_id = \"org.iris.test\"\napi_major = 1\n",
+    );
+    assert_eq!(load(&plain).map(|package| package.core_claim), Ok(false));
 }
