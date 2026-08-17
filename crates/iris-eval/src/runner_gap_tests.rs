@@ -2897,3 +2897,30 @@ fn c091_aborts_a_forbidden_static_spine_change_from_a_decorator() {
     );
     assert_eq!(evaluate(ordinary), Ok(RuntimeValue::Integer(1_u8.into())));
 }
+
+#[test]
+fn a_declared_module_wins_over_a_builtin_service_name() {
+    // The builtin service routes are guarded by "a DECLARED name wins", but the
+    // guard asked only whether a CLASS of that name exists. A declared Module
+    // made `class_name` answer UnsupportedConstruct, which the guard read as
+    // "not declared", so the builtin route hijacked the user's Module.
+    assert_eq!(
+        evaluate("module JSON { public fun tag() -> Symbol { :mine } } JSON.tag()"),
+        Ok(RuntimeValue::Symbol("mine".into()))
+    );
+    assert_eq!(
+        evaluate("module Package { public fun tag() -> Symbol { :mine } } Package.tag()"),
+        Ok(RuntimeValue::Symbol("mine".into()))
+    );
+    assert_eq!(
+        evaluate("module Diagnostics { public fun tag() -> Symbol { :mine } } Diagnostics.tag()"),
+        Ok(RuntimeValue::Symbol("mine".into()))
+    );
+
+    // With no such declaration the builtin service still answers, so the fix is
+    // scoped to a user declaration rather than disabling the route.
+    assert_eq!(
+        evaluate("JSON.encode(1, canonical: true)"),
+        Ok(RuntimeValue::Text("1".into()))
+    );
+}

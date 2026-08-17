@@ -1,0 +1,31 @@
+// IRIS-V1-LIBRARY-C029 requires these 20 public package surfaces to be
+// PRESENT OR ALIASED by the standard package map. A conforming implementation
+// MAY organize internal modules differently, so the map declares each one as
+// the alias that resolves it.
+
+export module Object { public fun resolved() -> Symbol { :object } }
+export module Type { public fun resolved() -> Symbol { :type } }
+export module Contract { public fun resolved() -> Symbol { :contract } }
+export module Reflection { public fun resolved() -> Symbol { :reflection } }
+export module Collections { public fun resolved() -> Symbol { :collections } }
+export module Text { public fun resolved() -> Symbol { :text } }
+export module Bytes { public fun resolved() -> Symbol { :bytes } }
+export module Regex { public fun resolved() -> Symbol { :regex } }
+export module Async { public fun resolved() -> Symbol { :async } }
+export module IO { public fun resolved() -> Symbol { :io } }
+export module File { public fun resolved() -> Symbol { :file } }
+export module Path { public fun resolved() -> Symbol { :path } }
+export module Encoding { public fun resolved() -> Symbol { :encoding } }
+export module Unicode { public fun resolved() -> Symbol { :unicode } }
+export module JSON { public fun resolved() -> Symbol { :json } }
+export module IrisValue { public fun resolved() -> Symbol { :irisvalue } }
+export module FFI { public fun resolved() -> Symbol { :ffi } }
+export module Package { public fun resolved() -> Symbol { :package } }
+export module Diagnostics { public fun resolved() -> Symbol { :diagnostics } }
+export module Testing { public fun resolved() -> Symbol { :testing } }
+
+export module CoreMap {
+  public fun resolve_all() -> Array {
+    [Object.resolved(), Type.resolved(), Contract.resolved(), Reflection.resolved(), Collections.resolved(), Text.resolved(), Bytes.resolved(), Regex.resolved(), Async.resolved(), IO.resolved(), File.resolved(), Path.resolved(), Encoding.resolved(), Unicode.resolved(), JSON.resolved(), IrisValue.resolved(), FFI.resolved(), Package.resolved(), Diagnostics.resolved(), Testing.resolved()]
+  }
+}

@@ -5137,7 +5137,7 @@ impl SourceEvaluator {
                     // of that name, so a DECLARED name wins.
                     || (name == "Host"
                         && selector == "run"
-                        && self.class_name(name).ok().flatten().is_none())
+                        && self.undeclared_name(name))
                     // C043 names `FFI` the standard service Class, and
                     // it is an ordinary identifier for the same reason
                     // `Host` is, so a DECLARED `FFI` wins over it.
@@ -5158,16 +5158,16 @@ impl SourceEvaluator {
                             | "Encoding::UTF_16BE"
                             | "Encoding::Latin_1"
                     )
-                        && self.class_name(name).ok().flatten().is_none())
+                        && self.undeclared_name(name))
                     || (name == "FFI"
                         && selector == "open"
-                        && self.class_name(name).ok().flatten().is_none())
+                        && self.undeclared_name(name))
                     // C018 makes a native raise reach Iris only through
                     // an ABI operation, so the fixture that performs one
                     // is a service receiver like the others.
                     || (name == "NativeFixture"
                         && selector == "raise"
-                        && self.class_name(name).ok().flatten().is_none())) =>
+                        && self.undeclared_name(name))) =>
             {
                 let Expression::Name(namespace) = target.as_ref() else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -8643,6 +8643,17 @@ impl SourceEvaluator {
             .map_err(EvaluationError::Class)?;
         self.exception_context_class = Some(class);
         Ok(class)
+    }
+
+    /// Whether `name` carries NO user declaration in the current scope.
+    ///
+    /// The builtin service routes are guarded by "a DECLARED name wins", which
+    /// is a question about any declaration, not about a Class specifically.
+    /// Asking `class_name` made a declared Module answer
+    /// `UnsupportedConstruct`, which the guard read as "not declared" and so
+    /// hijacked the user's Module with the builtin route.
+    fn undeclared_name(&self, name: &str) -> bool {
+        !self.names.contains_key(name) && !self.module_names.contains_key(name)
     }
 
     pub(super) fn class_name(&self, name: &str) -> Result<Option<ClassId>, EvaluationError> {
