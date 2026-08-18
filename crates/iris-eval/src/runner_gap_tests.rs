@@ -3431,3 +3431,40 @@ fn c025_preserves_the_recorded_native_signature() {
         Ok(RuntimeValue::Nil)
     );
 }
+
+#[test]
+fn c025_resumes_a_suspension_inside_try_without_double_cleanup() {
+    // C013 makes a suspension a REGISTERED CONTINUATION rather than an exit,
+    // so the protected region has not been left and `finally` has not been
+    // reached. Cleanup therefore runs ONCE, on the real exit after resumption.
+    assert_eq!(
+        evaluate(
+            "mut order = []; \
+             module M { public async fun inner(g) -> Object { \
+               try { let v = await g; order.append(:body); v } \
+               finally { order.append(:cleanup) } } } \
+             let g = Gate.new(); let t = M.inner(g); \
+             let posted = Gate.complete(g, 7); \
+             let resumed = Host.run(t); [resumed, order]"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(7_u8.into()),
+            RuntimeValue::Array(ArrayRef::new(vec![
+                RuntimeValue::Symbol("body".into()),
+                RuntimeValue::Symbol("cleanup".into()),
+            ])),
+        ])))
+    );
+
+    // C025: resumption retains the catch context and the surrounding control
+    // state, so a suspension inside try/catch resumes into the same region.
+    assert_eq!(
+        evaluate(
+            "module M { public async fun inner(g) -> Object { \
+               try { await g } catch e { e } } } \
+             let g = Gate.new(); let t = M.inner(g); \
+             let posted = Gate.complete(g, 7); Host.run(t)"
+        ),
+        Ok(RuntimeValue::Integer(7_u8.into()))
+    );
+}

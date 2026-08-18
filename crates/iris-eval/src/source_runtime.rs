@@ -5079,6 +5079,14 @@ impl SourceEvaluator {
                 None => Err(error),
             },
         };
+        // C013 makes a suspension a REGISTERED CONTINUATION rather than an
+        // exit, so the protected region has not been left and `finally` has
+        // not been reached. Running it here executed cleanup once on the way
+        // out and again on the replayed re-entry, which the `using` path
+        // already guards against for exactly the same reason.
+        if matches!(result, Err(EvaluationError::AwaitSuspended(_))) {
+            return result;
+        }
         if let Some(finally) = finally {
             let pending = match &result {
                 Err(EvaluationError::Raised(value)) => Some(value.clone()),
