@@ -3626,11 +3626,31 @@ impl SourceEvaluator {
                 Self::validate_ffi_signature(signature)?;
                 let mut bound = library.bound.clone();
                 bound.push(symbol.clone());
+                // C025 preserves the recorded callable signature, which is
+                // what any boundary guard has to consult.
+                let mut signatures = library.signatures.clone();
+                signatures.push((symbol.clone(), signature.clone()));
                 Ok(Some(Value::Library(Box::new(iris_runtime::LibraryValue {
                     identity: library.identity,
                     path: library.path.clone(),
                     bound,
+                    signatures,
                 }))))
+            }
+            // C025 makes the recorded signature observable: a boundary guard
+            // and a caller both need to see the callable signature binding
+            // preserved, and a symbol that was never bound records none.
+            (Value::Library(library), "signature", [symbol]) => {
+                let (Value::Symbol(symbol) | Value::Text(symbol)) = symbol else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(Some(
+                    library
+                        .signatures
+                        .iter()
+                        .find_map(|(bound, signature)| (bound == symbol).then(|| signature.clone()))
+                        .unwrap_or(Value::Nil),
+                ))
             }
             (Value::Library(library), "bound?", [symbol]) => {
                 let (Value::Symbol(symbol) | Value::Text(symbol)) = symbol else {
@@ -7997,6 +8017,10 @@ impl SourceEvaluator {
                     other => Box::new(other.clone()),
                 });
                 let mut bound = Vec::new();
+                // C025 makes binding PRESERVE the recorded signature, so the
+                // validated signature is retained beside the symbol rather
+                // than discarded once it passed C047 validation.
+                let mut signatures = Vec::new();
                 if let Some(declarations) = sidecar.as_deref()
                     && let Value::Hash(declarations) = declarations
                 {
@@ -8006,6 +8030,7 @@ impl SourceEvaluator {
                         };
                         Self::validate_ffi_signature(&signature)?;
                         bound.push(symbol.clone());
+                        signatures.push((symbol.clone(), signature.clone()));
                     }
                 }
                 Ok(Value::Library(Box::new(iris_runtime::LibraryValue {
@@ -8014,6 +8039,7 @@ impl SourceEvaluator {
                     identity: self.next_context_identity().raw(),
                     path,
                     bound,
+                    signatures,
                 })))
             }
             // C018 lets native code raise ONLY through an ABI operation that

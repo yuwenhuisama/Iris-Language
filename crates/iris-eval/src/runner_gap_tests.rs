@@ -3392,3 +3392,42 @@ fn c057_scopes_module_private_authorization_to_one_edge() {
         ])))
     );
 }
+
+#[test]
+fn c025_preserves_the_recorded_native_signature() {
+    // C025 makes native Method binding PRESERVE the callable signature
+    // recorded in metadata, with arguments crossing through declared primitive
+    // interop records or handles. The signature was validated and then
+    // DISCARDED, so nothing could guard the boundary afterwards.
+    let base = "module M { public fun run() -> Object { \
+                  let lib = FFI.open(\"libfixture.so\"); \
+                  mut ptr = %{}; ptr[:type] = :pointer; ptr[:nullable] = false; \
+                  ptr[:ownership] = :borrowed; \
+                  mut sig = %{}; sig[:convention] = :c; sig[:parameters] = [:i32, ptr]; \
+                  sig[:result] = :i32; sig[:errors] = :status; \
+                  let bound = lib.bind(:c_wrapper, sig); ";
+
+    // A declared primitive and a handle parameter bind, and the recorded
+    // signature is readable back through the Library.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} [bound.bound?(:c_wrapper), \
+             bound.signature(:c_wrapper)[:convention], \
+             bound.signature(:c_wrapper)[:result]] }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Bool(true),
+            RuntimeValue::Symbol("c".into()),
+            RuntimeValue::Symbol("i32".into()),
+        ])))
+    );
+
+    // A symbol that was never bound records no signature, so the surface
+    // reports what binding preserved rather than fabricating one.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} bound.signature(:never_bound) }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Nil)
+    );
+}

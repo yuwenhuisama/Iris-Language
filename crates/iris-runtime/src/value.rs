@@ -577,6 +577,13 @@ pub struct LibraryValue {
     pub path: String,
     /// Symbols bound with a complete `C047` signature.
     pub bound: Vec<String>,
+    /// The signature recorded for each bound symbol.
+    ///
+    /// `IRIS-V1-FFI-C025` makes native Method binding PRESERVE the callable
+    /// signature recorded in metadata, so the validated signature is retained
+    /// rather than discarded once it passed `C047` validation. Nothing could
+    /// guard arguments at the boundary without it.
+    pub signatures: Vec<(String, Value)>,
 }
 
 /// The canonical pattern and flags of a Regex.
