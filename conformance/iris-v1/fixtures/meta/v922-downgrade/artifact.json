@@ -1,0 +1,5 @@
+{
+  "locator": "org.iris.v922/src/owner.ir@1",
+  "digest": "b3:7513f737323f64751a41ef3215b226725c0eef9c54d89918085ad5b0ee9a9360",
+  "source": "class Owner {\n  public fun status() -> Symbol { :ok }\n}\n"
+}

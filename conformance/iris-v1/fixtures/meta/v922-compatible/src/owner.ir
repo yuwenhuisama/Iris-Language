@@ -1,0 +1,3 @@
+contract Auditable { fun audit() -> Symbol }
+class Owner for Auditable { public fun status() -> Symbol { :ok } public impl fun audit() -> Symbol { :audited } }
+module Main { public fun run() -> Object { try { Owner.rollback() } catch e { e } } }

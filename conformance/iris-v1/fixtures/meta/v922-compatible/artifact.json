@@ -1,0 +1,5 @@
+{
+  "locator": "org.iris.v922/src/owner.ir@1",
+  "digest": "b3:d7d323fab07e34e85f059620f423495a5f8f2b9f826da8a4edf12339ddbf2c53",
+  "source": "contract Auditable { fun audit() -> Symbol }\nclass Owner for Auditable { public fun status() -> Symbol { :ok } public impl fun audit() -> Symbol { :audited } }\n"
+}

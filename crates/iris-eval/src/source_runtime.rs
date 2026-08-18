@@ -1686,6 +1686,56 @@ impl SourceEvaluator {
         })
     }
 
+    /// Refuses a rollback whose artifact would downgrade the static spine.
+    ///
+    /// `IRIS-V1-META-C065` makes a same-major rollback fail when the historical
+    /// artifact lacks a member or Contract the CURRENT revision requires, and
+    /// publish nothing. `IRIS-V1-META-C066` already covers a missing or
+    /// mismatched artifact, so this is the separate downgrade check: the
+    /// artifact is present and its digest verified, and it is still refused.
+    fn validate_rollback_spine(
+        &mut self,
+        class: ClassId,
+        source: &str,
+    ) -> Result<(), EvaluationError> {
+        // A declared Contract is a static-spine fact under D-173, so dropping
+        // one falsifies a static promise exactly as `remove_contract` does,
+        // which is why both answer the same TypeContractError.
+        let declared: Vec<iris_runtime::ContractId> = self
+            .class_contracts
+            .get(&class)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+        for contract in declared {
+            let Some(name) = self
+                .contract_names
+                .iter()
+                .find_map(|(name, known)| (*known == contract).then(|| name.clone()))
+            else {
+                continue;
+            };
+            if !source.contains(&format!("for {name}")) {
+                return Err(EvaluationError::TypeContractError);
+            }
+            // C065 lists the Contract's REQUIRED members alongside the
+            // Contract itself, so an artifact naming the Contract but dropping
+            // a requirement is the same downgrade.
+            let required: Vec<String> = self
+                .contract_requirements
+                .get(&contract)
+                .cloned()
+                .unwrap_or_default();
+            for selector in required {
+                if !source.contains(&format!("fun {selector}")) {
+                    return Err(EvaluationError::TypeContractError);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Reports whether the published revision of a named Class holds a slot.
     ///
     /// `IRIS-V1-META-C022` publishes nothing from a failed candidate, so a
@@ -6857,10 +6907,13 @@ impl SourceEvaluator {
                 if actual != recorded {
                     return Err(EvaluationError::RevisionArtifactUnavailable);
                 }
-                // The reconstruction validates the CURRENT static spine, so a
-                // rollback whose artifact omits a currently required Method
-                // fails validation rather than publishing a narrower Class.
-                let _ = class;
+                // C065 forbids a same-major rollback from DOWNGRADING the
+                // current static spine: a missing later required member,
+                // Contract, visibility or superclass bound fails the rollback
+                // and publishes nothing. The comment here claimed this was
+                // validated while `class` was discarded, so an artifact
+                // omitting a currently declared Contract rolled back happily.
+                self.validate_rollback_spine(class, &source)?;
                 Ok(Value::Symbol(actual))
             }
             Value::Class(class) if selector == "remove_contract" => {
