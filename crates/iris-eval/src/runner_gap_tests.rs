@@ -3533,3 +3533,28 @@ fn c160_keeps_an_entered_frame_on_its_selected_body() {
         ])))
     );
 }
+
+#[test]
+fn c011_leaves_live_state_intact_after_an_invalid_candidate() {
+    // C011 constrains dynamic mutation by candidate transactions validated
+    // against the static spine, and forbids an INVALID candidate from
+    // partially mutating live Class state. C012 makes that spine a durable
+    // promise, so the refusal must leave the prior live revision untouched.
+    assert_eq!(
+        evaluate(
+            "contract C { fun m() -> Nil } \
+             class A for C { public impl fun m() -> Nil { nil } \
+               public fun ok() -> Symbol { :live } } \
+             module Q { public fun run() -> Object { \
+               let before = A.active_revision; \
+               let refused = try { A.open() { |t| t.remove_contract(C) } } catch e { e }; \
+               [refused, before, A.active_revision, A.new().ok()] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("TypeContractError".into()),
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Symbol("live".into()),
+        ])))
+    );
+}
