@@ -3511,3 +3511,25 @@ fn c037_keeps_cleanup_lifo_and_suppressed_across_suspension() {
         ])))
     );
 }
+
+#[test]
+fn c160_keeps_an_entered_frame_on_its_selected_body() {
+    // C160: a frame that has ENTERED keeps the body it selected, while a LATER
+    // send selects the replacement. The schedule needs a real pause inside the
+    // frame, which an async suspension supplies: the frame is entered, parked
+    // on a Gate, and a replacement commits while it is parked.
+    assert_eq!(
+        evaluate(
+            "class A { public async fun m(g) -> Symbol { let v = await g; :old } } \
+             let a = A.new(); let g = Gate.new(); let entered_task = a.m(g); \
+             let replaced = A.open() { |t| t.define_method(:m) { |arg| :new } }; \
+             let posted = Gate.complete(g, 1); \
+             let entered = Host.run(entered_task); \
+             let later = A.new().m(g); [entered, later]"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("old".into()),
+            RuntimeValue::Symbol("new".into()),
+        ])))
+    );
+}
