@@ -3593,7 +3593,7 @@ fn c042_reflects_a_contract_requirement_return_type() {
         evaluate(
             "contract C { fun m() -> Integer } \
              module Q { public fun run() -> Object { \
-               [C.requirement(:m)[:return_type], Integer.type] } } Q.run()"
+               [Reflection::Contract.requirement(C, :m)[:return_type], Integer.type] } } Q.run()"
         ),
         // C016 interns Type objects by identity, so the reflected requirement
         // Type IS the ordinary `Integer.type` rather than a copy of it.
@@ -3608,7 +3608,7 @@ fn c042_reflects_a_contract_requirement_return_type() {
     assert_eq!(
         evaluate(
             "contract C { fun m() -> Integer } \
-             module Q { public fun run() -> Object { C.requirement(:absent) } } Q.run()"
+             module Q { public fun run() -> Object { Reflection::Contract.requirement(C, :absent) } } Q.run()"
         ),
         Ok(RuntimeValue::Nil)
     );
@@ -3627,5 +3627,34 @@ fn c061_admits_a_closed_generic_contract_parent() {
              module Q { public fun run() -> Object { Sub.parents.length } } Q.run()"
         ),
         Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+}
+
+#[test]
+fn c013_reflects_traversal_contract_requirement_types() {
+    // D-466 fixes the traversal Contracts as `contract Iterable<T> { fun
+    // iterator() -> Iterator<T> }` and `contract Iterator<T> { fun next() ->
+    // Iteration<T>; fun close() -> Nil }`, and says `for` uses these EXACT
+    // Contracts, so they are built in rather than declared per program.
+    assert_eq!(
+        evaluate(
+            "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } \
+             module Q { public fun run() -> Object { [ \
+               Reflection::Contract.requirement(Numbers, :iterator)[:return_type], \
+               Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type], \
+               Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            // C061 interns one Contract per generic definition, so the closed
+            // and bare forms normalize to the SAME Contract.
+            RuntimeValue::ComposedType(iris_runtime::ComposedType::Intersection(vec![
+                iris_runtime::TypeAtom::Contract(iris_runtime::ContractId::new(1)),
+            ])),
+            RuntimeValue::ComposedType(iris_runtime::ComposedType::Intersection(vec![
+                iris_runtime::TypeAtom::Contract(iris_runtime::ContractId::new(2)),
+            ])),
+            // `close` promises Nil, which is an ordinary nominal Type.
+            RuntimeValue::Type(iris_runtime::ClassId::new(1), Vec::new()),
+        ])))
     );
 }

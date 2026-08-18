@@ -763,7 +763,7 @@ impl SourceEvaluator {
     pub(super) fn new_in_package(package: &str) -> Result<Self, EvaluationError> {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
-        Ok(Self {
+        let mut evaluator = Self {
             runtime,
             kernel,
             remaining_steps: STEP_BUDGET,
@@ -851,7 +851,53 @@ impl SourceEvaluator {
             active_context: None,
             next_selector: 1_000,
             next_body: 10_000,
-        })
+        };
+        evaluator.declare_traversal_contracts();
+        Ok(evaluator)
+    }
+
+    /// Registers the traversal Contracts `D-466` fixes as built-ins.
+    ///
+    /// `D-466` states them exactly as `contract Iterable<T> { fun iterator() ->
+    /// Iterator<T> }` and `contract Iterator<T> { fun next() -> Iteration<T>;
+    /// fun close() -> Nil }`, and says `for` uses these EXACT Contracts. They
+    /// are built in rather than declared in source because `IRIS-V1-CONTROL-C044`
+    /// makes traversal obtain its Iterator through them, so a program cannot be
+    /// required to declare the Contract its own `for` loop already relies on.
+    fn declare_traversal_contracts(&mut self) {
+        // `Iteration<T>` is the reified yield/done value under D-127-D-133; it
+        // is a built-in VALUE kind rather than a requirement-bearing Contract,
+        // so it is registered with no requirements of its own.
+        for (name, requirements) in [
+            ("Iterable", vec![("iterator", "Iterator")]),
+            ("Iterator", vec![("next", "Iteration"), ("close", "Nil")]),
+            ("Iteration", Vec::new()),
+        ] {
+            let contract = iris_runtime::ContractId::new(self.next_contract);
+            self.next_contract += 1;
+            self.contract_names.insert(name.to_owned(), contract);
+            // A declared Contract is also BOUND as a value, which is what makes
+            // a bare `Iterable` resolve; registering only the name left the
+            // Contract reachable by reflection but not as an expression.
+            self.names.insert(
+                name.to_owned(),
+                Binding::immutable(Value::Contract(contract)),
+            );
+            self.contract_parents.insert(contract, Vec::new());
+            self.contract_requirements.insert(
+                contract,
+                requirements
+                    .iter()
+                    .map(|(selector, _)| (*selector).to_owned())
+                    .collect(),
+            );
+            for (selector, returns) in requirements {
+                self.contract_requirement_returns.insert(
+                    (contract, selector.to_owned()),
+                    iris_syntax::TypeExpression::Name((*returns).to_owned()),
+                );
+            }
+        }
     }
 
     pub(super) fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
@@ -1734,6 +1780,18 @@ impl SourceEvaluator {
             }
         }
         Ok(())
+    }
+
+    /// The normalized Type of a generic annotation naming a Contract.
+    ///
+    /// `IRIS-V1-TYPES-C061` interns one Contract per generic definition, so
+    /// `Iterator<Integer>` is the same Contract as bare `Iterator`.
+    fn generic_contract_type(&self, name: &str) -> Option<iris_runtime::ComposedType> {
+        self.contract_names.get(name).copied().map(|contract| {
+            iris_runtime::ComposedType::Intersection(vec![iris_runtime::TypeAtom::Contract(
+                contract,
+            )])
+        })
     }
 
     /// One Contract requirement's reflected metadata.
@@ -5785,6 +5843,14 @@ impl SourceEvaluator {
             // definition, so the arguments select no distinct runtime Class and
             // the construction resolves to the declared Class itself.
             Expression::ClosedGeneric { name, arguments } => {
+                // C061 interns ONE Contract per generic definition too, so a
+                // closed generic naming a CONTRACT resolves to that Contract.
+                // Resolving only through `class_name` refused `Iterator<T>`
+                // outright, which is the form a Contract requirement's Type is
+                // written in.
+                if let Some(contract) = self.contract_names.get(name).copied() {
+                    return Ok(Value::Contract(contract));
+                }
                 // C067: materializing a closed generic validates every
                 // normalized constraint BEFORE interning or publishing, and a
                 // failure raises rather than being reported statically.
@@ -7225,23 +7291,14 @@ impl SourceEvaluator {
             // one: the dispatch function is recursive, and each extra arm
             // widens its frame enough to overflow the stack on a deliberately
             // deep program. The work itself is done out of line.
-            Value::Contract(contract) if selector == "requirement" || selector == "parents" => {
-                if selector == "requirement" {
-                    let [Value::Symbol(name)] = arguments else {
-                        return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
-                    };
-                    let name = name.clone();
-                    return self.contract_requirement(contract, &name);
-                }
-                Ok(Value::Array(
-                    self.contract_parents
-                        .get(&contract)
-                        .into_iter()
-                        .flatten()
-                        .map(|parent| Value::Contract(*parent))
-                        .collect(),
-                ))
-            }
+            Value::Contract(contract) if selector == "parents" => Ok(Value::Array(
+                self.contract_parents
+                    .get(&contract)
+                    .into_iter()
+                    .flatten()
+                    .map(|parent| Value::Contract(*parent))
+                    .collect(),
+            )),
             // C081 fixes the capability vocabulary and V360 observes a target's
             // EFFECTIVE deny set, which a subclass inherits and an open cannot
             // restore. The view is a plain immutable Array of Symbols.
@@ -8421,6 +8478,19 @@ impl SourceEvaluator {
                     .map_err(EvaluationError::Class)?;
                 Err(EvaluationError::MetaTransactionSuspension)
             }
+            // C042 lets a Contract body declare Method REQUIREMENTS, and the
+            // declared return Type is already recorded for conformance
+            // checking. It lives on the REFLECTION surface rather than as an
+            // ordinary Contract selector: the send path is recursive and one
+            // more arm there overflows the stack on a deliberately deep
+            // program, which bisection confirmed.
+            ("Reflection::Contract", "requirement") => {
+                let [Value::Contract(contract), Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let (contract, name) = (*contract, name.clone());
+                self.contract_requirement(contract, &name)
+            }
             ("Reflection::Class", "revision") => {
                 let [Value::Class(target)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -8866,6 +8936,14 @@ impl SourceEvaluator {
                 )]))
             }
             iris_syntax::TypeExpression::Generic { name, arguments } => {
+                // C061 interns ONE Contract per generic definition, so a
+                // generic CONTRACT annotation such as `Iterator<Integer>`
+                // normalizes to that Contract exactly as its bare form does.
+                // Resolved through a helper: `normalize_type` is recursive and
+                // widening its frame overflows the stack on a deep program.
+                if let Some(normalized) = self.generic_contract_type(name) {
+                    return Ok(normalized);
+                }
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
                 let mut normalized = Vec::new();
                 for argument in arguments {

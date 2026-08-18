@@ -3249,7 +3249,10 @@ fn v358_reports_no_implicit_contract_parent_or_module_edge() {
 
     // When / Then
     assert_eq!(rendered(empty), "Array([Array([]), Array([])])");
-    assert_eq!(rendered(parent), "Array([Contract(ContractId(0))])");
+    // `Iterable`, `Iterator` and `Iteration` are built in under D-466, so a
+    // user Contract takes the next id rather than 0. What this pins is that
+    // exactly ONE declared parent appears.
+    assert_eq!(rendered(parent), "Array([Contract(ContractId(3))])");
     assert_eq!(rendered(edge), "Array([Symbol(\"A\")])");
 }
 
@@ -3358,7 +3361,8 @@ fn c097_exposes_the_minimal_class_reflection_view() {
         "ReadonlyArray([Symbol(\"to_bool\"), Symbol(\"show\")])"
     );
     assert_eq!(rendered(modules), "Array([Symbol(\"M\")])");
-    assert_eq!(rendered(contracts), "Array([Contract(ContractId(0))])");
+    // Built-in traversal Contracts occupy the first ids under D-466.
+    assert_eq!(rendered(contracts), "Array([Contract(ContractId(3))])");
 }
 
 #[test]
