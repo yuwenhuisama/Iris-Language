@@ -31,6 +31,19 @@ pub(super) fn evaluate(program: &Program, source: &str) -> Result<Value, Evaluat
 /// `IRIS-V1-RUNTIME-C072` requires a Closure created in an instance Method to
 /// capture its CURRENT receiver and keep reading and writing that receiver's raw
 /// ivars after escape, so the receiver is stored alongside the captured locals.
+/// One reflection denial context under `IRIS-V1-META-C108`.
+///
+/// C108 requires the caller package, operation, target scope and denial
+/// origin, and FORBIDS leaking inaccessible data, so only these exist. The
+/// denial origin is always the Host grant boundary, because `IRIS-V1-META-C009`
+/// places trusted reflection policy exclusively there.
+#[derive(Clone, Debug)]
+struct DenialContext {
+    operation: String,
+    caller_package: String,
+    target_scope: String,
+}
+
 /// One safe-decoding diagnostic under `IRIS-V1-LIBRARY-C036`.
 ///
 /// C036 requires the decoder, the offset when available and the violated limit
@@ -486,6 +499,8 @@ pub(super) struct SourceEvaluator {
     /// violated limit or expected Contract, and forbids leaking Host paths,
     /// pointers or addresses, so only those three fields are retained.
     decoder_diagnostic: Option<DecoderDiagnostic>,
+    /// The last reflection denial context, for `IRIS-V1-META-C108`.
+    denial_context: Option<DenialContext>,
     /// Each permission the Host granted, as `(name, scope)`.
     ///
     /// `IRIS-V1-META-C102` grants `inspect` and `mutate` independently, and
@@ -779,6 +794,7 @@ impl SourceEvaluator {
             api_major: 1,
             exception_context_class: None,
             decoder_diagnostic: None,
+            denial_context: None,
             grants: Vec::new(),
             artifact: None,
             package_version: None,
@@ -1615,8 +1631,26 @@ impl SourceEvaluator {
             _ => None,
         };
         if self.reflection_granted(operation, class) {
+            self.denial_context = None;
             return Ok(());
         }
+        // C108 makes the denial report caller package, operation, target scope
+        // and denial origin. It reports the SCOPE the target names rather than
+        // any inaccessible member data, so a denial cannot leak what it just
+        // refused to expose.
+        let scope = class
+            .and_then(|class| {
+                self.names.iter().find_map(|(name, binding)| {
+                    matches!(binding.value, Value::Class(known) if known == class)
+                        .then(|| name.clone())
+                })
+            })
+            .unwrap_or_default();
+        self.denial_context = Some(DenialContext {
+            operation: operation.to_owned(),
+            caller_package: self.package.clone(),
+            target_scope: scope,
+        });
         Err(EvaluationError::ReflectionAccess)
     }
 
@@ -9026,6 +9060,23 @@ impl SourceEvaluator {
                 // the violated limit or expected Contract. A context raised by
                 // something other than a decode carries none, so each answers
                 // nil rather than a fabricated value, which C066 forbids.
+                // C108 reports the caller package, operation, target scope
+                // and denial origin. A context raised by anything other than a
+                // reflection denial carries none, so each answers nil rather
+                // than a fabricated value, which C066 forbids.
+                "operation" | "caller_package" | "target_scope" | "denial_origin" => {
+                    return Ok(match (self.denial_context.as_ref(), selector) {
+                        (Some(denial), "operation") => Value::Symbol(denial.operation.clone()),
+                        (Some(denial), "caller_package") => {
+                            Value::Symbol(denial.caller_package.clone())
+                        }
+                        (Some(denial), "target_scope") => {
+                            Value::Symbol(denial.target_scope.clone())
+                        }
+                        (Some(_), _) => Value::Symbol("host-grant".to_owned()),
+                        (None, _) => Value::Nil,
+                    });
+                }
                 "decoder" | "offset" | "expected" => {
                     return Ok(match (self.decoder_diagnostic, selector) {
                         (Some(diagnostic), "decoder") => {

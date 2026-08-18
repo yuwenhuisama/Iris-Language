@@ -1,0 +1,4 @@
+package_id = "org.iris.v910"
+api_major = 1
+permissions.optional = ["reflection.mutate@org.iris.v910::Box", "reflection.inspect@org.iris.v910::Box"]
+sources = ["src/main.ir"]

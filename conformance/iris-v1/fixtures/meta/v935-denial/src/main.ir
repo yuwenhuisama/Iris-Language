@@ -1,0 +1,2 @@
+class Box { }
+module Main { public fun run() -> Object { try { Reflection::Object.list_ivars(Box.new()) } catch e, c { [e, c.operation, c.caller_package, c.target_scope, c.denial_origin] } } }

@@ -1,0 +1,4 @@
+class Box { }
+module Main {
+  public fun run() -> Object { try { Reflection::Object.list_ivars(Box.new()) } catch e { e } }
+}

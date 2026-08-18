@@ -1,0 +1,2 @@
+class Box { }
+module Main { public fun run() -> Object { let inspected = try { Reflection::Object.list_ivars(Box.new()) } catch e { e }; let mutated = try { Reflection::Object.set_ivar(Box.new(), :@x, 1) } catch e { e }; [inspected, mutated] } }

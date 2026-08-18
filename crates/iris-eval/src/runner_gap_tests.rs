@@ -3129,3 +3129,22 @@ fn a_bare_raise_in_a_catch_appends_a_re_raise_step() {
         ])))
     );
 }
+
+#[test]
+fn c108_reports_denial_context_only_for_a_denial() {
+    // C066 forbids fabricating a diagnostic, so a context raised by anything
+    // other than a reflection denial carries no denial context, and a later
+    // unrelated raise does not inherit one.
+    assert_eq!(
+        evaluate(
+            "try { raise :plain } catch v, c { \
+             [c.operation, c.caller_package, c.target_scope, c.denial_origin] }"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+        ])))
+    );
+}
