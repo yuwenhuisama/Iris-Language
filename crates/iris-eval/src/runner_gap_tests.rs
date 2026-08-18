@@ -3178,3 +3178,93 @@ fn c160_migrates_a_revision_only_when_called_explicitly() {
         Ok(RuntimeValue::Symbol("MetaTransactionError".into()))
     );
 }
+
+#[test]
+fn c046_closes_a_programmable_iterator_on_every_exit_path() {
+    // C044 obtains the Iterator through the canonical Iterable protocol, so a
+    // traversal source answers `iterator()`; C046 then requires close() on
+    // EVERY exit path, exactly once because close is idempotent.
+    let base = "mut closed = 0; mut n = 0; \
+                class It { \
+                  public fun next() -> Object { \
+                    n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } \
+                  public fun close() -> Object { closed = closed + 1; nil } } \
+                class S { public fun iterator() -> Object { It.new() } } \
+                module M { public fun run() -> Object { ";
+
+    // Natural exhaustion releases through Iteration.done.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} mut t = 0; for x in S.new() {{ t = t + x }}; [t, closed] }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(3_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+
+    // `break` closes before the pending transfer commits.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} for x in S.new() {{ break }}; closed }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+
+    // `return` out of the body closes before the transfer COMMITS, so the
+    // returned expression is evaluated first and still reads 0; the close is
+    // observed after the traversal has been left.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} for x in S.new() {{ return closed }}; 99 }} }} \
+             let returned = M.run(); [returned, closed]"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(0_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+
+    // A body exception closes while unwinding, and the raise still propagates.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let raised = try {{ for x in S.new() {{ raise :boom }} }} catch e {{ e }}; \
+             [raised, closed] }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("boom".into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+
+    // `continue` does NOT close: it stays inside the same traversal, so the
+    // loop runs to exhaustion and closes once at the end.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} for x in S.new() {{ continue }}; closed }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+}
+
+#[test]
+fn c030_closes_a_native_backed_resource_idempotently() {
+    // C027 validates the payload before the runtime owns its storage, so the
+    // resource reaches script only once registration succeeded, and C030 makes
+    // release explicit and IDEMPOTENT: both calls answer nil of type Nil and
+    // the native release counter is exactly 1.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               let r = NativeFixture.resource(); \
+               let first = r.close(); let second = r.close(); \
+               [first, second, r.releases, r.class_name] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Symbol("FFI::Resource".into()),
+        ])))
+    );
+}

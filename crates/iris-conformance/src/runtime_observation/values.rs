@@ -226,6 +226,7 @@ fn render_value(value: &RuntimeValue) -> String {
         // for it, so a vector observes it through its class name rather than
         // through a structural rendering that would imply value semantics.
         RuntimeValue::Library(_) => "{\"class_name\":\"FFI::Library\"}".to_owned(),
+        RuntimeValue::NativeResource(_) => "{\"class_name\":\"FFI::Resource\"}".to_owned(),
         // C014 makes a Gate identity-bearing, so it is observed through its
         // class name rather than a structural rendering.
         RuntimeValue::Gate(_) => "{\"class_name\":\"Gate\"}".to_owned(),
@@ -327,6 +328,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
+        RuntimeValue::NativeResource(_) => "FFI::Resource",
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",

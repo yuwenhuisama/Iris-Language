@@ -770,6 +770,13 @@ pub enum Value {
     /// requires every callable symbol to carry a verified signature, so the
     /// bound symbol names travel with it.
     Library(Box<LibraryValue>),
+    /// A native-backed Closeable resource fixture.
+    ///
+    /// `IRIS-V1-FFI-C027` validates a payload before the runtime owns its
+    /// storage and `C030` makes deterministic release explicit and IDEMPOTENT,
+    /// so this carries no state of its own: every operation goes to the real C
+    /// ABI, which is where the release counter that proves idempotence lives.
+    NativeResource(u64),
     /// An immutable Iris `Regex`.
     ///
     /// `IRIS-V1-COLLECTIONS-C077` makes Regex an immutable identity-LESS core

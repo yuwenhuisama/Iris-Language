@@ -1278,6 +1278,7 @@ impl Evaluator {
             | RuntimeValue::Regex(_)
             | RuntimeValue::Match(_)
             | RuntimeValue::Library(_)
+            | RuntimeValue::NativeResource(_)
             | RuntimeValue::Gate(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
@@ -1340,6 +1341,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Regex(_) => "Regex",
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
+        RuntimeValue::NativeResource(_) => "FFI::Resource",
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",

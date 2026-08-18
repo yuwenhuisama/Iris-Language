@@ -5438,7 +5438,7 @@ impl SourceEvaluator {
                     // an ABI operation, so the fixture that performs one
                     // is a service receiver like the others.
                     || (name == "NativeFixture"
-                        && selector == "raise"
+                        && matches!(selector.as_str(), "raise" | "resource")
                         && self.undeclared_name(name))) =>
             {
                 let Expression::Name(namespace) = target.as_ref() else {
@@ -8002,6 +8002,23 @@ impl SourceEvaluator {
             // and converts its status plus context handle into the ordinary
             // Iris exception a `catch` observes; C020 is what makes that a
             // conversion rather than a long jump across the native frame.
+            // C027 validates a payload descriptor BEFORE the runtime owns any
+            // storage, so the resource only reaches script once registration
+            // succeeded. The value carries an identity alone: the payload and
+            // its release counter stay behind the C ABI, which is what makes
+            // C030's idempotence observable rather than asserted here.
+            ("NativeFixture", "resource") => {
+                iris_abi::iris_runtime_reset();
+                let mut diagnostic = 0_u32;
+                // SAFETY: `diagnostic` is a live local, so the pointer is valid.
+                let status =
+                    unsafe { iris_abi::iris_payload_register(8, 8, 0, 1, &raw mut diagnostic) };
+                if status != iris_abi::IrisStatus::Success {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                let identity = self.next_context_identity();
+                Ok(Value::NativeResource(identity.raw()))
+            }
             ("NativeFixture", "raise") => {
                 let [marker] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
@@ -9179,9 +9196,17 @@ impl SourceEvaluator {
         // the three a callable value actually is.
         // C043 names the Library Class `FFI::Library`, and V069 reads it as a
         // String rather than the Symbol the callable kinds answer.
-        if selector == "class_name" && arguments.is_empty() && matches!(receiver, Value::Library(_))
-        {
-            return Ok(Value::Text("FFI::Library".into()));
+        if selector == "class_name" && arguments.is_empty() {
+            match receiver {
+                Value::Library(_) => return Ok(Value::Text("FFI::Library".into())),
+                // C027 makes a native-backed resource an ordinary
+                // identity-bearing Iris object, so it names its OWN Class
+                // rather than borrowing the Library spelling beside it.
+                Value::NativeResource(_) => {
+                    return Ok(Value::Symbol("FFI::Resource".into()));
+                }
+                _ => {}
+            }
         }
         if selector == "class_name" && arguments.is_empty() {
             let kind = match &receiver {
@@ -9483,6 +9508,32 @@ impl SourceEvaluator {
                         state.finished = true;
                     }
                     return Ok(Value::Nil);
+                }
+                _ => {}
+            }
+        }
+        // C030 makes deterministic release explicit and IDEMPOTENT: a second
+        // close answers nil without releasing again. The release count lives
+        // behind the C ABI, so closing goes to the real boundary rather than
+        // being tracked here, which is what makes the property observable.
+        if let Value::NativeResource(_) = &receiver {
+            match selector {
+                "close" if arguments.is_empty() => {
+                    let status = iris_abi::iris_payload_close();
+                    if !matches!(
+                        status,
+                        iris_abi::IrisStatus::Success | iris_abi::IrisStatus::InvalidHandle
+                    ) {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    }
+                    return Ok(Value::Nil);
+                }
+                // The counter is how a caller proves the second close did not
+                // release again, so it is readable rather than internal.
+                "releases" if arguments.is_empty() => {
+                    return Ok(Value::Integer(
+                        u64::from(iris_abi::iris_payload_release_count()).into(),
+                    ));
                 }
                 _ => {}
             }
@@ -9963,6 +10014,7 @@ impl SourceEvaluator {
                         | Value::Regex(_)
                         | Value::Match(_)
                         | Value::Library(_)
+                        | Value::NativeResource(_)
                         | Value::Gate(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
@@ -10022,6 +10074,7 @@ impl SourceEvaluator {
             | Value::Regex(_)
             | Value::Match(_)
             | Value::Library(_)
+            | Value::NativeResource(_)
             | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
@@ -10241,6 +10294,7 @@ impl SourceEvaluator {
             | Value::Regex(_)
             | Value::Match(_)
             | Value::Library(_)
+            | Value::NativeResource(_)
             | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
@@ -11315,6 +11369,10 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::Regex(_) => "Regex",
         Value::Match(_) => "Match",
         Value::Library(_) => "FFI::Library",
+        // C027 makes a native-backed resource an ordinary identity-bearing
+        // Iris object at the script boundary, so it names a Class like any
+        // other value rather than exposing the payload behind it.
+        Value::NativeResource(_) => "FFI::Resource",
         Value::Gate(_) => "Gate",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
