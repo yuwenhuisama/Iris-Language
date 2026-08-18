@@ -386,6 +386,71 @@ fn validate_documentation(record: &Record) -> Outcome {
                 }
             }
         }
+        // `IRIS-V1-CONTROL-C069` requires every control transfer to have a
+        // target, result and error rule stated in a mandated table, which is a
+        // property of the specification TEXT rather than of any program. A row
+        // names the artifact, the clauses introducing each table, and how many
+        // transfers each must carry, and the audit reports a table that is
+        // absent, short, or has any unstated cell.
+        if let Some(tables) = expected.get("tables") {
+            let tables = crate::model::object(tables)?;
+            let artifact = match tables.get("artifact") {
+                Some(crate::json::Value::String(value)) => value.clone(),
+                _ => return Err("tables expects a string artifact".into()),
+            };
+            let required = match tables.get("required") {
+                Some(value) => crate::model::object(value)?,
+                None => return Err("tables expects required".into()),
+            };
+            let text =
+                std::fs::read_to_string(root.join(&artifact)).map_err(|error| error.to_string())?;
+            let lines: Vec<&str> = text.lines().collect();
+            for (marker, wanted) in required {
+                let crate::json::Value::String(wanted) = wanted else {
+                    return Err("tables entry expects a string count".into());
+                };
+                let start = lines
+                    .iter()
+                    .position(|line| line.starts_with(marker.as_str()))
+                    .ok_or_else(|| format!("{marker}: table clause is absent"))?;
+                let mut rows = 0_usize;
+                for line in lines.iter().skip(start + 1) {
+                    let trimmed = line.trim();
+                    if !trimmed.starts_with('|') {
+                        if rows > 0 {
+                            break;
+                        }
+                        continue;
+                    }
+                    // The header underline carries no transfer.
+                    if trimmed.chars().all(|c| matches!(c, '|' | '-' | ' ')) {
+                        continue;
+                    }
+                    let cells: Vec<&str> = trimmed
+                        .trim_matches('|')
+                        .split('|')
+                        .map(str::trim)
+                        .collect();
+                    rows += 1;
+                    // Row 1 is the header naming the columns; every later row
+                    // is a transfer and must state each rule.
+                    if rows > 1
+                        && let Some(column) = cells.iter().position(|cell| cell.is_empty())
+                    {
+                        return Err(format!(
+                            "{marker}: transfer {} leaves column {column} unstated",
+                            cells.first().copied().unwrap_or_default()
+                        ));
+                    }
+                }
+                let transfers = rows.saturating_sub(1);
+                if transfers.to_string() != *wanted {
+                    return Err(format!(
+                        "{marker}: expected {wanted} transfers, found {transfers}"
+                    ));
+                }
+            }
+        }
         if let Some(claims) = expected.get("declares") {
             for (path, wanted) in crate::model::object(claims)? {
                 let crate::json::Value::String(wanted) = wanted else {
