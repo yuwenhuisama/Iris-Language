@@ -1,0 +1,2 @@
+class Widget { public fun tag() -> Symbol { :widget } }
+module Main { public fun run() -> Object { let identity = Reflection::Package.identity(); let upgraded = try { Reflection::Package.upgrade(:"1.0.1") } catch e { e }; [identity, Reflection::Package.version(), Widget.package, upgraded] } }
