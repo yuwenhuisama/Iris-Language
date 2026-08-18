@@ -26,11 +26,12 @@ pub use exports::{
     iris_raise_marker, iris_runtime_reset,
 };
 pub use fixtures::{
-    fixture_extension_digest_matches, fixture_extension_digest_mismatch, fixture_host_abi_v1,
-    fixture_manifestless_call_count, fixture_negotiate_v2, fixture_panic_does_not_cross,
-    fixture_payload_cleanup_may_raise, fixture_payload_close_twice,
-    fixture_payload_rejects_stale_root, fixture_payload_traces_root, fixture_post_twice,
-    fixture_raise_marker, fixture_raw_pointer_handle, fixture_rooted_handle,
+    fixture_cpp_wrapper_claims_only_c, fixture_cpp_wrapper_fails_closed,
+    fixture_cpp_wrapper_reports_abi, fixture_extension_digest_matches,
+    fixture_extension_digest_mismatch, fixture_host_abi_v1, fixture_manifestless_call_count,
+    fixture_negotiate_v2, fixture_panic_does_not_cross, fixture_payload_cleanup_may_raise,
+    fixture_payload_close_twice, fixture_payload_rejects_stale_root, fixture_payload_traces_root,
+    fixture_post_twice, fixture_raise_marker, fixture_raw_pointer_handle, fixture_rooted_handle,
     fixture_runtime_takes_completion, fixture_static_api_call_count, fixture_worker_completes,
     fixture_worker_posts, fixture_worker_reads_handle,
 };

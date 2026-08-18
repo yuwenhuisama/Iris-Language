@@ -8,6 +8,23 @@
 unsafe extern "C" {
     /// `IRIS-V1-FFI-V060` fixture.
     pub safe fn fixture_host_abi_v1(out_major: *mut u32, out_minor: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V908` fixture: a C++ wrapper reports its C ABI version.
+    ///
+    /// Compiled as C++ rather than C, so `IRIS-V1-FFI-C053` is exercised
+    /// rather than asserted: the wrapper's vtable, destructor and templates
+    /// stay inside the translation unit and only these C entries cross.
+    pub safe fn fixture_cpp_wrapper_reports_abi(out_major: *mut u32, out_minor: *mut u32) -> i32;
+    /// `IRIS-V1-FFI-V908` fixture: the wrapper fails closed on an
+    /// unsupported major and retains nothing from the rejected negotiation.
+    pub safe fn fixture_cpp_wrapper_fails_closed(
+        out_requested_major: *mut u32,
+        out_retained: *mut i32,
+    ) -> i32;
+    /// `IRIS-V1-FFI-V911` fixture: only the negotiated C ABI is claimed stable.
+    pub safe fn fixture_cpp_wrapper_claims_only_c(
+        out_major: *mut u32,
+        out_crosses_cpp: *mut i32,
+    ) -> i32;
     /// `IRIS-V1-FFI-V061` fixture.
     pub safe fn fixture_rooted_handle(out_before: *mut i64, out_after: *mut i32) -> i32;
     /// `IRIS-V1-FFI-V062` fixture: a worker reads through a handle.

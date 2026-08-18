@@ -22,7 +22,15 @@ fn main() {
         "payload_trace.c",
         "extension_digest.c",
     ];
+    // IRIS-V1-FFI-C041 and C053 govern a Rust or C++ SAFE WRAPPER over the
+    // stable C ABI, so this one is compiled as C++ rather than C: the point of
+    // the row is that the wrapper's own vtable, destructor and templates stay
+    // wrapper-local while only its extern "C" entries cross.
+    let cpp_sources = ["cpp_wrapper.cpp"];
     for source in sources {
+        println!("cargo:rerun-if-changed={}/{source}", fixtures.display());
+    }
+    for source in cpp_sources {
         println!("cargo:rerun-if-changed={}/{source}", fixtures.display());
     }
     println!("cargo:rerun-if-changed={}/iris_abi.h", fixtures.display());
@@ -30,4 +38,9 @@ fn main() {
         .include(fixtures)
         .files(sources.iter().map(|source| fixtures.join(source)))
         .compile("iris_ffi_fixtures");
+    cc::Build::new()
+        .cpp(true)
+        .include(fixtures)
+        .files(cpp_sources.iter().map(|source| fixtures.join(source)))
+        .compile("iris_ffi_cpp_fixtures");
 }

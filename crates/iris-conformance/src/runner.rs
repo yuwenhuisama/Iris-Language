@@ -572,6 +572,54 @@ fn validate_abi_scenario(record: &Record) -> Outcome {
                 "unexpected"
             }
         }
+        // V908: C041 lets a wrapper pin supported C ABI versions but REQUIRES
+        // it to report its underlying C ABI version. The fixture is compiled
+        // as C++, so this is the wrapper's own report rather than a Rust
+        // restatement of the table.
+        "cpp_wrapper_reports_abi" => {
+            let mut major = 0_u32;
+            let mut minor = 0_u32;
+            let status = iris_abi::fixture_cpp_wrapper_reports_abi(&raw mut major, &raw mut minor);
+            if status == IrisStatus::Success as i32
+                && major == iris_abi::ABI_MAJOR
+                && minor == iris_abi::ABI_MINOR
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
+        // V908: C041 also requires the wrapper to FAIL CLOSED when the
+        // negotiated table cannot satisfy its safety assumptions. Requesting a
+        // major it does not pin must be refused AND retain nothing, since a
+        // wrapper that kept a half-negotiated attachment would be open.
+        "cpp_wrapper_fails_closed" => {
+            let mut requested = 0_u32;
+            let mut retained = 0_i32;
+            let status =
+                iris_abi::fixture_cpp_wrapper_fails_closed(&raw mut requested, &raw mut retained);
+            if status != IrisStatus::Success as i32 && retained == 0 {
+                "incompatible-abi"
+            } else {
+                "unexpected"
+            }
+        }
+        // V911: C053 denies that the wrapper's object identity, destructor
+        // timing, allocator, exception type, generic type or vtable layout is
+        // an Iris stable ABI. The fixture HAS all of those and none of them
+        // crosses: every exported entry takes and returns C integers only.
+        "cpp_wrapper_claims_only_c" => {
+            let mut major = 0_u32;
+            let mut crosses = 1_i32;
+            let status =
+                iris_abi::fixture_cpp_wrapper_claims_only_c(&raw mut major, &raw mut crosses);
+            if status == IrisStatus::Success as i32 && major == iris_abi::ABI_MAJOR && crosses == 0
+            {
+                "success"
+            } else {
+                "unexpected"
+            }
+        }
         // V061: C creates, reads, releases, then reads again. The second read
         // must be refused, so the C009 generation check survives the crossing.
         "c_rooted_handle_release" => {
