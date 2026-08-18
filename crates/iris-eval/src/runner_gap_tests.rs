@@ -3148,3 +3148,33 @@ fn c108_reports_denial_context_only_for_a_denial() {
         ])))
     );
 }
+
+#[test]
+fn c160_migrates_a_revision_only_when_called_explicitly() {
+    // C160 and D-264: a commit performs NO implicit enumeration or migration,
+    // so a tracked instance's own `migrate_revision` runs only when
+    // application code calls it, and it answers nil.
+    let base = "mut calls = 0; \
+                class A { public fun migrate_revision(old, new) -> Object { \
+                  calls = calls + 1; nil } } \
+                let a = A.new(); \
+                let opened = A.open() { |t| t.define_method(:m) { 2 } }; ";
+    assert_eq!(
+        evaluate(&format!("{base} [calls, a.migrate_revision(1, 2), calls]")),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(0_u8.into()),
+            RuntimeValue::Nil,
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+
+    // C016 makes a ClassRevision read-only: user code MUST NOT reactivate one,
+    // and C020 requires a rollback to publish a NEW validated revision instead
+    // of reactivating a historical one in place.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} try {{ Reflection::Class.reactivate(A, 1) }} catch e {{ e }}"
+        )),
+        Ok(RuntimeValue::Symbol("MetaTransactionError".into()))
+    );
+}

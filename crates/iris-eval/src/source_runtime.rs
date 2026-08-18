@@ -8228,6 +8228,23 @@ impl SourceEvaluator {
             // C016 makes a ClassRevision a read-only metadata object, and
             // C017/C018 fix its per-Class number and runtime-wide commit_id.
             // Both are already tracked; nothing exposed them to source.
+            // C016 makes a ClassRevision READ-ONLY: user code MUST NOT mutate
+            // or reactivate one. C020 adds that a rollback publishes a NEW
+            // validated revision instead of reactivating a historical one in
+            // place, so the surface exists in order to refuse rather than
+            // being absent and answering an unrelated missing-message error.
+            ("Reflection::Class", "reactivate") => {
+                let ([Value::Class(target)] | [Value::Class(target), _]) = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                // The target is resolved first, so a refusal cannot be
+                // mistaken for an unknown Class.
+                self.runtime
+                    .registry()
+                    .active(*target)
+                    .map_err(EvaluationError::Class)?;
+                Err(EvaluationError::MetaTransactionSuspension)
+            }
             ("Reflection::Class", "revision") => {
                 let [Value::Class(target)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
