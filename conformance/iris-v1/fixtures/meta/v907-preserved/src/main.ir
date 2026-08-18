@@ -1,0 +1,6 @@
+contract ClassDecorator { fun transform(declaration, arguments, context) }
+class Stamp for ClassDecorator { public impl fun transform(d, a, c) -> Transformation { Transformation.empty } }
+contract C { fun m() -> Nil }
+@Stamp() class A for C { public impl fun m() -> Nil { nil } public fun n() -> Integer { 1 } }
+module Helper { public fun tag() -> Symbol { :helper } }
+module Main { public fun probe() -> Object { [A.new().n(), Reflection::Class.method(A, :n).selector, A.contracts.length, JSON.encode(1, canonical: true), Reflection::Package.identity()] } public fun run() -> Object { let before = probe(); let composed = A.add_module(:Helper); let denied = A.denied_capabilities; let decorated = A.decorators; [before, probe()] } }
