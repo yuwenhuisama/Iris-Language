@@ -3269,4 +3269,83 @@ fn c030_closes_a_native_backed_resource_idempotently() {
     );
 }
 
+#[test]
+fn c039_rejects_an_unbound_method_as_a_closure() {
+    // C094 reifies callable KIND: `Closure<S>` types a Closure and
+    // `BoundMethod<S>` types a BoundMethod. C039 makes an unbound Method a
+    // reflective definition object rather than an ordinary callable, so
+    // assigning one to a callable annotation MUST fail unless an explicit
+    // binding produces a BoundMethod.
+    let base = "class A { public fun f(x: Integer) -> Integer { x } } \
+                module M { public fun run() -> Object { \
+                  let m = Reflection::Class.method(A, :f); ";
 
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let bad: Closure<(Integer) -> Integer> = m; bad }} }} M.run()"
+        )),
+        Err(EvaluationError::TypeContractError)
+    );
+
+    // An explicit binding produces a BoundMethod, which the BoundMethod kind
+    // admits and the Closure kind still does not.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let b: BoundMethod<(Integer) -> Integer> = m.bind(A.new()); \
+             b.class_name }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Symbol("BoundMethod".into()))
+    );
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let bad: Closure<(Integer) -> Integer> = m.bind(A.new()); bad }} }} M.run()"
+        )),
+        Err(EvaluationError::TypeContractError)
+    );
+
+    // A Closure still satisfies its own kind, so the refusal is about KIND
+    // rather than about callable annotations being unusable.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               let c: Closure<(Integer) -> Integer> = { |x: Integer| -> Integer x }; \
+               c.class_name } } M.run()"
+        ),
+        Ok(RuntimeValue::Symbol("Closure".into()))
+    );
+}
+
+#[test]
+fn c096_names_callable_kinds_and_checks_calls_at_the_site() {
+    // C094 names the callable kinds `Closure<S>` and `BoundMethod<S>`, and
+    // C096 makes the arguments INVARIANT, so a value of one kind never
+    // satisfies the other.
+    let base = "class A { public fun f(x: Integer) -> Integer { x } } \
+                module M { public fun run() -> Object { \
+                  let m = Reflection::Class.method(A, :f); ";
+
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let bad: BoundMethod<(Integer) -> Integer> = \
+             {{ |x: Integer| -> Integer x }}; bad }} }} M.run()"
+        )),
+        Err(EvaluationError::TypeContractError)
+    );
+
+    // C096 checks signature compatibility AT THE CALL SITE, so both kinds
+    // remain ordinary callables once their kind matches.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} let b = m.bind(A.new()); b.call(5) }} }} M.run()"
+        )),
+        Ok(RuntimeValue::Integer(5_u8.into()))
+    );
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               let c: Closure<(Integer) -> Integer> = { |x: Integer| -> Integer x }; \
+               c.call(7) } } M.run()"
+        ),
+        Ok(RuntimeValue::Integer(7_u8.into()))
+    );
+}

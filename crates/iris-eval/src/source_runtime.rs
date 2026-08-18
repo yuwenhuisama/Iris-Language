@@ -5248,6 +5248,26 @@ impl SourceEvaluator {
                     _ => Ok(true),
                 }
             }
+            // C094 reifies callable KIND in the Type system: `Closure<S>` types
+            // a Closure and `BoundMethod<S>` types a BoundMethod. C039 makes an
+            // unbound Method a reflective definition object rather than an
+            // ordinary callable, so a callable annotation MUST reject one until
+            // an explicit binding produces a BoundMethod. The SIGNATURE half
+            // stays a static concern: C096 checks it at the CALL SITE rather
+            // than by variance between callable Types.
+            iris_syntax::TypeExpression::Generic { name, .. }
+                if matches!(name.as_str(), "Closure" | "BoundMethod") =>
+            {
+                Ok(match value {
+                    Value::Closure(_) => name == "Closure",
+                    Value::BoundMethod(_) => name == "BoundMethod",
+                    // An unbound Method satisfies NEITHER kind.
+                    Value::Method(_) => false,
+                    // A non-callable is left to the ordinary rules, which is
+                    // what keeps this about kind rather than about arity.
+                    _ => true,
+                })
+            }
             // `typeof`, other generic, and callable annotations are static
             // concerns this evaluator does not decide, so they never raise here.
             iris_syntax::TypeExpression::Typeof(_)
@@ -9511,6 +9531,32 @@ impl SourceEvaluator {
                 }
                 _ => {}
             }
+        }
+        // C039 makes an unbound Method a reflective definition object that
+        // requires EXPLICIT receiver binding before it is an ordinary callable,
+        // so binding is the operation that produces a BoundMethod rather than
+        // an annotation quietly accepting the Method itself.
+        if let Value::Method(method) = &receiver
+            && selector == "bind"
+        {
+            let [target] = arguments else {
+                return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+            };
+            let method = *method;
+            let bound = match target {
+                Value::Object(object) => self
+                    .runtime
+                    .registry_mut()
+                    .bind_retained_instance(*object, method),
+                Value::Class(class) => self
+                    .runtime
+                    .registry_mut()
+                    .bind_retained_class(*class, method),
+                _ => return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
+            };
+            return bound.map(Value::BoundMethod).map_err(|error| {
+                EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(error))
+            });
         }
         // C030 makes deterministic release explicit and IDEMPOTENT: a second
         // close answers nil without releasing again. The release count lives

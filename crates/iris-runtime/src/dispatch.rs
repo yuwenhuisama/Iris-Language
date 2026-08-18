@@ -498,6 +498,37 @@ impl crate::ClassRegistry {
         }
     }
 
+    /// Pairs a RETAINED Method with an object receiver.
+    ///
+    /// `IRIS-V1-TYPES-C039` makes an unbound Method a reflective definition
+    /// object that requires EXPLICIT receiver binding before execution, so this
+    /// binds the Method the caller already holds rather than re-dispatching its
+    /// selector, which would select whatever the current MRO resolves instead.
+    pub fn bind_retained_instance(
+        &mut self,
+        receiver: crate::ObjectId,
+        method: Method,
+    ) -> Result<BoundMethod, DispatchError> {
+        Ok(BoundMethod::new(
+            self.next_bound_method()?,
+            BoundReceiver::Object(receiver),
+            method,
+        ))
+    }
+
+    /// Pairs a RETAINED Method with a Class receiver.
+    pub fn bind_retained_class(
+        &mut self,
+        class: ClassId,
+        method: Method,
+    ) -> Result<BoundMethod, DispatchError> {
+        Ok(BoundMethod::new(
+            self.next_bound_method()?,
+            BoundReceiver::Class(class),
+            method,
+        ))
+    }
+
     /// Binds a Method for one receiver under an explicit dispatch context.
     ///
     /// `IRIS-V1-CONTROL-C012` makes a top-level helper PRIVATE by default, so
