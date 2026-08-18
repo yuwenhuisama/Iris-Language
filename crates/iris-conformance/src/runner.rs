@@ -331,6 +331,61 @@ fn validate_documentation(record: &Record) -> Outcome {
                 ));
             }
         }
+        // `IRIS-V1-TYPES-C091` governs conformance corpus COMPOSITION: each
+        // cited Type feature family needs its coverage classes present. A row
+        // therefore names a family, the categories it requires, and a pattern
+        // that identifies the family's vectors, and the audit counts the
+        // corpus rather than executing anything.
+        if let Some(coverage) = expected.get("coverage") {
+            let coverage = crate::model::object(coverage)?;
+            let chapter = match coverage.get("chapter") {
+                Some(crate::json::Value::String(value)) => value.clone(),
+                _ => return Err("coverage expects a string chapter".into()),
+            };
+            let families = match coverage.get("families") {
+                Some(value) => crate::model::object(value)?,
+                None => return Err("coverage expects families".into()),
+            };
+            let directory = root.join("conformance/iris-v1/vectors").join(&chapter);
+            let mut records = Vec::new();
+            let mut paths = std::fs::read_dir(&directory)
+                .map_err(|error| error.to_string())?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|kind| kind == "json"))
+                .collect::<Vec<_>>();
+            paths.sort();
+            for path in paths {
+                let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
+                let value = crate::json::parse(&text).map_err(|error| error.to_string())?;
+                let object = crate::model::object(&value)?;
+                let name = match object.get("name") {
+                    Some(crate::json::Value::String(value)) => value.to_lowercase(),
+                    _ => String::new(),
+                };
+                let category = match object.get("category") {
+                    Some(crate::json::Value::String(value)) => value.clone(),
+                    _ => String::new(),
+                };
+                records.push((name, category));
+            }
+            for (family, wanted) in families {
+                let crate::json::Value::String(wanted) = wanted else {
+                    return Err("coverage family expects a string".into());
+                };
+                let mut parts = wanted.split(';');
+                let needles = regex_lite(parts.next().unwrap_or_default());
+                let required = regex_lite(parts.next().unwrap_or_default());
+                for category in required {
+                    let found = records.iter().any(|(name, kind)| {
+                        *kind == category && needles.iter().any(|needle| name.contains(needle))
+                    });
+                    if !found {
+                        return Err(format!("{family}: no {category} vector"));
+                    }
+                }
+            }
+        }
         if let Some(claims) = expected.get("declares") {
             for (path, wanted) in crate::model::object(claims)? {
                 let crate::json::Value::String(wanted) = wanted else {
