@@ -3268,3 +3268,5 @@ fn c030_closes_a_native_backed_resource_idempotently() {
         ])))
     );
 }
+
+
