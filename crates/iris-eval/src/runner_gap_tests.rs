@@ -3349,3 +3349,46 @@ fn c096_names_callable_kinds_and_checks_calls_at_the_site() {
         Ok(RuntimeValue::Integer(7_u8.into()))
     );
 }
+
+#[test]
+fn c057_scopes_module_private_authorization_to_one_edge() {
+    // C057 scopes Module private authorization to
+    // `(host logical Class, closed Module identity, composition edge, edge
+    // revision)`, so the grant lets the MODULE's code reach the HOST's private
+    // selector and nothing wider.
+    let base = "module M { public fun reach() -> Object { \
+                  try { secret() } catch e { e } } } ";
+
+    // A grant in one host MUST NOT grant access in another: the granted edge
+    // reaches the private selector, the ungranted host is denied.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} class Granted mixin M private {{ private fun secret() -> Symbol {{ :g }} }} \
+             class Other mixin M {{ private fun secret() -> Symbol {{ :o }} }} \
+             module Q {{ public fun run() -> Object {{ \
+               [Granted.new().reach(), Other.new().reach()] }} }} Q.run()"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("g".into()),
+            RuntimeValue::Symbol("MethodVisibilityError".into()),
+        ])))
+    );
+
+    // Removing the edge atomically REVOKES that edge's authorization, and
+    // re-including without private authorization does not inherit the old
+    // grant: the same call answers the visibility denial afterwards.
+    assert_eq!(
+        evaluate(&format!(
+            "{base} class G3 mixin M private {{ private fun secret() -> Symbol {{ :g }} }} \
+             module Q {{ public fun run() -> Object {{ \
+               let before = G3.new().reach(); \
+               let removed = Reflection::Class.remove_module(G3, :M); \
+               let added = G3.add_module(:M); \
+               [before, G3.new().reach()] }} }} Q.run()"
+        )),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("g".into()),
+            RuntimeValue::Symbol("MethodVisibilityError".into()),
+        ])))
+    );
+}
