@@ -489,6 +489,9 @@ fn kernel_error_code(error: &KernelError) -> &'static str {
         KernelError::Numeric(NumericError::DivisionByZero) => "DivisionByZeroError",
         KernelError::Numeric(NumericError::Domain) => "DomainError",
         KernelError::Numeric(NumericError::Range) => "RangeError",
+        // C160 expects a resource refusal for an allocation the host cannot
+        // satisfy, which is an ordinary catchable Iris failure.
+        KernelError::Numeric(NumericError::Resource) => "ResourceError",
         KernelError::Type => "TypeError",
         KernelError::Identity => "IdentityError",
         KernelError::MessageNotFound { .. } => "MessageNotFoundError",

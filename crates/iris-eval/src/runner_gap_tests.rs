@@ -3558,3 +3558,28 @@ fn c011_leaves_live_state_intact_after_an_invalid_candidate() {
         ])))
     );
 }
+
+#[test]
+fn c160_refuses_an_integer_shift_beyond_the_resource_limit() {
+    // C160 expects a resource refusal rather than an unbounded allocation. A
+    // left shift's result needs `bits + count` bits, so the size is known
+    // BEFORE the allocation; without the bound this ran until the host died.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { try { 1 << 1000000000 } catch e { e } } } M.run()"
+        ),
+        Ok(RuntimeValue::Symbol("ResourceError".into()))
+    );
+
+    // Ordinary exact-integer shifts are untouched, so the bound is a RESOURCE
+    // limit rather than a narrowing of Integer precision. The result is
+    // compared against the same shift written as a literal, which keeps the
+    // assertion in Iris rather than reconstructing the value in Rust.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               (1 << 100) == 1267650600228229401496703205376 } } M.run()"
+        ),
+        Ok(RuntimeValue::Bool(true))
+    );
+}

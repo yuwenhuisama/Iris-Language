@@ -15,6 +15,14 @@ pub enum NumericValue {
     /// An IEEE-754 binary64 value.
     Float64(f64),
 }
+/// The widest exact Integer the runtime will materialize, in bits.
+///
+/// `IRIS-V1-RUNTIME-C160` expects a resource refusal rather than an unbounded
+/// allocation. Iris Integers are arbitrary precision, so the bound is a
+/// RUNTIME resource limit rather than a type limit: it is deliberately far
+/// above any ordinary computation and exists to turn an allocation that would
+/// exhaust the host into an ordinary catchable failure.
+const INTEGER_BIT_LIMIT: u64 = 1 << 24;
 
 /// A recoverable failure produced by primitive numeric operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -443,6 +451,22 @@ impl Numeric {
             });
         }
         let count = count.to_usize().ok_or(NumericError::Resource)?;
+        // A left shift's result needs `bits + count` bits, so the allocation
+        // size is known BEFORE it is made. `IRIS-V1-RUNTIME-C160` expects a
+        // resource refusal rather than an unbounded allocation, and refusing
+        // here is what makes that observable: an exact-integer shift large
+        // enough to exhaust the host would otherwise run until the process
+        // died, with no diagnostic and nothing to catch.
+        if leftward {
+            let bits = value
+                .as_bigint()
+                .bits()
+                .checked_add(count as u64)
+                .ok_or(NumericError::Resource)?;
+            if bits > INTEGER_BIT_LIMIT {
+                return Err(NumericError::Resource);
+            }
+        }
         let result = if leftward {
             value.as_bigint() << count
         } else {

@@ -11656,6 +11656,12 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
             ..
         }) => "InstanceStateError",
         EvaluationError::MessageNotFound { .. } => "MessageNotFound",
+        // C160 expects a RESOURCE refusal for an allocation the host
+        // cannot satisfy, and an ordinary catchable Iris failure is what
+        // lets a program observe it rather than dying undiagnosed.
+        EvaluationError::Runtime(iris_runtime::KernelError::Numeric(
+            iris_runtime::NumericError::Resource,
+        )) => "ResourceError",
         _ => return None,
     };
     Some(name.to_owned())
