@@ -219,6 +219,26 @@ fn render_json(value: &crate::json::Value) -> String {
     }
 }
 
+/// Whether a ledger row cites a v1 clause as its replacement.
+///
+/// `IRIS-V1-MIGRATION-C004` requires the row to point at the v1 clause rather
+/// than merely naming the removed syntax, and clauses are spelled
+/// `IRIS-V1-<CHAPTER>-C<number>`.
+fn clause_reference(line: &str) -> bool {
+    // The chapter name itself may begin with `C`, as CONTROL and COLLECTIONS
+    // do, so splitting on the FIRST `-C` lands inside the chapter rather than
+    // on the clause number. Each `-C` is therefore tested for a digit run and
+    // for the `IRIS-V1-` prefix that makes it a clause reference.
+    line.match_indices("-C").any(|(start, _)| {
+        let digits = line[start + 2..].starts_with(|c: char| c.is_ascii_digit());
+        digits
+            && line[..start]
+                .rsplit(|c: char| c.is_whitespace())
+                .next()
+                .is_some_and(|token| token.contains("IRIS-V1-"))
+    })
+}
+
 /// Splits a `|`-separated audit pattern into lowercase needles.
 ///
 /// The corpus carries no regex dependency, so an audit row states alternatives
@@ -449,6 +469,66 @@ fn validate_documentation(record: &Record) -> Outcome {
                         "{marker}: expected {wanted} transfers, found {transfers}"
                     ));
                 }
+            }
+        }
+        // `IRIS-V1-MIGRATION-C004` requires a diagnostic naming a ledger row to
+        // point users at the v1 REPLACEMENT clause rather than treating the
+        // historical syntax as accepted source. That is a property of the
+        // ledger text, so a row names the artifact, the pattern identifying a
+        // ledger row, and the pattern each such row must also carry.
+        if let Some(ledger) = expected.get("ledger") {
+            let ledger = crate::model::object(ledger)?;
+            let text_field = |name: &str| -> Result<String, String> {
+                match ledger.get(name) {
+                    Some(crate::json::Value::String(value)) => Ok(value.clone()),
+                    _ => Err(format!("ledger expects a string {name}")),
+                }
+            };
+            let artifact = text_field("artifact")?;
+            let row_marker = text_field("rows")?;
+            let wanted = text_field("count")?;
+            let text =
+                std::fs::read_to_string(root.join(&artifact)).map_err(|error| error.to_string())?;
+            let mut found = 0_usize;
+            let mut offenders = Vec::new();
+            for line in text.lines() {
+                // A LEDGER row leads with its own id. Other tables in the same
+                // chapter merely CITE a ledger id in a later cell, and counting
+                // those would conflate two different tables.
+                let leads_with_row = line
+                    .trim_start()
+                    .strip_prefix('|')
+                    .map(|rest| rest.trim_start().trim_start_matches('`'))
+                    .is_some_and(|first| first.starts_with(&row_marker));
+                if !leads_with_row {
+                    continue;
+                }
+                found += 1;
+                // A ledger row that names no v1 clause leaves the reader with
+                // the historical syntax and no replacement to move to.
+                // The row's OWN id starts with the same prefix, so it must be
+                // removed before asking whether a REPLACEMENT clause is cited.
+                // Leaving it in made this check match every row unconditionally.
+                let without_own_id = line.replace(&row_marker, "");
+                if !clause_reference(&without_own_id) {
+                    offenders.push(
+                        line.trim_start_matches('|')
+                            .split('|')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                            .to_owned(),
+                    );
+                }
+            }
+            if !offenders.is_empty() {
+                return Err(format!(
+                    "ledger rows without a v1 replacement clause: {}",
+                    offenders.join(", ")
+                ));
+            }
+            if found.to_string() != wanted {
+                return Err(format!("expected {wanted} ledger rows, found {found}"));
             }
         }
         if let Some(claims) = expected.get("declares") {
