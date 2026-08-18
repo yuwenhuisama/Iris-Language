@@ -3468,3 +3468,46 @@ fn c025_resumes_a_suspension_inside_try_without_double_cleanup() {
         Ok(RuntimeValue::Integer(7_u8.into()))
     );
 }
+
+#[test]
+fn c037_keeps_cleanup_lifo_and_suppressed_across_suspension() {
+    // C037 keeps cleanup LIFO across async suspension, so a resumed body
+    // closes the INNER resource before the outer one.
+    assert_eq!(
+        evaluate(
+            "mut order = []; \
+             class Outer { public fun close() -> Object { order.append(:outer); nil } } \
+             class Inner { public fun close() -> Object { order.append(:inner); nil } } \
+             module M { public async fun inner(g) -> Object { \
+               using(Outer.new()) { using(Inner.new()) { let v = await g; v } } } } \
+             let g = Gate.new(); let t = M.inner(g); \
+             let posted = Gate.complete(g, 7); \
+             let resumed = Host.run(t); [resumed, order]"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(7_u8.into()),
+            RuntimeValue::Array(ArrayRef::new(vec![
+                RuntimeValue::Symbol("inner".into()),
+                RuntimeValue::Symbol("outer".into()),
+            ])),
+        ])))
+    );
+
+    // C037 also requires a cleanup failure AFTER resumption to use the same
+    // primary-plus-suppressed ordering as synchronous cleanup, and forbids
+    // losing it because the Task suspended.
+    assert_eq!(
+        evaluate(
+            "class R { public fun close() -> Object { raise :close_failed } } \
+             module M { public async fun inner(g) -> Object { \
+               using(R.new()) { let v = await g; raise :body_failed } } } \
+             let g = Gate.new(); let t = M.inner(g); \
+             let posted = Gate.complete(g, 7); \
+             try { Host.run(t) } catch v, c { [v, c.suppressed.length] }"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("body_failed".into()),
+            RuntimeValue::Integer(1_u8.into()),
+        ])))
+    );
+}
