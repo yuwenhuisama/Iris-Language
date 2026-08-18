@@ -3583,3 +3583,49 @@ fn c160_refuses_an_integer_shift_beyond_the_resource_limit() {
         Ok(RuntimeValue::Bool(true))
     );
 }
+
+#[test]
+fn c042_reflects_a_contract_requirement_return_type() {
+    // C042 lets a Contract body declare Method REQUIREMENTS, and the declared
+    // return Type is already recorded for conformance checking. Exposing it
+    // makes the normalized Type observable rather than only enforced.
+    assert_eq!(
+        evaluate(
+            "contract C { fun m() -> Integer } \
+             module Q { public fun run() -> Object { \
+               [C.requirement(:m)[:return_type], Integer.type] } } Q.run()"
+        ),
+        // C016 interns Type objects by identity, so the reflected requirement
+        // Type IS the ordinary `Integer.type` rather than a copy of it.
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Type(iris_runtime::ClassId::new(3), Vec::new()),
+            RuntimeValue::Type(iris_runtime::ClassId::new(3), Vec::new()),
+        ])))
+    );
+
+    // C109 answers nil for an ABSENT lookup rather than fabricating a
+    // requirement the Contract never declared.
+    assert_eq!(
+        evaluate(
+            "contract C { fun m() -> Integer } \
+             module Q { public fun run() -> Object { C.requirement(:absent) } } Q.run()"
+        ),
+        Ok(RuntimeValue::Nil)
+    );
+}
+
+#[test]
+fn c061_admits_a_closed_generic_contract_parent() {
+    // C061 interns ONE Contract per generic definition, so a closed parent
+    // such as `extends Base<Integer>` names the same Contract its bare form
+    // does. Accepting only the bare name refused a grammatical
+    // `type_expr_list` entry outright.
+    assert_eq!(
+        evaluate(
+            "contract Base<T> { fun m() -> Object } \
+             contract Sub extends Base<Integer> { fun n() -> Object } \
+             module Q { public fun run() -> Object { Sub.parents.length } } Q.run()"
+        ),
+        Ok(RuntimeValue::Integer(1_u8.into()))
+    );
+}

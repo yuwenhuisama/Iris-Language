@@ -1736,6 +1736,39 @@ impl SourceEvaluator {
         Ok(())
     }
 
+    /// One Contract requirement's reflected metadata.
+    ///
+    /// `IRIS-V1-TYPES-C042` lets a Contract body declare Method requirements,
+    /// and `IRIS-V1-META-C109` answers nil for an ABSENT lookup rather than
+    /// fabricating a requirement the Contract never declared.
+    fn contract_requirement(
+        &mut self,
+        contract: iris_runtime::ContractId,
+        name: &str,
+    ) -> Result<Value, EvaluationError> {
+        let declared = self
+            .contract_requirements
+            .get(&contract)
+            .is_some_and(|names| names.iter().any(|known| known == name));
+        if !declared {
+            return Ok(Value::Nil);
+        }
+        let annotation = self
+            .contract_requirement_returns
+            .get(&(contract, name.to_owned()))
+            .cloned();
+        let return_type = match annotation {
+            Some(annotation) => self.reify_type(&annotation)?,
+            // A requirement written with no return annotation states no Type,
+            // so there is none to report.
+            None => Value::Nil,
+        };
+        Ok(Value::Hash(iris_runtime::HashRef::new(vec![(
+            Value::Symbol("return_type".to_owned()),
+            return_type,
+        )])))
+    }
+
     /// Reports whether the published revision of a named Class holds a slot.
     ///
     /// `IRIS-V1-META-C022` publishes nothing from a failed candidate, so a
@@ -2767,7 +2800,13 @@ impl SourceEvaluator {
     ) -> Result<(), EvaluationError> {
         let mut parents = Vec::new();
         for parent in &declaration.parents {
-            let iris_syntax::TypeExpression::Name(name) = parent else {
+            // `IRIS-V1-TYPES-C061` interns ONE Contract per generic definition,
+            // so a closed parent such as `extends Base<Integer>` names the same
+            // Contract its bare form does. Accepting only the bare name refused
+            // a grammatical `type_expr_list` entry outright.
+            let (iris_syntax::TypeExpression::Name(name)
+            | iris_syntax::TypeExpression::Generic { name, .. }) = parent
+            else {
                 return Err(EvaluationError::UnsupportedConstruct);
             };
             parents.push(
@@ -7182,14 +7221,27 @@ impl SourceEvaluator {
                     qualified || self.satisfies_unqualified(class, contract, &name),
                 ))
             }
-            Value::Contract(contract) if selector == "parents" => Ok(Value::Array(
-                self.contract_parents
-                    .get(&contract)
-                    .into_iter()
-                    .flatten()
-                    .map(|parent| Value::Contract(*parent))
-                    .collect(),
-            )),
+            // C042's requirement reflection shares this arm rather than adding
+            // one: the dispatch function is recursive, and each extra arm
+            // widens its frame enough to overflow the stack on a deliberately
+            // deep program. The work itself is done out of line.
+            Value::Contract(contract) if selector == "requirement" || selector == "parents" => {
+                if selector == "requirement" {
+                    let [Value::Symbol(name)] = arguments else {
+                        return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                    };
+                    let name = name.clone();
+                    return self.contract_requirement(contract, &name);
+                }
+                Ok(Value::Array(
+                    self.contract_parents
+                        .get(&contract)
+                        .into_iter()
+                        .flatten()
+                        .map(|parent| Value::Contract(*parent))
+                        .collect(),
+                ))
+            }
             // C081 fixes the capability vocabulary and V360 observes a target's
             // EFFECTIVE deny set, which a subclass inherits and an open cannot
             // restore. The view is a plain immutable Array of Symbols.

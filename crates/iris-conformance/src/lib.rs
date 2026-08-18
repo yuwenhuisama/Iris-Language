@@ -183,11 +183,16 @@ mod tests {
         // When
         let outcomes = super::execute_runtime(&records);
 
-        // Then
+        // Then: a row the corpus marks non-executable is REPORTED as such
+        // rather than being run and counted as a pass. V079 is the example
+        // because it needs the compacting-GC subsystem, which no re-spelling
+        // can supply; V064 previously stood here and is now executable, so
+        // naming it would have pinned this test to a stale corpus state
+        // rather than to the property it checks.
         assert!(matches!(
             outcomes
                 .iter()
-                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V064"),
+                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V079"),
             Some(Outcome::NeedsSubsystem { .. })
         ));
         Ok(())
