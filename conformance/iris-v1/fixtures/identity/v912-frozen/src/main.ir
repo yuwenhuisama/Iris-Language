@@ -1,0 +1,2 @@
+class Widget { public fun tag() -> Symbol { :widget } }
+module Main { public fun run() -> Object { let before_type = Widget.type.hash(); let before_value = "abc".hash(); let upgraded = try { Reflection::Package.upgrade(:"1.0.1") } catch e { e }; [before_type == Widget.type.hash(), before_value == "abc".hash(), Reflection::Package.version(), Reflection::Package.identity()] } }
