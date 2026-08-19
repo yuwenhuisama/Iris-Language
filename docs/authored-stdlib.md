@@ -25,6 +25,17 @@ and `to_array`.
 `split`, `trim`, `replace`, `starts_with?`, `ends_with?`, `contains?`,
 `downcase`, `chars`, and `to_symbol`. `upcase` already existed.
 
+## Output
+
+`print(value, ...)` writes its arguments to standard output, space separated,
+and answers `nil`. No frozen clause defines standard output at all, so this is
+authored surface like the rest of this file. The spelling follows the chapter 04
+and chapter 05 examples, which write `print(line)` and `print(value)`.
+
+It resolves like the `using` helper: a DECLARED `print` wins, and only an
+undeclared one reaches the built-in. Rendering goes through `to_string`, so a
+user-defined `to_string` is honoured rather than bypassed.
+
 ## Note on literal receivers
 
 These methods live in the source runtime, which is the only evaluator carrying

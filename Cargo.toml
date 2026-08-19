@@ -4,6 +4,7 @@ members = [
     "crates/iris-syntax",
     "crates/iris-parser",
     "crates/iris-eval",
+    "crates/iris-cli",
     "crates/iris-conformance",
     "crates/iris-abi",
     "crates/iris-runtime",

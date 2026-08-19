@@ -187,6 +187,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "iris-cli"
+version = "0.1.0"
+dependencies = [
+ "iris-eval",
+ "iris-parser",
+ "iris-runtime",
+ "iris-syntax",
+]
+
+[[package]]
 name = "iris-conformance"
 version = "0.1.0"
 dependencies = [

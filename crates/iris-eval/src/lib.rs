@@ -933,6 +933,49 @@ fn declared_modules(program: &iris_syntax::Program) -> Vec<String> {
 }
 
 /// Evaluates source and reports whether a named Class was published before failure.
+/// One persistent evaluation session.
+///
+/// [`evaluate`] builds a fresh runtime per call, so nothing survives between
+/// calls. A REPL needs the opposite: a Class declared on one line must still
+/// exist on the next, and a mutation through an object must still be visible.
+///
+/// Re-running earlier lines cannot provide that. It repeats their side effects,
+/// and a mutation performed by a line that is not itself a binding - such as
+/// `account.deposit(30)` - is lost entirely, because replaying only the
+/// bindings never re-applies it. This keeps ONE runtime alive instead.
+pub struct Session {
+    evaluator: source_runtime::SourceEvaluator,
+}
+
+impl Session {
+    /// Creates a session with an empty runtime.
+    ///
+    /// # Errors
+    /// Returns the kernel failure when the runtime cannot be built.
+    pub fn new() -> Result<Self, EvaluationError> {
+        Ok(Self {
+            evaluator: source_runtime::SourceEvaluator::new_in_package(
+                source_runtime::LOCAL_PACKAGE,
+            )?,
+        })
+    }
+
+    /// Evaluates one more chunk of source against the accumulated state.
+    ///
+    /// # Errors
+    /// Returns the parse diagnostic when the source is rejected, or the
+    /// evaluation failure. A failure leaves the session usable, so a mistyped
+    /// line does not end the session.
+    pub fn evaluate(&mut self, source: &str) -> Result<RuntimeValue, EvaluationError> {
+        let parsed = parse(source);
+        if !parsed.program_accepted {
+            return Err(EvaluationError::ParseDiagnostic);
+        }
+        self.evaluator.set_source(source);
+        self.evaluator.program(&parsed.program)
+    }
+}
+
 pub fn evaluate_with_class_publication(
     source: &str,
     class_name: &str,
@@ -1503,7 +1546,11 @@ fn source_runtime_expression(expression: &Expression) -> bool {
             arguments,
             ..
         } => {
-            builds_iteration(callee)
+            // `print` is a bare-name helper the source runtime owns. Without
+            // this a top-level `print(1 + 2)` stayed in the literal evaluator,
+            // which has no such name, and answered NameError.
+            matches!(callee.as_ref(), Expression::Name(name) if name == "print")
+                || builds_iteration(callee)
                 || constructs_root_object(callee)
                 || source_runtime_expression(callee)
                 || arguments.iter().any(source_runtime_expression)

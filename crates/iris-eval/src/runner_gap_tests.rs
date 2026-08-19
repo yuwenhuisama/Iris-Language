@@ -4047,3 +4047,56 @@ fn c060_publishes_complete_content_to_a_synchronized_observer() {
         ])))
     );
 }
+
+#[test]
+fn a_session_keeps_state_across_chunks() -> Result<(), EvaluationError> {
+    // A REPL evaluates one line at a time. Re-running earlier lines cannot
+    // stand in for a session: it repeats their side effects, and a mutation
+    // made by a line that is not itself a binding is lost entirely.
+    let mut session = crate::Session::new()?;
+
+    session.evaluate(
+        "class Account { property balance: Integer = 0 \
+           public fun deposit(n: Integer) -> Integer { @balance = @balance + n; @balance } }\nnil",
+    )?;
+    session.evaluate("let account = Account.new()\nnil")?;
+
+    // A Class declared in an EARLIER chunk is still usable, and the deposit
+    // below is exactly the kind of non-binding mutation replay would drop.
+    assert_eq!(
+        session.evaluate("account.deposit(30)"),
+        Ok(RuntimeValue::Integer(30_u8.into()))
+    );
+    assert_eq!(
+        session.evaluate("account.deposit(12)"),
+        Ok(RuntimeValue::Integer(42_u8.into()))
+    );
+    assert_eq!(
+        session.evaluate("account.balance"),
+        Ok(RuntimeValue::Integer(42_u8.into()))
+    );
+    Ok(())
+}
+
+#[test]
+fn a_failed_chunk_leaves_the_session_usable() -> Result<(), EvaluationError> {
+    // A mistyped line must not end the session, or a REPL would be unusable.
+    let mut session = crate::Session::new()?;
+    session.evaluate("let a = 5\nnil")?;
+
+    assert!(session.evaluate("bogus_name").is_err());
+
+    assert_eq!(
+        session.evaluate("a + 1"),
+        Ok(RuntimeValue::Integer(6_u8.into()))
+    );
+    Ok(())
+}
+
+#[test]
+fn a_bare_print_call_reaches_the_source_runtime() {
+    // `print` is a bare-name helper the source runtime owns. A top-level
+    // `print(...)` used to stay in the literal evaluator, which has no such
+    // name, and answered NameError - so a script could produce no output.
+    assert_eq!(evaluate("print(1 + 2)"), Ok(RuntimeValue::Nil));
+}

@@ -942,6 +942,14 @@ impl SourceEvaluator {
         }
     }
 
+    /// Records the source text backing the next program.
+    ///
+    /// A diagnostic quotes the offending source, so a session must refresh it
+    /// per chunk rather than keep the first chunk's text forever.
+    pub(super) fn set_source(&mut self, source: &str) {
+        self.source = source.to_owned();
+    }
+
     pub(super) fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
         let mut values = Vec::new();
         // D-178: declaration collection resolves the ORIGIN before the open
@@ -6108,6 +6116,25 @@ impl SourceEvaluator {
                     && self.main_bound_method(name, receiver.as_ref()).is_none() =>
             {
                 self.reflection("Iris", "using", &arguments)
+            }
+            // `print` is AUTHORED surface, not a specified clause: no chapter
+            // defines standard output. The chapter 04 and 05 examples spell it
+            // `print(value)`, so that is the spelling used. It follows the
+            // `using` shape above, so a DECLARED `print` still wins and only an
+            // undeclared one reaches this helper.
+            Expression::Name(name)
+                if name == "print"
+                    && !self.names.contains_key(name)
+                    && self.main_bound_method(name, receiver.as_ref()).is_none() =>
+            {
+                let mut rendered = Vec::with_capacity(arguments.len());
+                for argument in &arguments {
+                    // Rendering goes through `to_string`, so a user-defined
+                    // `to_string` is honoured rather than bypassed.
+                    rendered.push(self.text_operand(argument)?);
+                }
+                println!("{}", rendered.join(" "));
+                Ok(Value::Nil)
             }
             Expression::Member {
                 receiver: target,
