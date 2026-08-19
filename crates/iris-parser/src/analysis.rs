@@ -987,6 +987,56 @@ impl Analyzer {
         self.check_deferred_override_markers(program);
         self.check_decorator_targets(program);
         self.check_decorator_determinism(program);
+        self.check_static_member_existence(program);
+    }
+
+    /// Rejects a STATIC call to a member the receiver's Class never declared.
+    ///
+    /// `IRIS-V1-TYPES-C045` makes the declared static spine immutable for a
+    /// revision, and `IRIS-V1-META-C045` keeps a runtime-added member out of
+    /// static API: reaching one from a static call site must be refused, while
+    /// the reflective path stays permitted after publication.
+    ///
+    /// Only a receiver this pass can see STRUCTURALLY is checked - a direct
+    /// `A.new().member()` on a Class declared in this same program - and only
+    /// when that Class composes no Module and extends nothing unknown. A
+    /// receiver reached any other way is left alone, since a wrong rejection
+    /// is far worse than a missed one.
+    fn check_static_member_existence(&mut self, program: &Program) {
+        let mut refused = Vec::new();
+        for declaration in program.declarations.iter().map(unwrap_export) {
+            let iris_syntax::Declaration::Class(value) = declaration else {
+                continue;
+            };
+            // An inherited or composed member is not in this Class's own list,
+            // so a Class with either is skipped rather than guessed at.
+            if value.extends.is_some() || !value.mixins.is_empty() || value.reopen {
+                continue;
+            }
+            let declared: Vec<String> = self
+                .declared_members
+                .iter()
+                .filter(|(owner, _)| *owner == value.name)
+                .flat_map(|(_, members)| members.iter().cloned())
+                .collect();
+            if declared.is_empty() {
+                continue;
+            }
+            for selector in static_calls_on(program, &value.name) {
+                // `IRIS-V1-RUNTIME-C093`'s truthiness protocol and the ordinary
+                // object protocol are available on every value, so they are not
+                // evidence of a runtime-added member.
+                if UNIVERSAL_SELECTORS.contains(&selector.as_str()) {
+                    continue;
+                }
+                if !declared.contains(&selector) {
+                    refused.push(selector);
+                }
+            }
+        }
+        for _ in refused {
+            self.report("IRIS-STATIC-MEMBER-NOT-FOUND");
+        }
     }
 
     /// Rejects a static decorator plan that reads a non-whitelisted input.
@@ -2434,6 +2484,50 @@ mod tests {
     }
 
     #[test]
+    fn c045_refuses_a_static_call_to_an_undeclared_member() {
+        // C045 makes the declared static spine immutable for a revision, and
+        // META-C045 keeps a runtime-added member out of static API, so a
+        // STATIC call site reaching one is refused.
+        assert_eq!(
+            codes("class A { public fun base() -> Integer { 1 } } A.new().extra()"),
+            vec!["IRIS-STATIC-MEMBER-NOT-FOUND"]
+        );
+        assert_eq!(
+            codes(
+                "class A { public fun base() -> Integer { 1 } } \
+                 let added = A.define_method(:extra) { 9 }; A.new().extra()"
+            ),
+            vec!["IRIS-STATIC-MEMBER-NOT-FOUND"]
+        );
+
+        // A declared member is admitted, and the REFLECTIVE path stays
+        // permitted: C045 refuses the static call, not the reflection.
+        assert!(codes("class A { public fun base() -> Integer { 1 } } A.new().base()").is_empty());
+        assert!(
+            codes(
+                "class A { public fun base() -> Integer { 1 } } \
+                 let method = Reflection::Class.method(A, :extra); method"
+            )
+            .is_empty()
+        );
+
+        // The check is deliberately bounded. A Class that INHERITS or COMPOSES
+        // members has them outside its own list, so it is left alone rather
+        // than rejected on incomplete information.
+        assert!(
+            codes(
+                "class Base { public fun extra() -> Integer { 1 } } \
+                 class A extends Base { public fun base() -> Integer { 1 } } A.new().extra()"
+            )
+            .is_empty()
+        );
+        // A universal protocol selector is available on every value.
+        assert!(
+            codes("class A { public fun base() -> Integer { 1 } } A.new().to_bool()").is_empty()
+        );
+    }
+
+    #[test]
     fn c083_treats_never_as_bottom_in_branch_result_analysis() {
         // C083: a branch that can only RAISE contributes no value Type to the
         // enclosing expression, so the `if` stays Integer-typed and the
@@ -3632,6 +3726,69 @@ const fn decorator_target(contract: &str) -> Option<&'static str> {
 /// decorator a dependency publishes is written `export class`. Both C125
 /// checks scan whole programs rather than recursing like `declaration`, so an
 /// exported decorator would otherwise be invisible to them.
+/// Selectors every value answers, so their use proves nothing about a Class.
+///
+/// `IRIS-V1-RUNTIME-C093`'s truthiness protocol and the ordinary object
+/// protocol are available on EVERY value, so a static call to one is not
+/// evidence of a runtime-added member.
+const UNIVERSAL_SELECTORS: &[&str] = &[
+    "to_bool",
+    "to_string",
+    "inspect",
+    "hash",
+    "class_name",
+    "same?",
+    "respond_to?",
+    "type",
+    "new",
+];
+
+/// Every selector called DIRECTLY on a construction of `class` in `program`.
+///
+/// Only `<class>.new()...<selector>()` is reported: a receiver reached
+/// indirectly keeps its `StaticType` contract and is left alone, since a wrong
+/// rejection is far worse than a missed one.
+fn static_calls_on(program: &Program, class: &str) -> Vec<String> {
+    fn constructs(expression: &Expression, class: &str) -> bool {
+        match expression {
+            Expression::Call { callee, .. } => matches!(
+                callee.as_ref(),
+                Expression::Member { receiver, selector }
+                    if selector == "new"
+                        && matches!(receiver.as_ref(), Expression::Name(name) if name == class)
+            ),
+            _ => false,
+        }
+    }
+    fn walk(expression: &Expression, class: &str, found: &mut Vec<String>) {
+        if let Expression::Call {
+            callee, arguments, ..
+        } = expression
+        {
+            if let Expression::Member { receiver, selector } = callee.as_ref()
+                && constructs(receiver, class)
+            {
+                found.push(selector.clone());
+            }
+            walk(callee, class, found);
+            for argument in arguments {
+                walk(argument, class, found);
+            }
+            return;
+        }
+        if let Expression::Member { receiver, .. } = expression {
+            walk(receiver, class, found);
+        }
+    }
+    let mut found = Vec::new();
+    for statement in &program.statements {
+        if let Statement::Expression(expression) = statement {
+            walk(expression, class, &mut found);
+        }
+    }
+    found
+}
+
 fn unwrap_export(declaration: &iris_syntax::Declaration) -> &iris_syntax::Declaration {
     match declaration {
         iris_syntax::Declaration::Export(value) => match value.as_ref() {
