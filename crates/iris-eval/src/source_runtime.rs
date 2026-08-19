@@ -5699,7 +5699,7 @@ impl SourceEvaluator {
                     || (name == "NativeFixture"
                         && matches!(
                             selector.as_str(),
-                            "raise" | "resource" | "concurrently_replace"
+                            "raise" | "resource" | "concurrently_replace" | "compact_gc"
                         )
                         && self.undeclared_name(name))) =>
             {
@@ -8330,6 +8330,21 @@ impl SourceEvaluator {
             // succeeded. The value carries an identity alone: the payload and
             // its release counter stay behind the C ABI, which is what makes
             // C030's idempotence observable rather than asserted here.
+            // D-111 keeps an object's runtime-local identity hash stable
+            // "across movement by GC", which needs a CONTROLLED point at which
+            // movement happens: an observation cannot wait for an automatic
+            // collector to decide to run. This answers how many objects MOVED,
+            // so a fixture can show the relocation was not vacuous, and it
+            // exposes no address, which V079 requires.
+            ("NativeFixture", "compact_gc") => {
+                if !arguments.is_empty() {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                }
+                let moved = self.runtime.compact_heap();
+                Ok(Value::Integer(iris_runtime::IntegerValue::from(
+                    u64::try_from(moved).unwrap_or(u64::MAX),
+                )))
+            }
             // C060 describes what a correctly synchronized observer receives
             // while another thread writes. The write therefore happens on a
             // REAL second thread: simulating it in-thread would prove nothing

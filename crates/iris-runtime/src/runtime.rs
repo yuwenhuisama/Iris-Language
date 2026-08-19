@@ -245,6 +245,17 @@ impl Runtime {
         Ok(self.raw_ivars.get(&instance).map_or(0, HashMap::len))
     }
 
+    /// Relocates live heap objects, returning how many MOVED.
+    ///
+    /// `D-111` requires an object's runtime-local identity hash to survive
+    /// "movement by GC", which needs a CONTROLLED point at which movement
+    /// happens: a conformance observation cannot wait for an automatic
+    /// collector to decide to run. This relocates rather than collects - it
+    /// decides nothing about reachability and discards nothing.
+    pub fn compact_heap(&mut self) -> usize {
+        self.heap.compact()
+    }
+
     /// Returns the runtime-stable identity hash of an ordinary object.
     ///
     /// `IRIS-V1-RUNTIME-C088` requires the same object to retain this value for
