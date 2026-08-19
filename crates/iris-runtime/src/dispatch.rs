@@ -268,12 +268,34 @@ impl crate::ClassRegistry {
         visibility: Visibility,
         decorators: impl IntoIterator<Item = DecoratorTransform>,
     ) -> Result<Method, ClassError> {
-        let capability = if self.active(class)?.methods().contains_key(&selector) {
-            crate::Capability::MethodBody
-        } else {
-            crate::Capability::MethodSet
-        };
-        self.require_meta_capability(class, capability)?;
+        self.publish_decorated_method_as(class, selector, body, visibility, decorators, false)
+    }
+
+    /// Publishes a Method, optionally as part of the Class's ORIGIN declaration.
+    ///
+    /// `IRIS-V1-META-C081` makes the method-slot operation "static only for
+    /// origin": a Class's own declaration is a static fact, not a meta
+    /// operation performed ON that Class. Checking `method_set` there made
+    /// `class A meta deny method_set { public fun m() { ... } }` fail at its
+    /// own declaration, so a Class could deny the capability only by declaring
+    /// nothing, which is why `IRIS-V1-META-V360`'s fixture uses an empty body.
+    pub fn publish_decorated_method_as(
+        &mut self,
+        class: ClassId,
+        selector: Selector,
+        body: MethodBody,
+        visibility: Visibility,
+        decorators: impl IntoIterator<Item = DecoratorTransform>,
+        origin: bool,
+    ) -> Result<Method, ClassError> {
+        if !origin {
+            let capability = if self.active(class)?.methods().contains_key(&selector) {
+                crate::Capability::MethodBody
+            } else {
+                crate::Capability::MethodSet
+            };
+            self.require_meta_capability(class, capability)?;
+        }
         let method = Method::new(
             self.next_method()?,
             MethodOwner::Class(class),

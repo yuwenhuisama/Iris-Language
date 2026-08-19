@@ -3698,3 +3698,63 @@ fn c004_diagnoses_a_read_before_definite_assignment() {
         Ok(RuntimeValue::Symbol("NameError".into()))
     );
 }
+
+#[test]
+fn c081_checks_each_meta_capability_separately_and_atomically() {
+    // C080 makes MetaCapabilities ORTHOGONAL: denying one must not deny
+    // another. `method_set` covers adding a slot, `method_body` replacing a
+    // compatible body, so denying the latter leaves `define_method` allowed.
+    assert_eq!(
+        evaluate(
+            "class A meta deny method_body { } \
+             module Q { public fun run() -> Object { \
+               try { A.define_method(:x) { 1 } } catch e { e } } } Q.run()"
+        ),
+        Ok(RuntimeValue::Nil)
+    );
+    assert_eq!(
+        evaluate(
+            "class A meta deny method_set { } \
+             module Q { public fun run() -> Object { \
+               try { A.define_method(:x) { 1 } } catch e { e } } } Q.run()"
+        ),
+        Ok(RuntimeValue::Symbol("MetaCapabilityError".into()))
+    );
+
+    // C081 makes the method-slot operation "static only for origin", so a
+    // Class DECLARING its own members is not performing a meta operation on
+    // itself: the deny applies to later operations, not to the declaration.
+    // The denied operation then fails ATOMICALLY, leaving the revision and the
+    // declared member untouched.
+    assert_eq!(
+        evaluate(
+            "class A meta deny method_set { public fun m() -> Symbol { :live } } \
+             module Q { public fun run() -> Object { \
+               let before = A.active_revision; \
+               let refused = try { A.define_method(:x) { 1 } } catch e { e }; \
+               [refused, before, A.active_revision, A.new().m()] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("MetaCapabilityError".into()),
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Symbol("live".into()),
+        ])))
+    );
+
+    // C152 makes an inherited or composed deny immutable for the revision, so
+    // a subclass and a Module-composed host both carry it.
+    assert_eq!(
+        evaluate(
+            "class A meta deny method_set { } class B extends A { } \
+             module Q { public fun run() -> Object { \
+               [B.denied_capabilities, try { B.define_method(:x) { 1 } } catch e { e }] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol(
+                "method_set".into()
+            )])),
+            RuntimeValue::Symbol("MetaCapabilityError".into()),
+        ])))
+    );
+}

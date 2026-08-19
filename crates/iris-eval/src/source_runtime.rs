@@ -1436,7 +1436,16 @@ impl SourceEvaluator {
                     let duplicate = declared_in_body
                         .iter()
                         .any(|(kind, seen)| *kind == method.kind && *seen == selector);
-                    self.class_method(class, builtin, declaration.reopen || duplicate, method)?;
+                    // C081: the origin declaration is a static fact, not a
+                    // meta operation performed on the Class, so a reopen
+                    // is checked while the origin is not.
+                    self.class_method_as(
+                        class,
+                        builtin,
+                        declaration.reopen || duplicate,
+                        method,
+                        !declaration.reopen,
+                    )?;
                     declared_in_body.push((method.kind, selector));
                 }
                 // C022 lets a Class body run ordinary synchronous control flow
@@ -1506,6 +1515,22 @@ impl SourceEvaluator {
         requires_override: bool,
         method: &MethodDeclaration,
     ) -> Result<(), EvaluationError> {
+        self.class_method_as(class, builtin, requires_override, method, false)
+    }
+
+    /// Publishes one declared Method, optionally as the Class's ORIGIN.
+    ///
+    /// `IRIS-V1-META-C081` makes the method-slot operation "static only for
+    /// origin", so a Class declaring its own members is not performing a meta
+    /// operation on itself and its own `meta deny method_set` does not apply.
+    fn class_method_as(
+        &mut self,
+        class: ClassId,
+        builtin: bool,
+        requires_override: bool,
+        method: &MethodDeclaration,
+        origin: bool,
+    ) -> Result<(), EvaluationError> {
         let selector = self.selector(&method.selector);
         // IRIS-V1-TYPES-C048: `impl C::member` qualifies a slot in the
         // Contract-qualified namespace. C049 keeps that namespace separate from
@@ -1561,7 +1586,14 @@ impl SourceEvaluator {
                 let defined = self
                     .runtime
                     .registry_mut()
-                    .publish_decorated_method(class, selector, body, visibility(method), decorators)
+                    .publish_decorated_method_as(
+                        class,
+                        selector,
+                        body,
+                        visibility(method),
+                        decorators,
+                        origin,
+                    )
                     .map_err(EvaluationError::Class)?;
                 self.property_methods.insert(defined.id(), false);
             }
