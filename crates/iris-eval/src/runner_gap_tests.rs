@@ -3758,3 +3758,62 @@ fn c081_checks_each_meta_capability_separately_and_atomically() {
         ])))
     );
 }
+
+#[test]
+fn c056_construction_uses_the_captured_revision() {
+    // C056 snapshots A's active revision at construction START for allocation,
+    // layout, stored property initialization, and the INITIAL `initialize`
+    // dispatch, and continues with it when a new revision commits before
+    // construction completes.
+    //
+    // A stored-property initializer runs BEFORE that dispatch, so committing a
+    // replacement from inside one is a genuine mid-construction commit.
+    let armed = "mut ran = :none; \
+                 class A { property tag: Symbol = arm() \
+                   public fun initialize() -> Object { ran = :original; nil } \
+                   public fun arm() -> Symbol { \
+                     let committed = A.open() { |t| \
+                       t.define_method(:initialize) { ran = :replacement; nil } }; \
+                     :armed } } \
+                 module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()";
+    assert_eq!(
+        evaluate(armed),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("armed".into()),
+            // The ORIGINAL initialize ran: the commit landed after the snapshot.
+            RuntimeValue::Symbol("original".into()),
+        ])))
+    );
+
+    // The same replacement committed BEFORE construction starts does take
+    // effect, which is what makes the result above evidence of the snapshot
+    // rather than of the replacement never working.
+    assert_eq!(
+        evaluate(
+            "mut ran = :none; \
+             class A { public fun initialize() -> Object { ran = :original; nil } } \
+             module Q { public fun run() -> Object { \
+               let committed = A.open() { |t| \
+                 t.define_method(:initialize) { ran = :replacement; nil } }; \
+               let a = A.new(); ran } } Q.run()"
+        ),
+        Ok(RuntimeValue::Symbol("replacement".into()))
+    );
+
+    // C056's other half: a LATER ordinary send uses the then-current active
+    // revision, so the member added mid-construction is reachable afterwards.
+    assert_eq!(
+        evaluate(
+            "class A { property tag: Symbol = arm() \
+               public fun initialize() -> Object { nil } \
+               public fun arm() -> Symbol { \
+                 let committed = A.open() { |t| t.define_method(:m) { :new } }; :armed } \
+               public fun m() -> Symbol { :old } } \
+             module Q { public fun run() -> Object { let a = A.new(); [a.tag, a.m()] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("armed".into()),
+            RuntimeValue::Symbol("new".into()),
+        ])))
+    );
+}
