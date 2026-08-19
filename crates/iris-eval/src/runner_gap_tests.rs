@@ -6,6 +6,110 @@ use iris_runtime::{
 use super::{EvaluationError, evaluate};
 
 #[test]
+fn authored_array_convenience_methods_answer_their_documented_results() {
+    // A length-only assertion would pass even if every method answered nil,
+    // so each result is pinned to its VALUE. The receiver is restored to
+    // [3, 1, 2, 2] by the push/pop pair before the reads below.
+    let source = "let a = [3, 1, 2, 2]; let pushed = a.push(4); let popped = a.pop(); \
+                  [a.map({ |x|; x + 1 }), a.select({ |x|; x > 1 }), a.reject({ |x|; x == 2 }), \
+                   a.reduce(0, { |sum, x|; sum + x }), a.find({ |x|; x == 2 }), \
+                   a.count({ |x|; x > 1 }), a.sum, a.min, a.max, a.sort, a.reverse, \
+                   a.first, a.last, pushed.same?(a), popped, a.join(\"-\"), a.include?(2), \
+                   a.index_of(2), a.take(2), a.drop(2), [1, 1, 2].uniq, [1, [2, [3]]].flatten, \
+                   a.all?({ |x|; x > 0 }), a.any?({ |x|; x == 2 }), a.at(-1), a.to_string, \
+                   [].first, [].last, [].all?({ |x|; x > 0 }), [].any?({ |x|; x > 0 })]";
+
+    let integers = |values: &[i64]| {
+        RuntimeValue::Array(ArrayRef::new(
+            values
+                .iter()
+                .map(|value| RuntimeValue::Integer((*value as u64).into()))
+                .collect(),
+        ))
+    };
+    let integer = |value: u64| RuntimeValue::Integer(value.into());
+
+    assert_eq!(
+        evaluate(source),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            integers(&[4, 2, 3, 3]),
+            integers(&[3, 2, 2]),
+            integers(&[3, 1]),
+            integer(8),
+            integer(2),
+            integer(3),
+            integer(8),
+            integer(1),
+            integer(3),
+            integers(&[1, 2, 2, 3]),
+            integers(&[2, 2, 1, 3]),
+            integer(3),
+            integer(2),
+            RuntimeValue::Bool(true),
+            integer(4),
+            RuntimeValue::Text("3-1-2-2".into()),
+            RuntimeValue::Bool(true),
+            integer(2),
+            integers(&[3, 1]),
+            integers(&[2, 2]),
+            integers(&[1, 2]),
+            integers(&[1, 2, 3]),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+            integer(2),
+            RuntimeValue::Text("[3, 1, 2, 2]".into()),
+            // An empty receiver answers nil rather than raising.
+            RuntimeValue::Nil,
+            RuntimeValue::Nil,
+            // `all?` is vacuously true on an empty receiver, `any?` false.
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(false),
+        ])))
+    );
+}
+
+#[test]
+fn authored_string_convenience_methods_answer_on_a_literal_receiver() {
+    // The receiver is a LITERAL on purpose. A send on a literal used to stay in
+    // the literal evaluator, whose selector table is tiny, so `"a".upcase()`
+    // answered MessageNotFoundError while `let s = "a"; s.upcase()` succeeded.
+    let source = "[\"ABC\".downcase, \"a,b\".split(\",\"), \" a \".trim(), \
+                   \"abc\".replace(\"a\", \"z\"), \"abc\".starts_with?(\"ab\"), \
+                   \"abc\".ends_with?(\"bc\"), \"abc\".contains?(\"b\"), \"abc\".upcase, \
+                   \"ab\".chars, \"ab\".to_symbol]";
+
+    let text = |value: &str| RuntimeValue::Text(value.into());
+
+    assert_eq!(
+        evaluate(source),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            text("abc"),
+            RuntimeValue::Array(ArrayRef::new(vec![text("a"), text("b")])),
+            text("a"),
+            text("zbc"),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+            text("ABC"),
+            RuntimeValue::Array(ArrayRef::new(vec![text("a"), text("b")])),
+            RuntimeValue::Symbol("ab".into()),
+        ])))
+    );
+}
+
+#[test]
+fn authored_collection_blocks_propagate_errors_unchanged() {
+    // Given
+    let source = "try { [1].map({ |x|; raise :array_failure }) } catch e { e }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then
+    assert_eq!(result, Ok(RuntimeValue::Symbol("array_failure".into())));
+}
+
+#[test]
 fn missing_numeric_selector_reports_receiver_class_and_selector() {
     // Given
     let source = "Integer(1).canonical_numeric_bytes()";

@@ -1477,8 +1477,23 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         Expression::Array(values) | Expression::Tuple(values) => {
             values.iter().any(source_runtime_expression)
         }
-        Expression::Member { receiver, .. }
-        | Expression::ContractView { receiver, .. }
+        // A send on a LITERAL receiver needs the source runtime, which is the
+        // only evaluator carrying the full built-in selector surface. Recursing
+        // into the receiver instead left such a send in the literal evaluator,
+        // whose selector table is tiny: `"a".upcase()` answered
+        // MessageNotFoundError while `let s = "a"; s.upcase()` succeeded,
+        // purely because a binding routed the program elsewhere.
+        //
+        // A NAME receiver keeps recursing: an undeclared `A.new_current()` must
+        // still reach the literal evaluator to report MessageNotFoundError
+        // rather than the source runtime's NameError.
+        Expression::Member { receiver, .. } => {
+            matches!(
+                receiver.as_ref(),
+                Expression::Literal(_) | Expression::Array(_) | Expression::Tuple(_)
+            ) || source_runtime_expression(receiver)
+        }
+        Expression::ContractView { receiver, .. }
         | Expression::Grouped(receiver)
         | Expression::Unary {
             operand: receiver, ..

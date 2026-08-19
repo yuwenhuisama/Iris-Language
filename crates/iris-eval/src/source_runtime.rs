@@ -4018,6 +4018,38 @@ impl SourceEvaluator {
             (Value::Symbol(name), "to_string", []) => Ok(Some(Value::Text(name.clone()))),
             // C050 makes `to_string` answer the receiver itself.
             (Value::Text(text), "to_string", []) => Ok(Some(Value::Text(text.clone()))),
+            (Value::Text(text), "split", [separator]) => {
+                let Value::Text(separator) = separator else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(Some(Value::Array(ArrayRef::new(
+                    text.split(separator)
+                        .map(|piece| Value::Text(piece.to_owned()))
+                        .collect(),
+                ))))
+            }
+            (Value::Text(text), "trim", []) => Ok(Some(Value::Text(text.trim().to_owned()))),
+            (Value::Text(text), "replace", [from, to]) => {
+                let (Value::Text(from), Value::Text(to)) = (from, to) else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(Some(Value::Text(text.replace(from, to))))
+            }
+            (Value::Text(text), "starts_with?", [Value::Text(prefix)]) => {
+                Ok(Some(Value::Bool(text.starts_with(prefix))))
+            }
+            (Value::Text(text), "ends_with?", [Value::Text(suffix)]) => {
+                Ok(Some(Value::Bool(text.ends_with(suffix))))
+            }
+            (Value::Text(text), "contains?", [Value::Text(needle)]) => {
+                Ok(Some(Value::Bool(text.contains(needle))))
+            }
+            (Value::Text(text), "chars", []) => Ok(Some(Value::Array(ArrayRef::new(
+                text.chars()
+                    .map(|scalar| Value::Text(scalar.to_string()))
+                    .collect(),
+            )))),
+            (Value::Text(text), "to_symbol", []) => Ok(Some(Value::Symbol(text.clone()))),
             // C050 requires a REPARSABLE double-quoted literal that recreates a
             // scalar-equal String and does not execute interpolation when
             // parsed. Interpolation is written `${...}`, so only a `$` that
@@ -4210,8 +4242,354 @@ impl SourceEvaluator {
             (Value::Hash(entries), "has_key?", [key]) => {
                 Ok(Some(Value::Bool(entries.contains_key(key))))
             }
+            (Value::Hash(entries), "include?", [key]) => {
+                Ok(Some(Value::Bool(entries.contains_key(key))))
+            }
+            (Value::Hash(entries), "map", [Value::Closure(block)]) => {
+                let mut mapped = Vec::new();
+                for (key, value) in entries.entries() {
+                    mapped.push(self.invoke_closure(*block, &[key, value])?);
+                }
+                Ok(Some(Value::Array(ArrayRef::new(mapped))))
+            }
+            (Value::Hash(entries), "select", [Value::Closure(block)]) => {
+                let mut selected = Vec::new();
+                for (key, value) in entries.entries() {
+                    let decision = self.invoke_closure(*block, &[key.clone(), value.clone()])?;
+                    if self.truthy(decision)? {
+                        selected.push((key, value));
+                    }
+                }
+                Ok(Some(Value::Hash(HashRef::new(selected))))
+            }
+            (Value::Hash(entries), "merge", [Value::Hash(other)]) => {
+                let merged = HashRef::new(entries.entries());
+                for (key, value) in other.entries() {
+                    let slot = self.hash_slot(&merged, &key)?;
+                    let bucket = self.key_hash(&key)?;
+                    merged.insert_bucketed(slot, key, value, bucket);
+                }
+                Ok(Some(Value::Hash(merged)))
+            }
             _ => Ok(None),
         }
+    }
+
+    fn authored_array_send(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Option<Value>, EvaluationError> {
+        let Value::Array(values) = receiver else {
+            return Ok(None);
+        };
+        match (selector, arguments) {
+            ("map", [Value::Closure(block)]) => {
+                let mut mapped = Vec::new();
+                for value in values.elements() {
+                    mapped.push(self.invoke_closure(*block, &[value])?);
+                }
+                Ok(Some(Value::Array(ArrayRef::new(mapped))))
+            }
+            ("each", [Value::Closure(block)]) => {
+                for value in values.elements() {
+                    self.invoke_closure(*block, &[value])?;
+                }
+                Ok(Some(receiver.clone()))
+            }
+            ("each_with_index", [Value::Closure(block)]) => {
+                for (index, value) in values.elements().into_iter().enumerate() {
+                    self.invoke_closure(
+                        *block,
+                        &[
+                            value,
+                            Value::Integer(u64::try_from(index).unwrap_or_default().into()),
+                        ],
+                    )?;
+                }
+                Ok(Some(receiver.clone()))
+            }
+            ("select" | "reject", [Value::Closure(block)]) => {
+                let mut selected = Vec::new();
+                for value in values.elements() {
+                    let decision = self.invoke_closure(*block, std::slice::from_ref(&value))?;
+                    let accepted = self.truthy(decision)?;
+                    if accepted == (selector == "select") {
+                        selected.push(value);
+                    }
+                }
+                Ok(Some(Value::Array(ArrayRef::new(selected))))
+            }
+            ("reduce", [initial, Value::Closure(block)]) => {
+                let mut result = initial.clone();
+                for value in values.elements() {
+                    result = self.invoke_closure(*block, &[result, value])?;
+                }
+                Ok(Some(result))
+            }
+            ("reduce", [Value::Closure(block)]) => {
+                let mut elements = values.elements().into_iter();
+                let Some(mut result) = elements.next() else {
+                    return Ok(Some(Value::Nil));
+                };
+                for value in elements {
+                    result = self.invoke_closure(*block, &[result, value])?;
+                }
+                Ok(Some(result))
+            }
+            ("find", [Value::Closure(block)]) => {
+                for value in values.elements() {
+                    let decision = self.invoke_closure(*block, std::slice::from_ref(&value))?;
+                    if self.truthy(decision)? {
+                        return Ok(Some(value));
+                    }
+                }
+                Ok(Some(Value::Nil))
+            }
+            ("count", []) => Ok(Some(Value::Integer(
+                u64::try_from(values.len()).unwrap_or_default().into(),
+            ))),
+            ("count", [Value::Closure(block)]) => {
+                let mut count = 0_u64;
+                for value in values.elements() {
+                    let decision = self.invoke_closure(*block, &[value])?;
+                    if self.truthy(decision)? {
+                        count = count.saturating_add(1);
+                    }
+                }
+                Ok(Some(Value::Integer(count.into())))
+            }
+            ("sum", []) => {
+                let mut result = Value::Integer(0_u8.into());
+                for value in values.elements() {
+                    result = self.send(result, "+", &[value])?;
+                }
+                Ok(Some(result))
+            }
+            ("min" | "max", []) => self.authored_array_extreme(values, selector),
+            ("sort", []) => self.authored_array_sort(values),
+            ("reverse", []) => {
+                let mut reversed = values.elements();
+                reversed.reverse();
+                Ok(Some(Value::Array(ArrayRef::new(reversed))))
+            }
+            ("first", []) => Ok(Some(values.get(0).unwrap_or(Value::Nil))),
+            ("last", []) => Ok(Some(
+                values.elements().into_iter().last().unwrap_or(Value::Nil),
+            )),
+            ("push", [value]) => {
+                values.mutate(|elements| elements.push(value.clone()));
+                Ok(Some(receiver.clone()))
+            }
+            ("pop", []) => Ok(Some(values.mutate(Vec::pop).unwrap_or(Value::Nil))),
+            ("join", [separator]) => {
+                let separator = self.text_operand(separator)?;
+                let mut rendered = Vec::new();
+                for value in values.elements() {
+                    rendered.push(self.text_operand(&value)?);
+                }
+                Ok(Some(Value::Text(rendered.join(&separator))))
+            }
+            ("include?", [needle]) => {
+                for value in values.elements() {
+                    let comparison = self.send(value, "==", std::slice::from_ref(needle))?;
+                    if self.truthy(comparison)? {
+                        return Ok(Some(Value::Bool(true)));
+                    }
+                }
+                Ok(Some(Value::Bool(false)))
+            }
+            ("index_of", [needle]) => {
+                for (index, value) in values.elements().into_iter().enumerate() {
+                    let comparison = self.send(value, "==", std::slice::from_ref(needle))?;
+                    if self.truthy(comparison)? {
+                        return Ok(Some(Value::Integer(
+                            u64::try_from(index).unwrap_or_default().into(),
+                        )));
+                    }
+                }
+                Ok(Some(Value::Nil))
+            }
+            ("concat", [Value::Array(other)]) => {
+                let mut combined = values.elements();
+                combined.extend(other.elements());
+                Ok(Some(Value::Array(ArrayRef::new(combined))))
+            }
+            ("slice", [Value::Range(range)]) => {
+                check_slice_range(range)?;
+                let elements = values.elements();
+                let span = slice_bounds(
+                    &range.start,
+                    &range.end,
+                    range.inclusive_end,
+                    elements.len(),
+                );
+                Ok(Some(Value::Array(ArrayRef::new(
+                    elements.get(span).unwrap_or_default().to_vec(),
+                ))))
+            }
+            ("slice", [Value::Integer(start), Value::Integer(length)]) => {
+                let elements = values.elements();
+                let Some(start) = resolve_index(start, elements.len()) else {
+                    return Ok(Some(Value::Array(ArrayRef::new(Vec::new()))));
+                };
+                let length = length.to_usize().ok_or(EvaluationError::ArgumentError)?;
+                let end = start.saturating_add(length).min(elements.len());
+                Ok(Some(Value::Array(ArrayRef::new(
+                    elements[start.min(elements.len())..end].to_vec(),
+                ))))
+            }
+            ("take" | "drop", [Value::Integer(count)]) => {
+                let count = count.to_usize().ok_or(EvaluationError::ArgumentError)?;
+                let elements = values.elements();
+                let split = count.min(elements.len());
+                let result = if selector == "take" {
+                    elements[..split].to_vec()
+                } else {
+                    elements[split..].to_vec()
+                };
+                Ok(Some(Value::Array(ArrayRef::new(result))))
+            }
+            ("uniq", []) => {
+                let mut unique: Vec<Value> = Vec::new();
+                for value in values.elements() {
+                    let mut present = false;
+                    for held in &unique {
+                        let comparison =
+                            self.send(held.clone(), "==", std::slice::from_ref(&value))?;
+                        if self.truthy(comparison)? {
+                            present = true;
+                            break;
+                        }
+                    }
+                    if !present {
+                        unique.push(value);
+                    }
+                }
+                Ok(Some(Value::Array(ArrayRef::new(unique))))
+            }
+            ("flatten", []) => Ok(Some(Value::Array(ArrayRef::new(Self::flatten_values(
+                values.elements(),
+            ))))),
+            ("all?" | "any?", [Value::Closure(block)]) => {
+                let seeking_all = selector == "all?";
+                for value in values.elements() {
+                    let decision = self.invoke_closure(*block, &[value])?;
+                    let matched = self.truthy(decision)?;
+                    if matched != seeking_all {
+                        return Ok(Some(Value::Bool(!seeking_all)));
+                    }
+                }
+                Ok(Some(Value::Bool(seeking_all)))
+            }
+            ("at", [Value::Integer(index)]) => Ok(Some(
+                resolve_index(index, values.len())
+                    .and_then(|position| values.get(position))
+                    .unwrap_or(Value::Nil),
+            )),
+            ("to_string", []) => {
+                let mut rendered = Vec::new();
+                for value in values.elements() {
+                    rendered.push(self.text_operand(&value)?);
+                }
+                Ok(Some(Value::Text(format!("[{}]", rendered.join(", ")))))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn authored_array_extreme(
+        &mut self,
+        values: &ArrayRef,
+        selector: &str,
+    ) -> Result<Option<Value>, EvaluationError> {
+        let mut elements = values.elements().into_iter();
+        let Some(mut extreme) = elements.next() else {
+            return Ok(Some(Value::Nil));
+        };
+        for candidate in elements {
+            let order = self.send(extreme.clone(), "<=>", std::slice::from_ref(&candidate))?;
+            let Value::Integer(order) = order else {
+                return Err(EvaluationError::ComparisonContractError);
+            };
+            let order = order
+                .to_i128()
+                .ok_or(EvaluationError::ComparisonContractError)?;
+            if (selector == "min" && order > 0) || (selector == "max" && order < 0) {
+                extreme = candidate;
+            }
+        }
+        Ok(Some(extreme))
+    }
+
+    fn authored_array_sort(&mut self, values: &ArrayRef) -> Result<Option<Value>, EvaluationError> {
+        let mut sorted = Vec::new();
+        for candidate in values.elements() {
+            let mut position = sorted.len();
+            for (index, held) in sorted.iter().enumerate() {
+                let order = self.send(candidate.clone(), "<=>", std::slice::from_ref(held))?;
+                let Value::Integer(order) = order else {
+                    return Err(EvaluationError::ComparisonContractError);
+                };
+                if order
+                    .to_i128()
+                    .ok_or(EvaluationError::ComparisonContractError)?
+                    < 0
+                {
+                    position = index;
+                    break;
+                }
+            }
+            sorted.insert(position, candidate);
+        }
+        Ok(Some(Value::Array(ArrayRef::new(sorted))))
+    }
+
+    fn authored_text_send(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Option<Value>, EvaluationError> {
+        let Value::Text(text) = receiver else {
+            return Ok(None);
+        };
+        match (selector, arguments) {
+            ("split", [Value::Text(separator)]) => Ok(Some(Value::Array(ArrayRef::new(
+                text.split(separator)
+                    .map(|piece| Value::Text(piece.to_owned()))
+                    .collect(),
+            )))),
+            ("trim", []) => Ok(Some(Value::Text(text.trim().to_owned()))),
+            ("replace", [Value::Text(from), Value::Text(to)]) => {
+                Ok(Some(Value::Text(text.replace(from, to))))
+            }
+            ("starts_with?", [Value::Text(prefix)]) => {
+                Ok(Some(Value::Bool(text.starts_with(prefix))))
+            }
+            ("ends_with?", [Value::Text(suffix)]) => Ok(Some(Value::Bool(text.ends_with(suffix)))),
+            ("contains?", [Value::Text(needle)]) => Ok(Some(Value::Bool(text.contains(needle)))),
+            ("downcase", []) => Ok(Some(Value::Text(text.to_lowercase()))),
+            ("chars", []) => Ok(Some(Value::Array(ArrayRef::new(
+                text.chars()
+                    .map(|scalar| Value::Text(scalar.to_string()))
+                    .collect(),
+            )))),
+            ("to_symbol", []) => Ok(Some(Value::Symbol(text.clone()))),
+            _ => Ok(None),
+        }
+    }
+
+    fn flatten_values(values: Vec<Value>) -> Vec<Value> {
+        let mut flattened = Vec::new();
+        for value in values {
+            match value {
+                Value::Array(values) => flattened.extend(Self::flatten_values(values.elements())),
+                value => flattened.push(value),
+            }
+        }
+        flattened
     }
 
     /// Converts an operand to text for the `IRIS-V1-COLLECTIONS-C056` forms.
@@ -7043,6 +7421,9 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Some(result) = self.authored_text_send(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
         // C029 makes `same?` a PRIMITIVE that bypasses Method lookup, so it is
         // answered before any receiver-specific dispatch. Deciding it further
         // down meant every receiver kind handled earlier in this match never
@@ -9507,6 +9888,9 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Some(result) = self.authored_text_send(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
         // IRIS-V1-CONTROL-C076 makes `call` the sole invocation spelling for the
         // ordinary callable kinds, so a callable answers it as an ordinary
         // selector rather than being applied directly to an argument list.
@@ -10050,6 +10434,12 @@ impl SourceEvaluator {
         // These MUTATE the receiver, so they are routed through the binding
         // the receiver came from rather than through a copied value.
         if let Some(result) = self.collection_mutation(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.authored_array_send(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.authored_text_send(&receiver, selector, arguments)? {
             return Ok(result);
         }
         // C040 fixes the collection operation surface. `length` is the
