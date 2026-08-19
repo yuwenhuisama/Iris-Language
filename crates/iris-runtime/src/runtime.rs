@@ -245,6 +245,50 @@ impl Runtime {
         Ok(self.raw_ivars.get(&instance).map_or(0, HashMap::len))
     }
 
+    /// Frees every owned identity NOT reachable from `roots`, then relocates
+    /// the survivors. Answers `(freed, moved)`.
+    ///
+    /// The dead set is `owned - reachable`, which is what makes this a
+    /// collector rather than a caller-driven free: the caller supplies roots
+    /// and the runtime works out what died. Tracing crosses into Array and
+    /// Hash bodies, so an object held ONLY inside a container is not freed.
+    ///
+    /// The caller MUST pass every root. A missed root frees a live object, so
+    /// this is deliberately not reachable from Iris source.
+    pub fn collect_garbage<'a>(
+        &mut self,
+        roots: impl IntoIterator<Item = &'a crate::Value>,
+    ) -> (usize, usize) {
+        // Class-level state is always live while its Class exists, so a value
+        // held in a class ivar or class variable is an implicit root. Omitting
+        // them would free an object reachable only that way.
+        let all_roots: Vec<crate::Value> = roots
+            .into_iter()
+            .cloned()
+            .chain(
+                self.class_raw_ivars
+                    .values()
+                    .flat_map(HashMap::values)
+                    .cloned(),
+            )
+            .chain(self.class_vars.values().cloned())
+            .collect();
+        let reachable = crate::reachable_from(&self.heap, &self.raw_ivars, all_roots.iter());
+        let garbage: Vec<crate::ObjectId> = self
+            .heap
+            .live_ids()
+            .into_iter()
+            .filter(|id| !reachable.contains(*id))
+            .collect();
+        let freed = garbage.len();
+        for dead in garbage {
+            // The identity came from `live_ids`, so the free cannot fail; an
+            // error here would mean the heap disagreed with itself.
+            drop(self.heap.free(dead));
+        }
+        (freed, self.heap.compact())
+    }
+
     /// Relocates live heap objects, returning how many MOVED.
     ///
     /// `D-111` requires an object's runtime-local identity hash to survive

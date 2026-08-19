@@ -12,9 +12,12 @@
 //! walks BOTH regions in one pass, which is what makes the object graph
 //! unified in the only sense a collector cares about: reachability.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::{BoundReceiver, HeapPayload, ObjectId, RuntimeHeap, Value};
+use crate::{BoundReceiver, HeapPayload, ObjectId, RuntimeHeap, Selector, Value};
+
+/// An object's raw receiver ivars, which the runtime stores OUTSIDE the heap.
+pub type RawIvars = HashMap<ObjectId, HashMap<Selector, Value>>;
 
 /// The set of identities reachable from a set of roots.
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -58,12 +61,19 @@ impl Reachable {
 /// instance held ONLY inside an Array is still reached. Visited cells are
 /// recorded by [`crate::ArrayRef::cell_id`], so a container that contains
 /// itself terminates instead of recursing forever.
+///
+/// `ivars` is required because an object's raw receiver ivars live in a
+/// runtime-side table rather than in its heap payload. Walking the payload
+/// alone missed every edge written through `assign_raw_ivar`, which made a
+/// REACHABLE cycle look like garbage and freed live objects.
 pub fn reachable_from<'a>(
     heap: &RuntimeHeap,
+    ivars: &RawIvars,
     roots: impl IntoIterator<Item = &'a Value>,
 ) -> Reachable {
     let mut walker = Walker {
         heap,
+        ivars,
         objects: HashSet::new(),
         cells: HashSet::new(),
     };
@@ -77,6 +87,7 @@ pub fn reachable_from<'a>(
 
 struct Walker<'a> {
     heap: &'a RuntimeHeap,
+    ivars: &'a RawIvars,
     objects: HashSet<ObjectId>,
     cells: HashSet<usize>,
 }
@@ -89,6 +100,13 @@ impl Walker<'_> {
     fn reach(&mut self, object: ObjectId) {
         if !self.objects.insert(object) {
             return;
+        }
+        // Raw ivars live OUTSIDE the heap payload, so they are followed even
+        // for an identity the heap does not own.
+        if let Some(slots) = self.ivars.get(&object) {
+            for slot in slots.values().cloned().collect::<Vec<_>>() {
+                self.walk(&slot);
+            }
         }
         let Ok(found) = self.heap.lookup(object) else {
             // An identity with no heap entry is still REACHED - a Closure or a
@@ -211,6 +229,11 @@ mod tests {
     use super::*;
     use crate::{ArrayRef, ClassId, HashRef};
 
+    /// These tests build heap payloads directly, so no raw ivars exist.
+    fn no_ivars() -> RawIvars {
+        RawIvars::new()
+    }
+
     fn instance(heap: &mut RuntimeHeap, fields: Vec<Value>) -> ObjectId {
         let Ok(id) = heap.alloc(ClassId::new(1), HeapPayload::InstanceFields(fields)) else {
             unreachable!("a fresh heap allocates")
@@ -227,14 +250,14 @@ mod tests {
         let hidden = instance(&mut heap, Vec::new());
         let holder = Value::Array(ArrayRef::new(vec![Value::Object(hidden)]));
 
-        let reached = reachable_from(&heap, [&holder]);
+        let reached = reachable_from(&heap, &no_ivars(), [&holder]);
 
         assert!(reached.contains(hidden));
 
         // Control: with the Array NOT among the roots, the same object is
         // unreachable. Without this the assertion above could hold simply
         // because everything is always reported reachable.
-        let nothing = reachable_from(&heap, []);
+        let nothing = reachable_from(&heap, &no_ivars(), []);
         assert!(!nothing.contains(hidden));
         assert!(nothing.is_empty());
     }
@@ -248,7 +271,7 @@ mod tests {
         let middle = ArrayRef::new(vec![Value::Hash(inner)]);
         let root = instance(&mut heap, vec![Value::Array(middle)]);
 
-        let reached = reachable_from(&heap, [&Value::Object(root)]);
+        let reached = reachable_from(&heap, &no_ivars(), [&Value::Object(root)]);
 
         assert!(reached.contains(root));
         assert!(reached.contains(deep), "the walk must re-enter the heap");
@@ -265,7 +288,7 @@ mod tests {
         let cycle = ArrayRef::new(vec![Value::Object(held)]);
         cycle.mutate(|elements| elements.push(Value::Array(cycle.clone())));
 
-        let reached = reachable_from(&heap, [&Value::Array(cycle)]);
+        let reached = reachable_from(&heap, &no_ivars(), [&Value::Array(cycle)]);
 
         assert!(reached.contains(held));
         assert_eq!(reached.len(), 1);
@@ -281,7 +304,7 @@ mod tests {
             unreachable!("both identities are live")
         };
 
-        let reached = reachable_from(&heap, [&Value::Object(first)]);
+        let reached = reachable_from(&heap, &no_ivars(), [&Value::Object(first)]);
 
         assert_eq!(reached.ids(), vec![first, second]);
     }
@@ -294,7 +317,7 @@ mod tests {
         let live = instance(&mut heap, Vec::new());
         let dead = instance(&mut heap, Vec::new());
 
-        let reached = reachable_from(&heap, [&Value::Object(live)]);
+        let reached = reachable_from(&heap, &no_ivars(), [&Value::Object(live)]);
         let garbage: Vec<ObjectId> = heap
             .live_ids()
             .into_iter()
@@ -302,5 +325,128 @@ mod tests {
             .collect();
 
         assert_eq!(garbage, vec![dead]);
+    }
+}
+
+#[cfg(test)]
+mod collect_tests {
+    use crate::{ArrayRef, ClassId, ObjectId, Runtime, Selector, StaticSpine, Value};
+
+    const FIELD: Selector = Selector::new(9);
+
+    fn class_of(runtime: &mut Runtime) -> ClassId {
+        let Ok(class) = runtime
+            .registry_mut()
+            .define_class(StaticSpine::new(1), None)
+        else {
+            unreachable!("a fresh registry defines a class")
+        };
+        class
+    }
+
+    fn instance(runtime: &mut Runtime, class: ClassId) -> ObjectId {
+        let Ok(id) = runtime.allocate(class) else {
+            unreachable!("a defined class allocates")
+        };
+        id
+    }
+
+    fn point_at(runtime: &mut Runtime, holder: ObjectId, target: Value) {
+        let Ok(_) = runtime.assign_raw_ivar(holder, FIELD, target) else {
+            unreachable!("the holder is live")
+        };
+    }
+
+    /// A collector decides what died; the caller supplies roots only.
+    #[test]
+    fn unreachable_objects_are_freed_and_reachable_ones_survive() {
+        let mut runtime = Runtime::new();
+        let class = class_of(&mut runtime);
+        let live = instance(&mut runtime, class);
+        let dead = instance(&mut runtime, class);
+
+        let (freed, _) = runtime.collect_garbage([&Value::Object(live)]);
+
+        assert_eq!(freed, 1);
+        assert!(runtime.identity_hash(live).is_ok(), "the root survives");
+        assert!(runtime.identity_hash(dead).is_err(), "the garbage is gone");
+    }
+
+    /// The crossing a heap-only collector would get WRONG: an object held only
+    /// inside an Array body is still live.
+    #[test]
+    fn an_object_held_only_inside_an_array_is_not_freed() {
+        let mut runtime = Runtime::new();
+        let class = class_of(&mut runtime);
+        let hidden = instance(&mut runtime, class);
+        let holder = Value::Array(ArrayRef::new(vec![Value::Object(hidden)]));
+
+        let (freed, _) = runtime.collect_garbage([&holder]);
+
+        assert_eq!(freed, 0);
+        assert!(runtime.identity_hash(hidden).is_ok());
+
+        // Control: with the Array no longer a root, the same object IS
+        // collected. Without this, survival above could mean the collector
+        // simply never frees anything.
+        let (freed, _) = runtime.collect_garbage([]);
+        assert_eq!(freed, 1);
+        assert!(runtime.identity_hash(hidden).is_err());
+    }
+
+    /// A cycle is exactly what reference counting cannot reclaim, and the
+    /// reason a tracing collector is needed at all.
+    #[test]
+    fn an_unreachable_cycle_is_reclaimed() {
+        let mut runtime = Runtime::new();
+        let class = class_of(&mut runtime);
+        let first = instance(&mut runtime, class);
+        let second = instance(&mut runtime, class);
+        point_at(&mut runtime, first, Value::Object(second));
+        point_at(&mut runtime, second, Value::Object(first));
+
+        // Nothing outside the cycle refers to it.
+        let (freed, _) = runtime.collect_garbage([]);
+
+        assert_eq!(freed, 2);
+        assert!(runtime.identity_hash(first).is_err());
+        assert!(runtime.identity_hash(second).is_err());
+    }
+
+    /// A live cycle is NOT reclaimed: reachability decides, not shape.
+    #[test]
+    fn a_reachable_cycle_survives() {
+        let mut runtime = Runtime::new();
+        let class = class_of(&mut runtime);
+        let first = instance(&mut runtime, class);
+        let second = instance(&mut runtime, class);
+        point_at(&mut runtime, first, Value::Object(second));
+        point_at(&mut runtime, second, Value::Object(first));
+
+        let (freed, _) = runtime.collect_garbage([&Value::Object(first)]);
+
+        assert_eq!(freed, 0);
+        assert!(runtime.identity_hash(first).is_ok());
+        assert!(runtime.identity_hash(second).is_ok());
+    }
+
+    /// `D-111` keeps an identity hash stable across movement BY GC, which is
+    /// finally observable: freeing garbage leaves a gap the survivor moves into.
+    #[test]
+    fn a_surviving_object_keeps_its_identity_hash_across_collection() {
+        let mut runtime = Runtime::new();
+        let class = class_of(&mut runtime);
+        let dead = instance(&mut runtime, class);
+        let live = instance(&mut runtime, class);
+        let Ok(before) = runtime.identity_hash(live) else {
+            unreachable!("the object is live")
+        };
+
+        let (freed, moved) = runtime.collect_garbage([&Value::Object(live)]);
+
+        assert_eq!(freed, 1);
+        assert_eq!(moved, 1, "the survivor moves into the freed slot");
+        assert!(runtime.identity_hash(dead).is_err());
+        assert_eq!(runtime.identity_hash(live), Ok(before));
     }
 }
