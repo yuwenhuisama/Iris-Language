@@ -3817,3 +3817,49 @@ fn c056_construction_uses_the_captured_revision() {
         ])))
     );
 }
+
+#[test]
+fn c055_recovers_from_a_configured_sink_rather_than_the_queue() {
+    // C055 makes zero-loss audit recovery use a SEPARATELY CONFIGURED
+    // persistent sink, and forbids an unbounded in-memory subscriber queue
+    // from being the semantic guarantee.
+    //
+    // Pruning retained history is what tells the two apart: the in-memory
+    // read then fails, while the sink still answers.
+    assert_eq!(
+        evaluate(
+            "class B {} module M { public fun run() -> Object { \
+               RevisionHistory.configure_sink(); \
+               B.open() { |t| 1 }; \
+               RevisionHistory.prune(1); \
+               [try { RevisionHistory.events(1, 1) } catch e { e }, \
+                RevisionHistory.recover(1, 1)] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("AuditHistoryUnavailableError".into()),
+            RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Integer(1_u8.into())])),
+        ])))
+    );
+
+    // With NO sink configured there is no zero-loss guarantee to offer, which
+    // is C055's point: the in-memory queue is not it.
+    assert_eq!(
+        evaluate(
+            "class B {} module M { public fun run() -> Object { \
+               B.open() { |t| 1 }; \
+               try { RevisionHistory.recover(1, 1) } catch e { e } } } M.run()"
+        ),
+        Ok(RuntimeValue::Symbol("AuditHistoryUnavailableError".into()))
+    );
+
+    // C053's retained-history path is untouched when nothing is pruned.
+    assert_eq!(
+        evaluate(
+            "class B {} module M { public fun run() -> Object { \
+               B.open() { |t| 1 }; RevisionHistory.events(1, 1) } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(1_u8.into())
+        ])))
+    );
+}

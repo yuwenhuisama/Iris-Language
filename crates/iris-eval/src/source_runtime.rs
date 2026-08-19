@@ -450,6 +450,15 @@ pub(super) struct SourceEvaluator {
     /// `C053` answers retained events and raises when a requested portion is
     /// unavailable, so a pruned commit is ABSENT here rather than recorded.
     audit_history: Vec<u64>,
+    /// The separately configured persistent audit sink, when a Host set one.
+    ///
+    /// `IRIS-V1-ASYNC-C055` makes zero-loss audit recovery use a SEPARATELY
+    /// CONFIGURED persistent Host or runtime sink, and forbids an unbounded
+    /// in-memory subscriber queue from being the semantic guarantee. The sink
+    /// is therefore its own store rather than a larger `audit_history`:
+    /// pruning retained history does not touch it, which is what makes the two
+    /// distinguishable at all.
+    audit_sink: Option<Vec<u64>>,
     /// Live Bytes and ByteArray cursors.
     byte_iterators: HashMap<iris_runtime::ObjectId, ByteCursor>,
     /// Each live generator as its body, bound locals, receiver and progress.
@@ -815,6 +824,7 @@ impl SourceEvaluator {
             next_commit_id: 1,
             event_errors: Vec::new(),
             audit_history: Vec::new(),
+            audit_sink: None,
             generators: HashMap::new(),
             tasks: HashMap::new(),
             names: HashMap::new(),
@@ -4411,6 +4421,11 @@ impl SourceEvaluator {
         // C053 answers RETAINED audit events, so the commit is recorded here
         // and pruning removes it again.
         self.audit_history.push(commit);
+        // C055: a configured sink receives every commit, so recovery does not
+        // depend on what the in-memory history still retains.
+        if let Some(sink) = self.audit_sink.as_mut() {
+            sink.push(commit);
+        }
         let summary = group
             .iter()
             .map(|target| Value::Symbol(self.class_source_name(*target)))
@@ -7939,6 +7954,44 @@ impl SourceEvaluator {
                         // C053 forbids returning a partial sequence as
                         // complete, so a single pruned commit fails the whole
                         // request rather than yielding the retained prefix.
+                        return Err(EvaluationError::AuditHistoryUnavailable);
+                    }
+                    found.push(Value::Integer(commit.into()));
+                }
+                Ok(Value::Array(ArrayRef::new(found)))
+            }
+            // C055 makes zero-loss recovery use a SEPARATELY CONFIGURED
+            // persistent Host or runtime sink. Configuring one is therefore an
+            // explicit Host act, not something a subscriber turns on: an
+            // unbounded in-memory queue MUST NOT be the semantic guarantee.
+            ("RevisionHistory", "configure_sink") => {
+                let ([] | [_]) = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                // The sink starts from the history retained so far, since a
+                // Host configuring it mid-run is adopting the current state
+                // rather than losing what already committed.
+                self.audit_sink = Some(self.audit_history.clone());
+                Ok(Value::Nil)
+            }
+            // C055's recovery path: the sink answers what it persisted,
+            // independently of what retained history still holds.
+            ("RevisionHistory", "recover") => {
+                let [Value::Integer(from), Value::Integer(to)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let (Some(from), Some(to)) = (from.to_u64(), to.to_u64()) else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                // With NO sink configured there is no zero-loss guarantee to
+                // offer, which is exactly C055's point: the in-memory queue is
+                // not it.
+                let Some(sink) = self.audit_sink.as_ref() else {
+                    return Err(EvaluationError::AuditHistoryUnavailable);
+                };
+                let mut found = Vec::new();
+                for commit in from..=to {
+                    if !sink.contains(&commit) {
                         return Err(EvaluationError::AuditHistoryUnavailable);
                     }
                     found.push(Value::Integer(commit.into()));
