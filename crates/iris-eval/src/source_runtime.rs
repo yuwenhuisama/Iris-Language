@@ -719,11 +719,31 @@ pub(super) struct SourceEvaluator {
 struct Binding {
     value: Value,
     mutable: bool,
+    /// Whether the cell exists but holds no value yet.
+    ///
+    /// `IRIS-V1-CONTROL-C004` lets a TYPED `mut name` defer initialization and
+    /// makes the FIRST assignment initialize it, so a deferred cell must be
+    /// distinguishable from one holding nil: reading it is
+    /// `DefiniteAssignmentError` rather than a nil read.
+    deferred: bool,
 }
 
 impl Binding {
     const fn new(value: Value, mutable: bool) -> Self {
-        Self { value, mutable }
+        Self {
+            value,
+            mutable,
+            deferred: false,
+        }
+    }
+
+    /// A typed `mut name` whose initialization is deferred.
+    const fn deferred() -> Self {
+        Self {
+            value: Value::Nil,
+            mutable: true,
+            deferred: true,
+        }
     }
 
     const fn immutable(value: Value) -> Self {
@@ -737,6 +757,9 @@ impl Binding {
     fn assign(&mut self, value: Value) -> Result<Value, ()> {
         if self.mutable {
             self.value = value.clone();
+            // The first assignment INITIALIZES the cell, so later reads are
+            // ordinary reads rather than definite-assignment failures.
+            self.deferred = false;
             Ok(value)
         } else {
             Err(())
@@ -1825,6 +1848,19 @@ impl SourceEvaluator {
             Value::Symbol("return_type".to_owned()),
             return_type,
         )])))
+    }
+
+    /// Which failure an unresolved bare name reports.
+    ///
+    /// `IRIS-V1-CONTROL-C011` makes an unresolved name `NameError`, and
+    /// `IRIS-V1-CONTROL-C004` makes a DEFERRED cell read before definite
+    /// assignment `DefiniteAssignmentError`. Deciding out of line keeps the
+    /// recursive name arm's frame unchanged.
+    fn unresolved_name_error(&self, name: &str) -> EvaluationError {
+        if self.names.get(name).is_some_and(|binding| binding.deferred) {
+            return EvaluationError::DefiniteAssignment;
+        }
+        EvaluationError::NameError
     }
 
     /// Reports whether the published revision of a named Class holds a slot.
@@ -3274,7 +3310,15 @@ impl SourceEvaluator {
             // D-427 lets a typed `mut` defer initialization, and D-094 makes a
             // read before definite assignment an error rather than a nil read,
             // so no value is bound here.
-            Statement::DeferredBinding { .. } => Ok(Value::Nil),
+            Statement::DeferredBinding { mutable, name, .. } => {
+                // C004 makes a read before definite assignment its own failure,
+                // so the cell is CREATED empty rather than left absent: an
+                // absent name is a NameError, which is a different failure.
+                if *mutable {
+                    self.names.insert(name.clone(), Binding::deferred());
+                }
+                Ok(Value::Nil)
+            }
             Statement::Expression(expression) => self.expression(expression, locals, receiver),
             Statement::If {
                 condition,
@@ -5118,8 +5162,15 @@ impl SourceEvaluator {
                 Statement::While { .. } | Statement::For { .. } => {
                     result = self.statement(statement, &locals, receiver.clone())?;
                 }
-                Statement::DeferredBinding { .. }
-                | Statement::GlobalBinding { .. }
+                // C004 admits a typed `mut name` inside a method body: the
+                // cell is created deferred and the first assignment
+                // initializes it. Refusing the statement outright made
+                // `mut x: Integer; x = 5` unrunnable, so the deferred read
+                // C004 diagnoses could never be reached.
+                Statement::DeferredBinding { .. } => {
+                    result = self.statement(statement, &locals, receiver.clone())?;
+                }
+                Statement::GlobalBinding { .. }
                 | Statement::SharedBinding { .. }
                 | Statement::StoredProperty { .. }
                 | Statement::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -5924,7 +5975,12 @@ impl SourceEvaluator {
             Expression::Name(name) => locals
                 .get(name)
                 .cloned()
-                .or_else(|| self.names.get(name).map(Binding::value))
+                .or_else(|| {
+                    self.names
+                        .get(name)
+                        .filter(|binding| !binding.deferred)
+                        .map(Binding::value)
+                })
                 .or_else(|| (name == "self").then_some(receiver.clone()).flatten())
                 .or_else(|| builtin(name, &self.kernel))
                 // D-432 resolves an unqualified name against LEXICAL scope
@@ -5958,7 +6014,7 @@ impl SourceEvaluator {
                 // IRIS-V1-CONTROL-C011: a non-call unresolved bare name raises
                 // `NameError`. It MUST NOT read a property, Method, global, or
                 // runtime-added member instead.
-                .ok_or(EvaluationError::NameError),
+                .ok_or_else(|| self.unresolved_name_error(name)),
             Expression::RawIvar(name) => {
                 let selector = self.selector(name);
                 match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {
@@ -11635,12 +11691,19 @@ const STEP_BUDGET: u64 = 1_000_000;
 
 /// The invocation depth bound for one program run.
 ///
-/// Each Iris invocation consumes MANY host stack frames. Measured overflow is
-/// near 115 frames on the main thread but near 28 on a default test thread, so
-/// the bound is set below the tighter of the two. Recursion then fails as a
-/// REPORTABLE error rather than aborting the process, which no test can catch
-/// and which would take the whole conformance suite down with it.
-const DEPTH_BUDGET: u32 = 16;
+/// Each Iris invocation consumes MANY host stack frames, so recursion must
+/// fail as a REPORTABLE error before the host stack runs out: an abort is
+/// something no test can catch and would take the whole conformance suite
+/// down with it.
+///
+/// The bound was previously 16, set below the ~28 frames a DEFAULT test thread
+/// could take rather than the ~115 the main thread could. That made it an
+/// artifact of how the suite was run: adding an ordinary match arm to a
+/// recursive evaluator function widened each frame enough to overflow, which
+/// blocked `IRIS-V1-CONTROL-C004` and cost three separate implementations.
+/// Test threads now get a real stack through `.cargo/config.toml`, so this is
+/// a LANGUAGE limit again and has headroom for ordinary evaluator changes.
+const DEPTH_BUDGET: u32 = 64;
 
 /// Maps a compound assignment to the ordinary operator selector it sends.
 ///
@@ -11756,6 +11819,9 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         EvaluationError::ArgumentError => "ArgumentError",
         EvaluationError::PatternMatchError => "PatternMatchError",
         EvaluationError::NameError => "NameError",
+        // C004 makes a read before definite assignment an ordinary Iris
+        // failure, so a program can catch it by name.
+        EvaluationError::DefiniteAssignment => "DefiniteAssignmentError",
         // IRIS-V1-META-C100 removes an EXISTING slot, and
         // IRIS-V1-META-V362 names the absent case.
         EvaluationError::InstanceVariableNotFoundError => "InstanceVariableNotFoundError",

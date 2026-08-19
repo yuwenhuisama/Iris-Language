@@ -1,0 +1,12 @@
+# The evaluator recurses through host stack frames, so `DEPTH_BUDGET` must be
+# reachable BEFORE the host stack runs out: recursion has to fail as a
+# reportable `StepBudgetExhausted` rather than aborting the process, which no
+# test can catch and which takes the whole conformance suite down with it.
+#
+# A default test thread gets a much smaller stack than the main thread, which
+# is why the bound was tuned down to 16 and why adding an ordinary match arm
+# to a recursive evaluator function could overflow it. Giving test threads a
+# real stack removes that coupling: the bound is then a LANGUAGE limit rather
+# than an artifact of how the suite happens to be run.
+[env]
+RUST_MIN_STACK = "16777216"

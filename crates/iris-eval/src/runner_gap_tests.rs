@@ -3658,3 +3658,43 @@ fn c013_reflects_traversal_contract_requirement_types() {
         ])))
     );
 }
+
+#[test]
+fn c004_diagnoses_a_read_before_definite_assignment() {
+    // C004 lets a TYPED `mut name` defer initialization and makes the FIRST
+    // assignment initialize it, so a read before that point is
+    // DefiniteAssignmentError rather than a nil read.
+    assert_eq!(
+        evaluate("module M { public fun run() -> Object { mut x: Integer; x = 5; x } } M.run()"),
+        Ok(RuntimeValue::Integer(5_u8.into()))
+    );
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               mut x: Integer; try { x } catch e { e } } } M.run()"
+        ),
+        Ok(RuntimeValue::Symbol("DefiniteAssignmentError".into()))
+    );
+
+    // Later assignments UPDATE the initialized cell rather than re-deferring.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               mut x: Integer; x = 5; let first = x; x = 7; [first, x] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(5_u8.into()),
+            RuntimeValue::Integer(7_u8.into()),
+        ])))
+    );
+
+    // C011 keeps an ABSENT name a NameError, which is a different failure: the
+    // deferred cell exists and holds nothing, an absent name does not exist.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               try { absent_name } catch e { e } } } M.run()"
+        ),
+        Ok(RuntimeValue::Symbol("NameError".into()))
+    );
+}

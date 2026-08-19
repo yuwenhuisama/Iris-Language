@@ -384,6 +384,7 @@ fn error_code(error: &EvaluationError) -> String {
         // C045 requires a DIRECT import to activate a static extension member;
         // V346, V418 and V438 name the diagnostic.
         EvaluationError::StaticMemberNotFound => "IRIS-STATIC-MEMBER-NOT-FOUND".into(),
+        EvaluationError::DefiniteAssignment => "DefiniteAssignmentError".into(),
         // C066 and D-271 verify the stored digest before reconstruction;
         // V357 names the failure.
         EvaluationError::RevisionArtifactUnavailable => "RevisionArtifactUnavailableError".into(),

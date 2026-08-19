@@ -102,6 +102,12 @@ pub enum EvaluationError {
     /// its static members. `IRIS-V1-META-V346`, `V418` and `V438` name the
     /// diagnostic.
     StaticMemberNotFound,
+    /// A deferred mutable binding was read before definite assignment.
+    ///
+    /// `IRIS-V1-CONTROL-C004` lets a TYPED `mut name` defer initialization and
+    /// makes the FIRST assignment initialize it, so a read before that point is
+    /// this error rather than a nil read.
+    DefiniteAssignment,
     /// A rollback artifact was missing, inaccessible, or failed its digest.
     ///
     /// `IRIS-V1-META-C066` and `D-271` verify the stored digest before
