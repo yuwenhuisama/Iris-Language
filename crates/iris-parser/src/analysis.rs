@@ -2376,6 +2376,30 @@ mod tests {
     }
 
     #[test]
+    fn c042_truthiness_does_not_retype_the_tested_binding() {
+        // C042: conditional testing MUST NOT retype the tested operand, and
+        // arbitrary `to_bool` is not a type predicate. So after truth-testing a
+        // WIDE binding, a use requiring the narrowed Type is still refused.
+        assert_eq!(
+            codes("mut x: Integer | Nil = 1; if x { mut y: Integer = x }"),
+            vec!["BINDING_FIXED_LOCAL_TYPE"]
+        );
+
+        // The refusal is about the binding's Type, not about the `if`: the same
+        // read into an equally wide cell is admitted, and a genuinely narrow
+        // source is admitted too.
+        assert!(codes("mut x: Integer | Nil = 1; if x { mut y: Integer | Nil = x }").is_empty());
+        assert!(codes("mut x: Integer = 1; mut y: Integer = x").is_empty());
+
+        // C005's fixed local Type still rejects a widening assignment, whether
+        // or not the cell was truth-tested first.
+        assert_eq!(
+            codes("mut x: Integer = 1; if x { x = nil }"),
+            vec!["BINDING_FIXED_LOCAL_TYPE"]
+        );
+    }
+
+    #[test]
     fn c017_diagnoses_a_closure_return_annotation_with_no_expected_type() {
         // C017: an omitted Closure return annotation MUST NOT default the
         // Closure's public type where no unique expected callable type exists.
