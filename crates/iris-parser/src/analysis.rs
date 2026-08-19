@@ -119,6 +119,18 @@ impl NominalMember {
     }
 }
 
+/// What one branch body contributes to its enclosing expression's Type.
+///
+/// `IRIS-V1-TYPES-C083` separates "contributes nothing because it diverges"
+/// from "contributes something this pass cannot model": the first is bottom
+/// and drops out of the union, the second makes the whole result unknown.
+#[derive(Clone, Debug)]
+enum BranchType {
+    Value(StaticType),
+    Never,
+    Unknown,
+}
+
 /// The statically known Type of an expression, to the depth this pass tracks.
 ///
 /// Members are kept SORTED and deduplicated, which is what `D-359` means by a
@@ -864,7 +876,53 @@ impl Analyzer {
                 Expression::Name(selector) => self.generic_call_type(selector, arguments),
                 _ => None,
             },
+            // `IRIS-V1-TYPES-C083` makes branch RESULT analysis treat `Never` as
+            // bottom: a branch that can only raise contributes no value Type to
+            // the enclosing expression, so the result is the union of the
+            // branches that CAN produce one. An `if` with no else can fall
+            // through to `nil`, so it is left unmodelled rather than guessed.
+            Expression::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                let else_body = else_body.as_ref()?;
+                let then_type = self.branch_type(then_body);
+                let else_type = self.branch_type(else_body);
+                match (then_type, else_type) {
+                    (BranchType::Value(left), BranchType::Value(right)) => {
+                        Some(StaticType::union(&left, &right))
+                    }
+                    // One side is `Never`, so the other alone is the result.
+                    (BranchType::Value(only), BranchType::Never)
+                    | (BranchType::Never, BranchType::Value(only)) => Some(only),
+                    // Both diverge, so the expression yields no value at all,
+                    // and an unknown branch leaves the whole thing unknown.
+                    (BranchType::Never, BranchType::Never)
+                    | (BranchType::Unknown, _)
+                    | (_, BranchType::Unknown) => None,
+                }
+            }
             _ => StaticType::of(expression),
+        }
+    }
+
+    /// The static Type one branch body contributes to its enclosing expression.
+    ///
+    /// `IRIS-V1-TYPES-C083` makes a branch that can only RAISE contribute no
+    /// value Type, which is what lets `if c { 1 } else { raise :e }` stay
+    /// Integer-typed rather than widening to include the raising side.
+    fn branch_type(&self, body: &[Statement]) -> BranchType {
+        match body.last() {
+            // A raise never completes normally, so the branch is bottom.
+            Some(Statement::Raise(_)) => BranchType::Never,
+            Some(Statement::Expression(expression)) => self
+                .expression_type(expression)
+                .map_or(BranchType::Unknown, BranchType::Value),
+            // A branch ending in anything else contributes a Type this pass
+            // does not model, so the enclosing expression stays unknown rather
+            // than being guessed at.
+            _ => BranchType::Unknown,
         }
     }
 
@@ -2373,6 +2431,37 @@ mod tests {
         // incomplete information.
         assert!(codes("@Undeclared() class A { }").is_empty());
         assert!(codes("@D::Stamp() class A { }").is_empty());
+    }
+
+    #[test]
+    fn c083_treats_never_as_bottom_in_branch_result_analysis() {
+        // C083: a branch that can only RAISE contributes no value Type to the
+        // enclosing expression, so the `if` stays Integer-typed and the
+        // assignment is admitted.
+        assert!(codes("mut x: Integer = if true { 1 } else { raise :boom }").is_empty());
+        assert!(codes("mut x: Integer = if true { raise :boom } else { 1 }").is_empty());
+
+        // The branch Type is genuinely computed rather than skipped: a branch
+        // that DOES contribute an incompatible Type is refused.
+        assert_eq!(
+            codes("mut x: Integer = if true { 1 } else { \"text\" }"),
+            vec!["BINDING_FIXED_LOCAL_TYPE"]
+        );
+
+        // Both branches contributing the same Type is admitted, and a branch
+        // union that exceeds the cell is refused.
+        assert!(codes("mut x: Integer = if true { 1 } else { 2 }").is_empty());
+        assert_eq!(
+            codes("mut x: Integer = if true { 1 } else { nil }"),
+            vec!["BINDING_FIXED_LOCAL_TYPE"]
+        );
+
+        // D-458 keeps the other half: `Never` is uninhabited, so a callable
+        // promising it and completing normally is still rejected.
+        assert_eq!(
+            codes("fun fail() -> Never { nil }"),
+            vec!["RETURN_TYPE_CONTRACT_VIOLATION"]
+        );
     }
 
     #[test]
