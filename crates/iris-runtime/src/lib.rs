@@ -16,6 +16,7 @@ mod protocol;
 mod publication;
 mod runtime;
 mod stable_hash;
+mod trace;
 mod value;
 
 pub use class_registry::{ClassError, ClassRegistry, PolicyOrigin};
@@ -41,6 +42,7 @@ pub use stable_hash::{
     iteration_hash, numeric_hash, numeric_public_hash, public_hash, range_hash, regex_hash,
     string_hash, symbol_hash, tuple_hash,
 };
+pub use trace::{Reachable, reachable_from};
 pub use value::{
     ArrayBody, ArrayRef, ByteArrayBody, ByteArrayRef, ComposedType, HashBody, HashRef,
     IntegerValue, LibraryValue, MatchValue, MutableStringRef, RangeValue, RegexValue, TypeAtom,

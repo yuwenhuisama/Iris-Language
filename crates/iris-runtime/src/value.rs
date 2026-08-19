@@ -234,6 +234,16 @@ impl ArrayRef {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
+    /// A stable identity for the SHARED body, for cycle detection while tracing.
+    ///
+    /// A reachability walk must recognise a cell it has already visited: an
+    /// Array that contains itself would otherwise recurse forever. This is the
+    /// body's address, which is stable while any reference to it lives.
+    #[must_use]
+    pub fn cell_id(&self) -> usize {
+        Arc::as_ptr(&self.0).cast::<()>() as usize
+    }
+
     /// Mutates the elements, incrementing the `C026` content version.
     ///
     /// Every length-changing or element-replacing operation goes through here,
@@ -350,6 +360,12 @@ impl HashRef {
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// A stable identity for the SHARED body, for cycle detection while tracing.
+    #[must_use]
+    pub fn cell_id(&self) -> usize {
+        Arc::as_ptr(&self.0).cast::<()>() as usize
     }
 
     /// Inserts or updates `key`, answering nothing.

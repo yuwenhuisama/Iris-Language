@@ -155,6 +155,42 @@ impl RuntimeHeap {
         Ok(())
     }
 
+    /// Replaces an object's instance fields.
+    ///
+    /// A tracing walk must handle a CYCLE, and the only way to build one
+    /// through heap fields is to let a field be written after both identities
+    /// exist. Allocation alone can never produce one.
+    pub fn set_fields(
+        &mut self,
+        object_id: ObjectId,
+        fields: Vec<Value>,
+    ) -> Result<(), RuntimeError> {
+        let slot = *self
+            .slot_of
+            .get(&object_id)
+            .ok_or(RuntimeError::UnknownObjectId(object_id))?;
+        let occupant = self
+            .slots
+            .get_mut(slot)
+            .and_then(Option::as_mut)
+            .ok_or(RuntimeError::UnknownObjectId(object_id))?;
+        occupant.payload = HeapPayload::InstanceFields(fields);
+        Ok(())
+    }
+
+    /// Every identity the heap currently owns.
+    ///
+    /// A tracing collector needs the full owned set to compute the DEAD set as
+    /// `owned - reachable`. Without it a sweep could only free identities it
+    /// was handed, which is the thing a collector is supposed to work out.
+    pub fn live_ids(&self) -> Vec<ObjectId> {
+        let mut ids: Vec<ObjectId> = self.slot_of.keys().copied().collect();
+        // A deterministic order, since IRIS-V1-IDENTITY-C021 forbids an
+        // observable outcome from depending on hash iteration order.
+        ids.sort_unstable();
+        ids
+    }
+
     /// Relocates every live object, returning how many MOVED slot.
     ///
     /// `D-111` requires an object to keep its runtime-local identity hash
