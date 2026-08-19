@@ -1,0 +1,1 @@
+module Main { public fun run() -> Object { let first = Reflection::Package.module_status(:Broken); let second = Reflection::Package.module_status(:Broken); let cleared = Reflection::Package.reload(); [first, second, Reflection::Package.module_status(:Broken), cleared] } }

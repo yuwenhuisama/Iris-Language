@@ -1,0 +1,1 @@
+module Broken { let staged = 1 raise :init_failed }

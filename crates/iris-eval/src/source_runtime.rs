@@ -631,6 +631,14 @@ pub(super) struct SourceEvaluator {
     /// which is the flat cross-package namespace `D-431` says does not exist.
     module_packages: HashMap<String, String>,
     imported_modules: HashMap<String, Vec<String>>,
+    /// Modules whose initialization FAILED for this load attempt.
+    ///
+    /// `IRIS-V1-META-C018` marks a Module and its dependents failed for that
+    /// attempt, forbids an automatic retry, and requires an explicit package
+    /// reload or upgrade before another attempt. The set is therefore retained
+    /// rather than discarded with the error, so a repeated access answers the
+    /// same failure instead of silently re-running the body.
+    failed_modules: Vec<String>,
     observing: bool,
     module_classes: HashMap<ModuleId, ClassId>,
     /// The constants each Module declares, keyed by `(module, name)`.
@@ -843,6 +851,7 @@ impl SourceEvaluator {
             module_names: HashMap::new(),
             module_packages: HashMap::new(),
             imported_modules: HashMap::new(),
+            failed_modules: Vec::new(),
             observing: false,
             pending_class_properties: HashMap::new(),
             materialized_constructions: std::collections::HashSet::new(),
@@ -3179,6 +3188,13 @@ impl SourceEvaluator {
             // shared property survives.
             if result.is_err() {
                 self.module_names.remove(&declaration.name);
+                // C018 marks the Module failed FOR THAT LOAD ATTEMPT and
+                // forbids an automatic retry, so the failure is retained
+                // rather than discarded with the error: a later access must
+                // answer the same failure instead of re-running the body.
+                if !self.failed_modules.contains(&declaration.name) {
+                    self.failed_modules.push(declaration.name.clone());
+                }
             }
             result?;
         }
@@ -8343,6 +8359,37 @@ impl SourceEvaluator {
                     }
                     None => Err(EvaluationError::UnsupportedConstruct),
                 }
+            }
+            // C018 marks a failed Module failed FOR THAT LOAD ATTEMPT, so its
+            // status is observable rather than inferred from a missing name: a
+            // Module that never existed and one whose initializer raised are
+            // different situations.
+            ("Reflection::Package", "module_status") => {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                Ok(Value::Symbol(
+                    if self.failed_modules.contains(name) {
+                        "failed"
+                    } else if self.module_names.contains_key(name) {
+                        "initialized"
+                    } else {
+                        "absent"
+                    }
+                    .to_owned(),
+                ))
+            }
+            // C018 forbids an AUTOMATIC retry and requires an explicit package
+            // reload or upgrade before another attempt, so clearing the failed
+            // mark is an explicit operation rather than something a repeated
+            // access does on its own.
+            ("Reflection::Package", "reload") => {
+                let ([] | [_]) = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Arity));
+                };
+                let cleared = self.failed_modules.len();
+                self.failed_modules.clear();
+                Ok(Value::Integer(u64::try_from(cleared).unwrap_or(0).into()))
             }
             ("Reflection::Package", "load") => {
                 let ([Value::Symbol(id)] | [Value::Symbol(id), _]) = arguments else {
