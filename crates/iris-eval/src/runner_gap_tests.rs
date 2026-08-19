@@ -3863,3 +3863,47 @@ fn c055_recovers_from_a_configured_sink_rather_than_the_queue() {
         ])))
     );
 }
+
+#[test]
+fn c161_replacement_creates_no_second_backing_slot() {
+    // C148 lets a stable value Class be opened to alter property protocols,
+    // and C161 makes a compatible `property fun` replacement change only the
+    // accessor body: it creates NO second backing slot.
+    //
+    // The absence is observed through `Reflection::Class.properties`, which
+    // META-C097 lists on the CLASS reflection surface. The class is not an
+    // identity-less value, so C004's restriction - the one that makes
+    // `Reflection::Object.list_ivars` refuse `1.0f64` - does not apply here.
+    assert_eq!(
+        evaluate(
+            "mut recorded = :none; \
+             open class Float64 { \
+               public override property fun infinity() -> Symbol { :replaced } \
+               public property fun infinity=(v) -> Object { recorded = v; nil } } \
+             module Q { public fun run() -> Object { \
+               let read = Float64.infinity; \
+               let wrote = Float64.infinity = :written; \
+               [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("replaced".into()),
+            RuntimeValue::Symbol("written".into()),
+            RuntimeValue::Array(ArrayRef::new(Vec::new())),
+        ])))
+    );
+
+    // The empty list is evidence of ABSENCE rather than of the surface
+    // reporting nothing: a Class that DECLARES a stored property still lists
+    // its slot after the same kind of getter replacement.
+    assert_eq!(
+        evaluate(
+            "class A { property tag: Symbol = :t } \
+             open class A { public override property fun tag() -> Symbol { :replaced } } \
+             module Q { public fun run() -> Object { \
+               Reflection::Class.properties(A) } } Q.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Symbol("@tag".into())
+        ])))
+    );
+}
