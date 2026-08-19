@@ -3907,3 +3907,39 @@ fn c161_replacement_creates_no_second_backing_slot() {
         ])))
     );
 }
+
+#[test]
+fn c060_publishes_complete_content_to_a_synchronized_observer() {
+    // C060 makes MutableString not logically thread-safe but REQUIRES it to
+    // stay memory-safe, never expose invalid Unicode, and publish either old
+    // complete content or new complete content to a correctly synchronized
+    // observer. The write happens on a REAL second thread, which an `Rc` cell
+    // could not have carried at all.
+    assert_eq!(
+        evaluate(
+            "module M { public fun run() -> Object { \
+               let text = m\"old\"; \
+               NativeFixture.concurrently_replace(text, \"new\"); \
+               [text.to_string(), text.length] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Text("new".into()),
+            RuntimeValue::Integer(3_u8.into()),
+        ])))
+    );
+
+    // Multi-byte content on both sides: a torn write would leave a partial
+    // scalar, so round-tripping the exact text AND its scalar length is what
+    // shows the observer never sees invalid Unicode.
+    let multi = "module M { public fun run() -> Object { \
+                   let text = m\"éè\"; \
+                   NativeFixture.concurrently_replace(text, \"üöä\"); \
+                   [text.to_string(), text.length] } } M.run()";
+    assert_eq!(
+        evaluate(multi),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Text("üöä".into()),
+            RuntimeValue::Integer(3_u8.into()),
+        ])))
+    );
+}

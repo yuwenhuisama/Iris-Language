@@ -1,8 +1,13 @@
 use core::str::FromStr;
 
 use num_bigint::{BigInt, ParseBigIntError, Sign};
-use std::cell::RefCell;
-use std::rc::Rc;
+// `IRIS-V1-COLLECTIONS-C060` and `IRIS-V1-META-C041` describe what a
+// correctly synchronized observer on ANOTHER thread sees, which an `Rc`
+// shared cell cannot express at all: it is not `Send`, so no Iris value could
+// cross a thread boundary even from Rust. The shared cells are therefore
+// `Arc<Mutex<..>>`, which makes those clauses observable rather than
+// structurally unreachable.
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::{BoundMethod, ClassId, ContractId, Method, ObjectId};
 
@@ -122,6 +127,23 @@ impl From<u64> for IntegerValue {
         Self(BigInt::from(value))
     }
 }
+/// Locks a shared value cell, recovering a poisoned one.
+///
+/// A poisoned lock means another thread panicked while holding it. Recovering
+/// the guard keeps the cell readable instead of turning every later access
+/// into a panic of its own, which would be a worse failure than the one that
+/// poisoned it, and `IRIS-V1-COLLECTIONS-C060` requires memory safety rather
+/// than a specific poisoning policy.
+trait LockCell<T> {
+    fn lock_cell(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> LockCell<T> for Arc<Mutex<T>> {
+    fn lock_cell(&self) -> MutexGuard<'_, T> {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
 
 /// A runtime value independent of the heap's storage representation.
 /// A shared, mutable Array body with the `IRIS-V1-COLLECTIONS-C026` version.
@@ -132,7 +154,7 @@ impl From<u64> for IntegerValue {
 /// a content version so an active iterator can detect the change and raise
 /// `ConcurrentModificationError` on its next advance.
 #[derive(Clone)]
-pub struct ArrayRef(Rc<RefCell<ArrayBody>>);
+pub struct ArrayRef(Arc<Mutex<ArrayBody>>);
 
 /// Renders as the element sequence.
 ///
@@ -141,7 +163,7 @@ pub struct ArrayRef(Rc<RefCell<ArrayBody>>);
 /// showing them would make an Array's rendering depend on its mutation history.
 impl core::fmt::Debug for ArrayRef {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&self.0.borrow().elements, formatter)
+        core::fmt::Debug::fmt(&self.0.lock_cell().elements, formatter)
     }
 }
 
@@ -156,7 +178,7 @@ impl ArrayRef {
     /// Creates a new Array holding `elements`, at content version zero.
     #[must_use]
     pub fn new(elements: Vec<Value>) -> Self {
-        Self(Rc::new(RefCell::new(ArrayBody {
+        Self(Arc::new(Mutex::new(ArrayBody {
             elements,
             version: 0,
         })))
@@ -170,19 +192,19 @@ impl ArrayRef {
     /// directly, instead of needing a collector to run and a finalizer to fire.
     #[must_use]
     pub fn share_count(&self) -> usize {
-        Rc::strong_count(&self.0)
+        Arc::strong_count(&self.0)
     }
 
     /// Reads the current elements.
     #[must_use]
     pub fn elements(&self) -> Vec<Value> {
-        self.0.borrow().elements.clone()
+        self.0.lock_cell().elements.clone()
     }
 
     /// Returns the current element count.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.borrow().elements.len()
+        self.0.lock_cell().elements.len()
     }
 
     /// Returns whether the Array currently holds no elements.
@@ -194,13 +216,13 @@ impl ArrayRef {
     /// Reads the element at `index`, if any.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<Value> {
-        self.0.borrow().elements.get(index).cloned()
+        self.0.lock_cell().elements.get(index).cloned()
     }
 
     /// Returns the current `C026` content version.
     #[must_use]
     pub fn version(&self) -> u64 {
-        self.0.borrow().version
+        self.0.lock_cell().version
     }
 
     /// Returns whether two handles denote the SAME Array.
@@ -209,7 +231,7 @@ impl ArrayRef {
     /// is deliberately distinct from element-sequence equality.
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Mutates the elements, incrementing the `C026` content version.
@@ -217,7 +239,7 @@ impl ArrayRef {
     /// Every length-changing or element-replacing operation goes through here,
     /// so no such operation can forget to invalidate active iterators.
     pub fn mutate<T>(&self, change: impl FnOnce(&mut Vec<Value>) -> T) -> T {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         let outcome = change(&mut body.elements);
         body.version = body.version.saturating_add(1);
         outcome
@@ -231,7 +253,7 @@ impl PartialEq for ArrayRef {
         if self.same(other) {
             return true;
         }
-        self.0.borrow().elements == other.0.borrow().elements
+        self.0.lock_cell().elements == other.0.lock_cell().elements
     }
 }
 
@@ -252,7 +274,7 @@ impl FromIterator<Value> for ArrayRef {
 /// type rather than reusing the Array rule, under which every element
 /// replacement invalidates active cursors.
 #[derive(Clone)]
-pub struct HashRef(Rc<RefCell<HashBody>>);
+pub struct HashRef(Arc<Mutex<HashBody>>);
 
 /// The entries and structural version behind a [`HashRef`].
 #[derive(Debug)]
@@ -273,7 +295,7 @@ impl HashRef {
     #[must_use]
     pub fn new(entries: Vec<(Value, Value)>) -> Self {
         let buckets = vec![Value::Nil; entries.len()];
-        Self(Rc::new(RefCell::new(HashBody {
+        Self(Arc::new(Mutex::new(HashBody {
             entries,
             buckets,
             version: 0,
@@ -283,13 +305,13 @@ impl HashRef {
     /// Reads the current entries.
     #[must_use]
     pub fn entries(&self) -> Vec<(Value, Value)> {
-        self.0.borrow().entries.clone()
+        self.0.lock_cell().entries.clone()
     }
 
     /// Returns the current entry count.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.borrow().entries.len()
+        self.0.lock_cell().entries.len()
     }
 
     /// Returns whether the Hash currently holds no entries.
@@ -305,7 +327,7 @@ impl HashRef {
     #[must_use]
     pub fn get(&self, key: &Value) -> Option<Value> {
         self.0
-            .borrow()
+            .lock_cell()
             .entries
             .iter()
             .find(|(held, _)| held == key)
@@ -321,13 +343,13 @@ impl HashRef {
     /// Returns the current `C034` structural version.
     #[must_use]
     pub fn version(&self) -> u64 {
-        self.0.borrow().version
+        self.0.lock_cell().version
     }
 
     /// Returns whether two handles denote the SAME Hash.
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Inserts or updates `key`, answering nothing.
@@ -347,13 +369,13 @@ impl HashRef {
     /// The bucket recorded for a slot at insertion time.
     #[must_use]
     pub fn bucket_at(&self, slot: usize) -> Option<Value> {
-        self.0.borrow().buckets.get(slot).cloned()
+        self.0.lock_cell().buckets.get(slot).cloned()
     }
 
     /// Inserts or updates, recording the bucket the key hashed to.
     pub fn insert_bucketed(&self, slot: Option<usize>, key: Value, value: Value, bucket: Value) {
         {
-            let mut body = self.0.borrow_mut();
+            let mut body = self.0.lock_cell();
             if let Some(index) = slot
                 && let Some(entry) = body.entries.get_mut(index)
             {
@@ -367,7 +389,7 @@ impl HashRef {
     }
 
     pub fn insert_at(&self, slot: Option<usize>, key: Value, value: Value) {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         if let Some(index) = slot {
             if let Some(entry) = body.entries.get_mut(index) {
                 entry.1 = value;
@@ -390,7 +412,7 @@ impl HashRef {
     #[must_use]
     pub fn value_at(&self, slot: usize) -> Option<Value> {
         self.0
-            .borrow()
+            .lock_cell()
             .entries
             .get(slot)
             .map(|(_, value)| value.clone())
@@ -398,7 +420,7 @@ impl HashRef {
 
     /// Removes the entry at a resolved slot, answering its value.
     pub fn remove_at(&self, slot: usize) -> Option<Value> {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         if slot >= body.entries.len() {
             return None;
         }
@@ -415,7 +437,7 @@ impl HashRef {
     /// Removal is structural under `C034`, so the version moves whenever an
     /// entry actually leaves.
     pub fn remove(&self, key: &Value) -> Option<Value> {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         let position = body.entries.iter().position(|(held, _)| held == key)?;
         let (_, value) = body.entries.remove(position);
         body.version = body.version.saturating_add(1);
@@ -424,7 +446,7 @@ impl HashRef {
 
     /// Removes every entry.
     pub fn clear(&self) {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         if body.entries.is_empty() {
             return;
         }
@@ -437,7 +459,7 @@ impl HashRef {
     /// `C031` builds and validates a rehash replacement BEFORE installing it,
     /// so the caller commits an already-checked entry set here.
     pub fn replace_entries(&self, entries: Vec<(Value, Value)>) {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         // C031 rebuilds from CURRENT hashes, so stale buckets are cleared and
         // the caller records the fresh ones.
         body.buckets = vec![Value::Nil; entries.len()];
@@ -450,7 +472,7 @@ impl HashRef {
 /// mutation history.
 impl core::fmt::Debug for HashRef {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&self.0.borrow().entries, formatter)
+        core::fmt::Debug::fmt(&self.0.lock_cell().entries, formatter)
     }
 }
 
@@ -460,7 +482,7 @@ impl PartialEq for HashRef {
         if self.same(other) {
             return true;
         }
-        self.0.borrow().entries == other.0.borrow().entries
+        self.0.lock_cell().entries == other.0.lock_cell().entries
     }
 }
 
@@ -470,7 +492,7 @@ impl PartialEq for HashRef {
 /// requires ANY content mutation to invalidate active iterators, which is
 /// stricter than the Hash rule where only structural change counts.
 #[derive(Clone)]
-pub struct ByteArrayRef(Rc<RefCell<ByteArrayBody>>);
+pub struct ByteArrayRef(Arc<Mutex<ByteArrayBody>>);
 
 /// The bytes and content version behind a [`ByteArrayRef`].
 #[derive(Debug)]
@@ -483,19 +505,19 @@ impl ByteArrayRef {
     /// Creates a new ByteArray holding `bytes`, at content version zero.
     #[must_use]
     pub fn new(bytes: Vec<u8>) -> Self {
-        Self(Rc::new(RefCell::new(ByteArrayBody { bytes, version: 0 })))
+        Self(Arc::new(Mutex::new(ByteArrayBody { bytes, version: 0 })))
     }
 
     /// Reads the current bytes.
     #[must_use]
     pub fn bytes(&self) -> Vec<u8> {
-        self.0.borrow().bytes.clone()
+        self.0.lock_cell().bytes.clone()
     }
 
     /// Returns the current byte count.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.borrow().bytes.len()
+        self.0.lock_cell().bytes.len()
     }
 
     /// Returns whether the ByteArray currently holds no bytes.
@@ -507,18 +529,18 @@ impl ByteArrayRef {
     /// Returns the current `C075` content version.
     #[must_use]
     pub fn version(&self) -> u64 {
-        self.0.borrow().version
+        self.0.lock_cell().version
     }
 
     /// Returns whether two handles denote the SAME ByteArray.
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Mutates the bytes, incrementing the `C075` content version.
     pub fn mutate<T>(&self, change: impl FnOnce(&mut Vec<u8>) -> T) -> T {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         let outcome = change(&mut body.bytes);
         body.version = body.version.saturating_add(1);
         outcome
@@ -529,7 +551,7 @@ impl ByteArrayRef {
 /// history.
 impl core::fmt::Debug for ByteArrayRef {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&self.0.borrow().bytes, formatter)
+        core::fmt::Debug::fmt(&self.0.lock_cell().bytes, formatter)
     }
 }
 
@@ -539,7 +561,7 @@ impl PartialEq for ByteArrayRef {
         if self.same(other) {
             return true;
         }
-        self.0.borrow().bytes == other.0.borrow().bytes
+        self.0.lock_cell().bytes == other.0.lock_cell().bytes
     }
 }
 
@@ -629,19 +651,19 @@ pub struct MatchValue {
 /// a HANDLE, and `C053` makes `to_string` copy out of it so a snapshot does not
 /// observe later mutation.
 #[derive(Clone)]
-pub struct MutableStringRef(Rc<RefCell<(String, u64)>>);
+pub struct MutableStringRef(Arc<Mutex<(String, u64)>>);
 
 impl MutableStringRef {
     /// Creates a fresh MutableString identity holding `text`.
     #[must_use]
     pub fn new(text: String) -> Self {
-        Self(Rc::new(RefCell::new((text, 0))))
+        Self(Arc::new(Mutex::new((text, 0))))
     }
 
     /// Copies the current text out.
     #[must_use]
     pub fn text(&self) -> String {
-        self.0.borrow().0.clone()
+        self.0.lock_cell().0.clone()
     }
 
     /// The `IRIS-V1-COLLECTIONS-C061` content version.
@@ -650,19 +672,19 @@ impl MutableStringRef {
     /// captured an older value fails fast on its next advance.
     #[must_use]
     pub fn version(&self) -> u64 {
-        self.0.borrow().1
+        self.0.lock_cell().1
     }
 
     /// Returns whether two handles denote the SAME MutableString.
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Replaces the content, which `C058` requires callers to have fully
     /// prepared first so the commit itself cannot fail partway.
     pub fn set(&self, text: String) {
-        let mut body = self.0.borrow_mut();
+        let mut body = self.0.lock_cell();
         body.0 = text;
         body.1 = body.1.saturating_add(1);
     }
@@ -671,14 +693,14 @@ impl MutableStringRef {
 /// Renders as the current text.
 impl core::fmt::Debug for MutableStringRef {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&self.0.borrow().0, formatter)
+        core::fmt::Debug::fmt(&self.0.lock_cell().0, formatter)
     }
 }
 
 /// `C055` compares current exact scalar CONTENT rather than identity.
 impl PartialEq for MutableStringRef {
     fn eq(&self, other: &Self) -> bool {
-        self.same(other) || self.0.borrow().0 == other.0.borrow().0
+        self.same(other) || self.0.lock_cell().0 == other.0.lock_cell().0
     }
 }
 
@@ -966,4 +988,36 @@ pub enum TypeAtom {
     /// reflects exactly those two members. Flattening the union into the
     /// enclosing intersection would lose that structure entirely.
     Union(Vec<TypeAtom>),
+}
+
+#[cfg(test)]
+mod send_tests {
+    use super::*;
+
+    /// `IRIS-V1-COLLECTIONS-C060` describes what a correctly synchronized
+    /// observer on ANOTHER thread sees, which is only meaningful if a value
+    /// can reach one. An `Rc` cell could not: it is not `Send`.
+    #[test]
+    fn a_shared_value_cell_crosses_a_thread_boundary() {
+        let text = MutableStringRef::new("old".to_owned());
+        let observer = text.clone();
+
+        // When a second thread replaces the content
+        let observed = std::thread::scope(|scope| {
+            scope
+                .spawn(move || {
+                    observer.set("new".to_owned());
+                    observer.text()
+                })
+                .join()
+        });
+
+        // Then the write is visible here, and the observer saw COMPLETE
+        // content rather than a partially written string.
+        let Ok(observed) = observed else {
+            unreachable!("the observer thread returns its reading")
+        };
+        assert_eq!(observed, "new");
+        assert_eq!(text.text(), "new");
+    }
 }

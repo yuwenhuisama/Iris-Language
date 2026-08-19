@@ -5697,7 +5697,10 @@ impl SourceEvaluator {
                     // an ABI operation, so the fixture that performs one
                     // is a service receiver like the others.
                     || (name == "NativeFixture"
-                        && matches!(selector.as_str(), "raise" | "resource")
+                        && matches!(
+                            selector.as_str(),
+                            "raise" | "resource" | "concurrently_replace"
+                        )
                         && self.undeclared_name(name))) =>
             {
                 let Expression::Name(namespace) = target.as_ref() else {
@@ -8327,6 +8330,27 @@ impl SourceEvaluator {
             // succeeded. The value carries an identity alone: the payload and
             // its release counter stay behind the C ABI, which is what makes
             // C030's idempotence observable rather than asserted here.
+            // C060 describes what a correctly synchronized observer receives
+            // while another thread writes. The write therefore happens on a
+            // REAL second thread: simulating it in-thread would prove nothing
+            // about the property the clause states.
+            ("NativeFixture", "concurrently_replace") => {
+                let [Value::MutableString(text), replacement] = arguments else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let Value::Text(replacement) = replacement else {
+                    return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+                };
+                let writer = text.clone();
+                let replacement = replacement.clone();
+                // The writer is joined before the read below, which is what
+                // makes this observer CORRECTLY SYNCHRONIZED in C060's sense.
+                let joined = std::thread::spawn(move || writer.set(replacement)).join();
+                if joined.is_err() {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+                Ok(Value::Nil)
+            }
             ("NativeFixture", "resource") => {
                 iris_abi::iris_runtime_reset();
                 let mut diagnostic = 0_u32;
