@@ -3,6 +3,8 @@
 mod source_method;
 mod source_runtime;
 
+pub mod backend;
+
 use iris_lexer::{Literal, convert_literals};
 use iris_parser::parse;
 use iris_runtime::{

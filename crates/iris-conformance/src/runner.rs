@@ -76,6 +76,47 @@ impl Report {
     }
 }
 
+/// Runs a differential row across every registered backend.
+///
+/// A DISAGREEMENT is a failure: the row exists to assert that backends agree.
+/// Too few backends leaves it held, which is honest - the row has not been
+/// observed rather than satisfied.
+fn run_differential(record: &Record) -> Outcome {
+    use iris_eval::backend::{Agreement, Backend, Bytecode, Interpreter};
+
+    let Some(source) = differential_source(record) else {
+        // A fixture-driven row names a scenario rather than carrying source,
+        // so there is nothing to hand a backend yet.
+        return Outcome::Differential {
+            id: record.id.clone(),
+        };
+    };
+    let interpreter = Interpreter;
+    let bytecode = Bytecode;
+    let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+    match iris_eval::backend::compare_backends(&source, &backends) {
+        Agreement::Agreed { .. } => Outcome::Passed {
+            id: record.id.clone(),
+        },
+        Agreement::Disagreed { observations } => Outcome::Failed {
+            id: record.id.clone(),
+            expected: "every backend to agree".to_owned(),
+            actual: format!("{observations:?}"),
+        },
+        Agreement::Insufficient { .. } => Outcome::Differential {
+            id: record.id.clone(),
+        },
+    }
+}
+
+/// The source a differential row hands each backend, when it carries one.
+fn differential_source(record: &Record) -> Option<String> {
+    if record.source.is_empty() {
+        return None;
+    }
+    Some(record.source.clone())
+}
+
 pub fn diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut values = Vec::new();
     let lexical = lex(source.as_bytes());
@@ -1168,9 +1209,12 @@ fn execute_runtime_record(record: &Record) -> Outcome {
         Some("no-fixture") => Outcome::NoFixture {
             id: record.id.clone(),
         },
-        Some("differential") => Outcome::Differential {
-            id: record.id.clone(),
-        },
+        // A differential row is EXECUTED across every registered backend
+        // rather than skipped. `IRIS-V1-CONFORMANCE-C068` restricts the
+        // comparison to semantic observations, which is what the harness
+        // compares. A row stays held while fewer than two backends can run it:
+        // one backend agreeing with itself observes nothing.
+        Some("differential") => run_differential(record),
         // A CONFORMANCE record-validation row observes the SHAPE of a vector
         // record rather than any language behaviour, so it is checked as data
         // against its own stated expectation instead of being executed.

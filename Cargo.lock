@@ -219,6 +219,7 @@ dependencies = [
  "iris-parser",
  "iris-runtime",
  "iris-syntax",
+ "iris-vm",
  "regex",
  "unicode-normalization",
  "unicode-properties",
@@ -254,6 +255,16 @@ dependencies = [
 [[package]]
 name = "iris-syntax"
 version = "0.1.0"
+
+[[package]]
+name = "iris-vm"
+version = "0.1.0"
+dependencies = [
+ "iris-lexer",
+ "iris-parser",
+ "iris-runtime",
+ "iris-syntax",
+]
 
 [[package]]
 name = "libc"

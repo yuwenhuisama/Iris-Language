@@ -8,6 +8,7 @@ members = [
     "crates/iris-conformance",
     "crates/iris-abi",
     "crates/iris-runtime",
+    "crates/iris-vm",
 ]
 resolver = "3"
 

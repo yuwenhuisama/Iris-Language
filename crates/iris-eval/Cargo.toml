@@ -31,4 +31,5 @@ icu_properties = "2"
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }
+iris-vm = { path = "../iris-vm" }
 iris-syntax = { path = "../iris-syntax" }
