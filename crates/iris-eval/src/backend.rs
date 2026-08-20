@@ -430,8 +430,8 @@ mod differential_tests {
         };
         assert_eq!(reason, "call array receiver");
 
-        let Support::Unsupported(reason) = bytecode.execute("for x in [1] { x }") else {
-            unreachable!("this backend covers no iteration yet")
+        let Support::Unsupported(reason) = bytecode.execute("for [x] in [[1]] { x }") else {
+            unreachable!("this backend covers no destructuring iteration yet")
         };
         assert_eq!(reason, "statement for");
 
@@ -618,8 +618,9 @@ mod differential_tests {
             ("6 & 3", "2"),
             ("1 << 4", "16"),
         ] {
-            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
-                unreachable!("both backends cover: {source}")
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends cover: {source}: {agreement:?}")
             };
             assert_eq!(
                 observation,
@@ -699,7 +700,7 @@ mod differential_tests {
 
         for (source, construct) in [
             ("class A { }", "empty program"),
-            ("for x in [1] { x }", "statement for"),
+            ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
             // `if`, `while`, and built-in indexes ARE covered now, so a
             // genuinely unsupported receiver remains outside the subset.
@@ -757,8 +758,9 @@ mod differential_tests {
                 "55",
             ),
         ] {
-            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
-                unreachable!("both backends cover: {source}")
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends cover: {source}: {agreement:?}")
             };
             assert_eq!(
                 observation,
@@ -805,6 +807,87 @@ mod differential_tests {
             let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
                 unreachable!("both backends cover: {source}")
             };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_array_for_loops_inside_functions() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (body, expected, wrong) in [
+            ("mut t = 0; for x in [] { t = t + x }; t", "0", "nil"),
+            ("mut t = 0; for x in [4] { t = t + x }; t", "4", "0"),
+            ("mut t = 0; for x in [1, 2, 3] { t = t + x }; t", "6", "3"),
+            (
+                "mut t = 0; for x in [1, 2, 3] { if x == 2 { break }; t = t + x }; t",
+                "1",
+                "6",
+            ),
+            (
+                "mut t = 0; for x in [1, 2, 3] { if x == 2 { continue }; t = t + x }; t",
+                "4",
+                "6",
+            ),
+            (
+                "mut t = 0; for x in [1, 2] { for y in [3, 4] { t = t + x * y } }; t",
+                "21",
+                "14",
+            ),
+        ] {
+            let source = format!("module M {{ public fun r() -> Object {{ {body} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_declared_class_values_inside_functions() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "class A { } module M { public fun r() -> Object { A } } M.r()",
+                "<class>",
+                "nil",
+            ),
+            (
+                "class A { public fun v() -> Integer { 3 } } module M { public fun make(c: Object) -> Object { c.new().v() } public fun r() -> Object { M.make(A) } } M.r()",
+                "3",
+                "<class>",
+            ),
+            (
+                "module N { public fun v() -> Integer { 1 } } module M { public fun r() -> Object { N } } M.r()",
+                ":N",
+                "nil",
+            ),
+        ] {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends cover: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
             assert_eq!(
                 observation,
                 Observation::Value(expected.to_owned()),
@@ -985,7 +1068,7 @@ mod differential_tests {
                 "try { 1 } catch error, context { error }",
                 "try exception context",
             ),
-            ("for x in [1] { x }", "statement for"),
+            ("for [x] in [[1]] { x }", "statement for"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("the VM must not approximate the declined construct: {source}")

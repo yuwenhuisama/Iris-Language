@@ -154,6 +154,7 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadText { dst, text }` | String. |
 | `LoadBool { dst, value }` | Bool. |
 | `LoadNil { dst }` | nil. |
+| `LoadClass { dst, class }` | The runtime Class object registered at `class`. |
 | `LoadGlobal { dst, name }` | Reads the current package-global cell. |
 | `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
 
@@ -228,6 +229,7 @@ r4 = BuildArray first=r2 count=2
 | --- | --- |
 | `JumpUnless { condition, target }` | Jumps to `target` when `condition` is FALSEY. |
 | `Jump { target }` | Jumps unconditionally. |
+| `ArrayNext { dst, array, index, exhausted }` | Loads `array[index]` into `dst`, or jumps to `exhausted` when the Array is exhausted. |
 
 Only the false branch is conditional. One conditional form plus an unconditional
 jump expresses every shape this subset needs, and each extra branch opcode is
@@ -238,6 +240,13 @@ A `while` loop is a BACKWARD jump: the condition is evaluated at the top, a
 loop's own value is nil, since `IRIS-V1-CONTROL-C023` gives a normal loop
 completion no value and only a `break` with an operand carries one - which this
 subset declines.
+
+An Array `for` loop evaluates its source once, advances an explicit Integer
+index, and uses `ArrayNext` for the exhausted edge. `continue` targets the next
+step and `break` targets the loop exit; both are ordinary CFG predecessors, so
+the verifier applies the same definite-assignment fixpoint as it does to
+`while`. Labels, value-carrying `break`, non-Array iterator protocols, and
+destructuring bindings remain declined rather than approximated.
 
 A `mut` binding keeps ONE register that assignment updates in place. That is
 what carries a value across the back edge: allocating a fresh register per
@@ -417,7 +426,7 @@ Declined, each by name: `declaration contract`, `declaration import`,
 statement), `method async`, `method contract implementation`, `method
 decorator`, `method generics`, `method property`, `method module`, `abstract
 method`, `parameter` (rest, keyword or block),
-`statement <form>`, which names the form that stopped it - `for`,
+`statement <form>`, which names the form that stopped it - unsupported `for`,
 `match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
 `break`, `continue`, `method` - and likewise `call <shape>` for a call:
 `bare name`, `closure`, `callee`, and the receiver shapes `unbound receiver`,
@@ -446,6 +455,11 @@ Named so the gaps are not mistaken for decisions:
 - **Method forms.** Async methods, Contract implementations, property methods,
   generic methods, decorators, and non-positional/default parameters retain
   runtime or type semantics the bytecode backend does not yet model.
+- **General iteration.** Array iteration with name bindings, unlabelled
+  `break`, and unlabelled `continue` is covered. Hash, Range, String, and custom
+  Iterator protocols require protocol-close behavior; labelled loops,
+  value-carrying breaks, and destructuring patterns retain their precise
+  statement or pattern declines.
 - **Nested Closures.** A Closure may capture from its immediate defining frame;
   recursively compiling Closure bodies needs a stable function-index allocator
   before nested Closure literals can be admitted without misaddressing code.

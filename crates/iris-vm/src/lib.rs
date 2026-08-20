@@ -47,6 +47,8 @@ mod tests {
             "class C { public class fun v() -> Integer { 3 } } module M { public fun r() -> Object { C.v() } } M.r()",
             "class A { public fun v() -> Integer { 1 } } class B extends A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { B.new().v() } } M.r()",
             "class A { public fun v() -> Integer { 1 } } open class A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { A.new().v() } } M.r()",
+            "class A { public fun v() -> Integer { 3 } } module M { public fun make(c: Object) -> Object { c.new().v() } public fun r() -> Object { M.make(A) } } M.r()",
+            "class A { public class fun v() -> Integer { 5 } } module M { public fun invoke(c: Object) -> Object { c.v() } public fun r() -> Object { M.invoke(A) } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");
@@ -572,7 +574,7 @@ mod ir_document_tests {
     fn the_coverage_boundary_matches_the_document() {
         for (source, construct) in [
             ("class A { }", "empty program"),
-            ("for x in [1] { x }", "statement for"),
+            ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
             ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),

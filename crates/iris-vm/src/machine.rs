@@ -124,6 +124,11 @@ fn verify_body(
                     return Err(VerifyError::JumpOutOfRange { target: *target });
                 }
             }
+            Instruction::ArrayNext { exhausted, .. } => {
+                if *exhausted > instructions.len() {
+                    return Err(VerifyError::JumpOutOfRange { target: *exhausted });
+                }
+            }
             Instruction::EnterTry {
                 handler, cleanup, ..
             } => {
@@ -222,6 +227,9 @@ fn verify_body(
             Instruction::JumpUnless { target, .. } => {
                 vec![(*target, next.clone()), (at + 1, next.clone())]
             }
+            Instruction::ArrayNext { exhausted, .. } => {
+                vec![(*exhausted, state.clone()), (at + 1, next.clone())]
+            }
             Instruction::EnterTry {
                 handler, exception, ..
             } => {
@@ -307,6 +315,9 @@ fn fall_through(
             Instruction::JumpUnless { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
             }
+            Instruction::ArrayNext { exhausted, .. } => {
+                *exhausted >= instructions.len() || at + 1 >= instructions.len()
+            }
             _ => at + 1 >= instructions.len(),
         };
         if !leaves {
@@ -363,6 +374,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Index {
             receiver, index, ..
         } => vec![*receiver, *index],
+        Instruction::ArrayNext { array, index, .. } => vec![*array, *index],
         Instruction::SetIndex {
             receiver,
             index,
@@ -382,6 +394,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
+        | Instruction::LoadClass { .. }
         | Instruction::LoadGlobal { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry
@@ -508,6 +521,12 @@ impl Machine {
                 Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
                 Instruction::LoadBool { value, .. } => Value::Bool(*value),
                 Instruction::LoadNil { .. } => Value::Nil,
+                Instruction::LoadClass { class, .. } => {
+                    let Some(class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    Value::Class(class)
+                }
                 Instruction::LoadGlobal { name, .. } => self
                     .globals
                     .get(name)
@@ -655,6 +674,28 @@ impl Machine {
                 Instruction::Jump { target } => {
                     counter = *target;
                     continue;
+                }
+                Instruction::ArrayNext {
+                    array,
+                    index,
+                    exhausted,
+                    ..
+                } => {
+                    let Value::Array(array) = &registers[*array as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Integer(index) = &registers[*index as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Some(index) = index.to_usize() else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let elements = array.elements();
+                    let Some(value) = elements.get(index).cloned() else {
+                        counter = *exhausted;
+                        continue;
+                    };
+                    value
                 }
                 Instruction::EnterTry {
                     handler, exception, ..
@@ -830,6 +871,90 @@ impl Machine {
                         returned.into_iter().next().unwrap_or(Value::Nil)
                     } else {
                         let object = match receiver {
+                            Value::Class(class) if selector == "new" => {
+                                let object = self
+                                    .runtime
+                                    .allocate(class)
+                                    .map_err(MachineError::Construction)?;
+                                if let Ok(method) =
+                                    self.runtime.dispatch_instance(object, Selector::INITIALIZE)
+                                {
+                                    let function =
+                                        usize::try_from(method.body().raw()).map_err(|_| {
+                                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                                function: usize::MAX,
+                                            })
+                                        })?;
+                                    let mut passed = Vec::with_capacity(arguments.len() + 1);
+                                    passed.push(Value::Object(object));
+                                    passed.extend(arguments);
+                                    let callee = program.functions.get(function).cloned().ok_or(
+                                        MachineError::Invalid(VerifyError::UnknownFunction {
+                                            function,
+                                        }),
+                                    )?;
+                                    let _ = run_frame!('frame, self.run_body(
+                                        &callee.instructions,
+                                        callee.registers,
+                                        passed,
+                                        program,
+                                        classes,
+                                    ));
+                                }
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = Value::Object(object);
+                                }
+                                continue;
+                            }
+                            Value::Class(class) => {
+                                let selector_id =
+                                    selector_id(program, selector).ok_or_else(|| {
+                                        MachineError::UnknownSelector(selector.clone())
+                                    })?;
+                                let method = match self
+                                    .runtime
+                                    .registry()
+                                    .dispatch_class_object(class, selector_id)
+                                    .map_err(iris_runtime::ConstructionError::from)
+                                    .map_err(MachineError::Construction)?
+                                {
+                                    iris_runtime::DispatchOutcome::Invoke(method) => method,
+                                    iris_runtime::DispatchOutcome::WouldInvokeMethodMissing {
+                                        selector,
+                                    } => {
+                                        return Err(MachineError::Construction(
+                                            iris_runtime::DispatchError::MissingMethod { selector }
+                                                .into(),
+                                        ));
+                                    }
+                                };
+                                let function =
+                                    usize::try_from(method.body().raw()).map_err(|_| {
+                                        MachineError::Invalid(VerifyError::UnknownFunction {
+                                            function: usize::MAX,
+                                        })
+                                    })?;
+                                let mut passed = Vec::with_capacity(arguments.len() + 1);
+                                passed.push(Value::Class(class));
+                                passed.extend(arguments);
+                                let callee = program.functions.get(function).cloned().ok_or(
+                                    MachineError::Invalid(VerifyError::UnknownFunction {
+                                        function,
+                                    }),
+                                )?;
+                                let returned = run_frame!('frame, self.run_body(
+                                    &callee.instructions,
+                                    callee.registers,
+                                    passed,
+                                    program,
+                                    classes,
+                                ));
+                                let value = returned.into_iter().next().unwrap_or(Value::Nil);
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = value;
+                                }
+                                continue;
+                            }
                             Value::Object(object) => object,
                             receiver => {
                                 let value = self.send(selector, receiver, &arguments)?;

@@ -8,6 +8,10 @@
 use iris_runtime::NativeSelector;
 use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOperator};
 
+mod declarations;
+
+use declarations::{Signature, collect_signatures};
+
 /// A virtual register index.
 ///
 /// Registers are virtual and unbounded at this stage. Allocation to a fixed
@@ -56,6 +60,10 @@ pub enum Instruction {
     /// Loads nil.
     LoadNil {
         destination: Register,
+    },
+    LoadClass {
+        destination: Register,
+        class: usize,
     },
     LoadGlobal {
         destination: Register,
@@ -134,6 +142,12 @@ pub enum Instruction {
     /// Jumps to `target` unconditionally.
     Jump {
         target: usize,
+    },
+    ArrayNext {
+        destination: Register,
+        array: Register,
+        index: Register,
+        exhausted: usize,
     },
     /// Installs an exception handler for the following protected region.
     EnterTry {
@@ -219,6 +233,7 @@ impl Instruction {
             | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
+            | Self::LoadClass { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
@@ -246,6 +261,7 @@ impl Instruction {
             | Self::LeaveTry
             | Self::Raise { .. }
             | Self::Return { .. } => None,
+            Self::ArrayNext { destination, .. } => Some(*destination),
         }
     }
 }
@@ -408,212 +424,6 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     })
 }
 
-/// A module function this backend can call, resolved before lowering.
-struct Signature<'a> {
-    module: &'a str,
-    selector: &'a str,
-    parameters: Vec<&'a str>,
-    body: &'a [Statement],
-    receiver: bool,
-    class_method: bool,
-}
-
-type MethodTable = Vec<(String, usize)>;
-
-/// Collects the module functions this subset covers.
-///
-/// Only a plain `module` holding plain functions is covered. A Class, a
-/// Contract, an import, a mixin, a decorator, a generic or an async function
-/// carries semantics - MRO, revisions, capability checks, suspension - that
-/// belong to the runtime rather than to this backend, so they are DECLINED
-/// rather than approximated.
-fn collect_signatures(
-    declarations: &[iris_syntax::Declaration],
-) -> Result<(Vec<Signature<'_>>, Vec<Class>), CompileError> {
-    let mut signatures = Vec::new();
-    let mut classes = Vec::new();
-    for declaration in declarations {
-        let iris_syntax::Declaration::Module(module) = declaration else {
-            let iris_syntax::Declaration::Class(class) = declaration else {
-                return Err(CompileError::new(match declaration {
-                    iris_syntax::Declaration::Contract(_) => "declaration contract",
-                    iris_syntax::Declaration::Import(_) => "declaration import",
-                    iris_syntax::Declaration::Export(_) => "declaration export",
-                    iris_syntax::Declaration::TypeAlias(_) => "declaration type alias",
-                    iris_syntax::Declaration::Class(_) | iris_syntax::Declaration::Module(_) => {
-                        "declaration covered"
-                    }
-                }));
-            };
-            if !class.decorators.is_empty() {
-                return Err(CompileError::new("class decorator"));
-            }
-            if class.reopen {
-                if class.extends.is_some()
-                    || !class.implements.is_empty()
-                    || !class.mixins.is_empty()
-                    || !class.constraints.is_empty()
-                    || !class.parameters.is_empty()
-                    || !class.meta_deny.is_empty()
-                {
-                    return Err(CompileError::new("class reopen header"));
-                }
-                let Some(target) = classes
-                    .iter()
-                    .position(|known: &Class| known.name == class.name)
-                else {
-                    return Err(CompileError::new("class reopen target"));
-                };
-                let first_function = signatures.len();
-                collect_methods(&class.name, &class.body, true, &mut signatures)?;
-                let (methods, class_methods) = collected_method_tables(&signatures, first_function);
-                if !class_methods.is_empty() {
-                    return Err(CompileError::new("class reopen class method"));
-                }
-                classes[target].reopens.push(ClassReopen { methods });
-                continue;
-            }
-            if !class.implements.is_empty() {
-                return Err(CompileError::new("class implements"));
-            }
-            if !class.mixins.is_empty() {
-                return Err(CompileError::new("class mixin"));
-            }
-            if !class.constraints.is_empty() {
-                return Err(CompileError::new("class constraints"));
-            }
-            if !class.parameters.is_empty() {
-                return Err(CompileError::new("class generics"));
-            }
-            if !class.meta_deny.is_empty() {
-                return Err(CompileError::new("class meta deny"));
-            }
-            let superclass_name = match &class.extends {
-                Some(TypeExpression::Name(name)) => Some(name.as_str()),
-                Some(_) => return Err(CompileError::new("class superclass")),
-                None => None,
-            };
-            let class_index = classes.len();
-            let first_function = signatures.len();
-            collect_methods(&class.name, &class.body, true, &mut signatures)?;
-            let superclass = match superclass_name {
-                Some("Object") | None => None,
-                Some(name) => declarations
-                    .iter()
-                    .filter_map(|declaration| match declaration {
-                        iris_syntax::Declaration::Class(candidate) => Some(&candidate.name),
-                        _ => None,
-                    })
-                    .position(|candidate| candidate == name)
-                    .ok_or_else(|| CompileError::new("class superclass"))?
-                    .into(),
-            };
-            let (methods, class_methods) = collected_method_tables(&signatures, first_function);
-            classes.push(Class {
-                name: class.name.clone(),
-                superclass,
-                methods,
-                class_methods,
-                reopens: Vec::new(),
-            });
-            let _ = class_index;
-            continue;
-        };
-        if module.reopen
-            || !module.mixins.is_empty()
-            || !module.parameters.is_empty()
-            || !module.decorators.is_empty()
-        {
-            return Err(CompileError::new("module"));
-        }
-        collect_methods(&module.name, &module.body, false, &mut signatures)?;
-    }
-    Ok((signatures, classes))
-}
-
-fn collected_method_tables(
-    signatures: &[Signature<'_>],
-    first_function: usize,
-) -> (MethodTable, MethodTable) {
-    let mut methods = Vec::new();
-    let mut class_methods = Vec::new();
-    for (offset, signature) in signatures[first_function..].iter().enumerate() {
-        let entry = (signature.selector.to_owned(), first_function + offset);
-        if signature.class_method {
-            class_methods.push(entry);
-        } else {
-            methods.push(entry);
-        }
-    }
-    (methods, class_methods)
-}
-
-fn collect_methods<'a>(
-    owner: &'a str,
-    body: &'a [Statement],
-    receiver: bool,
-    signatures: &mut Vec<Signature<'a>>,
-) -> Result<(), CompileError> {
-    for statement in body {
-        let Statement::Method(method) = statement else {
-            return Err(CompileError::new(if receiver {
-                "class body"
-            } else {
-                "module body"
-            }));
-        };
-        if method.is_async
-            || method.impl_contract.is_some()
-            || !method.decorators.is_empty()
-            || !method.type_parameters.is_empty()
-            || !matches!(
-                method.kind,
-                iris_syntax::MethodKind::Instance | iris_syntax::MethodKind::Class
-            )
-            || (!receiver && method.kind != iris_syntax::MethodKind::Instance)
-        {
-            return Err(CompileError::new(if method.is_async {
-                "method async"
-            } else if method.impl_contract.is_some() {
-                "method contract implementation"
-            } else if !method.decorators.is_empty() {
-                "method decorator"
-            } else if !method.type_parameters.is_empty() {
-                "method generics"
-            } else {
-                match method.kind {
-                    iris_syntax::MethodKind::Module => "method module",
-                    iris_syntax::MethodKind::Property => "method property",
-                    iris_syntax::MethodKind::Instance | iris_syntax::MethodKind::Class => {
-                        "method kind"
-                    }
-                }
-            }));
-        }
-        let Some(body) = method.body.as_deref() else {
-            return Err(CompileError::new("abstract method"));
-        };
-        let mut parameters = Vec::with_capacity(method.parameters.len());
-        for parameter in &method.parameters {
-            // Only positional parameters. A rest, keyword or block
-            // parameter needs argument shapes this subset does not build.
-            if parameter.category != iris_syntax::ParameterCategory::Positional {
-                return Err(CompileError::new("parameter"));
-            }
-            parameters.push(parameter.name.as_str());
-        }
-        signatures.push(Signature {
-            module: owner,
-            selector: &method.selector,
-            parameters,
-            body,
-            receiver,
-            class_method: method.kind == iris_syntax::MethodKind::Class,
-        });
-    }
-    Ok(())
-}
-
 /// Lowers one function into its own frame.
 fn lower_function(
     signature: &Signature<'_>,
@@ -662,6 +472,12 @@ struct Lowering<'a, 'b> {
     classes: &'a [Class],
     declared_functions: usize,
     closures: &'a mut Vec<Function>,
+    loops: Vec<LoopContext>,
+}
+
+struct LoopContext {
+    continue_target: usize,
+    breaks: Vec<usize>,
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {
@@ -679,6 +495,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             classes,
             declared_functions,
             closures,
+            loops: Vec::new(),
         }
     }
 
@@ -778,6 +595,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.patch(exit, after)?;
                 Ok(destination)
             }
+            Statement::For {
+                label: None,
+                binding: iris_syntax::Pattern::Name(name),
+                iterable,
+                body,
+            } => self.for_array(name, iterable, body),
             // An `if` yields a value, so both arms write the SAME destination
             // register. That is what lets the value be read afterwards without
             // knowing which arm ran.
@@ -832,6 +655,29 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
             }
+            Statement::Break {
+                label: None,
+                value: None,
+            } => {
+                let jump = self.instructions.len();
+                self.instructions.push(Instruction::Jump { target: 0 });
+                let Some(loop_context) = self.loops.last_mut() else {
+                    return Err(CompileError::new("break outside loop"));
+                };
+                loop_context.breaks.push(jump);
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
+            }
+            Statement::Continue(None) => {
+                let Some(target) = self.loops.last().map(|context| context.continue_target) else {
+                    return Err(CompileError::new("continue outside loop"));
+                };
+                self.instructions.push(Instruction::Jump { target });
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
+            }
             Statement::Raise(Some(raise)) if raise.cause.is_none() => {
                 let value = self.expression(&raise.value)?;
                 self.instructions.push(Instruction::Raise { value });
@@ -878,6 +724,61 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let value = self.statement(last)?;
         self.names.truncate(outer);
         Ok(value)
+    }
+
+    fn for_array(
+        &mut self,
+        name: &str,
+        iterable: &Expression,
+        body: &[Statement],
+    ) -> Result<Register, CompileError> {
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::LoadNil { destination });
+        let array = self.expression(iterable)?;
+        let index = self.literal("0")?;
+        let item = self.allocate()?;
+        let top = self.instructions.len();
+        let next = self.instructions.len();
+        self.instructions.push(Instruction::ArrayNext {
+            destination: item,
+            array,
+            index,
+            exhausted: 0,
+        });
+        let one = self.literal("1")?;
+        let advanced = self.allocate()?;
+        self.instructions.push(Instruction::Binary {
+            destination: advanced,
+            selector: "+",
+            left: index,
+            right: one,
+        });
+        self.instructions.push(Instruction::Move {
+            destination: index,
+            source: advanced,
+        });
+        let outer = self.names.len();
+        self.names.push((name.to_owned(), item));
+        self.loops.push(LoopContext {
+            continue_target: top,
+            breaks: Vec::new(),
+        });
+        self.body(body)?;
+        let Some(loop_context) = self.loops.pop() else {
+            return Err(CompileError::new("loop context"));
+        };
+        self.names.truncate(outer);
+        self.instructions.push(Instruction::Jump { target: top });
+        let after = self.instructions.len();
+        if let Some(Instruction::ArrayNext { exhausted, .. }) = self.instructions.get_mut(next) {
+            *exhausted = after;
+        } else {
+            return Err(CompileError::new("branch patch"));
+        }
+        for jump in loop_context.breaks {
+            self.patch(jump, after)?;
+        }
+        Ok(destination)
     }
 
     fn try_body(
@@ -1022,11 +923,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
                 self.literal(name)
             }
-            Expression::Name(name) => self
-                .lookup(name)
-                // An unbound name is not this backend's to resolve: it could
-                // be a Class, a Module, or a method-scope local.
-                .ok_or_else(|| CompileError::new("name unbound")),
+            Expression::Name(name) => self.lookup(name).map(Ok).unwrap_or_else(|| {
+                let destination = self.allocate()?;
+                if let Some(class) = self.class_index(name) {
+                    self.instructions
+                        .push(Instruction::LoadClass { destination, class });
+                    return Ok(destination);
+                }
+                if self
+                    .signatures
+                    .iter()
+                    .any(|signature| signature.module == name && !signature.receiver)
+                {
+                    self.instructions.push(Instruction::LoadSymbol {
+                        destination,
+                        name: name.clone(),
+                    });
+                    return Ok(destination);
+                }
+                Err(CompileError::new("name unbound"))
+            }),
             Expression::GlobalVar(name) => {
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::LoadGlobal {
