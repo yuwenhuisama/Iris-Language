@@ -67,11 +67,33 @@ pub enum Instruction {
         width: FloatWidth,
         bits: Register,
     },
+    /// Jumps to `target` when `condition` holds FALSE.
+    ///
+    /// Only the false branch is conditional. One conditional form plus an
+    /// unconditional `Jump` expresses every shape this subset needs, and each
+    /// extra branch opcode is another case the verifier must reason about.
+    JumpUnless { condition: Register, target: usize },
+    /// Jumps to `target` unconditionally.
+    Jump { target: usize },
+    /// Calls function `function` with a contiguous argument window.
+    ///
+    /// The arguments occupy `first .. first+count`, mirroring `BuildArray`, so
+    /// a call names a REGISTER WINDOW rather than carrying an operand list.
+    /// That is what keeps the callee's parameters addressable as ordinary
+    /// registers once the frame is pushed.
+    Call {
+        destination: Register,
+        function: usize,
+        first: Register,
+        count: u16,
+    },
+    /// Returns `value` from the current frame.
+    Return { value: Register },
 }
 
 impl Instruction {
-    /// The register this instruction writes.
-    pub(crate) const fn destination(&self) -> Register {
+    /// The register this instruction writes, when it writes one.
+    pub(crate) const fn destination(&self) -> Option<Register> {
         match self {
             Self::LoadInteger { destination, .. }
             | Self::LoadFloat64 { destination, .. }
@@ -83,7 +105,10 @@ impl Instruction {
             | Self::Binary { destination, .. }
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }
-            | Self::FromBits { destination, .. } => *destination,
+            | Self::Call { destination, .. }
+            | Self::FromBits { destination, .. } => Some(*destination),
+            // A branch or a return produces no value.
+            Self::JumpUnless { .. } | Self::Jump { .. } | Self::Return { .. } => None,
         }
     }
 }
@@ -97,14 +122,38 @@ pub enum FloatWidth {
     Bits64,
 }
 
+/// One callable body with its own register file.
+///
+/// A frame is a REGISTER WINDOW: each call gets a fresh file of `registers`
+/// slots, and parameters arrive pre-bound in registers `0 .. parameters`.
+/// Nothing is shared with the caller, so a callee cannot read a caller's
+/// registers and recursion needs no save/restore of individual registers.
+///
+/// This is also what makes a GC root set enumerable: the live frames ARE the
+/// roots. The tree-walking evaluator threads locals through a `&HashMap`
+/// parameter, so its caller frames sit on the Rust stack and cannot be walked -
+/// which is why a collection there refuses inside a method body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Function {
+    /// The name this function was declared under, for diagnostics.
+    pub(crate) name: String,
+    /// How many leading registers hold parameters.
+    pub(crate) parameters: usize,
+    /// The size of this frame's register file.
+    pub(crate) registers: usize,
+    pub(crate) instructions: Vec<Instruction>,
+}
+
 /// A compiled program.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
     pub(crate) instructions: Vec<Instruction>,
-    /// How many registers the program uses.
+    /// How many registers the top-level frame uses.
     pub(crate) registers: usize,
     /// The register holding the program's answer.
     pub(crate) result: Register,
+    /// Callable bodies, addressed by index from `Call`.
+    pub(crate) functions: Vec<Function>,
 }
 
 /// Why a program could not be compiled.
@@ -134,13 +183,23 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     if !parsed.program_accepted {
         return Err(CompileError::new("rejected source"));
     }
-    if !parsed.program.declarations.is_empty() {
-        return Err(CompileError::new("declaration"));
+
+    // Name resolution happens HERE, before any instruction is emitted: a call
+    // is lowered to a function INDEX, never to a name looked up at run time.
+    // The design review places this responsibility in a HIR layer between AST
+    // and execution IR; this is that resolution, done in one pass while the
+    // covered surface is small enough not to need a separate representation.
+    let signatures = collect_signatures(&parsed.program.declarations)?;
+
+    let mut functions = Vec::with_capacity(signatures.len());
+    for signature in &signatures {
+        functions.push(lower_function(signature, &signatures)?);
     }
+
     let Some((last, leading)) = parsed.program.statements.split_last() else {
         return Err(CompileError::new("empty program"));
     };
-    let mut lowering = Lowering::default();
+    let mut lowering = Lowering::new(&signatures);
     for statement in leading {
         // An earlier statement's value is not the program's answer. Its
         // register is simply not read again; nothing has to be popped, which
@@ -152,18 +211,131 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         instructions: lowering.instructions,
         registers: lowering.next_register as usize,
         result,
+        functions,
     })
 }
 
-#[derive(Debug, Default)]
-struct Lowering {
+/// A module function this backend can call, resolved before lowering.
+struct Signature<'a> {
+    module: &'a str,
+    selector: &'a str,
+    parameters: Vec<&'a str>,
+    body: &'a [Statement],
+}
+
+/// Collects the module functions this subset covers.
+///
+/// Only a plain `module` holding plain functions is covered. A Class, a
+/// Contract, an import, a mixin, a decorator, a generic or an async function
+/// carries semantics - MRO, revisions, capability checks, suspension - that
+/// belong to the runtime rather than to this backend, so they are DECLINED
+/// rather than approximated.
+fn collect_signatures(
+    declarations: &[iris_syntax::Declaration],
+) -> Result<Vec<Signature<'_>>, CompileError> {
+    let mut signatures = Vec::new();
+    for declaration in declarations {
+        let iris_syntax::Declaration::Module(module) = declaration else {
+            return Err(CompileError::new("declaration"));
+        };
+        if module.reopen
+            || !module.mixins.is_empty()
+            || !module.parameters.is_empty()
+            || !module.decorators.is_empty()
+        {
+            return Err(CompileError::new("module"));
+        }
+        for statement in &module.body {
+            let Statement::Method(method) = statement else {
+                return Err(CompileError::new("module body"));
+            };
+            if method.is_async
+                || method.is_override
+                || method.impl_contract.is_some()
+                || !method.decorators.is_empty()
+                || !method.type_parameters.is_empty()
+                || method.kind != iris_syntax::MethodKind::Instance
+            {
+                return Err(CompileError::new("method"));
+            }
+            let Some(body) = method.body.as_deref() else {
+                return Err(CompileError::new("abstract method"));
+            };
+            let mut parameters = Vec::with_capacity(method.parameters.len());
+            for parameter in &method.parameters {
+                // Only positional parameters. A rest, keyword or block
+                // parameter needs argument shapes this subset does not build.
+                if parameter.category != iris_syntax::ParameterCategory::Positional {
+                    return Err(CompileError::new("parameter"));
+                }
+                parameters.push(parameter.name.as_str());
+            }
+            signatures.push(Signature {
+                module: &module.name,
+                selector: &method.selector,
+                parameters,
+                body,
+            });
+        }
+    }
+    Ok(signatures)
+}
+
+/// Lowers one function into its own frame.
+fn lower_function(
+    signature: &Signature<'_>,
+    signatures: &[Signature<'_>],
+) -> Result<Function, CompileError> {
+    let mut lowering = Lowering::new(signatures);
+    // Parameters occupy the leading registers, so a call can copy arguments
+    // into a fresh frame without the callee knowing where they came from.
+    for parameter in &signature.parameters {
+        let register = lowering.allocate()?;
+        lowering.names.push(((*parameter).to_owned(), register));
+    }
+    let Some((last, leading)) = signature.body.split_last() else {
+        return Err(CompileError::new("empty body"));
+    };
+    for statement in leading {
+        lowering.statement(statement)?;
+    }
+    // A body's LAST expression is its value, which an explicit `Return`
+    // makes uniform: every path out of a frame goes through one instruction.
+    let value = lowering.statement(last)?;
+    lowering.instructions.push(Instruction::Return { value });
+    Ok(Function {
+        name: format!("{}.{}", signature.module, signature.selector),
+        parameters: signature.parameters.len(),
+        registers: lowering.next_register as usize,
+        instructions: lowering.instructions,
+    })
+}
+
+struct Lowering<'a, 'b> {
     instructions: Vec<Instruction>,
     next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
     names: Vec<(String, Register)>,
+    /// Functions callable from this frame, resolved before lowering.
+    signatures: &'a [Signature<'b>],
 }
 
-impl Lowering {
+impl<'a, 'b> Lowering<'a, 'b> {
+    fn new(signatures: &'a [Signature<'b>]) -> Self {
+        Self {
+            instructions: Vec::new(),
+            next_register: 0,
+            names: Vec::new(),
+            signatures,
+        }
+    }
+
+    /// Resolves `Module.selector` to a function index.
+    fn resolve(&self, module: &str, selector: &str) -> Option<usize> {
+        self.signatures
+            .iter()
+            .position(|signature| signature.module == module && signature.selector == selector)
+    }
     /// Reserves a fresh register.
     fn allocate(&mut self) -> Result<Register, CompileError> {
         let register = self.next_register;
@@ -206,7 +378,91 @@ impl Lowering {
                 self.names.push((name.clone(), destination));
                 Ok(destination)
             }
+            // An `if` yields a value, so both arms write the SAME destination
+            // register. That is what lets the value be read afterwards without
+            // knowing which arm ran.
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                let destination = self.allocate()?;
+                let condition = self.expression(condition)?;
+                let branch = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition,
+                    target: 0,
+                });
+                let taken = self.body(then_body)?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source: taken,
+                });
+                let skip = self.instructions.len();
+                self.instructions.push(Instruction::Jump { target: 0 });
+
+                let otherwise = self.instructions.len();
+                match else_body {
+                    Some(body) => {
+                        let value = self.body(body)?;
+                        self.instructions.push(Instruction::Move {
+                            destination,
+                            source: value,
+                        });
+                    }
+                    // A missing else answers nil, so the destination is
+                    // written on EVERY path and the verifier's
+                    // written-before-read rule holds however the branch goes.
+                    None => self.instructions.push(Instruction::LoadNil { destination }),
+                }
+                let after = self.instructions.len();
+                self.patch(branch, otherwise)?;
+                self.patch(skip, after)?;
+                Ok(destination)
+            }
+            Statement::Return(value) => {
+                let value = match value {
+                    Some(value) => self.expression(value)?,
+                    None => {
+                        let destination = self.allocate()?;
+                        self.instructions.push(Instruction::LoadNil { destination });
+                        destination
+                    }
+                };
+                self.instructions.push(Instruction::Return { value });
+                Ok(value)
+            }
             _ => Err(CompileError::new("statement")),
+        }
+    }
+
+    /// Lowers a block, answering the register holding its last value.
+    fn body(&mut self, statements: &[Statement]) -> Result<Register, CompileError> {
+        let Some((last, leading)) = statements.split_last() else {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadNil { destination });
+            return Ok(destination);
+        };
+        // A block scopes its bindings: a name bound inside must not leak out.
+        let outer = self.names.len();
+        for statement in leading {
+            self.statement(statement)?;
+        }
+        let value = self.statement(last)?;
+        self.names.truncate(outer);
+        Ok(value)
+    }
+
+    /// Fills in a forward jump once its target is known.
+    fn patch(&mut self, at: usize, target: usize) -> Result<(), CompileError> {
+        match self.instructions.get_mut(at) {
+            Some(
+                Instruction::JumpUnless { target: slot, .. } | Instruction::Jump { target: slot },
+            ) => {
+                *slot = target;
+                Ok(())
+            }
+            _ => Err(CompileError::new("branch patch")),
         }
     }
 
@@ -371,6 +627,45 @@ impl Lowering {
                 destination,
                 width,
                 bits,
+            });
+            return Ok(destination);
+        }
+        // A resolved module function is called by INDEX. Resolution happened
+        // before lowering, so no name is looked up at run time.
+        if let Expression::Name(module) = receiver.as_ref()
+            && let Some(function) = self.resolve(module, selector)
+        {
+            let expected = self.signatures[function].parameters.len();
+            if arguments.len() != expected {
+                return Err(CompileError::new("call arity"));
+            }
+            let count =
+                u16::try_from(arguments.len()).map_err(|_| CompileError::new("call too wide"))?;
+            let mut lowered = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                lowered.push(self.expression(argument)?);
+            }
+            // Arguments are copied into a CONTIGUOUS window, so the call names
+            // a range and the callee sees them as its leading registers.
+            let first = self.next_register;
+            for source in lowered {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source,
+                });
+            }
+            // A zero-argument call still needs a window start inside the file.
+            if count == 0 {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+            }
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Call {
+                destination,
+                function,
+                first,
+                count,
             });
             return Ok(destination);
         }

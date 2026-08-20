@@ -2,10 +2,10 @@
 
 **A modern object-oriented scripting language with dynamic behavior bounded by static promises.**
 
-[Website](https://yuwenhuisama.github.io/Iris-Language/) · [Specification](spec/iris-v1/README.md) · [中文规范](spec/iris-v1/zh-cn/README.md)
+[Website](https://yuwenhuisama.github.io/Iris-Language/) · [Tutorial](tutorial/en/README.md) · [Specification](spec/iris-v1/README.md) · [中文规范](spec/iris-v1/zh-cn/README.md)
 
-> **Status: frozen v1 draft specification, not a toolchain release.**
-> The language specification is complete and frozen. The reference implementation is an in-progress frontend slice. Iris is not ready for production use, and no compatibility is promised until a toolchain release exists.
+> **Status: frozen v1 specification with owner-approved errata; the implementation runs but is not a toolchain release.**
+> The specification is complete and frozen. The Rust reference implementation executes Iris programs through a tree-walking evaluator and a partial bytecode backend, and ships an `iris` binary with a script runner and REPL. Many language constructs are still unimplemented. Iris is not ready for production use, and no compatibility is promised until a toolchain release exists.
 
 ---
 
@@ -38,6 +38,8 @@ The defining idea is stated in `IRIS-V1-IDENTITY-C008`: **static promises bound 
 
 The v1 specification is **frozen**: its semantics are fixed and its clauses are stable identifiers. Defects found during implementation are recorded in [`docs/spec-defects-v1.md`](docs/spec-defects-v1.md) rather than silently patched.
 
+Where implementation exposed a genuine gap, the owner approved errata clauses that supersede specific clauses **in place**. An errata clause always names what it supersedes, so no clause is silently deleted and every chapter's history stays auditable. Chapters carrying errata say so in their status line.
+
 Every normative paragraph carries a clause ID such as `IRIS-V1-IDENTITY-C008`, so implementations, tests, and conformance vectors cite the exact requirement they satisfy.
 
 | Chapter | Topic |
@@ -57,18 +59,27 @@ Every normative paragraph carries a clause ID such as `IRIS-V1-IDENTITY-C008`, s
 
 A full Simplified Chinese translation is available under [`spec/iris-v1/zh-cn/`](spec/iris-v1/zh-cn/README.md) as a reference translation; the English chapters are authoritative.
 
+## Tutorial
+
+The specification is precise but not a starting point. The [tutorial](tutorial/en/README.md) is a guided introduction for working programmers: eleven chapters from the object model and bindings through control flow, callables, Classes, Modules and Contracts, gradual types, errors and resources, and bounded metaprogramming, ending with a map back into the spec.
+
+Every chapter closes with the clause IDs it simplifies, so you can move from prose to normative text at any point. It is available in [English](tutorial/en/README.md) and [简体中文](tutorial/zh-cn/README.md).
+
 ## Reference Implementation
 
-The v1 implementation is written in Rust and lives under [`crates/`](crates/). Milestone 1 delivers a **frontend slice only** — lexing, parsing, literal conversion, and a conformance runner. There is no bytecode VM, object model, or standard library yet.
+The v1 implementation is written in Rust and lives under [`crates/`](crates/). It now runs Iris programs: a tree-walking evaluator over a real object model, a garbage-collected heap, a partial bytecode backend that is differentially compared against the evaluator, a C ABI boundary, and an `iris` binary with a script runner and a REPL. It is not a toolchain release — there is no package manager, no standard-library distribution, and no stability promise.
 
 | Crate | Responsibility |
 | --- | --- |
-| `iris-lexer` | Source text handling, contextual tokenization, literal conversion |
+| `iris-lexer` | Source decoding, contextual tokenization, literal conversion, diagnostics |
 | `iris-syntax` | Syntax tree and canonical parse-shape rendering |
-| `iris-parser` | Recursive-descent declarations and Pratt expression parsing |
-| `iris-eval` | Minimal literal evaluation |
+| `iris-parser` | Recursive-descent declarations, Pratt expressions, static analysis |
+| `iris-runtime` | Object model: Classes, revisions, MRO, dispatch, heap, GC tracing, stable hashing |
+| `iris-eval` | Tree-walking evaluator, backend abstraction, differential observations |
+| `iris-vm` | Register-based bytecode backend and verifier; deliberately partial |
+| `iris-cli` | The `iris` command: script runner and REPL |
 | `iris-conformance` | Conformance vector runner and milestone report |
-| `iris-abi` | Reserved for the C ABI boundary; intentionally empty in v1 |
+| `iris-abi` | The stable `extern "C"` boundary, opaque handles, and unwinding barrier |
 
 Notable properties already implemented and tested:
 
@@ -76,10 +87,25 @@ Notable properties already implemented and tested:
 - Arbitrary-precision `Integer` literals with exact round-trip.
 - Contextual tokenization resolving the frozen conflicts between range operators and Contract views, generic closers and right shift, and regex literals and division.
 - The full 17-row operator precedence table, including right-associative `**` and rejected non-associative chains.
+- Logical Class identity across revisions, Module composition and MRO ordering, Contract views and qualified dispatch, and transactional publish-or-rollback.
+- A moving collector that traces the whole object graph, with identity hashes stored rather than derived from addresses.
 
-### Build and test
+The bytecode backend is intentionally partial: it compiles what it fully understands and declines everything else, because a backend that approximates would make a differential row agree for the wrong reason.
+
+### Run it
 
 Requires a stable Rust toolchain; see [`rust-toolchain.toml`](rust-toolchain.toml).
+
+```bash
+cargo build -p iris-cli
+./target/debug/iris script.iris        # run a script
+./target/debug/iris -e 'print(1 + 2)'  # run source from the command line
+./target/debug/iris                    # interactive session, :quit to leave
+```
+
+The language is further along than the runner: many spec constructs still report `unsupported construct`. Start from the [tutorial](tutorial/en/README.md) for what the language means, and treat the binary as a partial implementation of it.
+
+### Build and test
 
 ```bash
 cargo test --workspace
@@ -89,31 +115,46 @@ cargo clippy --all-targets -- -D warnings
 
 ### Conformance
 
-Vectors are derived from the frozen specification tables and committed under [`conformance/iris-v1/`](conformance/iris-v1/). Run the GRAMMAR chapter suite:
+Vectors are derived from the frozen specification tables and committed under [`conformance/iris-v1/`](conformance/iris-v1/). Run any chapter suite:
 
 ```bash
-cargo run -p iris-conformance -- --chapter GRAMMAR
+cargo run -p iris-conformance -- --chapter RUNTIME
 ```
 
-Current milestone 1 result across the 41 committed GRAMMAR vectors:
+Current result at this commit, across all thirteen chapters:
 
-```
-passed: 26, failed: 0, deferred: 1, authored_expect: 5, unrunnable_source: 9
-```
+| Chapter | Passed | Failed | Other |
+| --- | --- | --- | --- |
+| RUNTIME | 194 | 0 | |
+| CONTROL | 180 | 3 | |
+| COLLECTIONS | 132 | 0 | 1 differential |
+| TYPES | 103 | 1 | |
+| META | 85 | 6 | 1 needs-subsystem |
+| ASYNC | 56 | 0 | |
+| FFI | 45 | 0 | |
+| GRAMMAR | 40 | 0 | 1 deferred, 5 authored-expect, 9 unrunnable-source |
+| CONFORMANCE | 40 | 0 | |
+| LIBRARY | 29 | 0 | |
+| IDENTITY | 20 | 0 | 1 needs-subsystem |
+| TRACE | 8 | 0 | |
+| MIGRATION | 6 | 0 | |
+| **Total** | **938** | **10** | |
 
-The runner reports non-executable vectors in their own buckets and never counts them as passing:
+The ten failures are real and tracked, not suppressed. The runner reports non-executable vectors in their own buckets and never counts them as passing:
 
 - **authored-expect** — the frozen spec row names no stable diagnostic code, so the expectation is authored locally and is not treated as coverage.
-- **deferred** — requires differential interpreter/JIT comparison that does not exist yet.
-- **unrunnable_source** — the frozen spec row supplies prose instead of an executable fixture or expectation. See [`conformance/iris-v1/GRAMMAR-classification.md`](conformance/iris-v1/GRAMMAR-classification.md).
+- **needs-subsystem** — the vector requires a subsystem this implementation does not have yet.
+- **no-fixture / unrunnable_source** — the frozen spec row supplies prose instead of an executable fixture or expectation. See the per-chapter classification files under [`conformance/iris-v1/`](conformance/iris-v1/).
+- **differential** — requires cross-backend comparison that is not yet available for that row.
 
 ## Repository Layout
 
 ```text
 spec/iris-v1/          Frozen v1 specification, English and Simplified Chinese
+tutorial/              Guided tutorial, English and Simplified Chinese
 crates/                Rust reference implementation
 conformance/iris-v1/   Conformance vector corpus, schema, and classification
-docs/                  Specification defect ledger
+docs/                  Specification defect ledger, IR design, milestone status
 legacy/                Archived prior C++ implementation, frozen and unmaintained
 ```
 

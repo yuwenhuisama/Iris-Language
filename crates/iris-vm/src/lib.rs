@@ -187,7 +187,7 @@ mod ir_document_tests {
         program
             .instructions
             .iter()
-            .map(Instruction::destination)
+            .filter_map(Instruction::destination)
             .collect()
     }
 
@@ -320,7 +320,6 @@ mod ir_document_tests {
             ("{ |x|; x }", "closure"),
             ("class A { }", "declaration"),
             ("mut a = 1; a", "statement"),
-            ("if true { 1 } else { 2 }", "statement"),
             ("unbound_name", "name"),
             (":symbol", "symbol"),
             ("(1, 2)", "tuple"),
@@ -331,5 +330,93 @@ mod ir_document_tests {
             };
             assert_eq!(declined.construct, construct, "{source}");
         }
+    }
+
+    /// Section 4.1: a jump outside the body is REFUSED. The design review
+    /// records a `SPR` opcode in the old VM that fell through into the next
+    /// case and overwrote its result; a checked target makes that class of
+    /// defect a verification failure rather than silent corruption.
+    #[test]
+    fn a_jump_outside_the_body_is_refused() {
+        let mut compiled = program("1 + 2");
+        compiled.instructions.push(Instruction::Jump { target: 99 });
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::JumpOutOfRange { target: 99 })
+        );
+    }
+
+    /// Section 4.1: a call naming a function the program does not define is
+    /// refused rather than indexed.
+    #[test]
+    fn a_call_to_an_unknown_function_is_refused() {
+        let mut compiled = program("1 + 2");
+        compiled.instructions.push(Instruction::Call {
+            destination: 0,
+            function: 7,
+            first: 0,
+            count: 1,
+        });
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::UnknownFunction { function: 7 })
+        );
+    }
+
+    /// Section 2: each frame owns its register file, and a function's
+    /// parameters occupy its LEADING registers.
+    #[test]
+    fn a_function_frame_binds_parameters_to_leading_registers() {
+        let compiled = program(
+            "module M { public fun add(a: Integer, b: Integer) -> Integer { a + b } }\nM.add(1, 2)",
+        );
+
+        let [function] = compiled.functions.as_slice() else {
+            unreachable!("one module function was declared")
+        };
+        assert_eq!(function.name, "M.add");
+        assert_eq!(function.parameters, 2);
+        // The body reads r0 and r1 - the parameters - without any load.
+        assert_eq!(
+            function.instructions.first(),
+            Some(&Instruction::Binary {
+                destination: 2,
+                selector: "+",
+                left: 0,
+                right: 1,
+            })
+        );
+        // Every path out of a frame goes through one Return.
+        assert_eq!(
+            function.instructions.last(),
+            Some(&Instruction::Return { value: 2 })
+        );
+    }
+
+    /// Section 4.1: a function body is verified too, not just the top level.
+    /// A parameter counts as written before the first instruction, since it
+    /// arrives pre-bound.
+    #[test]
+    fn function_bodies_are_verified_with_parameters_pre_bound() {
+        let compiled = program(
+            "module M { public fun add(a: Integer, b: Integer) -> Integer { a + b } }\nM.add(1, 2)",
+        );
+        assert_eq!(verify(&compiled), Ok(()));
+
+        // A body reading a register it never wrote is refused.
+        let mut broken = compiled;
+        broken.functions[0].instructions.insert(
+            0,
+            Instruction::Move {
+                destination: 0,
+                source: 2,
+            },
+        );
+        assert_eq!(
+            verify(&broken),
+            Err(VerifyError::ReadBeforeWrite { register: 2 })
+        );
     }
 }

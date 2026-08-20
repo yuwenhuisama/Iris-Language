@@ -599,13 +599,70 @@ mod differential_tests {
             ("class A { }", "declaration"),
             ("mut a = 1; a", "statement"),
             ("unbound_name", "name"),
-            // An `if` arrives as a STATEMENT here, so that is what is named.
-            ("if true { 1 } else { 2 }", "statement"),
+            // `if` IS covered now, so a genuinely uncovered statement stands
+            // in: `while` needs a backward jump this subset does not emit.
+            ("while false { 1 }", "statement"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
             };
             assert_eq!(reason, construct, "{source}");
+        }
+    }
+
+    /// The design review's first vertical-slice milestone: Integer, Bool/Nil,
+    /// local variables, arithmetic and comparison, function definition and
+    /// CALL, `if`, RECURSION, and `return` - with the interpreter and the
+    /// bytecode backend producing identical results for the same program.
+    #[test]
+    fn backends_agree_across_the_first_vertical_slice() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected) in [
+            // Function definition and call.
+            (
+                "module M { public fun add(a: Integer, b: Integer) -> Integer { a + b } }\nM.add(2, 3)",
+                "5",
+            ),
+            // A zero-argument call still needs a valid argument window.
+            (
+                "module M { public fun zero() -> Integer { 7 } }\nM.zero()",
+                "7",
+            ),
+            // `if` as a value, both arms.
+            (
+                "module M { public fun pick(n: Integer) -> Integer { if n > 0 { 1 } else { 0 } } }\nM.pick(-3)",
+                "0",
+            ),
+            // Explicit `return`.
+            (
+                "module M { public fun f(n: Integer) -> Integer { return n + 1 } }\nM.f(1)",
+                "2",
+            ),
+            // Recursion: each frame gets its own register file, so a callee
+            // cannot disturb its caller's registers.
+            (
+                "module M { public fun fact(n: Integer) -> Integer { \
+                   if n <= 1 { 1 } else { n * M.fact(n - 1) } } }\nM.fact(5)",
+                "120",
+            ),
+            // Two recursive calls in one expression, which is where a shared
+            // register file would corrupt the first result.
+            (
+                "module M { public fun fib(n: Integer) -> Integer { \
+                   if n < 2 { n } else { M.fib(n - 1) + M.fib(n - 2) } } }\nM.fib(10)",
+                "55",
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends cover: {source}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
         }
     }
 }

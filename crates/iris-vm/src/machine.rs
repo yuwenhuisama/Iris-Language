@@ -4,6 +4,11 @@ use iris_runtime::{ClassRegistry, Kernel, KernelError, NativeSelector, NumericEr
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
 
+/// `IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey.
+fn truthy(value: &Value) -> bool {
+    !matches!(value, Value::Bool(false) | Value::Nil)
+}
+
 /// Why execution stopped.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MachineError {
@@ -28,8 +33,14 @@ pub enum VerifyError {
     /// so corrupt bytecode was undefined behaviour. Refusing an unwritten read
     /// is what keeps a malformed program a reportable error instead.
     ReadBeforeWrite { register: Register },
-    /// A `BuildArray` names a range that leaves the register file.
+    /// A `BuildArray` or `Call` names a range that leaves the register file.
     ArrayRangeOutOfRange { first: Register, count: u16 },
+    /// A jump names an instruction outside the body.
+    JumpOutOfRange { target: usize },
+    /// A call names a function the program does not define.
+    UnknownFunction { function: usize },
+    /// A frame ran past its last instruction without returning.
+    MissingReturn,
 }
 
 /// Checks that every register an instruction reads is in range and written.
@@ -40,8 +51,42 @@ pub enum VerifyError {
 /// # Errors
 /// Returns the first malformation found.
 pub fn verify(program: &Program) -> Result<(), VerifyError> {
-    let registers = program.registers;
+    for function in &program.functions {
+        verify_body(
+            &function.instructions,
+            function.registers,
+            program.functions.len(),
+            // A parameter arrives pre-bound in the frame, so it counts as
+            // written before the body's first instruction.
+            function.parameters,
+            None,
+        )?;
+    }
+    verify_body(
+        &program.instructions,
+        program.registers,
+        program.functions.len(),
+        0,
+        Some(program.result),
+    )
+}
+
+fn verify_body(
+    instructions: &[Instruction],
+    registers: usize,
+    functions: usize,
+    parameters: usize,
+    result: Option<Register>,
+) -> Result<(), VerifyError> {
     let mut written = vec![false; registers];
+    if parameters > registers {
+        return Err(VerifyError::RegisterOutOfRange {
+            register: Register::try_from(parameters).unwrap_or(Register::MAX),
+        });
+    }
+    for slot in written.iter_mut().take(parameters) {
+        *slot = true;
+    }
 
     let in_range = |register: Register| (register as usize) < registers;
     let read = |register: Register, written: &[bool]| -> Result<(), VerifyError> {
@@ -54,8 +99,51 @@ pub fn verify(program: &Program) -> Result<(), VerifyError> {
         Ok(())
     };
 
-    for instruction in &program.instructions {
+    for instruction in instructions {
         match instruction {
+            // A jump target must land inside the body. The old C++ VM had a
+            // `SPR` opcode that fell through into the next case and overwrote
+            // its result; a checked target is what makes that class of defect
+            // a verification failure rather than silent corruption.
+            Instruction::JumpUnless { condition, target } => {
+                read(*condition, &written)?;
+                if *target > instructions.len() {
+                    return Err(VerifyError::JumpOutOfRange { target: *target });
+                }
+            }
+            Instruction::Jump { target } => {
+                if *target > instructions.len() {
+                    return Err(VerifyError::JumpOutOfRange { target: *target });
+                }
+            }
+            Instruction::Return { value } => read(*value, &written)?,
+            Instruction::Call {
+                function,
+                first,
+                count,
+                ..
+            } => {
+                if *function >= functions {
+                    return Err(VerifyError::UnknownFunction {
+                        function: *function,
+                    });
+                }
+                let last = (*first as usize).checked_add(*count as usize).ok_or(
+                    VerifyError::ArrayRangeOutOfRange {
+                        first: *first,
+                        count: *count,
+                    },
+                )?;
+                if last > registers {
+                    return Err(VerifyError::ArrayRangeOutOfRange {
+                        first: *first,
+                        count: *count,
+                    });
+                }
+                for offset in 0..*count {
+                    read(first + offset, &written)?;
+                }
+            }
             Instruction::Move { source, .. } => read(*source, &written)?,
             Instruction::Binary { left, right, .. } => {
                 read(*left, &written)?;
@@ -87,24 +175,23 @@ pub fn verify(program: &Program) -> Result<(), VerifyError> {
             | Instruction::LoadBool { .. }
             | Instruction::LoadNil { .. } => {}
         }
-        let destination = instruction.destination();
-        if !in_range(destination) {
-            return Err(VerifyError::RegisterOutOfRange {
-                register: destination,
-            });
+        if let Some(destination) = instruction.destination() {
+            if !in_range(destination) {
+                return Err(VerifyError::RegisterOutOfRange {
+                    register: destination,
+                });
+            }
+            written[destination as usize] = true;
         }
-        written[destination as usize] = true;
     }
 
-    if !in_range(program.result) {
-        return Err(VerifyError::RegisterOutOfRange {
-            register: program.result,
-        });
-    }
-    if !written[program.result as usize] {
-        return Err(VerifyError::ReadBeforeWrite {
-            register: program.result,
-        });
+    if let Some(result) = result {
+        if !in_range(result) {
+            return Err(VerifyError::RegisterOutOfRange { register: result });
+        }
+        if !written[result as usize] {
+            return Err(VerifyError::ReadBeforeWrite { register: result });
+        }
     }
     Ok(())
 }
@@ -132,11 +219,42 @@ impl Machine {
     /// Returns the verification failure or the kernel failure.
     pub fn execute(&self, program: &Program) -> Result<Value, MachineError> {
         verify(program).map_err(MachineError::Invalid)?;
+        let registers = self.run_body(
+            &program.instructions,
+            program.registers,
+            Vec::new(),
+            program,
+        )?;
+        Ok(registers
+            .get(program.result as usize)
+            .cloned()
+            .unwrap_or(Value::Nil))
+    }
+
+    /// Runs ONE frame to completion, answering its register file.
+    ///
+    /// Each call gets a fresh file, so nothing is shared with the caller: a
+    /// callee cannot read a caller's registers, and recursion needs no
+    /// save/restore of individual registers. The frame is also the unit a
+    /// future collector would walk, since the live frames ARE the root set.
+    fn run_body(
+        &self,
+        instructions: &[Instruction],
+        size: usize,
+        arguments: Vec<Value>,
+        program: &Program,
+    ) -> Result<Vec<Value>, MachineError> {
         // Verification proved every read is in range and written, so indexing
         // below cannot be out of bounds and no operand check is repeated.
-        let mut registers = vec![Value::Nil; program.registers];
+        let mut registers = vec![Value::Nil; size];
+        // Parameters arrive pre-bound in the leading registers.
+        for (slot, argument) in arguments.into_iter().enumerate() {
+            registers[slot] = argument;
+        }
 
-        for instruction in &program.instructions {
+        let mut counter = 0;
+        while let Some(instruction) = instructions.get(counter) {
+            counter += 1;
             let produced = match instruction {
                 Instruction::LoadInteger { digits, .. } => {
                     let Ok(number) = digits.parse() else {
@@ -202,10 +320,50 @@ impl Machine {
                         FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
                     }
                 }
+                // Truth is decided by the RUNTIME rather than re-derived here.
+                // `IRIS-V1-CONTROL-C022` makes only `false` and `nil` falsey,
+                // and a second copy of that rule would be one more place for
+                // the backends to diverge.
+                Instruction::JumpUnless { condition, target } => {
+                    if !truthy(&registers[*condition as usize]) {
+                        counter = *target;
+                    }
+                    continue;
+                }
+                Instruction::Jump { target } => {
+                    counter = *target;
+                    continue;
+                }
+                Instruction::Return { value } => {
+                    let value = registers[*value as usize].clone();
+                    // The answer is handed back in the frame's own result
+                    // slot, so a caller reads it without knowing the callee's
+                    // register layout.
+                    return Ok(vec![value]);
+                }
+                Instruction::Call {
+                    function,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Some(callee) = program.functions.get(*function) else {
+                        return Err(MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: *function,
+                        }));
+                    };
+                    let start = *first as usize;
+                    let arguments = registers[start..start + *count as usize].to_vec();
+                    let returned =
+                        self.run_body(&callee.instructions, callee.registers, arguments, program)?;
+                    returned.into_iter().next().unwrap_or(Value::Nil)
+                }
             };
-            registers[instruction.destination() as usize] = produced;
+            if let Some(destination) = instruction.destination() {
+                registers[destination as usize] = produced;
+            }
         }
-        Ok(registers[program.result as usize].clone())
+        Ok(registers)
     }
 
     /// Sends a native selector through the SHARED kernel.

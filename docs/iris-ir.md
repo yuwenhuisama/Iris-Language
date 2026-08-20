@@ -59,9 +59,19 @@ A `Program` carries:
 
 | Field | Meaning |
 | --- | --- |
-| `instructions` | The instruction sequence, executed in order. |
-| `registers` | The size of the register file. |
+| `instructions` | The top-level frame's instructions, executed in order. |
+| `registers` | The size of the top-level register file. |
 | `result` | The register holding the program's answer. |
+| `functions` | Callable bodies, addressed by index from `Call`. |
+
+A `Function` carries:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | The declared name, for diagnostics only. |
+| `parameters` | How many LEADING registers hold parameters. |
+| `registers` | The size of this frame's register file. |
+| `instructions` | The body. |
 
 ### 2.1 SSA is a compiler property, not a verifier requirement
 
@@ -98,7 +108,31 @@ r3 = Move r2                 ; a -> r3, shadowing r1
 Name resolution is lexical and innermost-wins, searched in reverse declaration
 order.
 
-### 2.3 Statement sequencing
+### 2.3 Frames
+
+A call gets a **fresh register file**. Nothing is shared with the caller: a
+callee cannot read a caller's registers, and recursion needs no save or restore
+of individual registers, because `M.fib(n-1)` and `M.fib(n-2)` each run in their
+own file. Parameters arrive **pre-bound** in registers `0 .. parameters`, so a
+body addresses them as ordinary registers with no prologue.
+
+Arguments are passed through a **contiguous register window**, named by
+`first`/`count` exactly as `BuildArray` names its elements. The caller copies
+each argument into the window; the callee sees them as its leading registers and
+never learns where they came from.
+
+Every path out of a frame goes through a single `Return`. A body's last
+expression is its value, so the compiler appends a `Return` even when the source
+wrote none — which keeps the exit path uniform rather than special-casing
+fall-through.
+
+This is also what makes a GC root set enumerable: **the live frames ARE the
+roots**. The tree-walking evaluator threads locals through a
+`&HashMap<String, Value>` parameter instead, so its caller frames sit on the
+Rust stack and cannot be walked — which is exactly why a collection there
+refuses inside a method body (§7).
+
+### 2.4 Statement sequencing
 
 Statements execute in order. A non-final statement's value is simply never read
 again — its register is abandoned, and nothing has to be discarded. This is one
@@ -182,7 +216,43 @@ r3 = Move r1
 r4 = BuildArray first=r2 count=2
 ```
 
-### 3.5 Float reinterpretation
+### 3.5 Control flow
+
+| Instruction | Effect |
+| --- | --- |
+| `JumpUnless { condition, target }` | Jumps to `target` when `condition` is FALSEY. |
+| `Jump { target }` | Jumps unconditionally. |
+
+Only the false branch is conditional. One conditional form plus an unconditional
+jump expresses every shape this subset needs, and each extra branch opcode is
+another case the verifier must reason about.
+
+Truth is decided by the **runtime**, not re-derived here:
+`IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey, and a second copy
+of that rule would be one more place for the backends to diverge.
+
+An `if` yields a value, so **both arms write the same destination register**,
+and a missing `else` writes nil. The destination is therefore written on every
+path, which is what keeps the verifier's written-before-read rule satisfied
+however the branch goes.
+
+### 3.6 Calls
+
+| Instruction | Effect |
+| --- | --- |
+| `Call { dst, function, first, count }` | Calls `function` with the window `first .. first+count`. |
+| `Return { value }` | Returns `value` from the current frame. |
+
+`function` is an **index**, not a name. Resolution happens before any
+instruction is emitted, so nothing is looked up at run time. That resolution is
+the responsibility the design review assigns to a HIR layer; it is done here in
+one pass while the covered surface is small enough not to need a separate
+representation, and it is the first thing that should move once it grows.
+
+A zero-argument call still allocates a window start inside the file, so `first`
+is always a valid register even when `count` is 0.
+
+### 3.7 Float reinterpretation
 
 | Instruction | Effect |
 | --- | --- |
@@ -211,14 +281,24 @@ reportable error.
 
 1. Every register an instruction READS is `< registers`.
 2. Every register an instruction READS has been WRITTEN by an earlier
-   instruction.
+   instruction. A PARAMETER counts as written before the first instruction,
+   since it arrives pre-bound.
 3. Every register an instruction WRITES is `< registers`.
-4. A `BuildArray` range `first .. first+count` lies wholly within the file, with
-   the addition checked for overflow.
-5. `result` is in range and has been written.
+4. A `BuildArray` or `Call` range `first .. first+count` lies wholly within the
+   file, with the addition checked for overflow.
+5. Every jump target lies within the body.
+6. Every `Call` names a function the program defines.
+7. `result` is in range and has been written.
 
-Violations are `RegisterOutOfRange`, `ReadBeforeWrite` and
-`ArrayRangeOutOfRange`.
+Violations are `RegisterOutOfRange`, `ReadBeforeWrite`, `ArrayRangeOutOfRange`,
+`JumpOutOfRange` and `UnknownFunction`.
+
+**Every function body is verified**, not only the top level.
+
+The jump check answers a second recorded defect. The design review notes a
+`SPR` opcode in the old VM with no `break` after its case, which fell through
+into `LOAD_CAST` and overwrote its own result. A checked target makes that class
+of defect a verification failure rather than silent corruption.
 
 ### 4.2 What verification buys execution
 
@@ -236,6 +316,9 @@ Stated explicitly so nothing is assumed of it:
   dynamically typed language.
 - It does not check single assignment (§2.1).
 - It does not check reachability or termination.
+- It does not check ARITY at the instruction level. A `Call` window may be any
+  width the register file allows; arity is enforced when the call is lowered,
+  where the declared parameter list is in scope.
 
 ## 5. Coverage boundary
 
@@ -247,14 +330,24 @@ than two RUNNING backends as insufficient rather than as agreement.
 
 Covered: integer, float, string, bool and nil literals; the binary and unary
 selectors listed in §3.3; array literals; immutable `let` bindings; statement
-sequences; `Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`.
+sequences; `if`/`else` as a value; `return`; `Float32.from_bits`/
+`Float64.from_bits`; `to_bits`; `hash`; and **plain module functions** with
+positional parameters, including recursion and mutual calls.
 
-Declined, each by name: `declaration`, `statement` (which includes `mut`,
-`const`, global and deferred bindings, and `if`), `closure`, `call` (any shape
-beyond §3.3/§3.5), `name` (unbound), `member`, `index`, `symbol`, `hash`,
-`tuple`, `while`, `try`, `await`, `yield`, `assignment`, plus the structural
-refusals `rejected source`, `rejected literal`, `empty program`,
-`array too long`, `from_bits arity` and `register exhaustion`.
+This is the design review's first vertical-slice milestone - Integer, Bool/Nil,
+local variables, arithmetic and comparison, function definition and call, `if`,
+recursion, `return` - with agreement between the two backends asserted for each.
+
+Declined, each by name: `declaration` (anything that is not a plain module),
+`module` (open, mixin, generic or decorated), `module body` (a non-method
+statement), `method` (async, override, `impl`, decorated, generic or
+class-kind), `abstract method`, `parameter` (rest, keyword or block),
+`statement` (which includes `mut`, `const`, global and deferred bindings, and
+`while`), `closure`, `call` (any shape beyond §3.3/§3.6), `call arity`,
+`name` (unbound), `member`, `index`, `symbol`, `hash`, `tuple`, `try`, `await`,
+`yield`, `assignment`, plus the structural refusals `rejected source`,
+`rejected literal`, `empty program`, `empty body`, `array too long`,
+`call too wide`, `from_bits arity`, `branch patch` and `register exhaustion`.
 
 This list is pinned by test, so widening coverage without updating this document
 fails the build.
@@ -263,14 +356,17 @@ fails the build.
 
 Named so the gaps are not mistaken for decisions:
 
-- **Control flow.** No branch or jump instruction exists; `if` and `while` are
-  declined.
-- **Call frames.** No frame, no call, no return. This is the significant one:
-  frame layout also determines the GC root set, which is why a
-  `NativeFixture.compact_gc()` inside a method body currently refuses — a
-  caller's locals live on the Rust stack and cannot be enumerated.
+- **Loops.** `while` is declined. A loop needs a BACKWARD jump, which the
+  verifier's single forward pass over written-before-read does not yet reason
+  about: a register written inside a loop body is not written on the first
+  iteration's entry edge.
+- **Methods on Classes.** Only plain module functions are covered. An instance
+  method needs a receiver, dispatch through the MRO, and revision awareness.
 - **Closure capture.** Needs the HIR layer the design review places between AST
   and execution IR; capture analysis belongs there, not here.
+- **Frames as GC roots.** The IR now has frames, but the COLLECTOR does not yet
+  walk them: collection still runs only where the evaluator owns the whole root
+  set. Connecting the two is what would let a collection run mid-call.
 - **Serialisation.** There is no on-disk format. Programs are compiled and
   executed in memory. The review records a P0 against the old `.irc` reader for
   trusting file contents — no magic or version check, no field-count or string

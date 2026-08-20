@@ -8,11 +8,11 @@ let value = library.hypot(3.0f64, 4.0f64)
 library.close()
 ```
 
-这段代码复用自 `IRIS-V1-FFI-EX001`。它展示脚本 FFI 的形状：通过标准 `FFI` 子系统打开一个库，只调用已声明的签名，然后关闭资源。它不是今天能运行的东西，因为 Iris v1 还没有实现。
+这段代码复用自 `IRIS-V1-FFI-EX001`。它展示脚本 FFI 的形状：通过标准 `FFI` 子系统打开一个库，只调用已声明的签名，然后关闭资源。参考实现还未提供它。
 
 ## 14 个规范产物
 
-规范目录有固定清单。文件名很重要，因为条款 ID 和可追溯性都引用它们。
+规范目录有固定清单。文件名很重要，因为条款 ID 和可追溯性都引用它们。章节带有状态行：`frozen semantics with owner-approved errata` 表示原始条款未被更改，而后续勘误条款会就地取代特定条款。勘误条款总会说明它取代了哪个条款，所以被取代的条款永远不会被静默删除。
 
 | 顺序 | 规范产物 | 阅读目的 |
 | --- | --- | --- |
@@ -53,7 +53,11 @@ Native async work 返回 `Task<T>`，并通过 runtime-owned completion token �
 
 ## 一致性
 
-一致性章节不发布 runner。它定义未来 record shape 和覆盖规则。Conformance vector 是稳定 JSON 记录，包含 ID、source clauses、input、适用性、预期观察和 tags。
+一致性章节定义 record shape 和覆盖规则。Conformance vector 是稳定 JSON 记录，包含 ID、source clauses、input、适用性、预期观察和 tags。从冻结表派生的 vectors 位于 [`conformance/iris-v1/`](../../conformance/iris-v1/)，`iris-conformance` 按章节运行它们。
+
+```bash
+cargo run -p iris-conformance -- --chapter GRAMMAR
+```
 
 读者需要注意的要点：
 
