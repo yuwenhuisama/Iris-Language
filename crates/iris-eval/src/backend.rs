@@ -596,7 +596,7 @@ mod differential_tests {
 
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
-            ("class A { }", "declaration"),
+            ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
             // `if` and `while` ARE covered now, so genuinely uncovered
@@ -703,6 +703,44 @@ mod differential_tests {
             let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
                 unreachable!("both backends cover: {source}")
             };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_user_defined_class_state_and_dispatch() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "class Box { public fun initialize(value: Integer) { @value = value } public fun value() { @value } } Box.new(41).value()",
+                "41",
+                "nil",
+            ),
+            (
+                "class Counter { public fun initialize() { @n = 2 } public fun add(x: Integer) { self.value() + x } public fun value() { @n } } Counter.new().add(3)",
+                "5",
+                "3",
+            ),
+            (
+                "class Parent { public fun initialize(value: Integer) { @value = value } public fun value() { @value } } class Child extends Parent { } Child.new(9).value()",
+                "9",
+                "nil",
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must run the supported class subset: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
             assert_eq!(
                 observation,
                 Observation::Value(expected.to_owned()),

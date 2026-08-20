@@ -263,6 +263,65 @@ mod tests {
                 .any(|instruction| matches!(instruction, Instruction::Jump { .. }))
         );
     }
+
+    #[test]
+    fn classes_construct_store_and_dispatch_on_the_receiver() {
+        let source = "class Box { public fun initialize(value: Integer) { @value = value } public fun value() { @value } } let box = Box.new(41); box.value()";
+
+        let compiled = program(source);
+        let result = run(&compiled);
+
+        assert_ne!(result, Ok(iris_runtime::Value::Integer(0_u8.into())));
+        assert_eq!(result, Ok(iris_runtime::Value::Integer(41_u8.into())));
+        assert_eq!(verify(&compiled), Ok(()));
+    }
+
+    #[test]
+    fn methods_bind_self_and_dispatch_through_the_receiver_class() {
+        let source = "class Counter { public fun initialize() { @value = 2 } public fun add(n: Integer) { self.value() + n } public fun value() { @value } } Counter.new().add(3)";
+
+        let result = run(&program(source));
+
+        assert_ne!(result, Ok(iris_runtime::Value::Integer(3_u8.into())));
+        assert_eq!(result, Ok(iris_runtime::Value::Integer(5_u8.into())));
+    }
+
+    #[test]
+    fn subclasses_dispatch_inherited_instance_methods() {
+        let source = "class Parent { public fun initialize(value: Integer) { @value = value } public fun value() { @value } } class Child extends Parent { } Child.new(9).value()";
+
+        let result = run(&program(source));
+
+        assert_ne!(result, Ok(iris_runtime::Value::Nil));
+        assert_eq!(result, Ok(iris_runtime::Value::Integer(9_u8.into())));
+    }
+
+    #[test]
+    fn unsupported_class_shapes_are_declined_precisely() {
+        for (source, expected, old_generic_error) in [
+            ("@sealed() class A { } 1", "class decorator", "declaration"),
+            ("open class A { } 1", "class reopen", "declaration"),
+            ("class A<T> { } 1", "class generics", "declaration"),
+            ("class A for C { } 1", "class implements", "declaration"),
+            ("class A mixin M { } 1", "class mixin", "declaration"),
+            (
+                "class A<T> where T: Object { } 1",
+                "class constraints",
+                "declaration",
+            ),
+            (
+                "class A meta deny instance_state { } 1",
+                "class meta deny",
+                "declaration",
+            ),
+        ] {
+            let Err(error) = compile(source) else {
+                unreachable!("unsupported class shape must be declined: {source}")
+            };
+            assert_ne!(error.construct, old_generic_error, "{source}");
+            assert_eq!(error.construct, expected, "{source}");
+        }
+    }
 }
 
 /// Tests pinning `docs/iris-ir.md` to actual behaviour.
@@ -416,7 +475,7 @@ mod ir_document_tests {
     fn the_coverage_boundary_matches_the_document() {
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
-            ("class A { }", "declaration"),
+            ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
             (":symbol", "symbol"),
@@ -516,5 +575,61 @@ mod ir_document_tests {
             verify(&broken),
             Err(VerifyError::ReadBeforeWrite { register: 2 })
         );
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "temporary coverage measurement harness over a local corpus file"
+)]
+mod coverage_probe {
+    use super::*;
+
+    fn unb64(s: &str) -> String {
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut acc = 0u32;
+        let mut bits = 0u32;
+        let mut out: Vec<u8> = Vec::new();
+        for c in s.bytes() {
+            if c == b'=' {
+                break;
+            }
+            let Some(i) = T.iter().position(|&t| t == c) else {
+                continue;
+            };
+            acc = (acc << 6) | i as u32;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+            }
+        }
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn measure() {
+        let raw = std::fs::read_to_string("/tmp/srcs.tsv").unwrap();
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut ok = 0usize;
+        let mut total = 0usize;
+        for line in raw.lines() {
+            let Some((_, b)) = line.split_once('\t') else {
+                continue;
+            };
+            total += 1;
+            match compile(&unb64(b)) {
+                Ok(_) => ok += 1,
+                Err(e) => *counts.entry(e.construct.clone()).or_default() += 1,
+            }
+        }
+        println!("COV total={total} compiled={ok}");
+        let mut v: Vec<_> = counts.into_iter().collect();
+        v.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        for (k, n) in v {
+            println!("GAP {n:5} {k}");
+        }
     }
 }

@@ -5,7 +5,7 @@
 //! effect to track, gives a simpler verifier, disassembles readably, cannot
 //! underflow an operand stack, and suits later SSA lowering.
 
-use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
+use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOperator};
 
 /// A virtual register index.
 ///
@@ -87,6 +87,30 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    New {
+        destination: Register,
+        class: usize,
+        first: Register,
+        count: u16,
+    },
+    Send {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    GetIvar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+    },
+    SetIvar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+        value: Register,
+    },
     /// Returns `value` from the current frame.
     Return { value: Register },
 }
@@ -106,6 +130,10 @@ impl Instruction {
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }
             | Self::Call { destination, .. }
+            | Self::New { destination, .. }
+            | Self::Send { destination, .. }
+            | Self::GetIvar { destination, .. }
+            | Self::SetIvar { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. } | Self::Jump { .. } | Self::Return { .. } => None,
@@ -154,6 +182,14 @@ pub struct Program {
     pub(crate) result: Register,
     /// Callable bodies, addressed by index from `Call`.
     pub(crate) functions: Vec<Function>,
+    pub(crate) classes: Vec<Class>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Class {
+    pub(crate) name: String,
+    pub(crate) superclass: Option<usize>,
+    pub(crate) methods: Vec<(String, usize)>,
 }
 
 /// Why a program could not be compiled.
@@ -189,17 +225,17 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // The design review places this responsibility in a HIR layer between AST
     // and execution IR; this is that resolution, done in one pass while the
     // covered surface is small enough not to need a separate representation.
-    let signatures = collect_signatures(&parsed.program.declarations)?;
+    let (signatures, classes) = collect_signatures(&parsed.program.declarations)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
     for signature in &signatures {
-        functions.push(lower_function(signature, &signatures)?);
+        functions.push(lower_function(signature, &signatures, &classes)?);
     }
 
     if parsed.program.statements.is_empty() {
         return Err(CompileError::new("empty program"));
     }
-    let mut lowering = Lowering::new(&signatures);
+    let mut lowering = Lowering::new(&signatures, &classes);
     // A top-level program answers the values of its non-BINDING statements:
     // one value directly, several as an Array. That convention belongs to the
     // reference evaluator, and a backend that answered only the last statement
@@ -240,6 +276,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         registers: lowering.next_register as usize,
         result,
         functions,
+        classes,
     })
 }
 
@@ -249,6 +286,7 @@ struct Signature<'a> {
     selector: &'a str,
     parameters: Vec<&'a str>,
     body: &'a [Statement],
+    receiver: bool,
 }
 
 /// Collects the module functions this subset covers.
@@ -260,11 +298,67 @@ struct Signature<'a> {
 /// rather than approximated.
 fn collect_signatures(
     declarations: &[iris_syntax::Declaration],
-) -> Result<Vec<Signature<'_>>, CompileError> {
+) -> Result<(Vec<Signature<'_>>, Vec<Class>), CompileError> {
     let mut signatures = Vec::new();
+    let mut classes = Vec::new();
     for declaration in declarations {
         let iris_syntax::Declaration::Module(module) = declaration else {
-            return Err(CompileError::new("declaration"));
+            let iris_syntax::Declaration::Class(class) = declaration else {
+                return Err(CompileError::new("declaration"));
+            };
+            if !class.decorators.is_empty() {
+                return Err(CompileError::new("class decorator"));
+            }
+            if class.reopen {
+                return Err(CompileError::new("class reopen"));
+            }
+            if !class.implements.is_empty() {
+                return Err(CompileError::new("class implements"));
+            }
+            if !class.mixins.is_empty() {
+                return Err(CompileError::new("class mixin"));
+            }
+            if !class.constraints.is_empty() {
+                return Err(CompileError::new("class constraints"));
+            }
+            if !class.parameters.is_empty() {
+                return Err(CompileError::new("class generics"));
+            }
+            if !class.meta_deny.is_empty() {
+                return Err(CompileError::new("class meta deny"));
+            }
+            let superclass_name = match &class.extends {
+                Some(TypeExpression::Name(name)) => Some(name.as_str()),
+                Some(_) => return Err(CompileError::new("class superclass")),
+                None => None,
+            };
+            let class_index = classes.len();
+            let first_function = signatures.len();
+            collect_methods(&class.name, &class.body, true, &mut signatures)?;
+            let superclass = match superclass_name {
+                Some("Object") | None => None,
+                Some(name) => declarations
+                    .iter()
+                    .filter_map(|declaration| match declaration {
+                        iris_syntax::Declaration::Class(candidate) => Some(&candidate.name),
+                        _ => None,
+                    })
+                    .position(|candidate| candidate == name)
+                    .ok_or_else(|| CompileError::new("class superclass"))?
+                    .into(),
+            };
+            let methods = signatures[first_function..]
+                .iter()
+                .enumerate()
+                .map(|(offset, signature)| (signature.selector.to_owned(), first_function + offset))
+                .collect();
+            classes.push(Class {
+                name: class.name.clone(),
+                superclass,
+                methods,
+            });
+            let _ = class_index;
+            continue;
         };
         if module.reopen
             || !module.mixins.is_empty()
@@ -273,48 +367,68 @@ fn collect_signatures(
         {
             return Err(CompileError::new("module"));
         }
-        for statement in &module.body {
-            let Statement::Method(method) = statement else {
-                return Err(CompileError::new("module body"));
-            };
-            if method.is_async
-                || method.is_override
-                || method.impl_contract.is_some()
-                || !method.decorators.is_empty()
-                || !method.type_parameters.is_empty()
-                || method.kind != iris_syntax::MethodKind::Instance
-            {
-                return Err(CompileError::new("method"));
-            }
-            let Some(body) = method.body.as_deref() else {
-                return Err(CompileError::new("abstract method"));
-            };
-            let mut parameters = Vec::with_capacity(method.parameters.len());
-            for parameter in &method.parameters {
-                // Only positional parameters. A rest, keyword or block
-                // parameter needs argument shapes this subset does not build.
-                if parameter.category != iris_syntax::ParameterCategory::Positional {
-                    return Err(CompileError::new("parameter"));
-                }
-                parameters.push(parameter.name.as_str());
-            }
-            signatures.push(Signature {
-                module: &module.name,
-                selector: &method.selector,
-                parameters,
-                body,
-            });
-        }
+        collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
-    Ok(signatures)
+    Ok((signatures, classes))
+}
+
+fn collect_methods<'a>(
+    owner: &'a str,
+    body: &'a [Statement],
+    receiver: bool,
+    signatures: &mut Vec<Signature<'a>>,
+) -> Result<(), CompileError> {
+    for statement in body {
+        let Statement::Method(method) = statement else {
+            return Err(CompileError::new(if receiver {
+                "class body"
+            } else {
+                "module body"
+            }));
+        };
+        if method.is_async
+            || method.is_override
+            || method.impl_contract.is_some()
+            || !method.decorators.is_empty()
+            || !method.type_parameters.is_empty()
+            || method.kind != iris_syntax::MethodKind::Instance
+        {
+            return Err(CompileError::new("method"));
+        }
+        let Some(body) = method.body.as_deref() else {
+            return Err(CompileError::new("abstract method"));
+        };
+        let mut parameters = Vec::with_capacity(method.parameters.len());
+        for parameter in &method.parameters {
+            // Only positional parameters. A rest, keyword or block
+            // parameter needs argument shapes this subset does not build.
+            if parameter.category != iris_syntax::ParameterCategory::Positional {
+                return Err(CompileError::new("parameter"));
+            }
+            parameters.push(parameter.name.as_str());
+        }
+        signatures.push(Signature {
+            module: owner,
+            selector: &method.selector,
+            parameters,
+            body,
+            receiver,
+        });
+    }
+    Ok(())
 }
 
 /// Lowers one function into its own frame.
 fn lower_function(
     signature: &Signature<'_>,
     signatures: &[Signature<'_>],
+    classes: &[Class],
 ) -> Result<Function, CompileError> {
-    let mut lowering = Lowering::new(signatures);
+    let mut lowering = Lowering::new(signatures, classes);
+    if signature.receiver {
+        let receiver = lowering.allocate()?;
+        lowering.names.push(("self".to_owned(), receiver));
+    }
     // Parameters occupy the leading registers, so a call can copy arguments
     // into a fresh frame without the callee knowing where they came from.
     for parameter in &signature.parameters {
@@ -333,7 +447,7 @@ fn lower_function(
     lowering.instructions.push(Instruction::Return { value });
     Ok(Function {
         name: format!("{}.{}", signature.module, signature.selector),
-        parameters: signature.parameters.len(),
+        parameters: signature.parameters.len() + usize::from(signature.receiver),
         registers: lowering.next_register as usize,
         instructions: lowering.instructions,
     })
@@ -346,15 +460,17 @@ struct Lowering<'a, 'b> {
     names: Vec<(String, Register)>,
     /// Functions callable from this frame, resolved before lowering.
     signatures: &'a [Signature<'b>],
+    classes: &'a [Class],
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {
-    fn new(signatures: &'a [Signature<'b>]) -> Self {
+    fn new(signatures: &'a [Signature<'b>], classes: &'a [Class]) -> Self {
         Self {
             instructions: Vec::new(),
             next_register: 0,
             names: Vec::new(),
             signatures,
+            classes,
         }
     }
 
@@ -540,6 +656,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // An unbound name is not this backend's to resolve: it could
                 // be a Class, a Module, or a method-scope local.
                 .ok_or_else(|| CompileError::new("name")),
+            Expression::RawIvar(name) => {
+                let receiver = self
+                    .lookup("self")
+                    .ok_or_else(|| CompileError::new("ivar"))?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::GetIvar {
+                    destination,
+                    receiver,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
             Expression::Grouped(inner) => self.expression(inner),
             Expression::Binary {
                 left,
@@ -607,6 +735,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 operator: iris_syntax::AssignmentOperator::Assign,
                 right,
             } => {
+                if let Expression::RawIvar(name) = left.as_ref() {
+                    let receiver = self
+                        .lookup("self")
+                        .ok_or_else(|| CompileError::new("ivar"))?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetIvar {
+                        destination,
+                        receiver,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
                 let Expression::Name(name) = left.as_ref() else {
                     return Err(CompileError::new("assignment target"));
                 };
@@ -711,6 +853,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        if let Expression::Name(class) = receiver.as_ref()
+            && selector == "new"
+            && let Some(class) = self.class_index(class)
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::New {
+                destination,
+                class,
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         // A resolved module function is called by INDEX. Resolution happened
         // before lowering, so no name is looked up at run time.
         if let Expression::Name(module) = receiver.as_ref()
@@ -768,7 +924,51 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
-        Err(CompileError::new("call"))
+        if !matches!(receiver.as_ref(), Expression::Call { .. })
+            && !matches!(receiver.as_ref(), Expression::Name(name) if self.lookup(name).is_some())
+        {
+            return Err(CompileError::new("call"));
+        }
+        let receiver = self.expression(receiver)?;
+        let (first, count) = self.argument_window(arguments)?;
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::Send {
+            destination,
+            receiver,
+            selector: selector.clone(),
+            first,
+            count,
+        });
+        Ok(destination)
+    }
+
+    fn class_index(&self, name: &str) -> Option<usize> {
+        self.classes.iter().position(|class| class.name == name)
+    }
+
+    fn argument_window(
+        &mut self,
+        arguments: &[Expression],
+    ) -> Result<(Register, u16), CompileError> {
+        let count =
+            u16::try_from(arguments.len()).map_err(|_| CompileError::new("call too wide"))?;
+        let mut lowered = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            lowered.push(self.expression(argument)?);
+        }
+        let first = self.next_register;
+        for source in lowered {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Move {
+                destination,
+                source,
+            });
+        }
+        if count == 0 {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadNil { destination });
+        }
+        Ok((first, count))
     }
 }
 
