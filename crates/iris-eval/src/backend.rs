@@ -412,11 +412,13 @@ mod differential_tests {
         let bytecode = Bytecode;
 
         // `.map(...)` is a CALL whose receiver is an array; the call is the
-        // outer construct, so that is what the backend names.
+        // outer construct, so that is what the backend names. The reason
+        // identifies WHICH receiver shape stopped it, so a later change that
+        // covers array receivers cannot leave this passing for the old cause.
         let Support::Unsupported(reason) = bytecode.execute("[1, 2].map({ |x|; x })") else {
             unreachable!("this backend covers no calls, arrays or closures yet")
         };
-        assert_eq!(reason, "call");
+        assert_eq!(reason, "call array receiver");
 
         // An Array literal IS covered now, so a construct that genuinely is
         // not stands in: a closure needs frames this subset does not have.
@@ -597,7 +599,7 @@ mod differential_tests {
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
             ("class A { }", "empty program"),
-            ("for x in [1] { x }", "statement"),
+            ("for x in [1] { x }", "statement for"),
             ("unbound_name", "name"),
             // `if`, `while`, and built-in indexes ARE covered now, so a
             // genuinely unsupported receiver remains outside the subset.
@@ -849,13 +851,15 @@ mod differential_tests {
 
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
-            ("try { 1 } finally { 2 }", "statement"),
-            ("for x in [1] { x }", "statement"),
+            ("try { 1 } finally { 2 }", "statement try"),
+            ("for x in [1] { x }", "statement for"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("the VM must not approximate the declined construct: {source}")
             };
-            assert_ne!(reason, "call", "{source}");
+            // A declined construct must be named for ITSELF rather than for
+            // whatever call encloses it, so the boundary says what is missing.
+            assert!(!reason.starts_with("call"), "{source}: {reason}");
             assert_eq!(reason, construct, "{source}");
         }
     }
