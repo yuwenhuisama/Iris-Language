@@ -45,6 +45,8 @@ mod tests {
             "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { let m = C.new().v; m.call() } } M.r()",
             "module M { public fun r() -> Object { (7).hash() } } M.r()",
             "class C { public class fun v() -> Integer { 3 } } module M { public fun r() -> Object { C.v() } } M.r()",
+            "class A { public fun v() -> Integer { 1 } } class B extends A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { B.new().v() } } M.r()",
+            "class A { public fun v() -> Integer { 1 } } open class A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { A.new().v() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");
@@ -395,7 +397,7 @@ mod tests {
     fn unsupported_class_shapes_are_declined_precisely() {
         for (source, expected, old_generic_error) in [
             ("@sealed() class A { } 1", "class decorator", "declaration"),
-            ("open class A { } 1", "class reopen", "declaration"),
+            ("open class A { } 1", "class reopen target", "declaration"),
             ("class A<T> { } 1", "class generics", "declaration"),
             ("class A for C { } 1", "class implements", "declaration"),
             ("class A mixin M { } 1", "class mixin", "declaration"),
@@ -571,7 +573,7 @@ mod ir_document_tests {
         for (source, construct) in [
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement for"),
-            ("unbound_name", "name"),
+            ("unbound_name", "name unbound"),
             ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),
             ("try { 1 } catch e, context { e }", "try exception context"),

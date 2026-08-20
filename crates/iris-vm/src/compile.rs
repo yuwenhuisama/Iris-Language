@@ -301,6 +301,12 @@ pub(crate) struct Class {
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,
     pub(crate) class_methods: Vec<(String, usize)>,
+    pub(crate) reopens: Vec<ClassReopen>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClassReopen {
+    pub(crate) methods: Vec<(String, usize)>,
 }
 
 /// Why a program could not be compiled.
@@ -412,6 +418,8 @@ struct Signature<'a> {
     class_method: bool,
 }
 
+type MethodTable = Vec<(String, usize)>;
+
 /// Collects the module functions this subset covers.
 ///
 /// Only a plain `module` holding plain functions is covered. A Class, a
@@ -427,13 +435,43 @@ fn collect_signatures(
     for declaration in declarations {
         let iris_syntax::Declaration::Module(module) = declaration else {
             let iris_syntax::Declaration::Class(class) = declaration else {
-                return Err(CompileError::new("declaration"));
+                return Err(CompileError::new(match declaration {
+                    iris_syntax::Declaration::Contract(_) => "declaration contract",
+                    iris_syntax::Declaration::Import(_) => "declaration import",
+                    iris_syntax::Declaration::Export(_) => "declaration export",
+                    iris_syntax::Declaration::TypeAlias(_) => "declaration type alias",
+                    iris_syntax::Declaration::Class(_) | iris_syntax::Declaration::Module(_) => {
+                        "declaration covered"
+                    }
+                }));
             };
             if !class.decorators.is_empty() {
                 return Err(CompileError::new("class decorator"));
             }
             if class.reopen {
-                return Err(CompileError::new("class reopen"));
+                if class.extends.is_some()
+                    || !class.implements.is_empty()
+                    || !class.mixins.is_empty()
+                    || !class.constraints.is_empty()
+                    || !class.parameters.is_empty()
+                    || !class.meta_deny.is_empty()
+                {
+                    return Err(CompileError::new("class reopen header"));
+                }
+                let Some(target) = classes
+                    .iter()
+                    .position(|known: &Class| known.name == class.name)
+                else {
+                    return Err(CompileError::new("class reopen target"));
+                };
+                let first_function = signatures.len();
+                collect_methods(&class.name, &class.body, true, &mut signatures)?;
+                let (methods, class_methods) = collected_method_tables(&signatures, first_function);
+                if !class_methods.is_empty() {
+                    return Err(CompileError::new("class reopen class method"));
+                }
+                classes[target].reopens.push(ClassReopen { methods });
+                continue;
             }
             if !class.implements.is_empty() {
                 return Err(CompileError::new("class implements"));
@@ -470,23 +508,13 @@ fn collect_signatures(
                     .ok_or_else(|| CompileError::new("class superclass"))?
                     .into(),
             };
-            let methods = signatures[first_function..]
-                .iter()
-                .enumerate()
-                .filter(|(_, signature)| !signature.class_method)
-                .map(|(offset, signature)| (signature.selector.to_owned(), first_function + offset))
-                .collect();
-            let class_methods = signatures[first_function..]
-                .iter()
-                .enumerate()
-                .filter(|(_, signature)| signature.class_method)
-                .map(|(offset, signature)| (signature.selector.to_owned(), first_function + offset))
-                .collect();
+            let (methods, class_methods) = collected_method_tables(&signatures, first_function);
             classes.push(Class {
                 name: class.name.clone(),
                 superclass,
                 methods,
                 class_methods,
+                reopens: Vec::new(),
             });
             let _ = class_index;
             continue;
@@ -501,6 +529,23 @@ fn collect_signatures(
         collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
     Ok((signatures, classes))
+}
+
+fn collected_method_tables(
+    signatures: &[Signature<'_>],
+    first_function: usize,
+) -> (MethodTable, MethodTable) {
+    let mut methods = Vec::new();
+    let mut class_methods = Vec::new();
+    for (offset, signature) in signatures[first_function..].iter().enumerate() {
+        let entry = (signature.selector.to_owned(), first_function + offset);
+        if signature.class_method {
+            class_methods.push(entry);
+        } else {
+            methods.push(entry);
+        }
+    }
+    (methods, class_methods)
 }
 
 fn collect_methods<'a>(
@@ -518,7 +563,6 @@ fn collect_methods<'a>(
             }));
         };
         if method.is_async
-            || method.is_override
             || method.impl_contract.is_some()
             || !method.decorators.is_empty()
             || !method.type_parameters.is_empty()
@@ -528,7 +572,23 @@ fn collect_methods<'a>(
             )
             || (!receiver && method.kind != iris_syntax::MethodKind::Instance)
         {
-            return Err(CompileError::new("method"));
+            return Err(CompileError::new(if method.is_async {
+                "method async"
+            } else if method.impl_contract.is_some() {
+                "method contract implementation"
+            } else if !method.decorators.is_empty() {
+                "method decorator"
+            } else if !method.type_parameters.is_empty() {
+                "method generics"
+            } else {
+                match method.kind {
+                    iris_syntax::MethodKind::Module => "method module",
+                    iris_syntax::MethodKind::Property => "method property",
+                    iris_syntax::MethodKind::Instance | iris_syntax::MethodKind::Class => {
+                        "method kind"
+                    }
+                }
+            }));
         }
         let Some(body) = method.body.as_deref() else {
             return Err(CompileError::new("abstract method"));
@@ -966,7 +1026,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .lookup(name)
                 // An unbound name is not this backend's to resolve: it could
                 // be a Class, a Module, or a method-scope local.
-                .ok_or_else(|| CompileError::new("name")),
+                .ok_or_else(|| CompileError::new("name unbound")),
             Expression::GlobalVar(name) => {
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::LoadGlobal {
@@ -1163,7 +1223,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Err(CompileError::new("assignment target"));
                 };
                 let Some(destination) = self.lookup(name) else {
-                    return Err(CompileError::new("name"));
+                    return Err(CompileError::new("name assignment unbound"));
                 };
                 let source = self.expression(right)?;
                 self.instructions.push(Instruction::Move {
@@ -1551,6 +1611,11 @@ fn binary_selector(operator: &BinaryOperator) -> Result<&'static str, CompileErr
 
 fn construct_name(expression: &Expression) -> String {
     let name = match expression {
+        Expression::ReifiedType(_) => "expression reified type",
+        Expression::ClosedGeneric { .. } => "expression closed generic",
+        Expression::KeywordArgument { .. } => "expression keyword argument",
+        Expression::ContractView { .. } => "expression contract view",
+        Expression::ClassVar(_) => "expression class variable",
         Expression::Symbol(_) => "symbol",
         Expression::Hash(_) => "hash",
         Expression::Tuple(_) => "tuple",
@@ -1563,7 +1628,15 @@ fn construct_name(expression: &Expression) -> String {
         Expression::Await(_) => "await",
         Expression::Yield(_) => "yield",
         Expression::Assignment { .. } => "assignment",
-        _ => "expression",
+        Expression::Name(_)
+        | Expression::Literal(_)
+        | Expression::Array(_)
+        | Expression::Call { .. }
+        | Expression::Unary { .. }
+        | Expression::Binary { .. }
+        | Expression::Grouped(_)
+        | Expression::RawIvar(_)
+        | Expression::GlobalVar(_) => "expression covered",
     };
     name.to_owned()
 }

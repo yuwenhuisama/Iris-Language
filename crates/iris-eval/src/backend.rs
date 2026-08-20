@@ -700,7 +700,7 @@ mod differential_tests {
         for (source, construct) in [
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement for"),
-            ("unbound_name", "name"),
+            ("unbound_name", "name unbound"),
             // `if`, `while`, and built-in indexes ARE covered now, so a
             // genuinely unsupported receiver remains outside the subset.
             ("1[0]", "index receiver"),
@@ -1298,5 +1298,59 @@ mod differential_tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn bytecode_declines_name_and_expression_forms_precisely() {
+        let bytecode = Bytecode;
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { missing } } M.r()",
+                "name unbound",
+            ),
+            (
+                "module M { public fun r() -> Object { missing = 1 } } M.r()",
+                "name assignment unbound",
+            ),
+            (
+                "module M { public fun r() -> Object { @@missing } } M.r()",
+                "expression class variable",
+            ),
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("the VM must decline the unsupported form: {source}")
+            };
+            assert_ne!(reason, "name", "{source}");
+            assert_ne!(reason, "expression", "{source}");
+            assert_eq!(reason, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_inherited_override_methods() {
+        let source = "class A { public fun value() -> Integer { 1 } } class B extends A { public override fun value() -> Integer { 2 } } module M { public fun r() -> Object { B.new().value() } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends must run an inherited override: {agreement:?}")
+        };
+        assert_ne!(observation, Observation::Value("1".to_owned()));
+        assert_eq!(observation, Observation::Value("2".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_declarative_class_reopen_dispatch() {
+        let source = "class A { public fun value() -> Integer { 1 } } open class A { public override fun value() -> Integer { 2 } } module M { public fun r() -> Object { A.new().value() } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends must publish a declarative reopen: {agreement:?}")
+        };
+        assert_ne!(observation, Observation::Value("1".to_owned()));
+        assert_eq!(observation, Observation::Value("2".to_owned()));
     }
 }

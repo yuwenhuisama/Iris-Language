@@ -996,6 +996,29 @@ impl Machine {
                 .registry_mut()
                 .commit_origin_transaction(class)
                 .map_err(MachineError::Class)?;
+            for reopen in &declaration.reopens {
+                self.runtime
+                    .registry_mut()
+                    .begin_transaction(class)
+                    .map_err(MachineError::Class)?;
+                for (selector, function) in &reopen.methods {
+                    let selector = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    self.runtime
+                        .registry_mut()
+                        .publish_method(
+                            class,
+                            selector,
+                            MethodBody::new(*function as u64),
+                            Visibility::Public,
+                        )
+                        .map_err(MachineError::Class)?;
+                }
+                self.runtime
+                    .registry_mut()
+                    .commit_transaction(class)
+                    .map_err(MachineError::Class)?;
+            }
             classes.push(class);
         }
         Ok(classes)

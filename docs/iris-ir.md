@@ -399,19 +399,24 @@ arbitrary receivers; **plain module functions** with positional parameters,
 including recursion and mutual calls; and **user-defined classes**: declaration,
 construction through `new` with an initializer, raw ivar reads and writes,
 `self`, instance dispatch through the receiver's class, `class fun` declarations
-and their calls, and a named superclass with inherited methods and initializers.
+and their calls, a named superclass with inherited methods and initializers,
+inherited `override` declarations, and declarative instance-method reopens. A
+reopen is registered as an ordinary transaction after the origin transaction,
+so it advances the active revision rather than being folded into revision one.
 
-Measured against the 783 source-carrying conformance vectors, this compiles 123
+Measured against the 783 source-carrying conformance vectors, this compiles 159
 of them. The number is reported rather than estimated because the first estimate
 of what blocked the backend was WRONG: the assumed blockers were loops and
 calls, while the measurement showed a single dominant one, `class`, at 325
 programs. What remains is now dispersed across many constructs rather than
 concentrated behind one wall.
 
-Declined, each by name: `declaration` (anything that is not a plain module),
+Declined, each by name: `declaration contract`, `declaration import`,
+`declaration export`, and `declaration type alias`,
 `module` (open, mixin, generic or decorated), `module body` (a non-method
-statement), `method` (async, override, `impl`, decorated, generic or
-class-kind), `abstract method`, `parameter` (rest, keyword or block),
+statement), `method async`, `method contract implementation`, `method
+decorator`, `method generics`, `method property`, `method module`, `abstract
+method`, `parameter` (rest, keyword or block),
 `statement <form>`, which names the form that stopped it - `for`,
 `match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
 `break`, `continue`, `method` - and likewise `call <shape>` for a call:
@@ -421,9 +426,10 @@ than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, `try exception context`, non-name `try catch filter`,
-`call arity`, `name` (unbound),
+`call arity`, `name unbound`, `name assignment unbound`,
 `member`, `index receiver`, `hash key name`, `tuple`, `await`, `yield`, and the
-class forms `class decorator`, `class reopen`, `class generics`,
+class forms `class decorator`, `class reopen target`, `class reopen header`,
+`class reopen class method`, `class generics`,
 `class implements`, `class mixin`, `class constraints`, `class meta deny`,
 `class superclass` and `class body`, plus the structural refusals
 `rejected source`,
@@ -437,8 +443,9 @@ fails the build.
 
 Named so the gaps are not mistaken for decisions:
 
-- **Methods on Classes.** Only plain module functions are covered. An instance
-  method needs a receiver, dispatch through the MRO, and revision awareness.
+- **Method forms.** Async methods, Contract implementations, property methods,
+  generic methods, decorators, and non-positional/default parameters retain
+  runtime or type semantics the bytecode backend does not yet model.
 - **Nested Closures.** A Closure may capture from its immediate defining frame;
   recursively compiling Closure bodies needs a stable function-index allocator
   before nested Closure literals can be admitted without misaddressing code.

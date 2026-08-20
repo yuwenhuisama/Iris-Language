@@ -4240,3 +4240,4 @@ fn probe_p() {
         evaluate("let c = { |x|; x + 1 }; c.call(1)")
     );
 }
+
