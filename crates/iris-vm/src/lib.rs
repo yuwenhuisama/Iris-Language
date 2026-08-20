@@ -36,11 +36,15 @@ mod tests {
     }
 
     #[test]
-    fn verified_identity_calls_never_reach_machine_dispatch_errors() {
+    fn verified_calls_never_reach_machine_dispatch_errors() {
         for source in [
             "class C { } module M { public fun r() -> Object { let a = C.new(); a.same?(a) } } M.r()",
             "module M { public fun r() -> Object { let a = [1]; a.same?(a) } } M.r()",
             "module M { public fun r() -> Object { let a = [1]; let b = [1]; a.same?(b) } } M.r()",
+            "module M { public fun r() -> Object { let f = { |x|; x }; f.call(1) } } M.r()",
+            "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { let m = C.new().v; m.call() } } M.r()",
+            "module M { public fun r() -> Object { (7).hash() } } M.r()",
+            "class C { public class fun v() -> Integer { 3 } } module M { public fun r() -> Object { C.v() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");
@@ -565,7 +569,6 @@ mod ir_document_tests {
     #[test]
     fn the_coverage_boundary_matches_the_document() {
         for (source, construct) in [
-            ("{ ||; { ||; 1 } }", "nested closure"),
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement for"),
             ("unbound_name", "name"),

@@ -29,17 +29,43 @@ pub enum Instruction {
     },
     /// Loads an IEEE-754 binary64 value, held as BITS so a literal cannot
     /// drift through a decimal round trip.
-    LoadFloat64 { destination: Register, bits: u64 },
+    LoadFloat64 {
+        destination: Register,
+        bits: u64,
+    },
     /// Loads an IEEE-754 binary32 value, held as bits for the same reason.
-    LoadFloat32 { destination: Register, bits: u32 },
+    LoadFloat32 {
+        destination: Register,
+        bits: u32,
+    },
     /// Loads a String.
-    LoadText { destination: Register, text: String },
+    LoadText {
+        destination: Register,
+        text: String,
+    },
     /// Loads an interned Symbol spelling.
-    LoadSymbol { destination: Register, name: String },
+    LoadSymbol {
+        destination: Register,
+        name: String,
+    },
     /// Loads a Bool.
-    LoadBool { destination: Register, value: bool },
+    LoadBool {
+        destination: Register,
+        value: bool,
+    },
     /// Loads nil.
-    LoadNil { destination: Register },
+    LoadNil {
+        destination: Register,
+    },
+    LoadGlobal {
+        destination: Register,
+        name: String,
+    },
+    StoreGlobal {
+        destination: Register,
+        name: String,
+        value: Register,
+    },
     /// Copies one register to another.
     Move {
         destination: Register,
@@ -74,6 +100,17 @@ pub enum Instruction {
         receiver: Register,
         index: Register,
     },
+    SetIndex {
+        destination: Register,
+        receiver: Register,
+        index: Register,
+        value: Register,
+    },
+    BindMember {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+    },
     Identity {
         destination: Register,
         left: Register,
@@ -90,9 +127,14 @@ pub enum Instruction {
     /// Only the false branch is conditional. One conditional form plus an
     /// unconditional `Jump` expresses every shape this subset needs, and each
     /// extra branch opcode is another case the verifier must reason about.
-    JumpUnless { condition: Register, target: usize },
+    JumpUnless {
+        condition: Register,
+        target: usize,
+    },
     /// Jumps to `target` unconditionally.
-    Jump { target: usize },
+    Jump {
+        target: usize,
+    },
     /// Installs an exception handler for the following protected region.
     EnterTry {
         handler: usize,
@@ -107,7 +149,9 @@ pub enum Instruction {
     /// Removes the innermost handler after normal completion.
     LeaveTry,
     /// Raises the value in the current frame.
-    Raise { value: Register },
+    Raise {
+        value: Register,
+    },
     /// Allocates a Closure with a snapshot of a contiguous capture window.
     MakeClosure {
         destination: Register,
@@ -159,7 +203,9 @@ pub enum Instruction {
         value: Register,
     },
     /// Returns `value` from the current frame.
-    Return { value: Register },
+    Return {
+        value: Register,
+    },
 }
 
 impl Instruction {
@@ -173,12 +219,16 @@ impl Instruction {
             | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
+            | Self::LoadGlobal { destination, .. }
+            | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
             | Self::Binary { destination, .. }
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }
             | Self::BuildHash { destination, .. }
             | Self::Index { destination, .. }
+            | Self::SetIndex { destination, .. }
+            | Self::BindMember { destination, .. }
             | Self::Identity { destination, .. }
             | Self::Call { destination, .. }
             | Self::New { destination, .. }
@@ -626,6 +676,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.names.push((name.clone(), destination));
                 Ok(destination)
             }
+            Statement::GlobalBinding {
+                name,
+                annotation: None,
+                value,
+                ..
+            } => {
+                let value = self.expression(value)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::StoreGlobal {
+                    destination,
+                    name: name.clone(),
+                    value,
+                });
+                Ok(destination)
+            }
             // A loop is a BACKWARD jump, which is why the verifier had to
             // become a dataflow fixpoint: a body is entered before its own
             // writes have happened, so a linear scan cannot decide definite
@@ -902,6 +967,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // An unbound name is not this backend's to resolve: it could
                 // be a Class, a Module, or a method-scope local.
                 .ok_or_else(|| CompileError::new("name")),
+            Expression::GlobalVar(name) => {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadGlobal {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
             Expression::RawIvar(name) => {
                 let receiver = self
                     .lookup("self")
@@ -1015,7 +1088,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Index { receiver, index } => {
                 if !matches!(
                     receiver.as_ref(),
-                    Expression::Array(_) | Expression::Hash(_) | Expression::Name(_)
+                    Expression::Array(_)
+                        | Expression::Hash(_)
+                        | Expression::Name(_)
+                        | Expression::GlobalVar(_)
                 ) {
                     return Err(CompileError::new("index receiver"));
                 }
@@ -1026,6 +1102,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     receiver,
                     index,
+                });
+                Ok(destination)
+            }
+            Expression::Member { receiver, selector } => {
+                let receiver = self.expression(receiver)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BindMember {
+                    destination,
+                    receiver,
+                    selector: selector.clone(),
                 });
                 Ok(destination)
             }
@@ -1045,6 +1131,29 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     self.instructions.push(Instruction::SetIvar {
                         destination,
                         receiver,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::Index { receiver, index } = left.as_ref() {
+                    let receiver = self.expression(receiver)?;
+                    let index = self.expression(index)?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetIndex {
+                        destination,
+                        receiver,
+                        index,
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::GlobalVar(name) = left.as_ref() {
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::StoreGlobal {
+                        destination,
                         name: name.clone(),
                         value,
                     });
@@ -1091,7 +1200,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let mut lowering = Lowering::new(
             self.signatures,
             self.classes,
-            self.declared_functions,
+            self.declared_functions + self.closures.len(),
             &mut closure_functions,
         );
         for (name, _) in &captures {
@@ -1107,10 +1216,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let registers = lowering.next_register as usize;
         let instructions = std::mem::take(&mut lowering.instructions);
         drop(lowering);
-        let function = self.declared_functions + self.closures.len();
-        if !closure_functions.is_empty() {
-            return Err(CompileError::new("nested closure"));
-        }
+        let function = self.declared_functions + self.closures.len() + closure_functions.len();
+        self.closures.extend(closure_functions);
         self.closures.push(Function {
             name: "<closure>".to_owned(),
             parameters: captures.len() + parameters.len(),

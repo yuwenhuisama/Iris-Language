@@ -142,7 +142,7 @@ balance.
 
 ## 3. Instruction set
 
-Eleven instructions. `dst` is the destination register.
+The register IR uses explicit destinations. `dst` is the destination register.
 
 ### 3.1 Constant loads
 
@@ -154,6 +154,8 @@ Eleven instructions. `dst` is the destination register.
 | `LoadText { dst, text }` | String. |
 | `LoadBool { dst, value }` | Bool. |
 | `LoadNil { dst }` | nil. |
+| `LoadGlobal { dst, name }` | Reads the current package-global cell. |
+| `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
 
 Floats are carried as **bits, never as a decimal rendering**. A decimal round
 trip can perturb the low bit, and `IRIS-V1-RUNTIME-V066` compares exact IEEE-754
@@ -176,6 +178,7 @@ representation type split.
 | --- | --- |
 | `Binary { dst, selector, left, right }` | `dst = left <selector> right` |
 | `Unary { dst, selector, operand }` | `dst = operand.selector()` |
+| `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
 
 Both dispatch through `iris_runtime::Kernel` — **the same kernel the
 tree-walking evaluator uses**. This is a hard rule, not a convenience: a second
@@ -202,6 +205,9 @@ Covered unary selectors: `negate`, `to_bits`, `hash`.
 | Instruction | Effect |
 | --- | --- |
 | `BuildArray { dst, first, count }` | Array from the contiguous range `first .. first+count`. |
+| `BuildHash { dst, first, count }` | Hash from contiguous key/value register pairs. |
+| `Index { dst, receiver, index }` | Reads an Array element or Hash entry. |
+| `SetIndex { dst, receiver, index, value }` | Mutates the shared Array or Hash body and writes the assigned value to `dst`. |
 
 Elements are lowered into a **contiguous run** of registers so the instruction
 names a range instead of carrying an operand list. The compiler emits a `Move`
@@ -267,7 +273,9 @@ A Closure body is another function. Its captures occupy the leading registers,
 followed by invocation arguments; `MakeClosure` stores a value snapshot so an
 escaped Closure outlives the defining frame. Each body lowers with its own name
 stack, so C028 shadowing allocates a fresh binding rather than overwriting a
-capture, and D-421's `return` exits only that Closure frame.
+capture, and D-421's `return` exits only that Closure frame. Nested Closure
+bodies are allocated recursively before their enclosing body is appended, so
+every `MakeClosure` carries its final function-table index.
 
 ### 3.7 Exceptions
 

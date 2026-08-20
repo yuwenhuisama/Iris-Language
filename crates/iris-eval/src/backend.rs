@@ -106,6 +106,16 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::Kernel(error)) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::Runtime(error)),
                 )),
+                Err(iris_vm::MachineError::Construction(error)) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::Construction(error))),
+                ),
+                Err(iris_vm::MachineError::NameError) => Support::Ran(Observation::Error(format!(
+                    "{:?}",
+                    EvaluationError::NameError
+                ))),
+                Err(iris_vm::MachineError::IndexError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::IndexError),
+                )),
                 // A machine defect is not a program observation.
                 Err(defect) => Support::Unsupported(format!("machine defect: {defect:?}")),
             },
@@ -935,12 +945,42 @@ mod differential_tests {
         }
     }
 
+    /// An out-of-range index WRITE raises rather than being discarded.
+    ///
+    /// A read past the end answers nil, so a write is easy to implement as
+    /// the same silent miss. The backend did exactly that: the element was
+    /// never stored and the program carried on believing it had been, which
+    /// only surfaced when a real program indexed an empty Array.
+    #[test]
+    fn an_out_of_range_index_write_raises_in_both_backends() {
+        for source in [
+            "module M { public fun r() -> Object { let a = []; a[0] = 1; a } } M.r()",
+            "module M { public fun r() -> Object { let a = [1]; a[5] = 1; a } } M.r()",
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must observe the same refusal: {agreement:?}")
+            };
+            assert_eq!(observation, &Observation::Error("IndexError".to_owned()));
+        }
+
+        // Control: an IN-RANGE write stores and answers the value, so the
+        // refusal above is about the position rather than about writes.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { let a = [1]; a[0] = 9; a } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must store an in-range write: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("[9]".to_owned()));
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
 
         for (source, construct) in [
-            ("{ ||; { ||; 1 } }", "nested closure"),
             (
                 "try { 1 } catch error, context { error }",
                 "try exception context",
@@ -1045,6 +1085,207 @@ mod differential_tests {
         ] {
             let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
                 unreachable!("both backends must run the wrapped construct: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_index_assignment_and_aliasing() {
+        for (source, expected, wrong) in [
+            (
+                "module M { public fun r() -> Object { let a = [1, 2]; let b = a; a[0] = 9; b } } M.r()",
+                "[9, 2]",
+                "[1, 2]",
+            ),
+            (
+                "module M { public fun r() -> Object { let h = %{ :a: 1 }; h[:a] = 9; h[:a] } } M.r()",
+                "9",
+                "1",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must run indexed mutation: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_bare_member_binding() {
+        let source = "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { C.new().v } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends must bind a bare member")
+        };
+        assert_eq!(observation, Observation::Value("<method>".to_owned()));
+        assert_ne!(observation, Observation::Value("3".to_owned()));
+
+        let missing = "class C { } module M { public fun r() -> Object { C.new().nope } } M.r()";
+        for backend in backends {
+            let Support::Ran(observation) = backend.execute(missing) else {
+                unreachable!("{} must report a missing bare member", backend.name())
+            };
+            assert!(
+                matches!(observation, Observation::Error(ref error) if error.contains("MissingMethod"))
+            );
+            assert_ne!(observation, Observation::Value("nil".to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_agree_when_bound_methods_are_called() {
+        for (source, expected, wrong) in [
+            (
+                "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { let m = C.new().v; m.call() } } M.r()",
+                "3",
+                "<method>",
+            ),
+            (
+                "class C { public fun add(x: Integer) -> Integer { x + 2 } } module M { public fun r() -> Object { let m = C.new().add; m.call(5) } } M.r()",
+                "7",
+                "5",
+            ),
+            (
+                "class C { public fun initialize() { @n = 1 } public fun add(x: Integer) { @n = @n + x } public fun value() { @n } } module M { public fun r() -> Object { let o = C.new(); let m = o.add; m.call(4); o.value() } } M.r()",
+                "5",
+                "1",
+            ),
+            (
+                "class C { public fun v() -> Integer { 9 } } module M { public fun make(o: Object) -> Object { o.v } public fun use(m: Object) -> Object { m.call() } public fun r() -> Object { M.use(M.make(C.new())) } } M.r()",
+                "9",
+                "<method>",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must call the bound method: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_global_bindings_inside_module_methods() {
+        for (source, expected, wrong) in [
+            (
+                "global let $g = 3; module M { public fun r() -> Object { $g } } M.r()",
+                "[3, 3]",
+                "[3, nil]",
+            ),
+            (
+                "global mut $g = 3; module M { public fun r() -> Object { $g = 4; $g } } M.r()",
+                "[3, 4]",
+                "[3, 3]",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run package globals: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        let bytecode = Bytecode;
+        for (source, construct) in [
+            (
+                "class C { shared let @@value: Integer = 1 } module M { public fun r() -> Object { 1 } } M.r()",
+                "class body",
+            ),
+            (
+                "module M { public fun r() -> Object { mut value: Integer; value } } M.r()",
+                "statement deferred",
+            ),
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("the VM must decline unsupported binding state: {source}")
+            };
+            assert_eq!(reason, construct, "{source}");
+            assert_ne!(reason, "statement binding", "{source}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_nested_closure_literals() {
+        let source = "module M { public fun r() -> Object { let outer = { |x|; { |y|; x + y } }; outer.call(3).call(4) } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends must run nested closures")
+        };
+        assert_ne!(observation, Observation::Value("4".to_owned()));
+        assert_eq!(observation, Observation::Value("7".to_owned()));
+    }
+
+    #[test]
+    fn added_values_remain_usable_across_method_frames() {
+        for (source, expected, wrong) in [
+            (
+                "module M { public fun mutate(a: Object) -> Object { a[0] = 9 } public fun r() -> Object { let a = [1]; M.mutate(a); a[0] } } M.r()",
+                "9",
+                "1",
+            ),
+            (
+                "global mut $g = [1]; module M { public fun mutate() -> Object { $g[0] = 8 } public fun r() -> Object { M.mutate(); $g[0] } } M.r()",
+                "[[8], 8]",
+                "[[1], 1]",
+            ),
+            (
+                "module M { public fun make() -> Object { { |x|; { |y|; x + y } } } public fun use(f: Object) -> Object { f.call(40).call(2) } public fun r() -> Object { M.use(M.make()) } } M.r()",
+                "42",
+                "2",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must use the produced value: {source}: {agreement:?}")
             };
             assert_ne!(
                 observation,

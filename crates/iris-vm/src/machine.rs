@@ -1,8 +1,8 @@
 //! Verifies and executes register instructions.
 
 use iris_runtime::{
-    BuiltinClass, ClassError, ClassId, ConstructionError, Kernel, KernelError, MethodBody,
-    NativeSelector, NumericError, Runtime, Selector, StaticSpine, Value, Visibility,
+    BoundReceiver, BuiltinClass, ClassError, ClassId, ConstructionError, Kernel, KernelError,
+    MethodBody, NativeSelector, NumericError, Runtime, Selector, StaticSpine, Value, Visibility,
 };
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
@@ -31,6 +31,12 @@ pub enum MachineError {
     UnknownSelector(String),
     Class(ClassError),
     Construction(ConstructionError),
+    NameError,
+    /// A write to a position outside the Array.
+    ///
+    /// A READ past the end answers nil, but a WRITE has no position to store
+    /// into, so it raises rather than silently discarding the value.
+    IndexError,
     /// An Iris value propagated beyond the current frame.
     Raised(Value),
 }
@@ -326,6 +332,7 @@ fn fall_through(
 fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
         Instruction::Move { source, .. } => vec![*source],
+        Instruction::StoreGlobal { value, .. } => vec![*value],
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
             vec![*left, *right]
         }
@@ -356,6 +363,13 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Index {
             receiver, index, ..
         } => vec![*receiver, *index],
+        Instruction::SetIndex {
+            receiver,
+            index,
+            value,
+            ..
+        } => vec![*receiver, *index, *value],
+        Instruction::BindMember { receiver, .. } => vec![*receiver],
         Instruction::GetIvar { receiver, .. } => vec![*receiver],
         Instruction::SetIvar {
             receiver, value, ..
@@ -368,6 +382,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
+        | Instruction::LoadGlobal { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry
         | Instruction::Jump { .. } => Vec::new(),
@@ -395,6 +410,7 @@ pub struct Machine {
     runtime: Runtime,
     kernel: Kernel,
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
+    globals: std::collections::HashMap<String, Value>,
     next_closure: u64,
 }
 
@@ -410,6 +426,7 @@ impl Machine {
             runtime,
             kernel,
             closures: std::collections::HashMap::new(),
+            globals: std::collections::HashMap::new(),
             next_closure: 1,
         })
     }
@@ -491,6 +508,16 @@ impl Machine {
                 Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
                 Instruction::LoadBool { value, .. } => Value::Bool(*value),
                 Instruction::LoadNil { .. } => Value::Nil,
+                Instruction::LoadGlobal { name, .. } => self
+                    .globals
+                    .get(name)
+                    .cloned()
+                    .ok_or(MachineError::NameError)?,
+                Instruction::StoreGlobal { name, value, .. } => {
+                    let value = registers[*value as usize].clone();
+                    self.globals.insert(name.clone(), value.clone());
+                    value
+                }
                 Instruction::Move { source, .. } => registers[*source as usize].clone(),
                 Instruction::Binary {
                     selector,
@@ -554,6 +581,35 @@ impl Machine {
                     registers[*receiver as usize].clone(),
                     registers[*index as usize].clone(),
                 )?,
+                Instruction::SetIndex {
+                    receiver,
+                    index,
+                    value,
+                    ..
+                } => self.set_index(
+                    registers[*receiver as usize].clone(),
+                    registers[*index as usize].clone(),
+                    registers[*value as usize].clone(),
+                )?,
+                Instruction::BindMember {
+                    receiver, selector, ..
+                } => {
+                    let Value::Object(object) = registers[*receiver as usize] else {
+                        return Err(MachineError::UnknownSelector(selector.clone()));
+                    };
+                    let selector = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let class = self
+                        .runtime
+                        .class_of(object)
+                        .map_err(MachineError::Construction)?;
+                    self.runtime
+                        .registry_mut()
+                        .bind_instance(object, class, selector)
+                        .map(Value::BoundMethod)
+                        .map_err(iris_runtime::ConstructionError::from)
+                        .map_err(MachineError::Construction)?
+                }
                 Instruction::Identity { left, right, .. } => {
                     self.identity(&registers[*left as usize], &registers[*right as usize])?
                 }
@@ -704,22 +760,66 @@ impl Machine {
                     let receiver = registers[*receiver as usize].clone();
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
-                    if selector == "call"
-                        && let Value::Closure(identity) = receiver
-                    {
-                        let Some(closure) = self.closures.get(&identity).cloned() else {
-                            return Err(MachineError::Kernel(KernelError::Type));
+                    if selector == "call" {
+                        let (callee, passed) = match receiver {
+                            Value::Closure(identity) => {
+                                let Some(closure) = self.closures.get(&identity).cloned() else {
+                                    return Err(MachineError::Kernel(KernelError::Type));
+                                };
+                                let Some(callee) = program.functions.get(closure.function).cloned()
+                                else {
+                                    return Err(MachineError::Invalid(
+                                        VerifyError::UnknownFunction {
+                                            function: closure.function,
+                                        },
+                                    ));
+                                };
+                                let mut passed = closure.captures;
+                                passed.extend(arguments);
+                                (callee, passed)
+                            }
+                            Value::BoundMethod(bound) => {
+                                let (class, receiver) = match bound.receiver() {
+                                    BoundReceiver::Object(object) => (
+                                        self.runtime
+                                            .class_of(object)
+                                            .map_err(MachineError::Construction)?,
+                                        Value::Object(object),
+                                    ),
+                                    BoundReceiver::Class(class) => (class, Value::Class(class)),
+                                };
+                                self.runtime
+                                    .registry()
+                                    .validate_method_binding(class, bound.method())
+                                    .map_err(ConstructionError::from)
+                                    .map_err(MachineError::Construction)?;
+                                let function = usize::try_from(bound.method().body().raw())
+                                    .map_err(|_| {
+                                        MachineError::Invalid(VerifyError::UnknownFunction {
+                                            function: usize::MAX,
+                                        })
+                                    })?;
+                                let Some(callee) = program.functions.get(function).cloned() else {
+                                    return Err(MachineError::Invalid(
+                                        VerifyError::UnknownFunction { function },
+                                    ));
+                                };
+                                let mut passed = Vec::with_capacity(arguments.len() + 1);
+                                passed.push(receiver);
+                                passed.extend(arguments);
+                                (callee, passed)
+                            }
+                            receiver => {
+                                let value = self.send(selector, receiver, &arguments)?;
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = value;
+                                }
+                                continue;
+                            }
                         };
-                        let Some(callee) = program.functions.get(closure.function).cloned() else {
-                            return Err(MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: closure.function,
-                            }));
-                        };
-                        if arguments.len() + closure.captures.len() != callee.parameters {
+                        if passed.len() != callee.parameters {
                             return Err(MachineError::Kernel(KernelError::Arity));
                         }
-                        let mut passed = closure.captures;
-                        passed.extend(arguments);
                         let returned = run_frame!('frame, self.run_body(
                             &callee.instructions,
                             callee.registers,
@@ -997,6 +1097,48 @@ impl Machine {
             _ => Err(MachineError::UnknownSelector("[]".to_owned())),
         }
     }
+
+    fn set_index(
+        &self,
+        receiver: Value,
+        index: Value,
+        value: Value,
+    ) -> Result<Value, MachineError> {
+        match receiver {
+            Value::Array(values) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                // The reference answers nil for an out-of-range READ and
+                // raises for an out-of-range WRITE, because a write has no
+                // position to store into. Discarding it silently would leave
+                // the program believing the element was stored.
+                let Some(index) = resolve_index(&index, values.len()) else {
+                    return Err(MachineError::IndexError);
+                };
+                let mut stored = false;
+                values.mutate(|elements| {
+                    if let Some(slot) = elements.get_mut(index) {
+                        *slot = value.clone();
+                        stored = true;
+                    }
+                });
+                if stored {
+                    Ok(value)
+                } else {
+                    Err(MachineError::IndexError)
+                }
+            }
+            Value::Hash(entries) => {
+                iris_runtime::public_hash(&index)
+                    .map_err(KernelError::StableHash)
+                    .map_err(MachineError::Kernel)?;
+                entries.insert(index, value.clone());
+                Ok(value)
+            }
+            _ => Err(MachineError::UnknownSelector("[]=".to_owned())),
+        }
+    }
 }
 
 fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<usize> {
@@ -1046,6 +1188,7 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                 .filter_map(|instruction| match instruction {
                     Instruction::Send { selector, .. }
                     | Instruction::SendClass { selector, .. }
+                    | Instruction::BindMember { selector, .. }
                     | Instruction::GetIvar { name: selector, .. }
                     | Instruction::SetIvar { name: selector, .. } => Some(selector.as_str()),
                     _ => None,
