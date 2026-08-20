@@ -4100,3 +4100,50 @@ fn a_bare_print_call_reaches_the_source_runtime() {
     // name, and answered NameError - so a script could produce no output.
     assert_eq!(evaluate("print(1 + 2)"), Ok(RuntimeValue::Nil));
 }
+
+#[test]
+fn a_top_level_collection_frees_only_unreachable_objects() {
+    // `D-111` keeps an identity hash stable across movement BY GC, which is
+    // only observable once something can actually die.
+    //
+    // The bound object is reachable and the anonymous one is not, so exactly
+    // one is freed and the survivor keeps its hash across the move.
+    assert_eq!(
+        evaluate(
+            "class A { } let keep = A.new(); let dropped = A.new(); \
+             let before = keep.hash(); \
+             let released = dropped.hash(); \
+             let discarded = A.new().hash(); \
+             let freed = NativeFixture.compact_gc(); \
+             [freed, before == keep.hash(), released == dropped.hash()]"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Bool(true),
+        ])))
+    );
+
+    // Control: with BOTH objects bound, nothing is unreachable and nothing is
+    // freed. Without this the count above could mean the collector frees
+    // indiscriminately.
+    assert_eq!(
+        evaluate("class A { } let a = A.new(); let b = A.new(); NativeFixture.compact_gc()"),
+        Ok(RuntimeValue::Integer(0_u8.into()))
+    );
+}
+
+#[test]
+fn collection_refuses_where_the_root_set_is_incomplete() {
+    // Local bindings are threaded through evaluation as a parameter rather
+    // than owned by the evaluator, so a caller's locals sit on the Rust stack
+    // and cannot be enumerated. Freeing there would free LIVE objects, so a
+    // collection inside a method body refuses rather than corrupting the heap.
+    assert_eq!(
+        evaluate(
+            "class A { } module M { public fun run() -> Object { \
+               NativeFixture.compact_gc() } } M.run()"
+        ),
+        Err(EvaluationError::UnsupportedConstruct)
+    );
+}

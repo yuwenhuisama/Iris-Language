@@ -176,25 +176,33 @@ mod tests {
 
     #[test]
     fn runtime_non_executable_record_never_passes() -> Result<(), String> {
-        // Given
+        // Given a record the corpus marks as needing a subsystem
         let corpus = Corpus::workspace()?;
-        let records = corpus.runtime_records()?;
+        let mut records = corpus.runtime_records()?;
+        let held = records
+            .first_mut()
+            .ok_or("the RUNTIME corpus has no records")?;
+        held.tags = vec!["bucket:needs-subsystem".to_owned()];
+        let held_id = held.id.clone();
 
         // When
         let outcomes = super::execute_runtime(&records);
 
-        // Then: a row the corpus marks non-executable is REPORTED as such
-        // rather than being run and counted as a pass. V079 is the example
-        // because it needs the compacting-GC subsystem, which no re-spelling
-        // can supply; V064 previously stood here and is now executable, so
-        // naming it would have pinned this test to a stale corpus state
-        // rather than to the property it checks.
-        assert!(matches!(
-            outcomes
-                .iter()
-                .find(|outcome| outcome.id() == "IRIS-V1-RUNTIME-V079"),
-            Some(Outcome::NeedsSubsystem { .. })
-        ));
+        // Then it is REPORTED as held rather than run and counted as a pass.
+        //
+        // The record is marked HERE rather than naming a row that happens to
+        // be held today. V064 stood in that position once and became
+        // executable; V079 then did the same, each time failing this test for
+        // a corpus change rather than a defect. Reading a marked row's tag
+        // back would also be tautological, since the runner branches on that
+        // same tag - so the mark is injected and the REPORTING is observed.
+        let actual = outcomes
+            .iter()
+            .find(|outcome| outcome.id() == held_id)
+            .ok_or_else(|| format!("{held_id} was not reported at all"))?;
+        if !matches!(actual, Outcome::NeedsSubsystem { .. }) {
+            return Err(format!("{held_id} was reported as {actual:?}"));
+        }
         Ok(())
     }
 

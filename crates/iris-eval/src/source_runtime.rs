@@ -942,6 +942,76 @@ impl SourceEvaluator {
         }
     }
 
+    /// Collects unreachable objects, answering how many were FREED.
+    ///
+    /// `D-111` keeps an identity hash stable across movement by GC, which is
+    /// only observable once something can actually die.
+    ///
+    /// Collection needs the COMPLETE root set. Local bindings are a
+    /// `&HashMap<String, Value>` threaded through evaluation rather than
+    /// evaluator-owned state, so a caller's locals live on the Rust stack and
+    /// cannot be enumerated from here. Freeing while a caller frame exists
+    /// would therefore free live objects, and this refuses instead: an
+    /// `UnsupportedConstruct` is a far better outcome than a silently
+    /// corrupted heap.
+    fn collect_garbage(&mut self) -> Result<usize, EvaluationError> {
+        if self.invocation_depth > 0 || self.closure_depth > 0 || self.async_depth > 0 {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
+        let mut roots: Vec<Value> = Vec::new();
+        for binding in self.names.values().chain(self.globals.values()) {
+            roots.push(binding.value.clone());
+        }
+        roots.extend(self.module_constants.values().cloned());
+        roots.extend(self.imported_names.values().cloned());
+        roots.extend(self.event_errors.iter().cloned());
+        roots.extend(self.discarded_contexts.iter().cloned());
+        roots.extend(self.committed_targets.values().flatten().cloned());
+        roots.extend(
+            self.unobserved_failures
+                .iter()
+                .map(|(_, value)| value.clone()),
+        );
+        roots.extend(self.gates.values().flatten().cloned());
+        roots.extend(self.replaying.iter().flatten().cloned());
+        roots.extend(
+            self.tasks
+                .values()
+                .filter_map(|task| task.as_ref().ok())
+                .cloned(),
+        );
+        roots.extend(self.active_exception.iter().cloned());
+        roots.extend(self.active_context.iter().cloned());
+        // A live cursor retains its source, and a Closure keeps its captured
+        // environment and receiver alive, so both are roots.
+        for cursor in self.array_iterators.values() {
+            roots.extend(cursor.values.clone().map(Value::Array));
+        }
+        for cursor in self.hash_iterators.values() {
+            roots.push(Value::Hash(cursor.entries.clone()));
+            roots.extend(cursor.keys.iter().cloned());
+            roots.extend(cursor.yielded.iter().cloned());
+        }
+        for cursor in self.byte_iterators.values() {
+            roots.extend(cursor.values.iter().cloned());
+        }
+        for record in self.closures.values() {
+            roots.extend(record.captured.values().cloned());
+            roots.extend(record.receiver.iter().cloned());
+        }
+        for body in self.generators.values() {
+            roots.extend(body.locals.values().cloned());
+            roots.extend(body.receiver.iter().cloned());
+        }
+        for task in self.suspended.values() {
+            roots.extend(task.locals.values().cloned());
+            roots.extend(task.receiver.iter().cloned());
+            roots.extend(task.delivered.iter().cloned());
+        }
+        let (freed, _) = self.runtime.collect_garbage(roots.iter());
+        Ok(freed)
+    }
+
     /// Records the source text backing the next program.
     ///
     /// A diagnostic quotes the offending source, so a session must refresh it
@@ -8748,9 +8818,8 @@ impl SourceEvaluator {
                 if !arguments.is_empty() {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 }
-                let moved = self.runtime.compact_heap();
                 Ok(Value::Integer(iris_runtime::IntegerValue::from(
-                    u64::try_from(moved).unwrap_or(u64::MAX),
+                    u64::try_from(self.collect_garbage()?).unwrap_or(u64::MAX),
                 )))
             }
             // C060 describes what a correctly synchronized observer receives
