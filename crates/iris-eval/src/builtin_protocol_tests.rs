@@ -3392,6 +3392,38 @@ fn c097_advances_the_active_revision_by_one_per_commit() {
 }
 
 #[test]
+fn c017_advances_the_revision_for_a_declarative_reopen() {
+    // C017 numbers the origin 1 and gives the next per-Class integer to each
+    // successful structural PUBLICATION. A DECLARATIVE `open class` is such a
+    // publication, but it was sealed as an origin instead: the members were
+    // installed and callable while `active_revision` stayed at 1, so a
+    // committed reopen was invisible to the revision audit C022 requires.
+    //
+    // The programmatic `B.open()` form already advanced correctly, which is
+    // what makes the two spellings' disagreement the bug rather than the
+    // number itself.
+    let declarative = "class B { } let before = B.active_revision; \
+                       open class B { public fun a() -> Integer { 7 } } \
+                       [B.active_revision - before, B.new().a()]";
+    assert!(
+        rendered(declarative).ends_with("Integer(IntegerValue(1)), Integer(IntegerValue(7))])")
+    );
+
+    // Control: a Class with no reopen at all stays on its origin, so this
+    // pins the ADVANCE to the reopen rather than to any evaluation.
+    let untouched = "class B { } let before = B.active_revision; B.active_revision - before";
+    assert_eq!(rendered(untouched), "Integer(IntegerValue(0))");
+
+    // Control: two reopens advance twice, so the number tracks publications
+    // rather than merely becoming non-zero once.
+    let twice = "class B { } let before = B.active_revision; \
+                 open class B { public fun a() -> Integer { 1 } } \
+                 open class B { public fun b() -> Integer { 2 } } \
+                 B.active_revision - before";
+    assert_eq!(rendered(twice), "Integer(IntegerValue(2))");
+}
+
+#[test]
 fn c098_reports_a_visible_slot_without_consulting_method_missing() {
     // IRIS-V1-META-C098 makes `respond_to?` report actual visible ordinary
     // slots on the receiver's current active ordinary MRO, and it MUST NOT

@@ -1405,12 +1405,27 @@ impl SourceEvaluator {
         // members are installed outside this transaction model.
         let transactional = !builtin;
         if transactional {
-            // Joins the origin candidate staged above when present, so the
-            // body's members seal into the origin revision.
-            self.runtime
-                .registry_mut()
-                .begin_origin_transaction(class)
-                .map_err(EvaluationError::Class)?;
+            if declaration.reopen {
+                // C017 numbers the origin 1 and gives the next per-Class
+                // integer to each successful structural PUBLICATION. A reopen
+                // is a publication ON TOP of the origin, not part of it, so it
+                // must take the ordinary path that advances the number.
+                //
+                // Sealing it as an origin instead installed the members while
+                // leaving `active_revision` at 1, so a committed `open class`
+                // was invisible to the revision audit C022 requires.
+                self.runtime
+                    .registry_mut()
+                    .begin_transaction(class)
+                    .map_err(EvaluationError::Class)?;
+            } else {
+                // Joins the origin candidate staged above when present, so the
+                // body's members seal into the origin revision.
+                self.runtime
+                    .registry_mut()
+                    .begin_origin_transaction(class)
+                    .map_err(EvaluationError::Class)?;
+            }
         }
         let outcome = self
             .class_body(class, builtin, declaration)
@@ -1420,11 +1435,19 @@ impl SourceEvaluator {
             .and_then(|()| self.validate_candidate_contracts(class));
         if transactional {
             match &outcome {
-                Ok(()) => self
-                    .runtime
-                    .registry_mut()
-                    .commit_origin_transaction(class)
-                    .map_err(EvaluationError::Class)?,
+                Ok(()) => {
+                    if declaration.reopen {
+                        self.runtime
+                            .registry_mut()
+                            .commit_transaction(class)
+                            .map_err(EvaluationError::Class)?;
+                    } else {
+                        self.runtime
+                            .registry_mut()
+                            .commit_origin_transaction(class)
+                            .map_err(EvaluationError::Class)?;
+                    }
+                }
                 // C034 rolls the candidate back on exception, validation error
                 // or capability denial and publishes nothing.
                 Err(_) => self.runtime.registry_mut().roll_back_transaction(class),
