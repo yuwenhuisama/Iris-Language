@@ -18,6 +18,30 @@ pub enum Instruction {
     Binary(&'static str),
     /// Sends a native unary selector to the topmost value.
     Unary(&'static str),
+    /// Sends a native zero-argument selector to the topmost value.
+    Nullary(&'static str),
+    /// Pushes a Bool.
+    PushBool(bool),
+    /// Pushes nil.
+    PushNil,
+    /// Builds an Array from the topmost `count` values, in source order.
+    BuildArray(usize),
+    /// Builds a float of the given width from the topmost Integer's bits.
+    ///
+    /// `IRIS-V1-RUNTIME-C113` fixes the accepted range per width and requires
+    /// `RangeError` outside it, and `C114` requires `from_bits(b).to_bits()`
+    /// to round-trip every pattern INCLUDING signaling NaN, so the width is
+    /// carried explicitly rather than inferred from the value.
+    FromBits(FloatWidth),
+}
+
+/// Which IEEE interchange width a `from_bits` names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FloatWidth {
+    /// IEEE-754 binary32.
+    Bits32,
+    /// IEEE-754 binary64.
+    Bits64,
 }
 
 /// A compiled program.
@@ -73,6 +97,11 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
 fn lower(expression: &Expression, instructions: &mut Vec<Instruction>) -> Result<(), CompileError> {
     match expression {
         Expression::Literal(text) => lower_literal(text, instructions),
+        // As a RECEIVER these keyword values arrive as a Name rather than a
+        // Literal, so `nil.hash()` reached this backend as an unresolved name.
+        Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
+            lower_literal(name, instructions)
+        }
         Expression::Grouped(inner) => lower(inner, instructions),
         Expression::Binary {
             left,
@@ -87,7 +116,10 @@ fn lower(expression: &Expression, instructions: &mut Vec<Instruction>) -> Result
         }
         Expression::Unary { operator, operand } => {
             let selector = match operator {
-                UnaryOperator::Negate => "-@",
+                // The runtime spells this `negate`; `-@` is not a native
+                // selector, so emitting it produced a machine defect rather
+                // than the RangeError the interpreter answers.
+                UnaryOperator::Negate => "negate",
                 UnaryOperator::Not => return Err(CompileError::new("unary not")),
                 other => return Err(CompileError::new(format!("unary {other:?}"))),
             };
@@ -95,8 +127,62 @@ fn lower(expression: &Expression, instructions: &mut Vec<Instruction>) -> Result
             instructions.push(Instruction::Unary(selector));
             Ok(())
         }
+        // An Array literal is a pure aggregate of its elements, so it needs
+        // no frames: each element is lowered in source order and collected.
+        Expression::Array(elements) => {
+            for element in elements {
+                lower(element, instructions)?;
+            }
+            instructions.push(Instruction::BuildArray(elements.len()));
+            Ok(())
+        }
+        // `Float32.from_bits(bits)` and `value.to_bits()` are the two call
+        // shapes RUNTIME-V066 needs. Only these are covered: a general call
+        // needs frames and user Methods this subset does not have.
+        Expression::Call {
+            callee, arguments, ..
+        } => lower_call(callee, arguments, instructions),
         other => Err(CompileError::new(construct_name(other))),
     }
+}
+
+fn lower_call(
+    callee: &Expression,
+    arguments: &[Expression],
+    instructions: &mut Vec<Instruction>,
+) -> Result<(), CompileError> {
+    let Expression::Member { receiver, selector } = callee else {
+        return Err(CompileError::new("call"));
+    };
+    if let Expression::Name(name) = receiver.as_ref()
+        && selector == "from_bits"
+    {
+        let width = match name.as_str() {
+            "Float32" => FloatWidth::Bits32,
+            "Float64" => FloatWidth::Bits64,
+            _ => return Err(CompileError::new("call")),
+        };
+        let [bits] = arguments else {
+            return Err(CompileError::new("from_bits arity"));
+        };
+        lower(bits, instructions)?;
+        instructions.push(Instruction::FromBits(width));
+        return Ok(());
+    }
+    // `IRIS-V1-RUNTIME-C146` fixes the public hash of each numeric and
+    // singleton value, and `V073` compares those across backends.
+    if arguments.is_empty()
+        && let Some(native) = match selector.as_str() {
+            "to_bits" => Some("to_bits"),
+            "hash" => Some("hash"),
+            _ => None,
+        }
+    {
+        lower(receiver, instructions)?;
+        instructions.push(Instruction::Nullary(native));
+        return Ok(());
+    }
+    Err(CompileError::new("call"))
 }
 
 /// Lowers a literal by RE-LEXING its text.
@@ -107,6 +193,20 @@ fn lower(expression: &Expression, instructions: &mut Vec<Instruction>) -> Result
 /// second literal implementation, and a differential row would then be
 /// comparing this backend's literal rules against the lexer's.
 fn lower_literal(text: &str, instructions: &mut Vec<Instruction>) -> Result<(), CompileError> {
+    // The parser keeps these keyword values as literal TEXT, and the lexer
+    // does not convert them, so they are recognised here rather than being
+    // rejected as an unconvertible literal.
+    match text {
+        "nil" => {
+            instructions.push(Instruction::PushNil);
+            return Ok(());
+        }
+        "true" | "false" => {
+            instructions.push(Instruction::PushBool(text == "true"));
+            return Ok(());
+        }
+        _ => {}
+    }
     let conversion = iris_lexer::convert_literals(text);
     if !conversion.diagnostics().is_empty() {
         return Err(CompileError::new("rejected literal"));

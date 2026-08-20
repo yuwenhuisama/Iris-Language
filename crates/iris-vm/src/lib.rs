@@ -21,5 +21,5 @@
 mod compile;
 mod machine;
 
-pub use compile::{CompileError, Program, compile};
+pub use compile::{CompileError, FloatWidth, Program, compile};
 pub use machine::{Machine, MachineError, run};

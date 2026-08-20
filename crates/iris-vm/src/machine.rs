@@ -1,8 +1,8 @@
 //! Executes compiled instructions.
 
-use iris_runtime::{ClassRegistry, Kernel, KernelError, NativeSelector, Value};
+use iris_runtime::{ClassRegistry, Kernel, KernelError, NativeSelector, NumericError, Value};
 
-use crate::compile::{Instruction, Program};
+use crate::compile::{FloatWidth, Instruction, Program};
 
 /// Why execution stopped.
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +68,50 @@ impl Machine {
                         return Err(MachineError::StackUnderflow);
                     };
                     stack.push(self.send(selector, left, &[right])?);
+                }
+                // C113 fixes the accepted range per WIDTH and requires
+                // RangeError outside it; C114 requires the round trip to hold
+                // for every pattern including signaling NaN, so the bits are
+                // reinterpreted rather than converted numerically.
+                Instruction::FromBits(width) => {
+                    let Some(Value::Integer(bits)) = stack.pop() else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    // C113 raises RangeError for a negative or oversized
+                    // value, which the runtime spells `Numeric(Range)`. The
+                    // interpreter answers exactly that, and a differential row
+                    // compares the two, so this must not invent its own error.
+                    let Some(bits) = bits.to_u64() else {
+                        return Err(MachineError::Kernel(KernelError::Numeric(
+                            NumericError::Range,
+                        )));
+                    };
+                    stack.push(match width {
+                        FloatWidth::Bits32 => {
+                            let Ok(bits) = u32::try_from(bits) else {
+                                return Err(MachineError::Kernel(KernelError::Numeric(
+                                    NumericError::Range,
+                                )));
+                            };
+                            Value::Float32(f32::from_bits(bits))
+                        }
+                        FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
+                    });
+                }
+                Instruction::PushBool(flag) => stack.push(Value::Bool(*flag)),
+                Instruction::PushNil => stack.push(Value::Nil),
+                Instruction::BuildArray(count) => {
+                    if stack.len() < *count {
+                        return Err(MachineError::StackUnderflow);
+                    }
+                    let elements = stack.split_off(stack.len() - count);
+                    stack.push(Value::Array(iris_runtime::ArrayRef::new(elements)));
+                }
+                Instruction::Nullary(selector) => {
+                    let Some(receiver) = stack.pop() else {
+                        return Err(MachineError::StackUnderflow);
+                    };
+                    stack.push(self.send(selector, receiver, &[])?);
                 }
                 Instruction::Unary(selector) => {
                     let Some(operand) = stack.pop() else {

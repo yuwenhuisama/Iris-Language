@@ -418,10 +418,12 @@ mod differential_tests {
         };
         assert_eq!(reason, "call");
 
-        let Support::Unsupported(reason) = bytecode.execute("[1, 2]") else {
-            unreachable!("this backend covers no arrays yet")
+        // An Array literal IS covered now, so a construct that genuinely is
+        // not stands in: a closure needs frames this subset does not have.
+        let Support::Unsupported(reason) = bytecode.execute("{ |x|; x }") else {
+            unreachable!("this backend covers no closures yet")
         };
-        assert_eq!(reason, "array");
+        assert_eq!(reason, "closure");
 
         // A declined construct leaves the comparison INSUFFICIENT, so a row
         // relying on it stays held rather than passing on one backend.
@@ -465,5 +467,87 @@ mod differential_tests {
             observation,
             Observation::Value(format!("f64:{:#x}", (0.1_f64 + 0.2_f64).to_bits()))
         );
+    }
+
+    /// `IRIS-V1-RUNTIME-V066`: the exact IEEE-754 result bits of a Float32
+    /// multiply, which both backends must reach identically. Comparing by BITS
+    /// is what makes a one-ulp divergence detectable at all.
+    #[test]
+    fn backends_agree_on_exact_float32_result_bits() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let Agreement::Agreed { observation, .. } = compare_backends(
+            "(Float32.from_bits(0x3f800001) * Float32.from_bits(0x3f800001)).to_bits()",
+            &backends,
+        ) else {
+            unreachable!("both backends run Float32 arithmetic")
+        };
+
+        // 0x3f800001 squared is 0x3f800002 under roundTiesToEven.
+        assert_eq!(observation, Observation::Value("1065353218".to_owned()));
+    }
+
+    /// `C114` requires `from_bits(b).to_bits() == b` for EVERY interchange
+    /// pattern including signaling NaN, which must not be quieted in transit.
+    #[test]
+    fn backends_agree_on_the_signaling_nan_round_trip() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let Agreement::Agreed { observation, .. } =
+            compare_backends("Float32.from_bits(0x7f800001).to_bits()", &backends)
+        else {
+            unreachable!("both backends round-trip a signaling NaN")
+        };
+        assert_eq!(observation, Observation::Value("2139095041".to_owned()));
+    }
+
+    /// `C113` requires RangeError outside a width's range. The bytecode
+    /// backend must answer the SAME error, not invent its own.
+    #[test]
+    fn backends_agree_on_an_out_of_range_from_bits() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for source in [
+            "Float32.from_bits(-1).to_bits()",
+            "Float32.from_bits(4294967296).to_bits()",
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends reject an out-of-range width")
+            };
+            assert_eq!(
+                observation,
+                Observation::Error("Runtime(Numeric(Range))".to_owned())
+            );
+        }
+    }
+
+    /// `IRIS-V1-RUNTIME-V073`: the exact C146 public hashes agree across
+    /// backends. The values are pinned against the NORMATIVE table in C146,
+    /// so agreement on a wrong number would still fail.
+    #[test]
+    fn backends_agree_on_the_normative_public_hashes() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        // C146 rows V001, V008, V009, V010.
+        for (source, expected) in [
+            ("(0).hash()", "4379003086384345280"),
+            ("Float64.from_bits(0).hash()", "4379003086384345280"),
+            ("nil.hash()", "11850167709044604115"),
+            ("false.hash()", "17921396551637717540"),
+            ("true.hash()", "14186115676603356736"),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends compute a public hash")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
     }
 }
