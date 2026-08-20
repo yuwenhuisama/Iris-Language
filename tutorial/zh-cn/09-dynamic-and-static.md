@@ -69,6 +69,19 @@ class Tool meta deny superclass, native {
 
 v1 capability 名称包括 `method_set`、`method_body`、`property_set`、`property_body`、`modules`、`superclass`、`subclass`、`shape`、`class_state_set`、`class_state_write`、`instance_state` 和 `native`。未知的 `meta deny` 名称是错误。否定一个 capability 不会静默否定所有其他 capabilities。
 
+## 导入显式命名包
+
+导入路径要么命名当前包内的 Module，要么用 `pkg::Module` 跨越包边界，其中 package 段是反向域名形式的 `package_id`。没有通配导入，也没有运行时字符串导入。
+
+```iris
+import org.dep::Codec
+from org.dep::Codec import encode, decode
+
+override import org.dep::Codec
+```
+
+`import` 或 `from` 前可选的 `override` marker 会授权被导入扩展贡献的兼容替换。它绝不授权签名或静态 Contract 不兼容，并且未标记的替换仍会被拒绝。该 marker 位于整个 import 上，不位于单个名称上。
+
 ## 装饰器转换候选
 
 装饰器附加到声明，并转换声明候选元数据。多个装饰器按从上到下运行。它们不会把 Class 改成 Module，不会替换名义身份，不会重写包身份，也不会绕过 MetaCapabilities。
@@ -81,19 +94,49 @@ public fun total() -> Integer {
 }
 ```
 
-这复用自 `IRIS-V1-META-EX005`。声明式装饰器有确定性的静态规划阶段，也有在声明候选事务内运行的运行时转换。依赖运行时或条件式的 decoration 在新的静态制品声明它之前，只是动态可见。
+这复用自 `IRIS-V1-META-EX005`。装饰器用 `@Name(arguments)` 应用于 Class、Module、Contract、Method 或 property 声明之前，名称也可以限定，例如 `@D::Stamp()`，以到达另一个 Module 中声明的装饰器。
+
+装饰器是普通 Class，它为五个 Decorator Contracts 之一声明 `for`，每种目标 kind 一个：`ClassDecorator`、`ModuleDecorator`、`ContractDecorator`、`MethodDecorator` 和 `PropertyDecorator`。每个都恰好要求两个 members，符合的装饰器即使只参与一个阶段，也要同时声明二者。
+
+```iris
+class Stamp for MethodDecorator {
+  impl fun plan(declaration: MethodDeclaration, arguments: Array<Object>) -> Plan {
+    Plan.empty
+  }
+
+  impl fun transform(
+    declaration: MethodDeclaration,
+    arguments: Array<Object>,
+    context: TransformContext
+  ) -> Transformation {
+    Transformation.add_method(:stamped) { |self: Object| -> Symbol; :stamped }
+  }
+}
+```
+
+`plan` 是静态阶段：纯、确定，并且受限于输入白名单。读取任何白名单之外的内容都是 phase static 的 `IRIS-DECORATOR-NONDETERMINISTIC`，不会发生运行时 transform 或目标发布。`transform` 是运行时阶段，在声明的候选事务内运行；它接收受控 transform context，并返回同 kind 的 `Transformation`，而不是改变 candidate handle。`kind` 不同于被装饰目标的 `Transformation` 是 `IRIS-DECORATOR-KIND`，目标不保留任何候选或 revision。
+
+`Plan.empty` 和 `Transformation.empty` 是无贡献值。`Transformation.add_method(selector, body)` 暂存一个 Method，并需要与手写声明相同的 `method_set` capability。对已应用装饰器的反射会把生成的 diff 显示为不可变的按权限过滤视图，绝不是可变 handle。
 
 ## ReflectionPolicy，不是 reflection tokens
 
-Reflection 返回按权限过滤的不可变元数据视图。它不会交出原始可变表，也不会提供 eval-string mutation。结构性变更仍然要经过 open 或 meta 事务。
+Reflection 返回按权限过滤的不可变元数据视图。它不会交出原始可变表，也不会提供 eval-string mutation。结构性变更仍然要经过 open 或 meta 事务。操作按目标 kind 位于 `Reflection::*` sub-Modules 中。
 
 ```iris
-let names = Reflection.list_ivars(object)
-let old = Reflection.get_ivar(object, :@cache)
-Reflection.set_ivar(object, :@cache, compute())
+let names = Reflection::Object.list_ivars(object)
+let old = Reflection::Object.get_ivar(object, :@cache)
+Reflection::Object.set_ivar(object, :@cache, compute())
+
+let reader = Reflection::Class.method(Tool, :status)
+let ancestry = Reflection::Class.ancestors(Tool)
 ```
 
-这段代码复用自 `IRIS-V1-META-EX004`。Reflection 授权来自 `ReflectionPolicy`：caller package、operation、granted scope、target identity 和 target policies。Iris v1 没有一等 reflection capability token。
+这段代码改编自 `IRIS-V1-META-EX004`。`Reflection::Class` 还携带 `invoke`、`remove_module`、`set_superclass` 和总是被拒绝的 `remove_contract`；`Reflection::Module` 携带 Module 侧的 `method` 和 `invoke`。找不到内容的 lookup 返回 `nil`。检查操作需要 `inspect`，变更操作需要 `mutate`。
+
+这些通过 mixin 编织进 `Class` 和 `Module`，所以 `Tool.remove_module(M)` 和 `Reflection::Class.remove_module(Tool, M)` 是同一实现的两个入口点。
+
+Reflection 授权来自 `ReflectionPolicy`：caller package、operation、granted scope、target identity 和 target policies。Iris v1 没有一等 reflection capability token。
+
 
 ## 为什么有界动态重要
 
@@ -121,4 +164,6 @@ Reflection.set_ivar(object, :@cache, compute())
 | `IRIS-V1-META-C044` through `IRIS-V1-META-C052` | 静态与动态成员可见性，以及没有 overload dispatch。 |
 | `IRIS-V1-META-C072` through `IRIS-V1-META-C084` | MetaCapabilities 和 operation checks。 |
 | `IRIS-V1-META-C085` through `IRIS-V1-META-C094` | 装饰器阶段和限制。 |
+| `IRIS-V1-META-C118` through `IRIS-V1-META-C126` | `Reflection::*` surfaces、Decorator Contracts、`Plan` 和 `Transformation`。 |
+| `IRIS-V1-GRAMMAR-C068` and `IRIS-V1-GRAMMAR-C069` | 包限定导入路径和 `override` import marker。 |
 | `IRIS-V1-META-C095` through `IRIS-V1-META-C112` | ReflectionPolicy 和 reflection views。 |

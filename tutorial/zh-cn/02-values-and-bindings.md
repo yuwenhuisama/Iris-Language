@@ -1,6 +1,6 @@
 # 值与绑定
 
-本章讲解可以直接写在 Iris 源码中的基础数据，以及保存它们的局部绑定形式：`let`、`mut` 和 `const`。你会看到注解如何成为静态和运行时契约，为什么 `nil` 是真正的对象，以及真值性如何通过 `to_bool` 工作，而不是通过硬编码的条件规则。
+本章讲解可以直接写在 Iris 源码中的基础数据，以及保存它们的绑定形式：`let`、`mut`、`const` 和 `shared`。你会看到注解如何成为静态和运行时契约，为什么 `nil` 是真正的对象，以及真值性如何通过 `to_bool` 工作，而不是通过硬编码的条件规则。
 
 ```iris
 let name: String = "Iris"
@@ -23,6 +23,21 @@ let answer: Integer = 42
 mut state: Symbol = :ready
 const Version: Integer = 1
 ```
+
+## 共享和全局存储必须声明，不会凭空出现
+
+局部单元不是唯一的单元。Class 或 Module 主体可以在 `@@name` 上用 `shared let` 或 `shared mut` 声明锚定在层级上的存储，包可以在 `$name` 上用 `global let` 或 `global mut` 声明全局存储。两种形式都必须先声明后使用：如果没有声明创建过 `@@count` 或 `$count`，给它赋值会产生 `MISSING_DECLARED_STORAGE` 诊断，而不是隐式定义。
+
+```iris
+class Registry {
+  shared mut @@count: Integer = 0
+  shared let @@limit: Integer = 16
+
+  class fun record() -> Integer { @@count += 1 }
+}
+```
+
+`shared let` 创建不可变单元，`shared mut` 创建可赋值单元。该单元锚定到声明它的 Class 或 Module，所以子类不能遮蔽或重新声明它；重新声明会产生 `CLASS_VARIABLE_REDECLARATION` 诊断，祖先单元保持不变。
 
 ## 注解固定局部契约
 
@@ -105,6 +120,9 @@ if name != nil {
 - [`IRIS-V1-CONTROL-C003`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`let` 和 `mut` 绑定声明。
 - [`IRIS-V1-CONTROL-C004`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：确定赋值和延迟 `mut` 规则。
 - [`IRIS-V1-CONTROL-C005`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：绑定注解作为固定局部契约。
+- [`IRIS-V1-CONTROL-C009`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：对未声明 shared 或 global 存储的赋值会失败。
+- [`IRIS-V1-GRAMMAR-C059`](../../spec/iris-v1/02-lexical-grammar.md)：`shared let` 和 `shared mut` 声明形式。
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md)：shared 单元创建、不可变性和重复拒绝。
 - [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：通过 `to_bool` 的真值性。
 - [`IRIS-V1-TYPES-C011`](../../spec/iris-v1/05-types-contracts-generics.md)：`Nil` 和可 nil 性。
 - [`IRIS-V1-TYPES-C012`](../../spec/iris-v1/05-types-contracts-generics.md)：`T?` 即 `T | Nil`。

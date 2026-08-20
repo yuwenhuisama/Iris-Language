@@ -46,6 +46,9 @@ result  // "try value"
 
 This is reused from `IRIS-V1-CONTROL-EX011`. If `finally` raises, returns, breaks, or continues, it overrides the pending result or exception. When cleanup fails while another exception is already primary, the cleanup context is appended to the primary context's runtime-owned suppressed list.
 
+An `ExceptionContext` exposes structured propagation records rather than formatted strings. `SourceLocation` has `path`, one-based `line`, and one-based `column`. `StackFrame` has `callable_name` and `location`. `RaiseSite` records where one bare `raise` continued a propagation. All three compare and hash structurally, and none of them is user-constructible; `ExceptionContext` itself stays identity-based.
+
+
 ## Closeable and using
 
 The standard resource Contract is `Closeable`, with an ordinary `close() -> Nil` Method. It isn't magic syntax. The helper `using(resource) { ... }` runs the block, then closes the resource through `try/finally` equivalent control.
@@ -56,7 +59,7 @@ let text = using(File.open("data.txt")) { |file: File| -> String
 }
 ```
 
-This example is reused from `IRIS-V1-ASYNC-EX003`. It illustrates shape only. Because Iris has no implementation or standard library release, treat `File` here as a specified example surface, not something to open today.
+This example is reused from `IRIS-V1-ASYNC-EX003`. It illustrates shape only. Because Iris has no standard library release, treat `File` here as a specified example surface rather than something to open today.
 
 If the block completes and `close()` completes, the helper returns the block value. If the block raises and `close()` also raises, the block's context stays primary and the close context becomes suppressed. If the block completes but `close()` raises, the close failure becomes primary.
 
@@ -78,6 +81,8 @@ let name: String = await task
 ```
 
 This snippet is reused from `IRIS-V1-ASYNC-EX001`. An async no-result Method returns `Task<Nil>`, not a special empty-result form. Iris v1 has no cancellation semantics, no fire-and-forget signature, and no implicit blocking wait in Iris source.
+
+`await` binds tighter than every binary operator and looser than a postfix call, so `await f()` awaits the call's result rather than calling an awaited callee. Parenthesize when you mean something else.
 
 ```iris
 async fun value() -> Integer { 7 }
@@ -103,6 +108,8 @@ For exact rules, read [04-bindings-callables-control-flow.md](../../spec/iris-v1
 | Clause | Topic |
 | --- | --- |
 | `IRIS-V1-CONTROL-C055` through `IRIS-V1-CONTROL-C067` | `raise`, `catch`, `finally`, value rules, and `ExceptionContext`. |
+| `IRIS-V1-CONTROL-C079` | `SourceLocation`, `StackFrame`, and `RaiseSite` records. |
+| `IRIS-V1-GRAMMAR-C071` | `await` as a unary operator and its precedence. |
 | `IRIS-V1-ASYNC-C003` through `IRIS-V1-ASYNC-C010` | Async callable surface and `Task<T>` result typing. |
 | `IRIS-V1-ASYNC-C011` through `IRIS-V1-ASYNC-C019` | Single scheduler, suspension, and no implicit blocking wait. |
 | `IRIS-V1-ASYNC-C020` through `IRIS-V1-ASYNC-C029` | Task completion, failed Task propagation, and unobserved failure diagnostics. |

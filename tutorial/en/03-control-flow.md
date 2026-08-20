@@ -14,7 +14,7 @@ This snippet is reused from `IRIS-V1-CONTROL-EX009`.
 
 ## If expressions produce values
 
-`if` is value-producing. Each branch has its own lexical scope. The selected branch contributes its final expression, or `nil` if the selected body has no value-producing statement. If there is no `else` and the condition is false, the missing branch contributes `nil`.
+`if` is a real expression, not a statement with a value bolted on. It appears wherever a primary expression is allowed, including as a call argument or the right-hand side of an assignment. Each branch has its own lexical scope. The selected branch contributes its final expression, or `nil` if the selected body has no value-producing statement. If there is no `else` and the condition is false, the missing branch contributes `nil`.
 
 ```iris
 let status = if user.ready? {
@@ -22,6 +22,8 @@ let status = if user.ready? {
 } else {
   :waiting
 }
+
+print(if status == :ready { 1 } else { 0 })
 ```
 
 An `else if` chain is just an `else` followed by another `if`. Conditions evaluate once per test and must return an actual Bool from `to_bool`. Arbitrary truthiness doesn't narrow a type by itself, so use explicit checks when the following code depends on a narrower type.
@@ -64,13 +66,33 @@ outer: while keep_running {
 `for pattern in iterable` evaluates the iterable once and traverses it through the language iteration protocol. The loop body receives fresh immutable bindings for each iteration. That matters for Closures: an escaped Closure captures the cell for its own iteration, not one shared loop variable.
 
 ```iris
-mut callbacks: Array<() -> Integer> = []
+mut callbacks: Array<Closure<() -> Integer>> = []
 for value in 1 ..= 3 {
   callbacks.append({ || -> Integer; value })
 }
 ```
 
 This snippet is adapted from `IRIS-V1-CONTROL-EX008`.
+
+## Generators yield a lazy iterator
+
+A callable whose body contains `yield` is a generator. Invoking it does not run the body: it returns an `Iterator<T>`. Each `next()` resumes the body until the next `yield`, answering `Iteration.yield(value)`, and answers `Iteration.done` once the body completes. That is the same protocol `for` traverses, so a generator can drive a `for` loop directly.
+
+```iris
+fun counting(limit: Integer) -> Iterator<Integer> {
+  mut index = 0
+  while index < limit {
+    yield index
+    index += 1
+  }
+}
+
+for value in counting(3) {
+  print(value)
+}
+```
+
+`yield` sits at the same precedence as `await`, and like `await` it is forbidden inside an open or revision transaction body, because those bodies must not suspend.
 
 ## Match arms run in source order
 
@@ -84,7 +106,7 @@ let result = match item {
 }
 ```
 
-Patterns can match literals, `nil`, Bool values, nominal type tests with optional binding, alternatives, Tuple patterns, Array patterns, binding names, and `_`. A guard runs after the pattern shape succeeds and after provisional bindings exist. If the guard is false, those provisional bindings are discarded and matching continues.
+Patterns can match literals, `nil`, Bool values, nominal type tests with optional binding, alternatives, Tuple patterns, Array patterns, binding names, and `_`. Arms are separated by a newline or a comma, so a compact `match` fits on one line. A guard runs after the pattern shape succeeds and after provisional bindings exist. If the guard is false, those provisional bindings are discarded and matching continues.
 
 ```iris
 let kind = match pair {
@@ -116,3 +138,5 @@ This chapter simplifies these normative clauses:
 - [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `match` selection and fallback.
 - [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md): v1 pattern vocabulary.
 - [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md): match guards.
+- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md): `if` in expression position.
+- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md): `yield` and generator callables.

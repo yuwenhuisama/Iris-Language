@@ -1,18 +1,36 @@
 # 类与对象
 
-本章把对象模型放进代码。你会定义 Class，用 `fun` 附着 Method，使用 `@name` 原始实例变量，用 `self` 指代当前接收者，通过 `Type.new()` 构造实例，并区分身份和相等性。本章最后会指向 Module 和 Contract，它们是单一 Class 继承之后的下一组组合工具。
+本章把对象模型放进代码。你会定义 Class，用 `fun` 附着 Method，声明已存储属性，使用 `@name` 原始实例变量，用 `self` 指代当前接收者，通过 `Type.new()` 构造实例，并区分身份和相等性。本章最后会指向 Module 和 Contract，它们是单一 Class 继承之后的下一组组合工具。
 
 ```iris
 class Counter {
-  fun initialize() -> Nil { @value = 0 }
+  property value: Integer = 0
+
   fun add(delta: Integer) -> Integer { @value += delta }
-  fun value() -> Integer { @value }
 }
 
 let counter = Counter.new()
 ```
 
 这个片段改编自 `IRIS-V1-CONTROL-EX003`。
+
+## 已存储属性声明类型化槽位
+
+`property name: Type` 是已存储属性简写。它声明一个带有可选初始化器的类型化槽位，并生成访问器。生成的 getter 精确读取原始槽位 `@name`，生成的 setter 检查并写入同一个槽位；永远没有隐藏的第二个 backing field。访问器块可以收窄每个访问器的可见性。
+
+```iris
+class Account {
+  property owner: String
+  property balance: Integer = 0 {
+    get;
+    private set;
+  }
+}
+```
+
+改写为 `property fun` 会得到显式访问器形式，由你提供主体。把已存储属性的访问器替换为兼容的 `property fun` 只改变 Method 主体：它不会创建第二个槽位，并且只有在其主体这样写时才会触碰 `@name`。
+
+属性也可以通过 `class property` 或 `module property` 位于 Class 或 Module 级别，而 `shared class property` 属于未应用的泛型定义，不属于每个闭合构造。
 
 ## Class 是带有 new 消息的对象
 
@@ -38,6 +56,16 @@ class Named {
   fun initialize(name: String) -> Nil { @name = name }
   fun name() -> String { @name }
   fun rename(name: String) -> Nil { @name = name }
+}
+```
+
+Class 级别状态不同：它必须被声明。`shared mut @@name` 和 `shared let @@name` 会创建锚定到声明 Class 或 Module 的单元，子类不能 shadow 或重新声明它。
+
+```iris
+class Counter {
+  shared mut @@created: Integer = 0
+
+  class fun track() -> Integer { @@created += 1 }
 }
 ```
 
@@ -91,7 +119,7 @@ let before = counter.value
 let again = counter.value
 ```
 
-这个片段改编自 `spec-snippets.json` 中来自 `03-runtime-object-model.md` 的运行时示例。
+这个片段改编自 `spec-snippets.json` 中来自 `03-runtime-object-model.md` 的运行时示例。调用保留的 BoundMethod 会在进入时重新验证：如果 Method 的所有者不再位于接收者当前查找顺序中，调用会在主体运行前引发 `MethodBindingError`。
 
 ## Open Class 保持逻辑身份
 
@@ -106,6 +134,8 @@ open class Counter {
 
 let still_same_class = klass same? Counter
 ```
+
+现有实例保留它们已经拥有的任何存储。运行时永远不会遍历实时实例来升级它们，也永远不会替你调用迁移钩子。如果你的应用跟踪自己的对象，它可以实现并显式调用约定的 `migrate_revision(source: ClassRevision, target: ClassRevision) -> Nil`。
 
 ## 静态承诺，动态自由
 
@@ -130,3 +160,8 @@ Class 是动态的，因为它的活动修订可以通过授权的 open 操作�
 - [`IRIS-V1-RUNTIME-C066`](../../spec/iris-v1/03-runtime-object-model.md)：当前接收者上的原始 `@x` 存储。
 - [`IRIS-V1-RUNTIME-C081`](../../spec/iris-v1/03-runtime-object-model.md)：显式 `super(args...)`。
 - [`IRIS-V1-RUNTIME-C086`](../../spec/iris-v1/03-runtime-object-model.md)：带身份对象的默认相等性。
+- [`IRIS-V1-RUNTIME-C161`](../../spec/iris-v1/03-runtime-object-model.md)：已存储属性及其单个 backing slot。
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md)：`shared let` 和 `shared mut` Class 级单元。
+- [`IRIS-V1-RUNTIME-C164`](../../spec/iris-v1/03-runtime-object-model.md)：`migrate_revision(source, target)` 约定。
+- [`IRIS-V1-GRAMMAR-C058`](../../spec/iris-v1/02-lexical-grammar.md)：已存储属性简写和访问器块。
+- [`IRIS-V1-GRAMMAR-C064`](../../spec/iris-v1/02-lexical-grammar.md)：`class`、`module` 和 `shared` 属性声明。

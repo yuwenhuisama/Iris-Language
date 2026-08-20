@@ -1,18 +1,36 @@
 # Classes and Objects
 
-This chapter puts the object model into code. You'll define Classes, attach Methods with `fun`, use raw instance variables with `@name`, refer to the current receiver with `self`, construct instances with `Type.new()`, and distinguish identity from equality. The chapter ends by pointing toward Modules and Contracts, which are the next composition tools after single Class inheritance.
+This chapter puts the object model into code. You'll define Classes, attach Methods with `fun`, declare stored properties, use raw instance variables with `@name`, refer to the current receiver with `self`, construct instances with `Type.new()`, and distinguish identity from equality. The chapter ends by pointing toward Modules and Contracts, which are the next composition tools after single Class inheritance.
 
 ```iris
 class Counter {
-  fun initialize() -> Nil { @value = 0 }
+  property value: Integer = 0
+
   fun add(delta: Integer) -> Integer { @value += delta }
-  fun value() -> Integer { @value }
 }
 
 let counter = Counter.new()
 ```
 
 This snippet is adapted from `IRIS-V1-CONTROL-EX003`.
+
+## Stored properties declare typed slots
+
+`property name: Type` is the stored-property shorthand. It declares a typed slot with an optional initializer and generates accessors. The generated getter reads exactly the raw slot `@name`, and the generated setter checks and writes that same slot; there is never a hidden second backing field. An accessor block can narrow each accessor's visibility.
+
+```iris
+class Account {
+  property owner: String
+  property balance: Integer = 0 {
+    get;
+    private set;
+  }
+}
+```
+
+Writing `property fun` instead gives you the explicit accessor form, where you supply the body. Replacing a stored property's accessor with a compatible `property fun` changes only the Method body: it creates no second slot, and it touches `@name` only if its body says so.
+
+A property can also live at Class or Module level with `class property` or `module property`, and `shared class property` belongs to the unapplied generic definition rather than to each closed construction.
 
 ## Classes are objects with a new message
 
@@ -38,6 +56,16 @@ class Named {
   fun initialize(name: String) -> Nil { @name = name }
   fun name() -> String { @name }
   fun rename(name: String) -> Nil { @name = name }
+}
+```
+
+Class-level state is different: it must be declared. `shared mut @@name` and `shared let @@name` create a cell anchored to the declaring Class or Module, and a subclass cannot shadow or redeclare it.
+
+```iris
+class Counter {
+  shared mut @@created: Integer = 0
+
+  class fun track() -> Integer { @@created += 1 }
 }
 ```
 
@@ -91,7 +119,7 @@ let before = counter.value
 let again = counter.value
 ```
 
-This snippet is adapted from a runtime example in `spec-snippets.json` sourced from `03-runtime-object-model.md`.
+This snippet is adapted from a runtime example in `spec-snippets.json` sourced from `03-runtime-object-model.md`. Invoking a retained BoundMethod revalidates at entry: if the Method's owner is no longer in the receiver's current lookup order, the invocation raises `MethodBindingError` before the body runs.
 
 ## Open classes keep logical identity
 
@@ -106,6 +134,8 @@ open class Counter {
 
 let still_same_class = klass same? Counter
 ```
+
+Existing instances keep whatever storage they already have. The runtime never walks live instances to upgrade them, and it never calls a migration hook for you. If your application tracks its own objects, it may implement and explicitly invoke the conventional `migrate_revision(source: ClassRevision, target: ClassRevision) -> Nil`.
 
 ## Static promise, dynamic freedom
 
@@ -130,3 +160,8 @@ This chapter simplifies these normative clauses:
 - [`IRIS-V1-RUNTIME-C066`](../../spec/iris-v1/03-runtime-object-model.md): raw `@x` storage on the current receiver.
 - [`IRIS-V1-RUNTIME-C081`](../../spec/iris-v1/03-runtime-object-model.md): explicit `super(args...)`.
 - [`IRIS-V1-RUNTIME-C086`](../../spec/iris-v1/03-runtime-object-model.md): default equality for identity-bearing objects.
+- [`IRIS-V1-RUNTIME-C161`](../../spec/iris-v1/03-runtime-object-model.md): a stored property and its single backing slot.
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): `shared let` and `shared mut` class-level cells.
+- [`IRIS-V1-RUNTIME-C164`](../../spec/iris-v1/03-runtime-object-model.md): the `migrate_revision(source, target)` convention.
+- [`IRIS-V1-GRAMMAR-C058`](../../spec/iris-v1/02-lexical-grammar.md): stored-property shorthand and accessor blocks.
+- [`IRIS-V1-GRAMMAR-C064`](../../spec/iris-v1/02-lexical-grammar.md): `class`, `module`, and `shared` property declarations.

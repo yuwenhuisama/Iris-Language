@@ -1,22 +1,27 @@
 # What Iris Is
 
-This chapter gives you the mental model for Iris v1: every runtime value is an object, behavior is message sending, and dynamic behavior is bounded by static promises. Iris v1 is currently a frozen language specification only. There is no compiler, interpreter, REPL, playground, package manager, or standard library you can use to execute Iris programs. Treat every code block here as grammar-checked teaching material, not as something to run.
+This chapter gives you the mental model for Iris v1: every runtime value is an object, behavior is message sending, and dynamic behavior is bounded by static promises. The language itself is frozen, including the owner-approved errata through v1.33 that these chapters follow. The toolchain is not: the reference implementation under [`crates/`](../../crates/) runs a subset of the language, so some code blocks here execute today and others are teaching material.
+
+```bash
+cargo build -p iris-cli
+./target/debug/iris -e 'print(1 + 2)'
+```
 
 ```iris
 class Counter {
-  fun initialize() -> Nil { @value = 0 }
+  property value: Integer = 0
   fun add(delta: Integer) -> Integer { @value += delta }
 }
 
 let counter = Counter.new()
-let bound: (Integer) -> Integer = counter.add
+let bound: BoundMethod<(Integer) -> Integer> = counter.add
 ```
 
-This snippet is adapted from `IRIS-V1-CONTROL-EX003`.
+This snippet is adapted from `IRIS-V1-CONTROL-EX003`. Note the callable annotation: since the v1.11 errata, a callable Type always names its kind, so it is `BoundMethod<(Integer) -> Integer>` and not a bare `(Integer) -> Integer`.
 
 ## Every value is an object
 
-Iris is object-oriented at the root. `Counter` is a Class object. `Counter.new()` sends the `new` message to that Class object. `counter.add` reads an instance Method and produces a BoundMethod, which can be stored in a callable binding. There isn't a separate runtime category called Function for named `fun` declarations.
+Iris is object-oriented at the root. `Counter` is a Class object. `Counter.new()` sends the `new` message to that Class object. `counter.add` reads an instance Method and produces a BoundMethod, which can be stored in a callable binding and invoked with `bound.call(1)`. There isn't a separate runtime category called Function for named `fun` declarations.
 
 That is the first difference from many languages. Iris syntax may look familiar, but the semantics are message based. A method call, a property read, a named infix call, and most operators are all sends to a receiver.
 
@@ -67,6 +72,18 @@ Static facts constrain what must remain true. Dynamic behavior decides which cur
 ## Where the next chapters go
 
 This tutorial follows that split throughout. [Values and Bindings](02-values-and-bindings.md) starts with local names and literal values. [Control Flow](03-control-flow.md) shows that branches, loops, and matching are value-producing forms. [Functions, Closures, Blocks](04-callables-and-closures.md) explains the callable model. [Classes and Objects](05-classes-and-objects.md) returns to object identity, instance state, inheritance, and construction.
+
+## Try it
+
+The `iris` binary runs a file, a `-e` string, or an interactive session. The script runner deliberately does not print a script's final value; a program communicates through what it does. The interactive session does print values, because that is its purpose.
+
+```bash
+./target/debug/iris hello.iris
+./target/debug/iris -e 'print("hello")'
+./target/debug/iris                    # then :quit to leave
+```
+
+Whole chapters of the language are not implemented yet, so an example that raises `unsupported construct` is a gap in the implementation, not in the language.
 
 ## Read the spec
 

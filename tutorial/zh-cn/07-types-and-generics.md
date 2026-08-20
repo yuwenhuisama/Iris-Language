@@ -1,6 +1,6 @@
 # 渐进类型
 
-本章把 Iris 的类型层解释为一组承诺，而不是另一套执行模型。你可以不写注解，得到动态边界；也可以写注解，让 Iris 在能静态强制时静态强制，在必须运行时检查时运行时检查。你还会看到 `Object`、union、可 nil 的 `?`、类型测试和 casts、泛型、不变性，以及 `Never`。
+本章把 Iris 的类型层解释为一组承诺，而不是另一套执行模型。你可以不写注解，得到动态边界；也可以写注解，让 Iris 在能静态强制时静态强制，在必须运行时检查时运行时检查。你还会看到 `Object`、union、可 nil 的 `?`、类型测试和 casts、`typeof`、泛型、不变性，以及 `Never`。
 
 ```iris
 fun add(a: Integer, b: Integer) -> Integer {
@@ -67,6 +67,27 @@ printable..print()
 
 这个示例复用自 `IRIS-V1-TYPES-EX004`。这些操作保留同一个值。它们不转换数字，不克隆集合，不改变泛型实参，也不选择另一个普通 Method。Contract casts 会创建已检查的 Contract view，而限定 Contract 调用仍然要求 `..`。
 
+## Typeof 复制静态类型
+
+`typeof(expression)` 是 Type 表达式，不是运行时查询。它表示操作数在该程序点的规范化静态 Type，包括在那里适用的任何 flow narrowing。操作数会被类型检查，但永远不会被求值，所以不会运行 Method，也不会选择 overload。当该静态 Type 未知时，比如因为 Method 省略了返回注解，`typeof(expression)` 就是 `Dynamic<Object>`。
+
+```iris
+let base: Integer = 1
+let derived: typeof(base) = 2
+```
+
+## Types 是值
+
+Type object 是 interned 且带身份的，并且不同于 Class object。括号化 Type 表达式后跟 `.type` 会把它 reify，这就是把 union、intersection 或可 nil Type 命名为值的方式。只有当 `.type` 紧跟其后时，括号化形式才会被读作 Type，所以其他位置的 `(a | b)` 仍是按位或。
+
+```iris
+let nilable_string = (String | Nil).type
+let anything = (Object?).type
+```
+
+闭合泛型名称也是表达式，所以 `Box<String>` 可以作为值使用，而 `Box<String>.type` 是该闭合构造的 Type object，它和 `Box<String>` 本身不是同一个对象。
+
+
 ## 泛型是 reified 且不变的
 
 泛型 Classes、Contracts、Modules 和 Methods 都携带运行时保留的实参和元数据。泛型声明可以用 `where` 子句约束类型参数。
@@ -86,6 +107,8 @@ let objects: SortedBox<Object> = names  // rejected because generic Classes are 
 
 这个示例复用自 `IRIS-V1-TYPES-EX008`。不变性是关键规则：`SortedBox<String>` 不会仅仅因为 `String` 是 `Object` 就成为 `SortedBox<Object>` 的 subtype。Casts 也不会跨越不变泛型实参。如果想要转换后的容器，就要自己写转换代码。
 
+不变性也覆盖 callable Types，因为 `Closure<S>` 和 `BoundMethod<S>` 是普通泛型 Types。`Closure<(Integer) -> Object>` 不可赋给 `Closure<(Integer) -> Symbol>`，反向也不行；签名改在调用点检查。
+
 裸泛型 Class 名称是元数据，不是实例类型。对于 `class Box<T>`，`Box` 命名的是泛型定义对象。实例注解和普通构造需要闭合类型，比如 `Box<String>`，或 construction-site placeholder，比如 `Box<_>.new(value)`。
 
 ```iris
@@ -98,6 +121,17 @@ let box = Box<_>.new(user)
 ```
 
 这复用自 `IRIS-V1-TYPES-EX009`。推断是局部且有界的。Iris 可以使用 actual arguments 和 immediate expected result type。它不会检查 Method bodies、后续 uses，或 whole-program state。
+
+当推断不够时，调用可以显式写出自己的 Method 类型实参。方括号是完整元数：写出每个实参，在想让实参被推断的位置使用 `_`。缺失尾随实参是 arity 错误，不是默认值。
+
+```iris
+let chosen = choose<String, Integer>(value)
+let partial = choose<String, _>(value)
+```
+
+`_` 是类型实参 placeholder，并且只允许在这里使用。它在每个持久 Type 位置都被禁止，所以不能用 `Box<_>` 注解绑定。
+
+如果 per-construction class property initializer 在闭合泛型物化时 raise，该物化会失败，不发布任何内容，并报告 `TypeContractError`，原始异常作为其 cause。
 
 ## Never 标记没有值的路径
 
@@ -135,3 +169,7 @@ let value: String = if ready? {
 | `IRIS-V1-TYPES-C028` through `IRIS-V1-TYPES-C035` | `is`、`as`、`as?`、Contract views 和 narrowing。 |
 | `IRIS-V1-TYPES-C054` through `IRIS-V1-TYPES-C074` | 泛型声明、约束、推断、物化和不变性。 |
 | `IRIS-V1-TYPES-C080` through `IRIS-V1-TYPES-C083` | `Never` 和不可达 flow。 |
+| `IRIS-V1-TYPES-C093` | `typeof(expression)` 作为静态 Type 副本。 |
+| `IRIS-V1-TYPES-C094` through `IRIS-V1-TYPES-C096` | `Closure<S>`、`BoundMethod<S>`、`Block<S>` 和 callable 不变性。 |
+| `IRIS-V1-TYPES-C097` | 闭合物化失败产生的 `TypeContractError`。 |
+| `IRIS-V1-GRAMMAR-C063`, `C065`, `C066`, `C067` | 闭合泛型名称、`(T).type` 和显式调用类型实参。 |

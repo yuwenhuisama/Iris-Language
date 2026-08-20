@@ -8,11 +8,11 @@ let value = library.hypot(3.0f64, 4.0f64)
 library.close()
 ```
 
-This snippet is reused from `IRIS-V1-FFI-EX001`. It shows the shape of script FFI: open a library through the standard `FFI` subsystem, call only declared signatures, then close the resource. It is not something to run today because Iris v1 has no implementation.
+This snippet is reused from `IRIS-V1-FFI-EX001`. It shows the shape of script FFI: open a library through the standard `FFI` subsystem, call only declared signatures, then close the resource. The reference implementation does not provide it yet.
 
 ## The 14 spec artifacts
 
-The spec directory has a fixed inventory. The file names matter because clause IDs and traceability refer to them.
+The spec directory has a fixed inventory. The file names matter because clause IDs and traceability refer to them. Chapters carry a status line: `frozen semantics with owner-approved errata` means the original clauses are unchanged and later errata clauses supersede specific ones in place. The errata clause always states which clause it supersedes, so a superseded clause is never silently deleted.
 
 | Order | Spec artifact | Read it for |
 | --- | --- | --- |
@@ -53,7 +53,11 @@ Native async work returns `Task<T>` and completes through a runtime-owned comple
 
 ## Conformance
 
-The conformance chapter doesn't ship a runner. It defines the future record shape and coverage rules. A conformance vector is a stable JSON record with an ID, source clauses, input, applicability, expected observations, and tags.
+The conformance chapter defines the record shape and coverage rules. A conformance vector is a stable JSON record with an ID, source clauses, input, applicability, expected observations, and tags. The vectors derived from the frozen tables live under [`conformance/iris-v1/`](../../conformance/iris-v1/), and `iris-conformance` runs them by chapter.
+
+```bash
+cargo run -p iris-conformance -- --chapter GRAMMAR
+```
 
 Important points for readers:
 

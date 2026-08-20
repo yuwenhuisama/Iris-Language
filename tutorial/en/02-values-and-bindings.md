@@ -1,6 +1,6 @@
 # Values and Bindings
 
-This chapter teaches the basic data you can write directly in Iris source and the local binding forms that hold it: `let`, `mut`, and `const`. You'll see how annotations become static and runtime contracts, why `nil` is a real object, and how truthiness works through `to_bool` instead of hard-coded condition rules.
+This chapter teaches the basic data you can write directly in Iris source and the binding forms that hold it: `let`, `mut`, `const`, and `shared`. You'll see how annotations become static and runtime contracts, why `nil` is a real object, and how truthiness works through `to_bool` instead of hard-coded condition rules.
 
 ```iris
 let name: String = "Iris"
@@ -23,6 +23,21 @@ let answer: Integer = 42
 mut state: Symbol = :ready
 const Version: Integer = 1
 ```
+
+## Shared and global storage are declared, never conjured
+
+Locals are not the only cells. A Class or Module body can declare hierarchy-anchored storage with `shared let` or `shared mut` on a `@@name`, and a package can declare `global let` or `global mut` on a `$name`. Both forms must be declared before they are used: assigning to `@@count` or `$count` that no declaration created is a `MISSING_DECLARED_STORAGE` diagnostic, not an implicit definition.
+
+```iris
+class Registry {
+  shared mut @@count: Integer = 0
+  shared let @@limit: Integer = 16
+
+  class fun record() -> Integer { @@count += 1 }
+}
+```
+
+`shared let` creates an immutable cell and `shared mut` creates an assignable one. The cell is anchored to the declaring Class or Module, so a subclass cannot shadow or redeclare it; a redeclaration is a `CLASS_VARIABLE_REDECLARATION` diagnostic and the ancestor cell is untouched.
 
 ## Annotations fix the local contract
 
@@ -105,6 +120,9 @@ This chapter simplifies these normative clauses:
 - [`IRIS-V1-CONTROL-C003`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `let` and `mut` binding declarations.
 - [`IRIS-V1-CONTROL-C004`](../../spec/iris-v1/04-bindings-callables-control-flow.md): definite assignment and deferred `mut` rules.
 - [`IRIS-V1-CONTROL-C005`](../../spec/iris-v1/04-bindings-callables-control-flow.md): binding annotations as fixed local contracts.
+- [`IRIS-V1-CONTROL-C009`](../../spec/iris-v1/04-bindings-callables-control-flow.md): assignment to undeclared shared or global storage fails.
+- [`IRIS-V1-GRAMMAR-C059`](../../spec/iris-v1/02-lexical-grammar.md): the `shared let` and `shared mut` declaration form.
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): shared cell creation, immutability, and duplicate rejection.
 - [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md): truthiness through `to_bool`.
 - [`IRIS-V1-TYPES-C011`](../../spec/iris-v1/05-types-contracts-generics.md): `Nil` and nilability.
 - [`IRIS-V1-TYPES-C012`](../../spec/iris-v1/05-types-contracts-generics.md): `T?` as `T | Nil`.

@@ -14,7 +14,7 @@ let label = match value {
 
 ## If 表达式产出值
 
-`if` 会产出值。每个分支都有自己的词法作用域。被选分支贡献它的最终表达式；如果被选主体没有产出值的语句，则贡献 `nil`。如果没有 `else` 且条件为 false，缺失分支贡献 `nil`。
+`if` 是真正的表达式，不是硬接上一个值的语句。凡是允许 primary expression 的地方都可以出现它，包括作为调用实参或赋值右侧。每个分支都有自己的词法作用域。被选分支贡献它的最终表达式；如果被选主体没有产出值的语句，则贡献 `nil`。如果没有 `else` 且条件为 false，缺失分支贡献 `nil`。
 
 ```iris
 let status = if user.ready? {
@@ -22,6 +22,8 @@ let status = if user.ready? {
 } else {
   :waiting
 }
+
+print(if status == :ready { 1 } else { 0 })
 ```
 
 `else if` 链只是一个 `else` 后面跟另一个 `if`。每个测试只求值一次条件，并且 `to_bool` 必须返回实际 Bool。任意真值性本身不会收窄类型，所以当后续代码依赖更窄类型时，请使用显式检查。
@@ -64,13 +66,33 @@ outer: while keep_running {
 `for pattern in iterable` 对 iterable 求值一次，并通过语言迭代协议遍历它。循环体在每轮迭代中接收新鲜的不可变绑定。这对 Closure 很重要：逃逸的 Closure 捕获它自己那轮迭代的单元，而不是一个共享循环变量。
 
 ```iris
-mut callbacks: Array<() -> Integer> = []
+mut callbacks: Array<Closure<() -> Integer>> = []
 for value in 1 ..= 3 {
   callbacks.append({ || -> Integer; value })
 }
 ```
 
 这个片段改编自 `IRIS-V1-CONTROL-EX008`。
+
+## 生成器 yield 惰性迭代器
+
+主体包含 `yield` 的可调用体是生成器。调用它不会运行主体：它返回一个 `Iterator<T>`。每次 `next()` 都会恢复主体直到下一个 `yield`，回答 `Iteration.yield(value)`；主体完成后则回答 `Iteration.done`。这就是 `for` 遍历的同一协议，所以生成器可以直接驱动 `for` 循环。
+
+```iris
+fun counting(limit: Integer) -> Iterator<Integer> {
+  mut index = 0
+  while index < limit {
+    yield index
+    index += 1
+  }
+}
+
+for value in counting(3) {
+  print(value)
+}
+```
+
+`yield` 与 `await` 位于同一优先级，而且像 `await` 一样，它禁止出现在 open 或 revision 事务主体内部，因为那些主体不能挂起。
 
 ## Match 分支按源码顺序运行
 
@@ -84,7 +106,7 @@ let result = match item {
 }
 ```
 
-模式可以匹配字面量、`nil`、Bool 值、带可选绑定的名义类型测试、alternatives、Tuple 模式、Array 模式、绑定名和 `_`。Guard 会在模式形状成功后、临时绑定存在后运行。如果 guard 为 false，这些临时绑定会被丢弃，匹配继续。
+模式可以匹配字面量、`nil`、Bool 值、带可选绑定的名义类型测试、alternatives、Tuple 模式、Array 模式、绑定名和 `_`。Arm 由换行或逗号分隔，所以紧凑的 `match` 可以放在一行。Guard 会在模式形状成功后、临时绑定存在后运行。如果 guard 为 false，这些临时绑定会被丢弃，匹配继续。
 
 ```iris
 let kind = match pair {
@@ -116,3 +138,5 @@ let kind = match pair {
 - [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`match` 选择和 fallback。
 - [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：v1 模式词汇。
 - [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：match guards。
+- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md)：表达式位置中的 `if`。
+- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md)：`yield` 和生成器可调用体。

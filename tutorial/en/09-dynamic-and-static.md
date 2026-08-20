@@ -69,6 +69,19 @@ This example is reused from `IRIS-V1-META-EX002`. The conditional `define_method
 
 The v1 capability names include `method_set`, `method_body`, `property_set`, `property_body`, `modules`, `superclass`, `subclass`, `shape`, `class_state_set`, `class_state_write`, `instance_state`, and `native`. Unknown `meta deny` names are errors. Denying one capability doesn't silently deny all the others.
 
+## Imports name a package explicitly
+
+An import path either names a Module in the current package or crosses a package boundary with `pkg::Module`, where the package segment is the reverse-domain `package_id`. There are no wildcard imports and no runtime-string imports.
+
+```iris
+import org.dep::Codec
+from org.dep::Codec import encode, decode
+
+override import org.dep::Codec
+```
+
+The optional `override` marker before `import` or `from` authorizes the compatible replacements that the imported extension contributes. It never authorizes signature or static-contract incompatibility, and an unmarked replacement is still rejected. The marker sits on the import as a whole, not on individual names.
+
 ## Decorators transform candidates
 
 Decorators attach to declarations and transform declaration candidate metadata. Multiple decorators run top to bottom. They don't change a Class into a Module, replace nominal identity, rewrite package identity, or bypass MetaCapabilities.
@@ -81,19 +94,49 @@ public fun total() -> Integer {
 }
 ```
 
-This is reused from `IRIS-V1-META-EX005`. A declarative decorator has a deterministic static planning phase and a runtime transform inside the declaration's candidate transaction. Runtime-dependent or conditional decoration is dynamic-only until a new static artifact declares it.
+This is reused from `IRIS-V1-META-EX005`. A decorator is applied with `@Name(arguments)` before a Class, Module, Contract, Method, or property declaration, and the name may be qualified, as in `@D::Stamp()`, to reach a decorator declared in another Module.
+
+A decorator is an ordinary Class that declares `for` one of the five Decorator Contracts, one per target kind: `ClassDecorator`, `ModuleDecorator`, `ContractDecorator`, `MethodDecorator`, and `PropertyDecorator`. Each requires exactly two members, and a conforming decorator declares both even when it participates in only one phase.
+
+```iris
+class Stamp for MethodDecorator {
+  impl fun plan(declaration: MethodDeclaration, arguments: Array<Object>) -> Plan {
+    Plan.empty
+  }
+
+  impl fun transform(
+    declaration: MethodDeclaration,
+    arguments: Array<Object>,
+    context: TransformContext
+  ) -> Transformation {
+    Transformation.add_method(:stamped) { |self: Object| -> Symbol; :stamped }
+  }
+}
+```
+
+`plan` is the static phase: pure, deterministic, and limited to a whitelist of inputs. Reading anything outside it is `IRIS-DECORATOR-NONDETERMINISTIC` at phase static, and no runtime transform or target publication happens. `transform` is the runtime phase, run inside the declaration's candidate transaction; it receives the controlled transform context and returns a same-kind `Transformation` rather than mutating a candidate handle. A `Transformation` whose `kind` differs from the decorated target is `IRIS-DECORATOR-KIND`, and the target keeps no candidate or revision.
+
+`Plan.empty` and `Transformation.empty` are the no-contribution values. `Transformation.add_method(selector, body)` stages one Method and needs the same `method_set` capability a handwritten declaration needs. Reflection over applied decorators shows the generated diff as an immutable permission-filtered view, never as a mutable handle.
 
 ## ReflectionPolicy, not reflection tokens
 
-Reflection returns permission-filtered immutable metadata views. It doesn't hand out raw mutable tables or eval-string mutation. Structural changes still go through open or meta transactions.
+Reflection returns permission-filtered immutable metadata views. It doesn't hand out raw mutable tables or eval-string mutation. Structural changes still go through open or meta transactions. The operations live in `Reflection::*` sub-Modules by target kind.
 
 ```iris
-let names = Reflection.list_ivars(object)
-let old = Reflection.get_ivar(object, :@cache)
-Reflection.set_ivar(object, :@cache, compute())
+let names = Reflection::Object.list_ivars(object)
+let old = Reflection::Object.get_ivar(object, :@cache)
+Reflection::Object.set_ivar(object, :@cache, compute())
+
+let reader = Reflection::Class.method(Tool, :status)
+let ancestry = Reflection::Class.ancestors(Tool)
 ```
 
-This snippet is reused from `IRIS-V1-META-EX004`. Reflection authorization comes from `ReflectionPolicy`: caller package, operation, granted scope, target identity, and target policies. There is no first-class reflection capability token in Iris v1.
+This snippet is adapted from `IRIS-V1-META-EX004`. `Reflection::Class` also carries `invoke`, `remove_module`, `set_superclass`, and the always-refused `remove_contract`; `Reflection::Module` carries the Module-side `method` and `invoke`. A lookup that finds nothing returns `nil`. Inspection operations need `inspect` and mutating ones need `mutate`.
+
+These are woven into `Class` and `Module` by mixin, so `Tool.remove_module(M)` and `Reflection::Class.remove_module(Tool, M)` are two entry points to one implementation.
+
+Reflection authorization comes from `ReflectionPolicy`: caller package, operation, granted scope, target identity, and target policies. There is no first-class reflection capability token in Iris v1.
+
 
 ## Why bounded dynamism matters
 
@@ -121,4 +164,6 @@ For exact rules, read [01-language-identity.md](../../spec/iris-v1/01-language-i
 | `IRIS-V1-META-C044` through `IRIS-V1-META-C052` | Static versus dynamic member visibility and no overload dispatch. |
 | `IRIS-V1-META-C072` through `IRIS-V1-META-C084` | MetaCapabilities and operation checks. |
 | `IRIS-V1-META-C085` through `IRIS-V1-META-C094` | Decorator phases and restrictions. |
+| `IRIS-V1-META-C118` through `IRIS-V1-META-C126` | `Reflection::*` surfaces, Decorator Contracts, `Plan`, and `Transformation`. |
+| `IRIS-V1-GRAMMAR-C068` and `IRIS-V1-GRAMMAR-C069` | Package-qualified import paths and the `override` import marker. |
 | `IRIS-V1-META-C095` through `IRIS-V1-META-C112` | ReflectionPolicy and reflection views. |

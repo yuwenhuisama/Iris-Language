@@ -46,6 +46,9 @@ result  // "try value"
 
 这复用自 `IRIS-V1-CONTROL-EX011`。如果 `finally` 抛出、返回、跳出或继续，它会覆盖挂起中的结果或异常。当清理失败，而另一个异常已经是主异常时，清理上下文会追加到主异常上下文由运行时拥有的被抑制列表中。
 
+`ExceptionContext` 暴露结构化传播记录，而不是格式化字符串。`SourceLocation` 有 `path`、从 1 开始的 `line` 和从 1 开始的 `column`。`StackFrame` 有 `callable_name` 和 `location`。`RaiseSite` 记录一次裸 `raise` 在哪里继续了一次传播。这三者都按结构比较和哈希，并且都不能由用户构造；`ExceptionContext` 本身仍按身份处理。
+
+
 ## Closeable 与 using
 
 标准资源 Contract 是 `Closeable`，带有普通 `close() -> Nil` Method。它不是魔法语法。辅助函数 `using(resource) { ... }` 会运行代码块，然后通过等价于 `try/finally` 的控制关闭资源。
@@ -56,7 +59,7 @@ let text = using(File.open("data.txt")) { |file: File| -> String
 }
 ```
 
-这个示例复用自 `IRIS-V1-ASYNC-EX003`。它只说明形状。因为 Iris 没有实现或标准库发布，所以这里的 `File` 要当作规范中的示例表面，而不是今天能打开的东西。
+这个示例复用自 `IRIS-V1-ASYNC-EX003`。它只说明形状。因为 Iris 没有标准库发布，所以这里的 `File` 要当作规范中的示例表面，而不是今天能打开的东西。
 
 如果代码块完成且 `close()` 完成，辅助函数返回代码块的值。如果代码块抛出且 `close()` 也抛出，代码块的上下文保持为主异常，关闭上下文变成被抑制的上下文。如果代码块完成但 `close()` 抛出，关闭失败会变成主异常。
 
@@ -78,6 +81,8 @@ let name: String = await task
 ```
 
 这段代码复用自 `IRIS-V1-ASYNC-EX001`。无结果 async Method 返回 `Task<Nil>`，不是某种特殊空结果形式。Iris v1 没有取消语义，没有即发即忘签名，也没有 Iris 源码中的隐式阻塞等待。
+
+`await` 比每个二元运算符绑定更紧，比后缀调用更松，所以 `await f()` 等待调用的结果，而不是调用一个被等待后的 callee。想表达其他意思时请加括号。
 
 ```iris
 async fun value() -> Integer { 7 }
@@ -103,6 +108,8 @@ first == second  // true
 | 条款 | 主题 |
 | --- | --- |
 | `IRIS-V1-CONTROL-C055` through `IRIS-V1-CONTROL-C067` | `raise`、`catch`、`finally`、值规则和 `ExceptionContext`。 |
+| `IRIS-V1-CONTROL-C079` | `SourceLocation`、`StackFrame` 和 `RaiseSite` records。 |
+| `IRIS-V1-GRAMMAR-C071` | `await` 作为一元运算符及其优先级。 |
 | `IRIS-V1-ASYNC-C003` through `IRIS-V1-ASYNC-C010` | Async 可调用表面和 `Task<T>` 结果类型。 |
 | `IRIS-V1-ASYNC-C011` through `IRIS-V1-ASYNC-C019` | 单一调度器、挂起，以及没有隐式阻塞等待。 |
 | `IRIS-V1-ASYNC-C020` through `IRIS-V1-ASYNC-C029` | Task 完成、失败 Task 传播和未观察失败诊断。 |

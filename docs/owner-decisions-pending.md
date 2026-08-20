@@ -19,7 +19,7 @@ Resolved entries are struck from this file and recorded in
 
 _No open questions at the time of writing._
 
-Three questions were raised during autonomous work and all three were ruled on
+Four questions were raised during autonomous work and all four were ruled on
 rather than left pending:
 
 - **Registry unification.** The owner chose to merge, which made `Object` the
@@ -35,3 +35,23 @@ rather than left pending:
   position.
 
 Each outcome is recorded in `docs/spec-defects-v1.md`.
+
+- **Moving vs non-moving GC.** The design review recommends a non-moving
+  mark-sweep collector for the first version and lists moving GC among the
+  things the first JIT explicitly does not do. The implemented collector
+  RELOCATES surviving objects, which is a divergence rather than an oversight.
+  The owner accepted it and directed that it not be reverted. It is safe today
+  because the identity hash is a stored field assigned at allocation and never
+  derived from an address, so `D-111`'s requirement that a hash survive movement
+  by GC holds by construction, which `IRIS-V1-RUNTIME-V079` observes directly.
+  The obligation it creates is on future work: a JIT that caches an object
+  address must cooperate with relocation, so the points at which compaction may
+  run have to stay explicit. Recorded in `docs/iris-ir.md` section 7.
+
+- **The legacy VM as a reference.** The owner directed that the previous C++
+  implementation is NOT to be adopted or carried over in any part. The new
+  execution IR is designed from the design review's recommendations rather than
+  ported, and the legacy implementation appears in `docs/iris-ir.md` only as a
+  record of defects to avoid repeating - the missing opcode source of truth, the
+  unverified operand reads, and the trusting `.irc` reader.
+

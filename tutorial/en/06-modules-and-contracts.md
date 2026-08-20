@@ -26,11 +26,18 @@ class Job extends Object mixin Trace {}
 
 This is not multiple inheritance. A Class still has one superclass. Modules are inserted into the Method lookup order and are deduplicated by Module identity. Re-including the same Module doesn't create a second copy or move the old one.
 
-Module Methods run with the current receiver. If a Module Method reads `@state`, it reads the receiver's slot named `@state`, not storage owned by the Module. Private Method access is different: Module composition doesn't grant private access unless the composition edge explicitly has that authorization.
+Module Methods run with the current receiver. If a Module Method reads `@state`, it reads the receiver's slot named `@state`, not storage owned by the Module. Private Method access is different: Module composition doesn't grant private access unless the composition edge explicitly asks for it, which is written by marking that entry `private` in the mixin list.
+
+```iris
+class Job extends Object mixin Trace private, Audit {}
+```
+
+The marker sits on the individual composition edge, so `Trace` gets private authorization here and `Audit` does not. Raw `@x` access on the current receiver is a separate rule and doesn't depend on this marker.
 
 ## Contracts declare promises
 
-A Contract is Iris's explicit obligation surface. A Contract body contains requirements, not executable Method bodies or storage. A Class opts into a Contract with `for`, then marks the satisfying member with `impl`.
+A Contract is Iris's explicit obligation surface. A Contract body contains requirements, not executable Method bodies or storage. A requirement is a Method declaration with a signature and no body; writing a body inside a Contract is rejected as `CONTRACT_METHOD_BODY_FORBIDDEN`. A Class opts into a Contract with `for`, then marks the satisfying member with `impl`.
+
 
 ```iris
 contract Printable<T> where T: Object {
@@ -92,6 +99,12 @@ Static promise: the Class has one stable superclass promise, one declared Contra
 
 That split is why Contract dispatch is explicit. Iris lets runtime behavior move, but it refuses to hide a type-directed overload decision inside a normal call.
 
+The declared Contract set is one of the strongest static facts a Class has. A runtime attempt to remove one — spelled `remove_contract(contract)` or `Reflection::Class.remove_contract(target, contract)` — exists only so the refusal is observable: it is rejected with `TypeContractError` before publication, and the Class keeps its Contracts and its active revision. A runtime superclass change is likewise rejected when the proposed ancestry would drop an ancestor carrying a static fact the target relies on.
+
+## Kernel is always in scope
+
+`Kernel` is the language-core Module composed into `Object`. It carries the declarations that must be visible everywhere without an import, such as the `Block<S>` Type alias from chapter 04. It is an ordinary Module with ordinary composition and lookup rules, and it is not a second root Class; it may not supply or shadow `Object`'s default comparison, truthiness, missing-message, or zero-argument `initialize`.
+
 ## Read the spec
 
 For exact rules, read [03-runtime-object-model.md](../../spec/iris-v1/03-runtime-object-model.md) and [05-types-contracts-generics.md](../../spec/iris-v1/05-types-contracts-generics.md):
@@ -100,5 +113,9 @@ For exact rules, read [03-runtime-object-model.md](../../spec/iris-v1/03-runtime
 | --- | --- |
 | `IRIS-V1-RUNTIME-C046` through `IRIS-V1-RUNTIME-C053` | Module composition and MRO ordering. |
 | `IRIS-V1-RUNTIME-C030` through `IRIS-V1-RUNTIME-C033` | Contract view dispatch and missing qualified slots. |
+| `IRIS-V1-RUNTIME-C163` | `Kernel` as the always-visible language-core Module. |
 | `IRIS-V1-TYPES-C041` through `IRIS-V1-TYPES-C053` | Contract declarations, `for`, `impl`, qualified implementations, views, equality, and hashing. |
+| `IRIS-V1-TYPES-C098` and `IRIS-V1-TYPES-C099` | Protected ancestry and the refused `remove_contract`. |
+| `IRIS-V1-GRAMMAR-C061` | The `private` marker on a mixin entry. |
+| `IRIS-V1-GRAMMAR-C062` | Bodyless Method declarations as Contract requirements. |
 | `IRIS-V1-IDENTITY-C009` and `IRIS-V1-IDENTITY-C010` | No static type overload dispatch. |
