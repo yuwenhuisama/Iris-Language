@@ -354,16 +354,24 @@ reason, which is worse than leaving the row held. `compile` therefore answers a
 `CompileError` naming the construct it lacks, and the harness reports fewer
 than two RUNNING backends as insufficient rather than as agreement.
 
-Covered: integer, float, string, bool and nil literals; the binary and unary
-selectors listed in §3.3; array literals; `let` and `mut` bindings; assignment
-to a bound name; statement sequences; `if`/`else` as a value; `while` loops;
-`return`; `Float32.from_bits`/
-`Float64.from_bits`; `to_bits`; `hash`; and **plain module functions** with
-positional parameters, including recursion and mutual calls.
+Covered: integer, float, string, bool, nil and Symbol literals; the binary and
+unary selectors listed in §3.3; identity (`same?`, in both its infix and method
+spellings); array literals; Hash literals with explicit keys; indexing an Array
+or Hash; `let` and `mut` bindings; assignment to a bound name; statement
+sequences; `if`/`else` as a value; `while` loops; `return`;
+`Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`; native selectors on
+arbitrary receivers; **plain module functions** with positional parameters,
+including recursion and mutual calls; and **user-defined classes**: declaration,
+construction through `new` with an initializer, raw ivar reads and writes,
+`self`, instance dispatch through the receiver's class, `class fun` declarations
+and their calls, and a named superclass with inherited methods and initializers.
 
-This is the design review's first vertical-slice milestone - Integer, Bool/Nil,
-local variables, arithmetic and comparison, function definition and call, `if`,
-recursion, `return` - with agreement between the two backends asserted for each.
+Measured against the 783 source-carrying conformance vectors, this compiles 123
+of them. The number is reported rather than estimated because the first estimate
+of what blocked the backend was WRONG: the assumed blockers were loops and
+calls, while the measurement showed a single dominant one, `class`, at 325
+programs. What remains is now dispersed across many constructs rather than
+concentrated behind one wall.
 
 Declined, each by name: `declaration` (anything that is not a plain module),
 `module` (open, mixin, generic or decorated), `module body` (a non-method
@@ -371,9 +379,12 @@ statement), `method` (async, override, `impl`, decorated, generic or
 class-kind), `abstract method`, `parameter` (rest, keyword or block),
 `statement` (which includes `const`, global and deferred bindings, `for`, and
 `try`), `assignment target` (anything but a bound name), `closure`, `call` (any
-shape beyond §3.3/§3.6), `call arity`,
-`name` (unbound), `member`, `index`, `symbol`, `hash`, `tuple`, `try`, `await`,
-`yield`, `assignment`, plus the structural refusals `rejected source`,
+shape beyond §3.3/§3.6), `call arity`, `name` (unbound), `member`,
+`index receiver`, `hash key name`, `tuple`, `try`, `await`, `yield`, and the
+class forms `class decorator`, `class reopen`, `class generics`,
+`class implements`, `class mixin`, `class constraints`, `class meta deny`,
+`class superclass` and `class body`, plus the structural refusals
+`rejected source`,
 `rejected literal`, `empty program`, `empty body`, `array too long`,
 `call too wide`, `from_bits arity`, `branch patch` and `register exhaustion`.
 
@@ -388,11 +399,22 @@ Named so the gaps are not mistaken for decisions:
   method needs a receiver, dispatch through the MRO, and revision awareness.
 - **Closure capture.** Needs the HIR layer the design review places between AST
   and execution IR; capture analysis belongs there, not here.
-- **A heap.** The bytecode backend has a `ClassRegistry` but no heap: it
-  allocates no objects and never produces a `Value::Object`, so it has nothing
-  to collect. Frames are the right root-set shape for when it does, but nothing
-  here is exercised by the collector yet - the collector runs in the
-  tree-walking evaluator, which registers its own frames (§7).
+- **Closures.** Declined rather than approximated. They need captured
+  environments, which the design review places in the HIR layer.
+- **Exceptions.** `try` needs exception edges through the control-flow graph,
+  which the verifier's fixpoint would have to treat as additional predecessors.
+  Approximating either would disagree with the reference for a reason no test
+  would attribute to the right cause.
+- **Collection.** The backend now owns a `Runtime`, so it allocates real
+  objects, but the collector still runs only in the tree-walking evaluator,
+  which registers its own frames (§7). The frames here are the right root-set
+  shape for when that changes; nothing in this backend is walked yet.
+
+**Bare-name Hash keys.** `%{ a: 1 }` is parsed as a Hash whose key is a NAME
+expression, and the reference evaluates it as an ordinary variable: with `a = 9`
+bound the key is `9`, and unbound it is a `NameError`. Reading it as the Symbol
+`:a` would be a silent disagreement, so it declines as `hash key name` while
+explicit Symbol keys stay covered.
 - **Serialisation.** There is no on-disk format. Programs are compiled and
   executed in memory. The review records a P0 against the old `.irc` reader for
   trusting file contents — no magic or version check, no field-count or string

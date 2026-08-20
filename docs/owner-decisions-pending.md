@@ -55,3 +55,24 @@ Each outcome is recorded in `docs/spec-defects-v1.md`.
   record of defects to avoid repeating - the missing opcode source of truth, the
   unverified operand reads, and the trusting `.irc` reader.
 
+- **The revision number a plain Class declaration reaches.** `RUNTIME-C017`
+  numbers the origin revision `1` and gives the next per-Class integer to each
+  successful structural publication. Six META rows and `TYPES-V200` expect a
+  Class that is never reopened to report `active_revision` of `3` or `4`, so
+  they require a declaration to perform two or three publications rather than
+  one. `V424` is explicit about it: its own prose says
+  `active_revision.revision` is integer `2`, while its expected value carries
+  `3`.
+
+  We report `1`, and the implementation deliberately folds a declaration's body
+  into the origin: the comment at the origin transaction records that the
+  implicit `to_bool` used to publish separately and made `class A { }` report
+  `3`, which was corrected to `1`.
+
+  So the corpus and the implementation disagree about how many publications
+  DECLARING a Class performs, and C017's text does not settle how many
+  structural publications a single declaration is. The declarative-reopen bug
+  that shared these rows' symptom is fixed and committed separately; what
+  remains is this question, which is an adjudication rather than a defect we
+  can resolve by guessing. Fixing it by adding publications until the numbers
+  match would be tuning to the expectations rather than to the rule.
