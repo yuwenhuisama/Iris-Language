@@ -599,9 +599,9 @@ mod differential_tests {
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
-            // `if` and `while` ARE covered now, so genuinely uncovered
-            // constructs stand in.
-            ("[1, 2][0]", "index"),
+            // `if`, `while`, and built-in indexes ARE covered now, so a
+            // genuinely unsupported receiver remains outside the subset.
+            ("1[0]", "index receiver"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
@@ -735,6 +735,219 @@ mod differential_tests {
         ] {
             let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
                 unreachable!("both backends must run the supported class subset: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_symbols_identity_hashes_and_indexes() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "module M { public fun run() { :ready } } M.run()",
+                ":ready",
+                ":other",
+            ),
+            (
+                "module M { public fun run() { nil same? nil } } M.run()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun run() { nil same? false } } M.run()",
+                "false",
+                "true",
+            ),
+            (
+                "module M { public fun run() { let a = [1]; a same? a } } M.run()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun run() { [10, 20][1] } } M.run()",
+                "20",
+                "nil",
+            ),
+            (
+                "module M { public fun run() { [10][-1] } } M.run()",
+                "10",
+                "nil",
+            ),
+            (
+                "module M { public fun run() { %{ :answer: 42 }[:answer] } } M.run()",
+                "42",
+                "nil",
+            ),
+            (
+                "module M { public fun run() { %{ :answer: 42 }[:missing] } } M.run()",
+                "nil",
+                "42",
+            ),
+        ] {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                eprintln!("{agreement:?}");
+                unreachable!("both backends must run the covered value constructs: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_class_methods_and_native_receiver_calls() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "class Math { public class fun twice(x: Integer) { x * 2 } } Math.twice(6)",
+                "12",
+                "6",
+            ),
+            ("(7).hash()", "15185519486979246657", "7"),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must dispatch the covered call: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn harder_constructs_remain_precisely_declined() {
+        let bytecode = Bytecode;
+
+        for (source, construct) in [
+            ("{ |x|; x }", "closure"),
+            ("try { 1 } finally { 2 }", "statement"),
+            ("for x in [1] { x }", "statement"),
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("the VM must not approximate the declined construct: {source}")
+            };
+            assert_ne!(reason, "call", "{source}");
+            assert_eq!(reason, construct, "{source}");
+        }
+    }
+
+    #[test]
+    fn exact_identity_and_hash_reproductions_agree() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "class C { } module M { public fun r() -> Object { let a = C.new(); a.same?(a) } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun r() -> Object { let a = [1]; a.same?(a) } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun r() -> Object { let a = [1]; let b = [1]; a.same?(b) } } M.r()",
+                "false",
+                "true",
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must run the exact reproduction: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        let bytecode = Bytecode;
+        for source in [
+            "module M { public fun r() -> Object { %{ a: 1 } } } M.r()",
+            "module M { public fun r() -> Object { let h = %{ a: 1 }; h[:a] } } M.r()",
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("the VM must decline a bare-name Hash key: {source}")
+            };
+            assert_ne!(reason, "name", "{source}");
+            assert_eq!(reason, "hash key name", "{source}");
+            assert!(
+                matches!(Interpreter.execute(source), Support::Ran(_)),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn added_constructs_work_inside_module_methods() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, wrong) in [
+            (
+                "module M { public fun r() -> Object { :wrapped } } M.r()",
+                ":wrapped",
+                ":other",
+            ),
+            (
+                "module M { public fun r() -> Object { [4, 5][1] } } M.r()",
+                "5",
+                "nil",
+            ),
+            (
+                "class C { public class fun value() { 9 } } module M { public fun r() -> Object { C.value() } } M.r()",
+                "9",
+                "nil",
+            ),
+            (
+                "module M { public fun r() -> Object { (7).hash() } } M.r()",
+                "15185519486979246657",
+                "7",
+            ),
+            (
+                "module M { public fun r() -> Object { %{ :a: 1 }[:a] } } M.r()",
+                "1",
+                "nil",
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must run the wrapped construct: {source}")
             };
             assert_ne!(
                 observation,

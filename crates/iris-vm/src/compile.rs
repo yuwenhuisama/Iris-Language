@@ -5,6 +5,7 @@
 //! effect to track, gives a simpler verifier, disassembles readably, cannot
 //! underflow an operand stack, and suits later SSA lowering.
 
+use iris_runtime::NativeSelector;
 use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOperator};
 
 /// A virtual register index.
@@ -33,6 +34,8 @@ pub enum Instruction {
     LoadFloat32 { destination: Register, bits: u32 },
     /// Loads a String.
     LoadText { destination: Register, text: String },
+    /// Loads an interned Symbol spelling.
+    LoadSymbol { destination: Register, name: String },
     /// Loads a Bool.
     LoadBool { destination: Register, value: bool },
     /// Loads nil.
@@ -60,6 +63,21 @@ pub enum Instruction {
         destination: Register,
         first: Register,
         count: u16,
+    },
+    BuildHash {
+        destination: Register,
+        first: Register,
+        count: u16,
+    },
+    Index {
+        destination: Register,
+        receiver: Register,
+        index: Register,
+    },
+    Identity {
+        destination: Register,
+        left: Register,
+        right: Register,
     },
     /// Reinterprets an Integer register's bits as a float of the given width.
     FromBits {
@@ -100,6 +118,13 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    SendClass {
+        destination: Register,
+        class: usize,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
     GetIvar {
         destination: Register,
         receiver: Register,
@@ -123,15 +148,20 @@ impl Instruction {
             | Self::LoadFloat64 { destination, .. }
             | Self::LoadFloat32 { destination, .. }
             | Self::LoadText { destination, .. }
+            | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
             | Self::Move { destination, .. }
             | Self::Binary { destination, .. }
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }
+            | Self::BuildHash { destination, .. }
+            | Self::Index { destination, .. }
+            | Self::Identity { destination, .. }
             | Self::Call { destination, .. }
             | Self::New { destination, .. }
             | Self::Send { destination, .. }
+            | Self::SendClass { destination, .. }
             | Self::GetIvar { destination, .. }
             | Self::SetIvar { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
@@ -190,6 +220,7 @@ pub(crate) struct Class {
     pub(crate) name: String,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,
+    pub(crate) class_methods: Vec<(String, usize)>,
 }
 
 /// Why a program could not be compiled.
@@ -287,6 +318,7 @@ struct Signature<'a> {
     parameters: Vec<&'a str>,
     body: &'a [Statement],
     receiver: bool,
+    class_method: bool,
 }
 
 /// Collects the module functions this subset covers.
@@ -350,12 +382,20 @@ fn collect_signatures(
             let methods = signatures[first_function..]
                 .iter()
                 .enumerate()
+                .filter(|(_, signature)| !signature.class_method)
+                .map(|(offset, signature)| (signature.selector.to_owned(), first_function + offset))
+                .collect();
+            let class_methods = signatures[first_function..]
+                .iter()
+                .enumerate()
+                .filter(|(_, signature)| signature.class_method)
                 .map(|(offset, signature)| (signature.selector.to_owned(), first_function + offset))
                 .collect();
             classes.push(Class {
                 name: class.name.clone(),
                 superclass,
                 methods,
+                class_methods,
             });
             let _ = class_index;
             continue;
@@ -391,7 +431,11 @@ fn collect_methods<'a>(
             || method.impl_contract.is_some()
             || !method.decorators.is_empty()
             || !method.type_parameters.is_empty()
-            || method.kind != iris_syntax::MethodKind::Instance
+            || !matches!(
+                method.kind,
+                iris_syntax::MethodKind::Instance | iris_syntax::MethodKind::Class
+            )
+            || (!receiver && method.kind != iris_syntax::MethodKind::Instance)
         {
             return Err(CompileError::new("method"));
         }
@@ -413,6 +457,7 @@ fn collect_methods<'a>(
             parameters,
             body,
             receiver,
+            class_method: method.kind == iris_syntax::MethodKind::Class,
         });
     }
     Ok(())
@@ -646,6 +691,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
     fn expression(&mut self, expression: &Expression) -> Result<Register, CompileError> {
         match expression {
             Expression::Literal(text) => self.literal(text),
+            Expression::Symbol(name) => {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadSymbol {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
             // As a RECEIVER these keyword values arrive as a Name rather than
             // a Literal, so `nil.hash()` would otherwise be an unbound name.
             Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
@@ -674,6 +727,17 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 operator,
                 right,
             } => {
+                if *operator == BinaryOperator::Identity {
+                    let left = self.expression(left)?;
+                    let right = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Identity {
+                        destination,
+                        left,
+                        right,
+                    });
+                    return Ok(destination);
+                }
                 let selector = binary_selector(operator)?;
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;
@@ -725,6 +789,50 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     first,
                     count,
+                });
+                Ok(destination)
+            }
+            Expression::Hash(entries) => {
+                let count =
+                    u16::try_from(entries.len()).map_err(|_| CompileError::new("hash too long"))?;
+                let mut lowered = Vec::with_capacity(entries.len() * 2);
+                for (key, value) in entries {
+                    match key {
+                        Expression::Name(_) => return Err(CompileError::new("hash key name")),
+                        key => lowered.push(self.expression(key)?),
+                    }
+                    lowered.push(self.expression(value)?);
+                }
+                let first = self.next_register;
+                for source in lowered {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source,
+                    });
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BuildHash {
+                    destination,
+                    first,
+                    count,
+                });
+                Ok(destination)
+            }
+            Expression::Index { receiver, index } => {
+                if !matches!(
+                    receiver.as_ref(),
+                    Expression::Array(_) | Expression::Hash(_) | Expression::Name(_)
+                ) {
+                    return Err(CompileError::new("index receiver"));
+                }
+                let receiver = self.expression(receiver)?;
+                let index = self.expression(index)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Index {
+                    destination,
+                    receiver,
+                    index,
                 });
                 Ok(destination)
             }
@@ -867,6 +975,39 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        if selector == "same?" {
+            let [right] = arguments else {
+                return Err(CompileError::new("same? arity"));
+            };
+            let left = self.expression(receiver)?;
+            let right = self.expression(right)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Identity {
+                destination,
+                left,
+                right,
+            });
+            return Ok(destination);
+        }
+        if let Expression::Name(class) = receiver.as_ref()
+            && let Some(class) = self.class_index(class)
+            && self.signatures.iter().any(|signature| {
+                signature.module == self.classes[class].name
+                    && signature.selector == selector
+                    && signature.class_method
+            })
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::SendClass {
+                destination,
+                class,
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         // A resolved module function is called by INDEX. Resolution happened
         // before lowering, so no name is looked up at run time.
         if let Expression::Name(module) = receiver.as_ref()
@@ -921,6 +1062,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 destination,
                 selector: native,
                 operand,
+            });
+            return Ok(destination);
+        }
+        if NativeSelector::from_source(selector).is_some() {
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Send {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
             });
             return Ok(destination);
         }

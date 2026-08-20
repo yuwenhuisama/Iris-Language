@@ -35,6 +35,28 @@ mod tests {
         program
     }
 
+    #[test]
+    fn verified_identity_calls_never_reach_machine_dispatch_errors() {
+        for source in [
+            "class C { } module M { public fun r() -> Object { let a = C.new(); a.same?(a) } } M.r()",
+            "module M { public fun r() -> Object { let a = [1]; a.same?(a) } } M.r()",
+            "module M { public fun r() -> Object { let a = [1]; let b = [1]; a.same?(b) } } M.r()",
+        ] {
+            let program = program(source);
+            assert_eq!(verify(&program), Ok(()), "{source}");
+            let result = run(&program);
+            assert!(
+                !matches!(
+                    result,
+                    Err(MachineError::UnknownSelector(_)
+                        | MachineError::Construction(iris_runtime::ConstructionError::Dispatch(_)))
+                ),
+                "{source}: {result:?}"
+            );
+            assert!(result.is_ok(), "{source}: {result:?}");
+        }
+    }
+
     /// The IR is three-address: every instruction names its operands and its
     /// destination, so an instruction's meaning does not depend on execution
     /// history. `1 + 2` is two loads and one binary, with NO push or pop.
@@ -478,7 +500,7 @@ mod ir_document_tests {
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
-            (":symbol", "symbol"),
+            ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),
             ("try { 1 } catch e { e }", "statement"),
         ] {

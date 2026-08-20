@@ -122,8 +122,18 @@ fn verify_body(
             }
             Instruction::BuildArray { first, count, .. }
             | Instruction::New { first, count, .. }
-            | Instruction::Send { first, count, .. } => {
+            | Instruction::Send { first, count, .. }
+            | Instruction::SendClass { first, count, .. } => {
                 range(*first, *count, registers)?;
+            }
+            Instruction::BuildHash { first, count, .. } => {
+                let slots = count
+                    .checked_mul(2)
+                    .ok_or(VerifyError::ArrayRangeOutOfRange {
+                        first: *first,
+                        count: *count,
+                    })?;
+                range(*first, slots, registers)?;
             }
             _ => {}
         }
@@ -275,7 +285,9 @@ fn fall_through(
 fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
         Instruction::Move { source, .. } => vec![*source],
-        Instruction::Binary { left, right, .. } => vec![*left, *right],
+        Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
+            vec![*left, *right]
+        }
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
         Instruction::JumpUnless { condition, .. } => vec![*condition],
@@ -285,6 +297,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::New { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
+        Instruction::BuildHash { first, count, .. } => (0..count.saturating_mul(2))
+            .map(|offset| first + offset)
+            .collect(),
         Instruction::Send {
             receiver,
             first,
@@ -293,6 +308,12 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => std::iter::once(*receiver)
             .chain((0..*count).map(|offset| first + offset))
             .collect(),
+        Instruction::SendClass { first, count, .. } => {
+            (0..*count).map(|offset| first + offset).collect()
+        }
+        Instruction::Index {
+            receiver, index, ..
+        } => vec![*receiver, *index],
         Instruction::GetIvar { receiver, .. } => vec![*receiver],
         Instruction::SetIvar {
             receiver, value, ..
@@ -301,6 +322,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadFloat64 { .. }
         | Instruction::LoadFloat32 { .. }
         | Instruction::LoadText { .. }
+        | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
         | Instruction::Jump { .. } => Vec::new(),
@@ -398,6 +420,7 @@ impl Machine {
                     Instruction::LoadFloat64 { bits, .. } => Value::Float64(f64::from_bits(*bits)),
                     Instruction::LoadFloat32 { bits, .. } => Value::Float32(f32::from_bits(*bits)),
                     Instruction::LoadText { text, .. } => Value::Text(text.clone()),
+                    Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
                     Instruction::LoadBool { value, .. } => Value::Bool(*value),
                     Instruction::LoadNil { .. } => Value::Nil,
                     Instruction::Move { source, .. } => registers[*source as usize].clone(),
@@ -421,6 +444,32 @@ impl Machine {
                         let start = *first as usize;
                         let elements = registers[start..start + *count as usize].to_vec();
                         Value::Array(iris_runtime::ArrayRef::new(elements))
+                    }
+                    Instruction::BuildHash { first, count, .. } => {
+                        let start = *first as usize;
+                        let mut entries = Vec::with_capacity(*count as usize);
+                        for pair in registers[start..start + *count as usize * 2].chunks_exact(2) {
+                            iris_runtime::public_hash(&pair[0])
+                                .map_err(KernelError::StableHash)
+                                .map_err(MachineError::Kernel)?;
+                            if let Some((_, value)) =
+                                entries.iter_mut().find(|(key, _)| *key == pair[0])
+                            {
+                                *value = pair[1].clone();
+                            } else {
+                                entries.push((pair[0].clone(), pair[1].clone()));
+                            }
+                        }
+                        Value::Hash(iris_runtime::HashRef::new(entries))
+                    }
+                    Instruction::Index {
+                        receiver, index, ..
+                    } => self.index(
+                        registers[*receiver as usize].clone(),
+                        registers[*index as usize].clone(),
+                    )?,
+                    Instruction::Identity { left, right, .. } => {
+                        self.identity(&registers[*left as usize], &registers[*right as usize])?
                     }
                     // C113 fixes the accepted range per WIDTH and requires
                     // RangeError outside it; C114 requires the round trip to hold
@@ -540,8 +589,18 @@ impl Machine {
                         count,
                         ..
                     } => {
-                        let Value::Object(object) = registers[*receiver as usize] else {
-                            return Err(MachineError::Kernel(KernelError::Type));
+                        let receiver = registers[*receiver as usize].clone();
+                        let start = *first as usize;
+                        let arguments = registers[start..start + *count as usize].to_vec();
+                        let object = match receiver {
+                            Value::Object(object) => object,
+                            receiver => {
+                                let value = self.send(selector, receiver, &arguments)?;
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = value;
+                                }
+                                continue;
+                            }
                         };
                         let selector = selector_id(program, selector)
                             .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
@@ -554,9 +613,57 @@ impl Machine {
                                 function: usize::MAX,
                             })
                         })?;
-                        let start = *first as usize;
                         let mut arguments = Vec::with_capacity(*count as usize + 1);
                         arguments.push(Value::Object(object));
+                        arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            arguments,
+                            program,
+                            classes,
+                        )?;
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    }
+                    Instruction::SendClass {
+                        class,
+                        selector,
+                        first,
+                        count,
+                        ..
+                    } => {
+                        let Some(class) = classes.get(*class).copied() else {
+                            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                        };
+                        let selector = selector_id(program, selector)
+                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        let method = match self
+                            .runtime
+                            .registry()
+                            .dispatch_class_object(class, selector)
+                            .map_err(iris_runtime::ConstructionError::from)
+                            .map_err(MachineError::Construction)?
+                        {
+                            iris_runtime::DispatchOutcome::Invoke(method) => method,
+                            iris_runtime::DispatchOutcome::WouldInvokeMethodMissing {
+                                selector,
+                            } => {
+                                return Err(MachineError::Construction(
+                                    iris_runtime::DispatchError::MissingMethod { selector }.into(),
+                                ));
+                            }
+                        };
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let start = *first as usize;
+                        let mut arguments = Vec::with_capacity(*count as usize + 1);
+                        arguments.push(Value::Class(class));
                         arguments.extend_from_slice(&registers[start..start + *count as usize]);
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
@@ -631,6 +738,19 @@ impl Machine {
                     )
                     .map_err(MachineError::Class)?;
             }
+            for (selector, function) in &declaration.class_methods {
+                let selector = selector_id(program, selector)
+                    .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                self.runtime
+                    .registry_mut()
+                    .publish_singleton_method(
+                        class,
+                        selector,
+                        MethodBody::new(*function as u64),
+                        Visibility::Public,
+                    )
+                    .map_err(MachineError::Class)?;
+            }
             self.runtime
                 .registry_mut()
                 .commit_origin_transaction(class)
@@ -658,6 +778,50 @@ impl Machine {
             .send(self.runtime.registry(), receiver, native, arguments)
             .map_err(MachineError::Kernel)
     }
+
+    fn identity(&self, left: &Value, right: &Value) -> Result<Value, MachineError> {
+        let same = match (left, right) {
+            (Value::Nil, Value::Nil)
+            | (Value::Bool(false), Value::Bool(false))
+            | (Value::Bool(true), Value::Bool(true)) => true,
+            (Value::Nil, _) | (Value::Bool(_), _) | (_, Value::Nil) | (_, Value::Bool(_)) => false,
+            (Value::Object(left), Value::Object(right)) => left == right,
+            (Value::Class(left), Value::Class(right)) => left == right,
+            (Value::Array(left), Value::Array(right)) => left.same(right),
+            (Value::Hash(left), Value::Hash(right)) => left.same(right),
+            _ => return Err(MachineError::Kernel(KernelError::Identity)),
+        };
+        Ok(Value::Bool(same))
+    }
+
+    fn index(&self, receiver: Value, index: Value) -> Result<Value, MachineError> {
+        match receiver {
+            Value::Array(values) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let elements = values.elements();
+                Ok(resolve_index(&index, elements.len())
+                    .and_then(|index| elements.get(index).cloned())
+                    .unwrap_or(Value::Nil))
+            }
+            Value::Hash(entries) => Ok(entries.get(&index).unwrap_or(Value::Nil)),
+            _ => Err(MachineError::UnknownSelector("[]".to_owned())),
+        }
+    }
+}
+
+fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<usize> {
+    let index = index.to_i128()?;
+    let length = i128::try_from(length).ok()?;
+    let resolved = if index < 0 {
+        length.checked_add(index)?
+    } else {
+        index
+    };
+    usize::try_from(resolved)
+        .ok()
+        .filter(|index| *index < length as usize)
 }
 
 /// Verifies and runs `program` on a fresh machine.
@@ -679,7 +843,13 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
     let mut names = program
         .classes
         .iter()
-        .flat_map(|class| class.methods.iter().map(|(name, _)| name.as_str()))
+        .flat_map(|class| {
+            class
+                .methods
+                .iter()
+                .chain(&class.class_methods)
+                .map(|(name, _)| name.as_str())
+        })
         .chain(
             program
                 .functions
@@ -687,6 +857,7 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                 .flat_map(|function| function.instructions.iter())
                 .filter_map(|instruction| match instruction {
                     Instruction::Send { selector, .. }
+                    | Instruction::SendClass { selector, .. }
                     | Instruction::GetIvar { name: selector, .. }
                     | Instruction::SetIvar { name: selector, .. } => Some(selector.as_str()),
                     _ => None,
