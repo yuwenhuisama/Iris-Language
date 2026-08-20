@@ -274,6 +274,7 @@ capture, and D-421's `return` exits only that Closure frame.
 | Instruction | Effect |
 | --- | --- |
 | `EnterTry { handler, cleanup, exception }` | Pushes a handler and names the register receiving a raised value. |
+| `CatchMatch { destination, exception, class }` | Writes whether the raised value matches the named Class filter. |
 | `LeaveTry` | Removes the handler after normal completion. |
 | `Raise { value }` | Transfers to the innermost handler or propagates from the frame. |
 
@@ -383,8 +384,8 @@ Covered: integer, float, string, bool, nil and Symbol literals; the binary and
 unary selectors listed in §3.3; identity (`same?`, in both its infix and method
 spellings); array literals; Hash literals with explicit keys; indexing an Array
 or Hash; `let` and `mut` bindings; assignment to a bound name; statement
-sequences; `if`/`else` as a value; `while` loops; `return`; unfiltered
-`try`/`catch`/`finally` and explicit `raise`; Closure capture and `.call`;
+sequences; `if`/`else` as a value; `while` loops; `return`; ordered catch clauses
+with named Class filters, `try`/`catch`/`finally`, and explicit `raise`; Closure capture and `.call`;
 `Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`; native selectors on
 arbitrary receivers; **plain module functions** with positional parameters,
 including recursion and mutual calls; and **user-defined classes**: declaration,
@@ -411,7 +412,8 @@ class-kind), `abstract method`, `parameter` (rest, keyword or block),
 than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
-name), `nested closure`, filtered catch clauses, `call arity`, `name` (unbound),
+name), `nested closure`, `try exception context`, non-name `try catch filter`,
+`call arity`, `name` (unbound),
 `member`, `index receiver`, `hash key name`, `tuple`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen`, `class generics`,
 `class implements`, `class mixin`, `class constraints`, `class meta deny`,
@@ -432,9 +434,9 @@ Named so the gaps are not mistaken for decisions:
 - **Nested Closures.** A Closure may capture from its immediate defining frame;
   recursively compiling Closure bodies needs a stable function-index allocator
   before nested Closure literals can be admitted without misaddressing code.
-- **Filtered catches and exception contexts.** They require runtime Type matching
-  and full `ExceptionContext` construction; the VM declines them rather than
-  treating every catch as a match or fabricating diagnostic metadata.
+- **Exception contexts.** Full `ExceptionContext` construction requires
+  propagation identity, source locations, causes, suppression and re-raise
+  sites; the VM declines context bindings rather than fabricating metadata.
 - **Collection.** The backend now owns a `Runtime`, so it allocates real
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set

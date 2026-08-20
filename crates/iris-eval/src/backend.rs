@@ -453,6 +453,38 @@ mod differential_tests {
         };
     }
 
+    /// A typed catch must skip a non-matching handler inside a method frame;
+    /// otherwise the bytecode backend can appear correct at top level while
+    /// losing the exception register when control crosses a call boundary.
+    #[test]
+    fn backends_agree_when_a_filtered_catch_falls_through() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "module M { public fun r() -> Object { try { raise 1 } catch e: Symbol { 10 } catch e: Integer { e + 1 } } } M.r()";
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends run filtered catches in method frames")
+        };
+
+        assert_eq!(observation, Observation::Value("2".to_owned()));
+        assert_ne!(observation, Observation::Value("10".to_owned()));
+    }
+
+    /// ExceptionContext carries propagation metadata the register VM does not
+    /// yet model, so accepting it as the raised value would be false agreement.
+    #[test]
+    fn bytecode_declines_exception_context_binding_precisely() {
+        let bytecode = Bytecode;
+        let source = "module M { public fun r() -> Object { try { raise 1 } catch e, context { e } } } M.r()";
+
+        let Support::Unsupported(reason) = bytecode.execute(source) else {
+            unreachable!("the bytecode backend has no ExceptionContext model")
+        };
+
+        assert_eq!(reason, "try exception context");
+        assert_ne!(reason, "try filtered catch");
+    }
+
     /// Float agreement is compared by BITS, which is what makes a one-ulp
     /// divergence between backends detectable at all.
     #[test]
@@ -910,8 +942,8 @@ mod differential_tests {
         for (source, construct) in [
             ("{ ||; { ||; 1 } }", "nested closure"),
             (
-                "try { 1 } catch error: Integer { error }",
-                "try filtered catch",
+                "try { 1 } catch error, context { error }",
+                "try exception context",
             ),
             ("for x in [1] { x }", "statement for"),
         ] {

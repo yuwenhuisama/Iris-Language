@@ -99,6 +99,11 @@ pub enum Instruction {
         cleanup: usize,
         exception: Register,
     },
+    CatchMatch {
+        destination: Register,
+        exception: Register,
+        class: String,
+    },
     /// Removes the innermost handler after normal completion.
     LeaveTry,
     /// Raises the value in the current frame.
@@ -183,6 +188,7 @@ impl Instruction {
             | Self::SetIvar { destination, .. }
             | Self::MakeClosure { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
+            Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }
             | Self::Jump { .. }
@@ -755,12 +761,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
         catches: &[iris_syntax::CatchClause],
         finally: &Option<Vec<Statement>>,
     ) -> Result<Register, CompileError> {
-        if catches.len() > 1
-            || catches
-                .first()
-                .is_some_and(|catch| catch.filter.is_some() || catch.context.is_some())
-        {
-            return Err(CompileError::new("try filtered catch"));
+        if catches.iter().any(|catch| catch.context.is_some()) {
+            return Err(CompileError::new("try exception context"));
+        }
+        if catches.iter().any(|catch| {
+            catch
+                .filter
+                .as_ref()
+                .is_some_and(|filter| !matches!(filter, TypeExpression::Name(_)))
+        }) {
+            return Err(CompileError::new("try catch filter"));
         }
         let destination = self.allocate()?;
         let exception = self.allocate()?;
@@ -781,7 +791,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
 
         let handler = self.instructions.len();
         self.patch(enter, handler)?;
-        if let Some(catch) = catches.first() {
+        let mut caught_skips = Vec::with_capacity(catches.len());
+        for catch in catches {
+            let mismatch = if let Some(TypeExpression::Name(class)) = &catch.filter {
+                let matches = self.allocate()?;
+                self.instructions.push(Instruction::CatchMatch {
+                    destination: matches,
+                    exception,
+                    class: class.clone(),
+                });
+                let mismatch = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition: matches,
+                    target: 0,
+                });
+                Some(mismatch)
+            } else {
+                None
+            };
             let catch_enter = self.instructions.len();
             self.instructions.push(Instruction::EnterTry {
                 handler: 0,
@@ -801,6 +828,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             let caught_skip = self.instructions.len();
             self.instructions.push(Instruction::Jump { target: 0 });
+            caught_skips.push(caught_skip);
             let exceptional_cleanup = self.instructions.len();
             self.patch(catch_enter, exceptional_cleanup)?;
             if let Some(finally) = finally {
@@ -808,9 +836,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             self.instructions
                 .push(Instruction::Raise { value: exception });
-            let cleanup = self.instructions.len();
-            self.patch(caught_skip, cleanup)?;
-        } else {
+            if let Some(mismatch) = mismatch {
+                let next = self.instructions.len();
+                self.patch(mismatch, next)?;
+            } else {
+                break;
+            }
+        }
+        if catches.last().is_none_or(|catch| catch.filter.is_some()) {
             if let Some(finally) = finally {
                 self.body(finally)?;
             }
@@ -819,6 +852,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
 
         let cleanup = self.instructions.len();
+        for caught_skip in caught_skips {
+            self.patch(caught_skip, cleanup)?;
+        }
         self.patch(normal_skip, cleanup)?;
         if let Some(Instruction::EnterTry { cleanup: slot, .. }) = self.instructions.get_mut(enter)
         {

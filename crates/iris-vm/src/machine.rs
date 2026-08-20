@@ -1,8 +1,8 @@
 //! Verifies and executes register instructions.
 
 use iris_runtime::{
-    ClassError, ClassId, ConstructionError, Kernel, KernelError, MethodBody, NativeSelector,
-    NumericError, Runtime, Selector, StaticSpine, Value, Visibility,
+    BuiltinClass, ClassError, ClassId, ConstructionError, Kernel, KernelError, MethodBody,
+    NativeSelector, NumericError, Runtime, Selector, StaticSpine, Value, Visibility,
 };
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
@@ -360,6 +360,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::SetIvar {
             receiver, value, ..
         } => vec![*receiver, *value],
+        Instruction::CatchMatch { exception, .. } => vec![*exception],
         Instruction::LoadInteger { .. }
         | Instruction::LoadFloat64 { .. }
         | Instruction::LoadFloat32 { .. }
@@ -605,6 +606,14 @@ impl Machine {
                     handlers.push((*handler, *exception));
                     continue;
                 }
+                Instruction::CatchMatch {
+                    exception, class, ..
+                } => Value::Bool(self.catch_matches(
+                    &registers[*exception as usize],
+                    class,
+                    program,
+                    classes,
+                )?),
                 Instruction::LeaveTry => {
                     handlers.pop();
                     continue;
@@ -890,6 +899,53 @@ impl Machine {
             classes.push(class);
         }
         Ok(classes)
+    }
+
+    fn catch_matches(
+        &self,
+        value: &Value,
+        name: &str,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<bool, MachineError> {
+        let filter = match name {
+            "Symbol" => return Ok(matches!(value, Value::Symbol(_))),
+            "Integer" => return Ok(matches!(value, Value::Integer(_))),
+            "Nil" => return Ok(matches!(value, Value::Nil)),
+            "Bool" => return Ok(matches!(value, Value::Bool(_))),
+            "Object" => self
+                .kernel
+                .class(BuiltinClass::Object)
+                .map_err(MachineError::Kernel),
+            _ => program
+                .classes
+                .iter()
+                .position(|class| class.name == name)
+                .and_then(|index| classes.get(index).copied())
+                .map_or_else(|| Err(MachineError::Kernel(KernelError::Type)), Ok),
+        }?;
+        let Value::Object(object) = value else {
+            return Ok(false);
+        };
+        let mut class = self
+            .runtime
+            .class_of(*object)
+            .map_err(MachineError::Construction)?;
+        loop {
+            if class == filter {
+                return Ok(true);
+            }
+            let Some(superclass) = self
+                .runtime
+                .registry()
+                .active(class)
+                .map_err(MachineError::Class)?
+                .runtime_superclass()
+            else {
+                return Ok(false);
+            };
+            class = superclass;
+        }
     }
 
     /// Sends a native selector through the SHARED kernel.

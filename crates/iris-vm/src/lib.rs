@@ -197,6 +197,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn filtered_catch_fallthrough_requires_the_exception_register() {
+        let mut compiled = program("try { raise 1 } catch e: Symbol { 2 } catch e: Integer { e }");
+        let Some(filter) = compiled
+            .instructions
+            .iter()
+            .position(|instruction| matches!(instruction, Instruction::CatchMatch { .. }))
+        else {
+            unreachable!("a typed catch lowers a filter instruction")
+        };
+        compiled.instructions[filter] = Instruction::CatchMatch {
+            destination: 2,
+            exception: compiled.registers as Register - 1,
+            class: "Symbol".to_owned(),
+        };
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::ReadBeforeWrite {
+                register: compiled.registers as Register - 1
+            })
+        );
+        assert_ne!(verify(&compiled), Ok(()));
+    }
+
     /// An out-of-range register is refused rather than indexed, which is what
     /// turns corrupt bytecode into a reportable error instead of a crash.
     #[test]
@@ -546,7 +571,7 @@ mod ir_document_tests {
             ("unbound_name", "name"),
             ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),
-            ("try { 1 } catch e: Integer { e }", "try filtered catch"),
+            ("try { 1 } catch e, context { e }", "try exception context"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")
