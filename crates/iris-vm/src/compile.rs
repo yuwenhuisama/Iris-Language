@@ -654,7 +654,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
             }
-            _ => Err(CompileError::new("statement")),
+            other => Err(CompileError::new(format!(
+                "statement {}",
+                match other {
+                    Statement::Binding { .. } => "binding",
+                    Statement::Method(_) => "method",
+                    Statement::GlobalBinding { .. } => "global",
+                    Statement::SharedBinding { .. } => "shared",
+                    Statement::DeferredBinding { .. } => "deferred",
+                    Statement::StoredProperty { .. } => "stored property",
+                    Statement::Match { .. } => "match",
+                    Statement::For { .. } => "for",
+                    Statement::Try { .. } => "try",
+                    Statement::Raise(_) => "raise",
+                    Statement::Break { .. } => "break",
+                    Statement::Continue(_) => "continue",
+                    _ => "other",
+                }
+            ))),
         }
     }
 
@@ -939,7 +956,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
         arguments: &[Expression],
     ) -> Result<Register, CompileError> {
         let Expression::Member { receiver, selector } = callee else {
-            return Err(CompileError::new("call"));
+            return Err(CompileError::new(match callee {
+                Expression::Name(_) => "call bare name",
+                Expression::Closure { .. } => "call closure",
+                _ => "call callee",
+            }));
         };
         if let Expression::Name(name) = receiver.as_ref()
             && selector == "from_bits"
@@ -1081,7 +1102,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if !matches!(receiver.as_ref(), Expression::Call { .. })
             && !matches!(receiver.as_ref(), Expression::Name(name) if self.lookup(name).is_some())
         {
-            return Err(CompileError::new("call"));
+            return Err(CompileError::new(match receiver.as_ref() {
+                Expression::Name(_) => "call unbound receiver",
+                Expression::Member { .. } => "call member receiver",
+                Expression::Literal(_) => "call literal receiver",
+                Expression::Array(_) => "call array receiver",
+                _ => "call receiver",
+            }));
         }
         let receiver = self.expression(receiver)?;
         let (first, count) = self.argument_window(arguments)?;
