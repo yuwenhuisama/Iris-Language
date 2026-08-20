@@ -498,11 +498,11 @@ mod ir_document_tests {
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
             ("class A { }", "empty program"),
-            ("for x in [1] { x }", "statement"),
+            ("for x in [1] { x }", "statement for"),
             ("unbound_name", "name"),
             ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),
-            ("try { 1 } catch e { e }", "statement"),
+            ("try { 1 } catch e { e }", "statement try"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")

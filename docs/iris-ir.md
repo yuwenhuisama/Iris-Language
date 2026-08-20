@@ -377,9 +377,15 @@ Declined, each by name: `declaration` (anything that is not a plain module),
 `module` (open, mixin, generic or decorated), `module body` (a non-method
 statement), `method` (async, override, `impl`, decorated, generic or
 class-kind), `abstract method`, `parameter` (rest, keyword or block),
-`statement` (which includes `const`, global and deferred bindings, `for`, and
-`try`), `assignment target` (anything but a bound name), `closure`, `call` (any
-shape beyond §3.3/§3.6), `call arity`, `name` (unbound), `member`,
+`statement <form>`, which names the form that stopped it - `try`, `for`,
+`match`, `raise`, `binding`, `global`, `shared`, `deferred`, `stored property`,
+`break`, `continue`, `method` - and likewise `call <shape>` for a call:
+`bare name`, `closure`, `callee`, and the receiver shapes `unbound receiver`,
+`member receiver`, `literal receiver`, `array receiver`. Naming the form rather
+than the category is what makes the measurement in §6 actionable: `statement`
+alone said where the backend stopped, not what stopped it, and the split showed
+`try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
+name), `closure`, `call arity`, `name` (unbound), `member`,
 `index receiver`, `hash key name`, `tuple`, `try`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen`, `class generics`,
 `class implements`, `class mixin`, `class constraints`, `class meta deny`,
