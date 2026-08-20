@@ -728,6 +728,17 @@ pub(super) struct SourceEvaluator {
     generic_definitions: Vec<ClassId>,
     active_exception: Option<Value>,
     active_context: Option<Value>,
+    /// Locals of every ACTIVE block, innermost last.
+    ///
+    /// Locals are threaded through evaluation as a `&HashMap` parameter, so a
+    /// caller's locals otherwise live only on the Rust stack and cannot be
+    /// enumerated. A collection could then free an object reachable only from
+    /// a caller, which is why one refused to run inside a Method body at all.
+    ///
+    /// Registering each block's locals here makes the live frames enumerable,
+    /// which is exactly what a root set is. It costs one push and one pop per
+    /// block rather than a rewrite of every signature that threads locals.
+    frames: Vec<HashMap<String, Value>>,
     next_selector: u64,
     next_body: u64,
 }
@@ -808,6 +819,7 @@ impl SourceEvaluator {
             kernel,
             remaining_steps: STEP_BUDGET,
             invocation_depth: 0,
+            frames: Vec::new(),
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
@@ -947,18 +959,19 @@ impl SourceEvaluator {
     /// `D-111` keeps an identity hash stable across movement by GC, which is
     /// only observable once something can actually die.
     ///
-    /// Collection needs the COMPLETE root set. Local bindings are a
-    /// `&HashMap<String, Value>` threaded through evaluation rather than
-    /// evaluator-owned state, so a caller's locals live on the Rust stack and
-    /// cannot be enumerated from here. Freeing while a caller frame exists
-    /// would therefore free live objects, and this refuses instead: an
-    /// `UnsupportedConstruct` is a far better outcome than a silently
-    /// corrupted heap.
+    /// Collection needs the COMPLETE root set. Locals are threaded through
+    /// evaluation as a parameter rather than owned by the evaluator, so each
+    /// active block registers its locals in `frames` and the live frames
+    /// supply what would otherwise be stranded on the Rust stack.
     fn collect_garbage(&mut self) -> Result<usize, EvaluationError> {
-        if self.invocation_depth > 0 || self.closure_depth > 0 || self.async_depth > 0 {
-            return Err(EvaluationError::UnsupportedConstruct);
-        }
         let mut roots: Vec<Value> = Vec::new();
+        // The live frames ARE the root set. Each active block registers its
+        // locals, so a caller's bindings are enumerable rather than stranded
+        // on the Rust stack - which is what previously made a collection
+        // inside a Method body unsafe and therefore refused.
+        for frame in &self.frames {
+            roots.extend(frame.values().cloned());
+        }
         for binding in self.names.values().chain(self.globals.values()) {
             roots.push(binding.value.clone());
         }
@@ -5629,7 +5642,12 @@ impl SourceEvaluator {
         // and raise paths that leave the block early, so the body is run
         // separately and its outcome passed through.
         let mut shadowed = Vec::new();
+        // The frame is registered for the whole body and popped on EVERY exit,
+        // including the break, return and raise paths that leave early.
+        let frame = self.frames.len();
+        self.frames.push(parent.clone());
         let result = self.block_body(statements, parent, receiver, &mut shadowed);
+        self.frames.truncate(frame);
         self.restore_shadowed(shadowed);
         result
     }
@@ -5643,6 +5661,11 @@ impl SourceEvaluator {
     ) -> Result<Value, EvaluationError> {
         let mut locals = parent.clone();
         let mut result = Value::Nil;
+        // A binding made INSIDE this block must join the root set too, so the
+        // registered frame is refreshed as the body binds. Registering only
+        // the entry snapshot let a collection free an object a local still
+        // held, which then failed with an unknown ObjectId.
+        let frame = self.frames.len().saturating_sub(1);
         for statement in statements {
             match statement {
                 Statement::Binding {
@@ -5667,6 +5690,9 @@ impl SourceEvaluator {
                         self.names.insert(name.clone(), Binding::new(value, true));
                     } else {
                         locals.insert(name.clone(), value);
+                    }
+                    if let Some(registered) = self.frames.get_mut(frame) {
+                        registered.clone_from(&locals);
                     }
                 }
                 Statement::Expression(_) | Statement::If { .. } | Statement::Try { .. } => {

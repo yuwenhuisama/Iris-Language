@@ -4134,17 +4134,24 @@ fn a_top_level_collection_frees_only_unreachable_objects() {
 }
 
 #[test]
-fn collection_refuses_where_the_root_set_is_incomplete() {
-    // Local bindings are threaded through evaluation as a parameter rather
-    // than owned by the evaluator, so a caller's locals sit on the Rust stack
-    // and cannot be enumerated. Freeing there would free LIVE objects, so a
-    // collection inside a method body refuses rather than corrupting the heap.
+fn a_collection_inside_a_closure_keeps_captured_values() {
+    // A Closure body runs through the same block path, so its captured
+    // environment is registered as a frame too. Previously a collection
+    // refused inside ANY nested invocation, closures included.
     assert_eq!(
         evaluate(
-            "class A { } module M { public fun run() -> Object { \
-               NativeFixture.compact_gc() } } M.run()"
+            "class A { } \
+             module M { public fun run() -> Object { \
+               let kept = A.new(); \
+               let before = kept.hash(); \
+               let check = { |x|; let dead = A.new().hash(); NativeFixture.compact_gc() }; \
+               let freed = check.call(1); \
+               [freed, before == kept.hash()] } } M.run()"
         ),
-        Err(EvaluationError::UnsupportedConstruct)
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Bool(true),
+        ])))
     );
 }
 
@@ -4166,5 +4173,54 @@ fn bitwise_operators_work_on_literal_receivers() {
     assert_eq!(
         evaluate("let a = 6; a & 3"),
         Ok(RuntimeValue::Integer(2_u8.into()))
+    );
+}
+
+#[test]
+fn a_collection_inside_a_method_keeps_the_callers_locals() {
+    // Locals are threaded through evaluation as a parameter, so a caller's
+    // bindings used to live only on the Rust stack: a collection could not see
+    // them and would have freed objects the caller still held, which is why it
+    // refused to run inside a Method body at all.
+    //
+    // Each active block now registers its locals, so the live frames are the
+    // root set. A collection triggered in a CALLEE must therefore leave the
+    // caller's object alive.
+    assert_eq!(
+        evaluate(
+            "class A { } \
+             module M { \
+               public fun inner() -> Object { let dead = A.new().hash(); \
+                 NativeFixture.compact_gc() } \
+               public fun run() -> Object { \
+                 let outer = A.new(); \
+                 let before = outer.hash(); \
+                 let freed = M.inner(); \
+                 [freed, before == outer.hash()] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            // The callee's own garbage is collected...
+            RuntimeValue::Integer(1_u8.into()),
+            // ...and the CALLER's local survived with its hash intact.
+            RuntimeValue::Bool(true),
+        ])))
+    );
+
+    // Control: with nothing unreachable, a collection inside a method frees
+    // NOTHING rather than freeing a live local.
+    assert_eq!(
+        evaluate(
+            "class A { } \
+             module M { \
+               public fun run() -> Object { \
+                 let keep = A.new(); \
+                 let before = keep.hash(); \
+                 let freed = NativeFixture.compact_gc(); \
+                 [freed, before == keep.hash()] } } M.run()"
+        ),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(0_u8.into()),
+            RuntimeValue::Bool(true),
+        ])))
     );
 }

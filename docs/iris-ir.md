@@ -227,6 +227,16 @@ Only the false branch is conditional. One conditional form plus an unconditional
 jump expresses every shape this subset needs, and each extra branch opcode is
 another case the verifier must reason about.
 
+A `while` loop is a BACKWARD jump: the condition is evaluated at the top, a
+`JumpUnless` leaves the loop, and the body ends in a `Jump` back to the top. The
+loop's own value is nil, since `IRIS-V1-CONTROL-C023` gives a normal loop
+completion no value and only a `break` with an operand carries one - which this
+subset declines.
+
+A `mut` binding keeps ONE register that assignment updates in place. That is
+what carries a value across the back edge: allocating a fresh register per
+assignment would leave the loop reading its pre-loop value forever.
+
 Truth is decided by the **runtime**, not re-derived here:
 `IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey, and a second copy
 of that rule would be one more place for the backends to diverge.
@@ -270,7 +280,23 @@ semantic.
 
 ## 4. Verifier
 
-Verification runs **before** execution and is a single linear pass.
+Verification runs **before** execution.
+
+Structural checks - registers in range, jump targets inside the body, call
+indices defined - are a single linear pass. **Definite assignment is a dataflow
+fixpoint** over the control-flow graph, keeping the INTERSECTION of what is
+written along every path reaching a point.
+
+A linear scan is unsound the moment control flow exists, and this was a real
+defect rather than a hypothetical one. A forward jump that SKIPS a write left
+the scan believing the register was written, because the scan walked past an
+instruction execution never runs; the resulting program read an unwritten
+register and answered nil. A backward jump breaks it the other way, since a loop
+body is entered before its own writes have happened.
+
+The fixpoint terminates because each entry set only ever shrinks. An
+UNREACHABLE instruction is not checked at all: it never executes, so it cannot
+read anything.
 
 This closes a P0 recorded against the previous C++ VM, whose opcode loop read
 operands through `vector::operator[]` with no verifier or bounds check, so
@@ -329,8 +355,9 @@ reason, which is worse than leaving the row held. `compile` therefore answers a
 than two RUNNING backends as insufficient rather than as agreement.
 
 Covered: integer, float, string, bool and nil literals; the binary and unary
-selectors listed in §3.3; array literals; immutable `let` bindings; statement
-sequences; `if`/`else` as a value; `return`; `Float32.from_bits`/
+selectors listed in §3.3; array literals; `let` and `mut` bindings; assignment
+to a bound name; statement sequences; `if`/`else` as a value; `while` loops;
+`return`; `Float32.from_bits`/
 `Float64.from_bits`; `to_bits`; `hash`; and **plain module functions** with
 positional parameters, including recursion and mutual calls.
 
@@ -342,8 +369,9 @@ Declined, each by name: `declaration` (anything that is not a plain module),
 `module` (open, mixin, generic or decorated), `module body` (a non-method
 statement), `method` (async, override, `impl`, decorated, generic or
 class-kind), `abstract method`, `parameter` (rest, keyword or block),
-`statement` (which includes `mut`, `const`, global and deferred bindings, and
-`while`), `closure`, `call` (any shape beyond §3.3/§3.6), `call arity`,
+`statement` (which includes `const`, global and deferred bindings, `for`, and
+`try`), `assignment target` (anything but a bound name), `closure`, `call` (any
+shape beyond §3.3/§3.6), `call arity`,
 `name` (unbound), `member`, `index`, `symbol`, `hash`, `tuple`, `try`, `await`,
 `yield`, `assignment`, plus the structural refusals `rejected source`,
 `rejected literal`, `empty program`, `empty body`, `array too long`,
@@ -356,17 +384,15 @@ fails the build.
 
 Named so the gaps are not mistaken for decisions:
 
-- **Loops.** `while` is declined. A loop needs a BACKWARD jump, which the
-  verifier's single forward pass over written-before-read does not yet reason
-  about: a register written inside a loop body is not written on the first
-  iteration's entry edge.
 - **Methods on Classes.** Only plain module functions are covered. An instance
   method needs a receiver, dispatch through the MRO, and revision awareness.
 - **Closure capture.** Needs the HIR layer the design review places between AST
   and execution IR; capture analysis belongs there, not here.
-- **Frames as GC roots.** The IR now has frames, but the COLLECTOR does not yet
-  walk them: collection still runs only where the evaluator owns the whole root
-  set. Connecting the two is what would let a collection run mid-call.
+- **A heap.** The bytecode backend has a `ClassRegistry` but no heap: it
+  allocates no objects and never produces a `Value::Object`, so it has nothing
+  to collect. Frames are the right root-set shape for when it does, but nothing
+  here is exercised by the collector yet - the collector runs in the
+  tree-walking evaluator, which registers its own frames (§7).
 - **Serialisation.** There is no on-disk format. Programs are compiled and
   executed in memory. The review records a P0 against the old `.irc` reader for
   trusting file contents — no magic or version check, no field-count or string
@@ -378,6 +404,17 @@ Named so the gaps are not mistaken for decisions:
 ## 7. Divergences from the design review
 
 Recorded rather than silently taken.
+
+**GC roots and frames.** The tree-walking evaluator threads locals through a
+`&HashMap<String, Value>` parameter, so a caller's bindings would live only on
+the Rust stack. A collection could not see them and would have freed objects a
+caller still held, which is why one refused to run inside a Method body at all.
+
+Each active block now registers its locals, so the live frames are the root set
+and a collection may run mid-call: a collection triggered in a CALLEE collects
+that callee's garbage while leaving the caller's objects alive. The registered
+frame is refreshed as the body binds, because registering only the entry
+snapshot let a collection free an object a local had just bound.
 
 **Moving GC.** The review recommends a non-moving mark-sweep collector for the
 first version and lists moving GC among the things the first JIT explicitly

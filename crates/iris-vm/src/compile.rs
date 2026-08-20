@@ -196,17 +196,45 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         functions.push(lower_function(signature, &signatures)?);
     }
 
-    let Some((last, leading)) = parsed.program.statements.split_last() else {
+    if parsed.program.statements.is_empty() {
         return Err(CompileError::new("empty program"));
-    };
-    let mut lowering = Lowering::new(&signatures);
-    for statement in leading {
-        // An earlier statement's value is not the program's answer. Its
-        // register is simply not read again; nothing has to be popped, which
-        // is one of the reasons the IR is register-based.
-        lowering.statement(statement)?;
     }
-    let result = lowering.statement(last)?;
+    let mut lowering = Lowering::new(&signatures);
+    // A top-level program answers the values of its non-BINDING statements:
+    // one value directly, several as an Array. That convention belongs to the
+    // reference evaluator, and a backend that answered only the last statement
+    // would disagree with it for a reason that is not semantic - which is
+    // exactly what the differential harness exists to catch.
+    let mut produced = Vec::new();
+    for statement in &parsed.program.statements {
+        let value = lowering.statement(statement)?;
+        if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
+            produced.push(value);
+        }
+    }
+    let result = match produced.as_slice() {
+        [] => return Err(CompileError::new("no program value")),
+        [single] => *single,
+        _ => {
+            let first = lowering.next_register;
+            let count =
+                u16::try_from(produced.len()).map_err(|_| CompileError::new("program too wide"))?;
+            for source in produced {
+                let destination = lowering.allocate()?;
+                lowering.instructions.push(Instruction::Move {
+                    destination,
+                    source,
+                });
+            }
+            let destination = lowering.allocate()?;
+            lowering.instructions.push(Instruction::BuildArray {
+                destination,
+                first,
+                count,
+            });
+            destination
+        }
+    };
     Ok(Program {
         instructions: lowering.instructions,
         registers: lowering.next_register as usize,
@@ -360,22 +388,55 @@ impl<'a, 'b> Lowering<'a, 'b> {
             // deferred bindings carry rules - reassignment, definite
             // assignment, package-qualified identity - this subset lacks.
             Statement::Binding {
-                mutable: false,
+                mutable,
                 name,
                 annotation: None,
                 value,
                 ..
             } => {
+                let _ = mutable;
                 let value = self.expression(value)?;
                 // A rebinding SHADOWS rather than overwrites: the earlier
                 // register may still be read by a closure or an earlier
                 // instruction, so reusing it would corrupt that read.
+                //
+                // A `mut` binding still gets ONE register, which assignment
+                // then updates in place. That is what lets a loop carry a
+                // value across iterations: a fresh register per assignment
+                // would leave the loop reading its pre-loop value forever.
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::Move {
                     destination,
                     source: value,
                 });
                 self.names.push((name.clone(), destination));
+                Ok(destination)
+            }
+            // A loop is a BACKWARD jump, which is why the verifier had to
+            // become a dataflow fixpoint: a body is entered before its own
+            // writes have happened, so a linear scan cannot decide definite
+            // assignment across the back edge.
+            Statement::While {
+                label: None,
+                condition,
+                body,
+            } => {
+                // The loop answers nil: `IRIS-V1-CONTROL-C023` gives a normal
+                // loop completion no value of its own, and only a `break` with
+                // an operand carries one - which this subset declines.
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                let top = self.instructions.len();
+                let condition = self.expression(condition)?;
+                let exit = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition,
+                    target: 0,
+                });
+                self.body(body)?;
+                self.instructions.push(Instruction::Jump { target: top });
+                let after = self.instructions.len();
+                self.patch(exit, after)?;
                 Ok(destination)
             }
             // An `if` yields a value, so both arms write the SAME destination
@@ -536,6 +597,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     first,
                     count,
+                });
+                Ok(destination)
+            }
+            // Assignment writes the name's EXISTING register, which is what
+            // carries a value across a loop's back edge.
+            Expression::Assignment {
+                left,
+                operator: iris_syntax::AssignmentOperator::Assign,
+                right,
+            } => {
+                let Expression::Name(name) = left.as_ref() else {
+                    return Err(CompileError::new("assignment target"));
+                };
+                let Some(destination) = self.lookup(name) else {
+                    return Err(CompileError::new("name"));
+                };
+                let source = self.expression(right)?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source,
                 });
                 Ok(destination)
             }

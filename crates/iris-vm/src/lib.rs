@@ -148,6 +148,11 @@ mod tests {
     }
 
     /// An Array range that leaves the register file is refused too.
+    ///
+    /// The structural pass checks each register a range NAMES before it checks
+    /// the range as a whole, so a range running off the end is caught as the
+    /// first non-existent register it names. Either refusal is correct; what
+    /// matters is that the program does not execute.
     #[test]
     fn an_out_of_range_array_range_is_refused() {
         let mut compiled = program("[1, 2]");
@@ -157,12 +162,105 @@ mod tests {
             count: 99,
         });
 
-        assert_eq!(
+        assert!(matches!(
             verify(&compiled),
-            Err(VerifyError::ArrayRangeOutOfRange {
-                first: 0,
-                count: 99
-            })
+            Err(VerifyError::ArrayRangeOutOfRange { .. } | VerifyError::RegisterOutOfRange { .. })
+        ));
+
+        // A range that stays IN range but is not fully written is refused as
+        // a definite-assignment failure rather than a structural one.
+        let mut unwritten = program("[1, 2]");
+        let first = Register::try_from(unwritten.registers).unwrap_or_default();
+        unwritten.registers += 2;
+        unwritten.instructions.push(Instruction::BuildArray {
+            destination: 0,
+            first,
+            count: 2,
+        });
+        assert_eq!(
+            verify(&unwritten),
+            Err(VerifyError::ReadBeforeWrite { register: first })
+        );
+    }
+
+    /// Definite assignment is a DATAFLOW question, not a linear one.
+    ///
+    /// A single pass over the instruction list is unsound once control flow
+    /// exists: a forward jump that SKIPS a write leaves the scan believing the
+    /// register was written, because the scan walked past an instruction that
+    /// execution never runs. That program then read an unwritten register.
+    #[test]
+    fn a_write_skipped_by_a_jump_does_not_count_as_written() {
+        let mut skipped = program("1 + 2");
+        skipped.registers = 6;
+        skipped.result = 2;
+        skipped.instructions = vec![
+            Instruction::LoadInteger {
+                destination: 0,
+                digits: "1".to_owned(),
+            },
+            Instruction::Jump { target: 3 },
+            Instruction::LoadInteger {
+                destination: 1,
+                digits: "9".to_owned(),
+            },
+            Instruction::Move {
+                destination: 2,
+                source: 1,
+            },
+        ];
+
+        assert_eq!(
+            verify(&skipped),
+            Err(VerifyError::ReadBeforeWrite { register: 1 })
+        );
+    }
+
+    /// The converse: a register written on BOTH paths of a branch IS written,
+    /// so the merge keeps what every path establishes rather than refusing
+    /// everything a branch touches.
+    #[test]
+    fn a_write_on_every_path_counts_as_written() {
+        let mut branched = program("1 + 2");
+        branched.registers = 4;
+        branched.result = 2;
+        branched.instructions = vec![
+            Instruction::LoadBool {
+                destination: 0,
+                value: true,
+            },
+            Instruction::JumpUnless {
+                condition: 0,
+                target: 3,
+            },
+            Instruction::LoadInteger {
+                destination: 1,
+                digits: "1".to_owned(),
+            },
+            Instruction::LoadInteger {
+                destination: 1,
+                digits: "2".to_owned(),
+            },
+            Instruction::Move {
+                destination: 2,
+                source: 1,
+            },
+        ];
+
+        assert_eq!(verify(&branched), Ok(()));
+    }
+
+    /// A loop is a BACKWARD jump, and the fixpoint must terminate on it.
+    #[test]
+    fn a_loop_verifies_and_terminates() {
+        let compiled = program("mut i = 0; while i < 3 { i = i + 1 } i");
+
+        assert_eq!(verify(&compiled), Ok(()));
+        assert!(
+            compiled
+                .instructions
+                .iter()
+                .any(|instruction| matches!(instruction, Instruction::Jump { .. }))
         );
     }
 }
@@ -319,11 +417,11 @@ mod ir_document_tests {
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
             ("class A { }", "declaration"),
-            ("mut a = 1; a", "statement"),
+            ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
             (":symbol", "symbol"),
             ("(1, 2)", "tuple"),
-            ("while false { 1 }", "statement"),
+            ("try { 1 } catch e { e }", "statement"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")

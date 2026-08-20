@@ -78,120 +78,218 @@ fn verify_body(
     parameters: usize,
     result: Option<Register>,
 ) -> Result<(), VerifyError> {
-    let mut written = vec![false; registers];
     if parameters > registers {
         return Err(VerifyError::RegisterOutOfRange {
             register: Register::try_from(parameters).unwrap_or(Register::MAX),
         });
     }
-    for slot in written.iter_mut().take(parameters) {
-        *slot = true;
-    }
 
-    let in_range = |register: Register| (register as usize) < registers;
-    let read = |register: Register, written: &[bool]| -> Result<(), VerifyError> {
-        if !in_range(register) {
-            return Err(VerifyError::RegisterOutOfRange { register });
-        }
-        if !written[register as usize] {
-            return Err(VerifyError::ReadBeforeWrite { register });
-        }
-        Ok(())
-    };
-
+    // Structural checks first: every register and target must be nameable
+    // before any dataflow over them means anything.
     for instruction in instructions {
+        for register in reads(instruction) {
+            if register as usize >= registers {
+                return Err(VerifyError::RegisterOutOfRange { register });
+            }
+        }
+        if let Some(destination) = instruction.destination()
+            && destination as usize >= registers
+        {
+            return Err(VerifyError::RegisterOutOfRange {
+                register: destination,
+            });
+        }
         match instruction {
-            // A jump target must land inside the body. The old C++ VM had a
-            // `SPR` opcode that fell through into the next case and overwrote
-            // its result; a checked target is what makes that class of defect
-            // a verification failure rather than silent corruption.
-            Instruction::JumpUnless { condition, target } => {
-                read(*condition, &written)?;
+            Instruction::JumpUnless { target, .. } | Instruction::Jump { target } => {
                 if *target > instructions.len() {
                     return Err(VerifyError::JumpOutOfRange { target: *target });
                 }
             }
-            Instruction::Jump { target } => {
-                if *target > instructions.len() {
-                    return Err(VerifyError::JumpOutOfRange { target: *target });
-                }
-            }
-            Instruction::Return { value } => read(*value, &written)?,
-            Instruction::Call {
-                function,
-                first,
-                count,
-                ..
-            } => {
+            Instruction::Call { function, .. } => {
                 if *function >= functions {
                     return Err(VerifyError::UnknownFunction {
                         function: *function,
                     });
                 }
-                let last = (*first as usize).checked_add(*count as usize).ok_or(
-                    VerifyError::ArrayRangeOutOfRange {
-                        first: *first,
-                        count: *count,
-                    },
-                )?;
-                if last > registers {
-                    return Err(VerifyError::ArrayRangeOutOfRange {
-                        first: *first,
-                        count: *count,
-                    });
-                }
-                for offset in 0..*count {
-                    read(first + offset, &written)?;
-                }
             }
-            Instruction::Move { source, .. } => read(*source, &written)?,
-            Instruction::Binary { left, right, .. } => {
-                read(*left, &written)?;
-                read(*right, &written)?;
-            }
-            Instruction::Unary { operand, .. } => read(*operand, &written)?,
-            Instruction::FromBits { bits, .. } => read(*bits, &written)?,
             Instruction::BuildArray { first, count, .. } => {
-                let last = (*first as usize).checked_add(*count as usize).ok_or(
-                    VerifyError::ArrayRangeOutOfRange {
-                        first: *first,
-                        count: *count,
-                    },
-                )?;
-                if last > registers {
-                    return Err(VerifyError::ArrayRangeOutOfRange {
-                        first: *first,
-                        count: *count,
-                    });
-                }
-                for offset in 0..*count {
-                    read(first + offset, &written)?;
-                }
+                range(*first, *count, registers)?;
             }
-            Instruction::LoadInteger { .. }
-            | Instruction::LoadFloat64 { .. }
-            | Instruction::LoadFloat32 { .. }
-            | Instruction::LoadText { .. }
-            | Instruction::LoadBool { .. }
-            | Instruction::LoadNil { .. } => {}
+            _ => {}
         }
+    }
+
+    // Definite assignment is a DATAFLOW question, not a linear one.
+    //
+    // A single pass over the instruction list is unsound the moment control
+    // flow exists: a forward jump that SKIPS a write leaves the scan believing
+    // the register was written, because the scan walked past the instruction
+    // that execution never ran. A backward jump breaks it the other way, since
+    // a loop body is entered before its own writes have happened.
+    //
+    // This is therefore a fixpoint over the control-flow graph, keeping the
+    // INTERSECTION of what is written along every path reaching a point. It
+    // terminates because each entry set only ever shrinks.
+    let mut entry: Vec<Option<Vec<bool>>> = vec![None; instructions.len()];
+    let mut start = vec![false; registers];
+    // A parameter arrives pre-bound, so it is written on entry.
+    for slot in start.iter_mut().take(parameters) {
+        *slot = true;
+    }
+    if !instructions.is_empty() {
+        entry[0] = Some(start);
+    }
+
+    let mut pending: Vec<usize> = if instructions.is_empty() {
+        Vec::new()
+    } else {
+        vec![0]
+    };
+    while let Some(at) = pending.pop() {
+        let Some(Some(state)) = entry.get(at).cloned() else {
+            continue;
+        };
+        let Some(instruction) = instructions.get(at) else {
+            continue;
+        };
+        let mut next = state;
         if let Some(destination) = instruction.destination() {
-            if !in_range(destination) {
-                return Err(VerifyError::RegisterOutOfRange {
-                    register: destination,
-                });
+            next[destination as usize] = true;
+        }
+
+        let successors: Vec<usize> = match instruction {
+            // A return leaves the frame, so it has no successor at all.
+            Instruction::Return { .. } => Vec::new(),
+            Instruction::Jump { target } => vec![*target],
+            // Both edges are live: the branch may be taken or not.
+            Instruction::JumpUnless { target, .. } => vec![*target, at + 1],
+            _ => vec![at + 1],
+        };
+        for successor in successors {
+            if successor >= instructions.len() {
+                continue;
             }
-            written[destination as usize] = true;
+            let merged = match &entry[successor] {
+                // Merging keeps only what is written on BOTH paths, which is
+                // what makes a skipped write stop counting as written.
+                Some(existing) => {
+                    let merged: Vec<bool> = existing
+                        .iter()
+                        .zip(&next)
+                        .map(|(held, incoming)| *held && *incoming)
+                        .collect();
+                    (merged != *existing).then_some(merged)
+                }
+                None => Some(next.clone()),
+            };
+            if let Some(merged) = merged {
+                entry[successor] = Some(merged);
+                pending.push(successor);
+            }
+        }
+    }
+
+    // Now check every reachable instruction against what is definitely
+    // written when it runs. An UNREACHABLE instruction is not checked: it
+    // never executes, so it cannot read anything.
+    for (at, instruction) in instructions.iter().enumerate() {
+        let Some(state) = &entry[at] else { continue };
+        for register in reads(instruction) {
+            if !state[register as usize] {
+                return Err(VerifyError::ReadBeforeWrite { register });
+            }
         }
     }
 
     if let Some(result) = result {
-        if !in_range(result) {
+        if result as usize >= registers {
             return Err(VerifyError::RegisterOutOfRange { register: result });
         }
-        if !written[result as usize] {
+        // The result is read after the LAST instruction, so it must be
+        // written on every path that falls off the end.
+        let final_state = if instructions.is_empty() {
+            let mut start = vec![false; registers];
+            for slot in start.iter_mut().take(parameters) {
+                *slot = true;
+            }
+            Some(start)
+        } else {
+            fall_through(instructions, &entry, registers)
+        };
+        if let Some(state) = final_state
+            && !state[result as usize]
+        {
             return Err(VerifyError::ReadBeforeWrite { register: result });
         }
+    }
+    Ok(())
+}
+
+/// What is definitely written where control falls off the end of a body.
+fn fall_through(
+    instructions: &[Instruction],
+    entry: &[Option<Vec<bool>>],
+    registers: usize,
+) -> Option<Vec<bool>> {
+    let mut reaching: Option<Vec<bool>> = None;
+    for (at, instruction) in instructions.iter().enumerate() {
+        let Some(state) = &entry[at] else { continue };
+        let leaves = match instruction {
+            Instruction::Return { .. } => false,
+            Instruction::Jump { target } => *target >= instructions.len(),
+            Instruction::JumpUnless { target, .. } => {
+                *target >= instructions.len() || at + 1 >= instructions.len()
+            }
+            _ => at + 1 >= instructions.len(),
+        };
+        if !leaves {
+            continue;
+        }
+        let mut after = state.clone();
+        if let Some(destination) = instruction.destination() {
+            after[destination as usize] = true;
+        }
+        reaching = Some(match reaching {
+            Some(held) => held
+                .iter()
+                .zip(&after)
+                .map(|(one, other)| *one && *other)
+                .collect(),
+            None => after,
+        });
+    }
+    reaching.or_else(|| Some(vec![true; registers]))
+}
+
+/// Every register an instruction reads.
+fn reads(instruction: &Instruction) -> Vec<Register> {
+    match instruction {
+        Instruction::Move { source, .. } => vec![*source],
+        Instruction::Binary { left, right, .. } => vec![*left, *right],
+        Instruction::Unary { operand, .. } => vec![*operand],
+        Instruction::FromBits { bits, .. } => vec![*bits],
+        Instruction::JumpUnless { condition, .. } => vec![*condition],
+        Instruction::Return { value } => vec![*value],
+        Instruction::BuildArray { first, count, .. } | Instruction::Call { first, count, .. } => {
+            (0..*count).map(|offset| first + offset).collect()
+        }
+        Instruction::LoadInteger { .. }
+        | Instruction::LoadFloat64 { .. }
+        | Instruction::LoadFloat32 { .. }
+        | Instruction::LoadText { .. }
+        | Instruction::LoadBool { .. }
+        | Instruction::LoadNil { .. }
+        | Instruction::Jump { .. } => Vec::new(),
+    }
+}
+
+/// Checks a contiguous register range lies within the file.
+fn range(first: Register, count: u16, registers: usize) -> Result<(), VerifyError> {
+    let last = (first as usize)
+        .checked_add(count as usize)
+        .ok_or(VerifyError::ArrayRangeOutOfRange { first, count })?;
+    if last > registers {
+        return Err(VerifyError::ArrayRangeOutOfRange { first, count });
     }
     Ok(())
 }

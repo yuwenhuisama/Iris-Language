@@ -597,11 +597,11 @@ mod differential_tests {
         for (source, construct) in [
             ("{ |x|; x }", "closure"),
             ("class A { }", "declaration"),
-            ("mut a = 1; a", "statement"),
+            ("for x in [1] { x }", "statement"),
             ("unbound_name", "name"),
-            // `if` IS covered now, so a genuinely uncovered statement stands
-            // in: `while` needs a backward jump this subset does not emit.
-            ("while false { 1 }", "statement"),
+            // `if` and `while` ARE covered now, so genuinely uncovered
+            // constructs stand in.
+            ("[1, 2][0]", "index"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
@@ -654,6 +654,51 @@ mod differential_tests {
                    if n < 2 { n } else { M.fib(n - 1) + M.fib(n - 2) } } }\nM.fib(10)",
                 "55",
             ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends cover: {source}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    /// Loops, mutable bindings and assignment. A loop is a BACKWARD jump,
+    /// which is why the verifier had to become a dataflow fixpoint: a body is
+    /// entered before its own writes have happened.
+    #[test]
+    fn backends_agree_on_loops_and_mutation() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected) in [
+            // A value carried ACROSS iterations, which needs assignment to
+            // update the binding's own register rather than a fresh one.
+            (
+                "mut t = 0; mut i = 1; while i <= 10 { t = t + i; i = i + 1 } t",
+                "[nil, 55]",
+            ),
+            // A loop whose body never runs.
+            ("mut n = 0; while false { n = 1 } n", "[nil, 0]"),
+            (
+                "mut i = 0; mut acc = 1; while i < 5 { acc = acc * 2; i = i + 1 } acc",
+                "[nil, 32]",
+            ),
+            // A loop inside a FRAME, where the register file is the callee's.
+            (
+                "module M { public fun sum(n: Integer) -> Integer { \
+                   mut t = 0; mut i = 1; while i <= n { t = t + i; i = i + 1 } t } }\nM.sum(10)",
+                "55",
+            ),
+            ("mut a = 1; a = 2; a", "[2, 2]"),
+            // The top-level value convention: non-binding statement values,
+            // one directly and several as an Array.
+            ("1 + 1", "2"),
+            ("let a = 1; a", "1"),
+            ("1 + 1; 2 + 2", "[2, 4]"),
         ] {
             let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
                 unreachable!("both backends cover: {source}")
