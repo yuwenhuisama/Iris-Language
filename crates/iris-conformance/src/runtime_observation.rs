@@ -217,6 +217,27 @@ fn compare_runtime_source(
     if let Some(expected) = expected.get("diagnostics") {
         return compare_diagnostics(expected, source);
     }
+    // A `status` row states the diagnostic the source must be refused with.
+    // Its text is prose, so the CODE it names is what can be checked: a row
+    // whose status names no code has nothing observable and stays a failure
+    // rather than passing vacuously.
+    if let Some(Value::String(status)) = expected.get("status") {
+        // A status naming a runtime error observes the RAISE; one naming a
+        // static code observes the refusal. Both are spelled in the prose, so
+        // which one applies is read from the name itself.
+        if let Some(error) = status
+            .split_whitespace()
+            .find(|word| word.ends_with("Error"))
+        {
+            let expected = Value::Object(
+                [("code".to_owned(), Value::String(error.to_owned()))]
+                    .into_iter()
+                    .collect(),
+            );
+            return values::compare_error(&expected, source);
+        }
+        return compare_status_diagnostic(status, source);
+    }
     match expected.get("error") {
         Some(error) => match expected.get("side_effects") {
             Some(side_effects) => {
@@ -243,6 +264,28 @@ fn compare_runtime_source(
 /// This reuses the same `diagnostics` collector the GRAMMAR runner uses, so both
 /// chapters classify a given source identically as `IRIS-V1-GRAMMAR-C054`
 /// requires of a conforming diagnostic system.
+fn compare_status_diagnostic(status: &str, source: &str) -> Result<(), String> {
+    let actual = crate::runner::diagnostics(source)
+        .into_iter()
+        .map(|value| value.code)
+        .collect::<Vec<_>>();
+    // The code is spelled in SCREAMING_SNAKE_CASE inside the prose, so the
+    // row is satisfied when the source is refused with the code it names.
+    // Matching on the prose as a whole would never succeed, and matching on
+    // "some diagnostic" would let any refusal pass for any reason.
+    let named = status
+        .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
+        .find(|word| word.len() > 4 && word.contains('_'));
+    match named {
+        Some(named) if actual.iter().any(|code| code == named) => Ok(()),
+        Some(named) => Err(format!("status expected {named}, actual {actual:?}")),
+        // A status whose prose names no code has nothing a source can observe,
+        // so it stays a failure rather than passing because nothing was
+        // checked. Prose-only rows are tagged, not silently admitted here.
+        None => Err(format!("status names no diagnostic code: {status}")),
+    }
+}
+
 fn compare_diagnostics(expected: &Value, source: &str) -> Result<(), String> {
     let Value::Array(entries) = expected else {
         return Err("diagnostics expectation must be an array".into());
@@ -266,6 +309,18 @@ fn compare_diagnostics(expected: &Value, source: &str) -> Result<(), String> {
 
 fn runtime_source(record: &Record) -> Result<&str, String> {
     match record.id.as_str() {
+        // These rows carry PROSE naming the program rather than the program
+        // itself, so the prose reached the parser and every one of them failed
+        // as a parse diagnostic no matter what the implementation did. The
+        // behaviour they describe is implemented and unit-tested; supplying
+        // the source the prose names is what lets the row observe it.
+        "IRIS-V1-CONTROL-V007" | "IRIS-V1-CONTROL-V926" => Ok("let closure = { || 7 }"),
+        // V941 asserts BOTH halves of C053. The half its prose names first is
+        // the RUNTIME one - a binding-only destructuring mismatch raises
+        // PatternMatchError - and that is what a single source can observe.
+        // The static half, union alternatives binding different names being
+        // refused, is covered by c053_union_alternatives_must_bind_identical_names.
+        "IRIS-V1-CONTROL-V941" => Ok("for [a, b] in [[1, 2], [3]] { a }"),
         "IRIS-V1-RUNTIME-V016" => {
             Ok("class A { public fun m() -> Integer { 1 } }; let obj = A.new(); obj.m same? obj.m")
         }

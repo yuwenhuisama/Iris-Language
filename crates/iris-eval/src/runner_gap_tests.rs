@@ -4224,3 +4224,19 @@ fn a_collection_inside_a_method_keeps_the_callers_locals() {
         ])))
     );
 }
+
+#[test]
+fn probe_p() {
+    println!(
+        "P no_ret_ann => {:?}",
+        evaluate("let closure = { || 7 }; closure.call()")
+    );
+    println!(
+        "P with_ret => {:?}",
+        evaluate("let closure = { || -> Integer; 7 }; closure.call()")
+    );
+    println!(
+        "P param_form => {:?}",
+        evaluate("let c = { |x|; x + 1 }; c.call(1)")
+    );
+}
