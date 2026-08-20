@@ -550,4 +550,62 @@ mod differential_tests {
             );
         }
     }
+
+    /// Every construct the bytecode backend covers must AGREE with the
+    /// reference, not merely run. Coverage without agreement would be worse
+    /// than no coverage: a differential row would then pass on a wrong answer
+    /// both backends happened to share.
+    #[test]
+    fn backends_agree_across_every_covered_construct() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected) in [
+            // Bindings, sequencing and slot reuse on rebinding.
+            ("let a = 2; let b = 3; a * b", "6"),
+            ("let x = 10; x - 4", "6"),
+            ("let a = 1; let a = 2; a", "2"),
+            ("let n = [1, 2]; n", "[1, 2]"),
+            // Comparisons.
+            ("1 < 2", "true"),
+            ("5 >= 5", "true"),
+            ("2 == 2", "true"),
+            ("1 != 2", "true"),
+            ("3 <=> 2", "1"),
+            // Bitwise and shift.
+            ("6 & 3", "2"),
+            ("1 << 4", "16"),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends cover: {source}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    /// The subset boundary is explicit. A construct outside it must DECLINE,
+    /// so a differential row relying on it stays held rather than passing on
+    /// one backend.
+    #[test]
+    fn the_covered_subset_has_an_explicit_boundary() {
+        let bytecode = Bytecode;
+
+        for (source, construct) in [
+            ("{ |x|; x }", "closure"),
+            ("class A { }", "declaration"),
+            ("mut a = 1; a", "statement"),
+            ("unbound_name", "name"),
+            // An `if` arrives as a STATEMENT here, so that is what is named.
+            ("if true { 1 } else { 2 }", "statement"),
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("this backend does not cover: {source}")
+            };
+            assert_eq!(reason, construct, "{source}");
+        }
+    }
 }

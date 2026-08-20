@@ -43,6 +43,9 @@ impl Machine {
     /// Returns the kernel failure, or a machine defect.
     pub fn execute(&self, program: &Program) -> Result<Value, MachineError> {
         let mut stack: Vec<Value> = Vec::new();
+        // Slots live beside the operand stack rather than in it, so a binding
+        // stays reachable after later statements push and pop.
+        let mut slots: Vec<Value> = Vec::new();
         for instruction in &program.instructions {
             match instruction {
                 Instruction::PushInteger(digits) => {
@@ -100,6 +103,28 @@ impl Machine {
                 }
                 Instruction::PushBool(flag) => stack.push(Value::Bool(*flag)),
                 Instruction::PushNil => stack.push(Value::Nil),
+                Instruction::Store(slot) => {
+                    let Some(value) = stack.last().cloned() else {
+                        return Err(MachineError::StackUnderflow);
+                    };
+                    if *slot >= slots.len() {
+                        slots.resize(slot + 1, Value::Nil);
+                    }
+                    slots[*slot] = value;
+                }
+                Instruction::Load(slot) => {
+                    let Some(value) = slots.get(*slot).cloned() else {
+                        // The compiler assigns every slot it loads, so an
+                        // unassigned one is a compiler defect.
+                        return Err(MachineError::StackUnderflow);
+                    };
+                    stack.push(value);
+                }
+                Instruction::Pop => {
+                    if stack.pop().is_none() {
+                        return Err(MachineError::StackUnderflow);
+                    }
+                }
                 Instruction::BuildArray(count) => {
                     if stack.len() < *count {
                         return Err(MachineError::StackUnderflow);

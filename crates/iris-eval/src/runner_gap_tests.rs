@@ -4147,3 +4147,24 @@ fn collection_refuses_where_the_root_set_is_incomplete() {
         Err(EvaluationError::UnsupportedConstruct)
     );
 }
+
+#[test]
+fn bitwise_operators_work_on_literal_receivers() {
+    // The literal evaluator listed the SHIFTS but not the bitwise operators,
+    // so `6 & 3` answered UnsupportedConstruct while `let a = 6; a & 3`
+    // succeeded - the same expression resolving differently because a binding
+    // routed the program to the other evaluator.
+    //
+    // The differential harness surfaced this: the bytecode backend answered 2
+    // and the reference answered an error, which is a disagreement no single
+    // backend could have revealed.
+    assert_eq!(evaluate("6 & 3"), Ok(RuntimeValue::Integer(2_u8.into())));
+    assert_eq!(evaluate("6 | 3"), Ok(RuntimeValue::Integer(7_u8.into())));
+    assert_eq!(evaluate("6 ^ 3"), Ok(RuntimeValue::Integer(5_u8.into())));
+
+    // The bound form already worked and must keep working.
+    assert_eq!(
+        evaluate("let a = 6; a & 3"),
+        Ok(RuntimeValue::Integer(2_u8.into()))
+    );
+}

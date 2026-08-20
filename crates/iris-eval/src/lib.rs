@@ -1321,6 +1321,13 @@ impl Evaluator {
             BinaryOperator::Power => NativeSelector::Power,
             BinaryOperator::ShiftLeft => NativeSelector::ShiftLeft,
             BinaryOperator::ShiftRight => NativeSelector::ShiftRight,
+            // The shifts were listed but the bitwise operators were not, so a
+            // literal-only `6 & 3` answered UnsupportedConstruct while
+            // `let a = 6; a & 3` succeeded - the same expression resolving
+            // differently because a binding routed it to the other evaluator.
+            BinaryOperator::BitwiseAnd => NativeSelector::BitwiseAnd,
+            BinaryOperator::BitwiseOr => NativeSelector::BitwiseOr,
+            BinaryOperator::BitwiseXor => NativeSelector::BitwiseXor,
             BinaryOperator::Equal => NativeSelector::Equal,
             BinaryOperator::NotEqual => NativeSelector::NotEqual,
             BinaryOperator::Less => NativeSelector::Less,
