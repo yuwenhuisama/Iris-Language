@@ -489,6 +489,44 @@ mod differential_tests {
                 "let a = [1]; let b = a; a.push(3); b.pop()",
             ),
             ("[1, 2].join(\"-\")", "\"1-2\"", "[1, 2].join(\":\")"),
+            (
+                "[1, 2, 3].find({ |x|; x > 1 })",
+                "2",
+                "[1, 2, 3].find({ |x|; x > 2 })",
+            ),
+            ("[1, 2, 3].count()", "3", "[1, 2].count()"),
+            (
+                "[1, 2, 3].count({ |x|; x > 1 })",
+                "2",
+                "[1, 2, 3].count({ |x|; x > 2 })",
+            ),
+            ("[1, 2, 3].sum()", "6", "[1, 2].sum()"),
+            ("[3, 1, 2].min()", "1", "[3, 2].min()"),
+            ("[3, 1, 2].max()", "3", "[1, 2].max()"),
+            ("[3, 1, 2].sort()", "[1, 2, 3]", "[2, 1].sort()"),
+            ("[1, 2, 3].include?(2)", "true", "[1, 2, 3].include?(4)"),
+            ("[1, 2, 3].index_of(2)", "1", "[1, 2, 3].index_of(3)"),
+            ("[1, 2].concat([3, 4])", "[1, 2, 3, 4]", "[1].concat([3])"),
+            ("[1, 2, 3].slice(1, 2)", "[2, 3]", "[1, 2, 3].slice(0, 2)"),
+            ("[1, 2, 3].take(2)", "[1, 2]", "[1, 2, 3].take(1)"),
+            ("[1, 2, 3].drop(2)", "[3]", "[1, 2, 3].drop(1)"),
+            ("[1, 1, 2].uniq()", "[1, 2]", "[1, 3, 3].uniq()"),
+            ("[1, [2, [3]]].flatten()", "[1, 2, 3]", "[[1], 2].flatten()"),
+            (
+                "[1, 2].all?({ |x|; x > 0 })",
+                "true",
+                "[0, 1].all?({ |x|; x > 0 })",
+            ),
+            (
+                "[0, 2].any?({ |x|; x > 1 })",
+                "true",
+                "[0, 1].any?({ |x|; x > 1 })",
+            ),
+            (
+                "[1, 2].each_with_index({ |x, i|; x + i })",
+                "[1, 2]",
+                "[1].each_with_index({ |x, i|; x + i })",
+            ),
         ] {
             let source =
                 format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
@@ -521,6 +559,14 @@ mod differential_tests {
             ("\"åb\".length()", "\"åbc\".length()"),
             ("\" a \".trim()", "\" b \".trim()"),
             ("\"a,b\".split(\",\")", "\"a:b\".split(\",\")"),
+            (
+                "let h = %{ 1: 2 }.merge(%{ 1: 3 }); h[1]",
+                "let h = %{ 1: 2 }.merge(%{ 1: 4 }); h[1]",
+            ),
+            ("(5).to_string()", "(6).to_string()"),
+            ("true.to_string()", "false.to_string()"),
+            ("nil.to_string()", "(5).to_string()"),
+            (":iris.to_string()", ":other.to_string()"),
         ] {
             let source =
                 format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");

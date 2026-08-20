@@ -203,8 +203,8 @@ Covered binary selectors:
 Covered unary selectors: `negate`, `to_bits`, `hash`.
 
 `Send` also carries authored ordinary selectors which are not native kernel
-operations. The machine routes Array, Hash, and String receivers through the
-same documented convenience surface as the source runtime; selector absence,
+operations. The machine routes Array, Hash, String, Integer, Bool, nil, and
+Symbol receivers through the same documented convenience surface as the source runtime; selector absence,
 wrong arity, and wrong argument shape remain program errors rather than machine
 dispatch defects. In particular, Array `size` remains absent and `length` is
 the supported spelling.
@@ -405,7 +405,9 @@ reason, which is worse than leaving the row held. `compile` therefore answers a
 `CompileError` naming the construct it lacks, and the harness reports fewer
 than two RUNNING backends as insufficient rather than as agreement.
 
-Covered: integer, float, string, bool, nil and Symbol literals; the binary and
+Covered: integer, float, string, bool, nil and Symbol literals; built-in
+`to_string` on Integer, String, Bool, nil, and Symbol (Float has no such
+reference conversion); the binary and
 unary selectors listed in §3.3; identity (`same?`, in both its infix and method
 spellings); array literals; Hash literals with explicit keys; indexing an Array
 or Hash; `let` and `mut` bindings; assignment to a bound name; statement
@@ -422,7 +424,7 @@ inherited `override` declarations, and declarative instance-method reopens. A
 reopen is registered as an ordinary transaction after the origin transaction,
 so it advances the active revision rather than being folded into revision one.
 
-Measured against the 783 source-carrying conformance vectors, this compiles 173
+Measured against the 783 source-carrying conformance vectors, this compiles 188
 of them. The number is reported rather than estimated because the first estimate
 of what blocked the backend was WRONG: the assumed blockers were loops and
 calls, while the measurement showed a single dominant one, `class`, at 325

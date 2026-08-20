@@ -55,6 +55,13 @@ mod tests {
             "module M { public fun r() -> Object { [1, 2].reduce(0, { |a, x|; a + x }) } } M.r()",
             "module M { public fun r() -> Object { let a = [1]; let b = a; a.push(2); b.pop() } } M.r()",
             "module M { public fun r() -> Object { [1, 2].join(\"-\") } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].find({ |x|; x > 1 }) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].count({ |x|; x > 0 }) } } M.r()",
+            "module M { public fun r() -> Object { [2, 1].sort() } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].all?({ |x|; x > 0 }) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].each_with_index({ |x, i|; x + i }) } } M.r()",
+            "module M { public fun r() -> Object { let h = %{ 1: 2 }.merge(%{ 1: 3 }); h[1] } } M.r()",
+            "module M { public fun r() -> Object { (5).to_string() } } M.r()",
             "module M { public fun r() -> Object { %{ 1: 2 }.keys() } } M.r()",
             "module M { public fun r() -> Object { \" a \".trim() } } M.r()",
         ] {
