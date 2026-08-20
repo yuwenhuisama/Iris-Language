@@ -93,6 +93,23 @@ pub enum Instruction {
     JumpUnless { condition: Register, target: usize },
     /// Jumps to `target` unconditionally.
     Jump { target: usize },
+    /// Installs an exception handler for the following protected region.
+    EnterTry {
+        handler: usize,
+        cleanup: usize,
+        exception: Register,
+    },
+    /// Removes the innermost handler after normal completion.
+    LeaveTry,
+    /// Raises the value in the current frame.
+    Raise { value: Register },
+    /// Allocates a Closure with a snapshot of a contiguous capture window.
+    MakeClosure {
+        destination: Register,
+        function: usize,
+        first: Register,
+        count: u16,
+    },
     /// Calls function `function` with a contiguous argument window.
     ///
     /// The arguments occupy `first .. first+count`, mirroring `BuildArray`, so
@@ -164,9 +181,15 @@ impl Instruction {
             | Self::SendClass { destination, .. }
             | Self::GetIvar { destination, .. }
             | Self::SetIvar { destination, .. }
+            | Self::MakeClosure { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
-            Self::JumpUnless { .. } | Self::Jump { .. } | Self::Return { .. } => None,
+            Self::JumpUnless { .. }
+            | Self::Jump { .. }
+            | Self::EnterTry { .. }
+            | Self::LeaveTry
+            | Self::Raise { .. }
+            | Self::Return { .. } => None,
         }
     }
 }
@@ -197,6 +220,7 @@ pub struct Function {
     pub(crate) name: String,
     /// How many leading registers hold parameters.
     pub(crate) parameters: usize,
+    pub(crate) captures: usize,
     /// The size of this frame's register file.
     pub(crate) registers: usize,
     pub(crate) instructions: Vec<Instruction>,
@@ -259,14 +283,21 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     let (signatures, classes) = collect_signatures(&parsed.program.declarations)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
+    let mut closures = Vec::new();
     for signature in &signatures {
-        functions.push(lower_function(signature, &signatures, &classes)?);
+        functions.push(lower_function(
+            signature,
+            &signatures,
+            &classes,
+            signatures.len(),
+            &mut closures,
+        )?);
     }
 
     if parsed.program.statements.is_empty() {
         return Err(CompileError::new("empty program"));
     }
-    let mut lowering = Lowering::new(&signatures, &classes);
+    let mut lowering = Lowering::new(&signatures, &classes, signatures.len(), &mut closures);
     // A top-level program answers the values of its non-BINDING statements:
     // one value directly, several as an Array. That convention belongs to the
     // reference evaluator, and a backend that answered only the last statement
@@ -302,9 +333,13 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             destination
         }
     };
+    let registers = lowering.next_register as usize;
+    let instructions = std::mem::take(&mut lowering.instructions);
+    drop(lowering);
+    functions.extend(closures);
     Ok(Program {
-        instructions: lowering.instructions,
-        registers: lowering.next_register as usize,
+        instructions,
+        registers,
         result,
         functions,
         classes,
@@ -468,8 +503,10 @@ fn lower_function(
     signature: &Signature<'_>,
     signatures: &[Signature<'_>],
     classes: &[Class],
+    declared_functions: usize,
+    closures: &mut Vec<Function>,
 ) -> Result<Function, CompileError> {
-    let mut lowering = Lowering::new(signatures, classes);
+    let mut lowering = Lowering::new(signatures, classes, declared_functions, closures);
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering.names.push(("self".to_owned(), receiver));
@@ -493,6 +530,7 @@ fn lower_function(
     Ok(Function {
         name: format!("{}.{}", signature.module, signature.selector),
         parameters: signature.parameters.len() + usize::from(signature.receiver),
+        captures: 0,
         registers: lowering.next_register as usize,
         instructions: lowering.instructions,
     })
@@ -506,16 +544,25 @@ struct Lowering<'a, 'b> {
     /// Functions callable from this frame, resolved before lowering.
     signatures: &'a [Signature<'b>],
     classes: &'a [Class],
+    declared_functions: usize,
+    closures: &'a mut Vec<Function>,
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {
-    fn new(signatures: &'a [Signature<'b>], classes: &'a [Class]) -> Self {
+    fn new(
+        signatures: &'a [Signature<'b>],
+        classes: &'a [Class],
+        declared_functions: usize,
+        closures: &'a mut Vec<Function>,
+    ) -> Self {
         Self {
             instructions: Vec::new(),
             next_register: 0,
             names: Vec::new(),
             signatures,
             classes,
+            declared_functions,
+            closures,
         }
     }
 
@@ -654,6 +701,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
             }
+            Statement::Raise(Some(raise)) if raise.cause.is_none() => {
+                let value = self.expression(&raise.value)?;
+                self.instructions.push(Instruction::Raise { value });
+                Ok(value)
+            }
+            Statement::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_body(body, catches, finally),
             other => Err(CompileError::new(format!(
                 "statement {}",
                 match other {
@@ -692,11 +749,94 @@ impl<'a, 'b> Lowering<'a, 'b> {
         Ok(value)
     }
 
+    fn try_body(
+        &mut self,
+        body: &[Statement],
+        catches: &[iris_syntax::CatchClause],
+        finally: &Option<Vec<Statement>>,
+    ) -> Result<Register, CompileError> {
+        if catches.len() > 1
+            || catches
+                .first()
+                .is_some_and(|catch| catch.filter.is_some() || catch.context.is_some())
+        {
+            return Err(CompileError::new("try filtered catch"));
+        }
+        let destination = self.allocate()?;
+        let exception = self.allocate()?;
+        let enter = self.instructions.len();
+        self.instructions.push(Instruction::EnterTry {
+            handler: 0,
+            cleanup: 0,
+            exception,
+        });
+        let value = self.body(body)?;
+        self.instructions.push(Instruction::LeaveTry);
+        self.instructions.push(Instruction::Move {
+            destination,
+            source: value,
+        });
+        let normal_skip = self.instructions.len();
+        self.instructions.push(Instruction::Jump { target: 0 });
+
+        let handler = self.instructions.len();
+        self.patch(enter, handler)?;
+        if let Some(catch) = catches.first() {
+            let catch_enter = self.instructions.len();
+            self.instructions.push(Instruction::EnterTry {
+                handler: 0,
+                cleanup: 0,
+                exception,
+            });
+            let outer = self.names.len();
+            if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
+                self.names.push((name.clone(), exception));
+            }
+            let caught = self.body(&catch.body)?;
+            self.names.truncate(outer);
+            self.instructions.push(Instruction::LeaveTry);
+            self.instructions.push(Instruction::Move {
+                destination,
+                source: caught,
+            });
+            let caught_skip = self.instructions.len();
+            self.instructions.push(Instruction::Jump { target: 0 });
+            let exceptional_cleanup = self.instructions.len();
+            self.patch(catch_enter, exceptional_cleanup)?;
+            if let Some(finally) = finally {
+                self.body(finally)?;
+            }
+            self.instructions
+                .push(Instruction::Raise { value: exception });
+            let cleanup = self.instructions.len();
+            self.patch(caught_skip, cleanup)?;
+        } else {
+            if let Some(finally) = finally {
+                self.body(finally)?;
+            }
+            self.instructions
+                .push(Instruction::Raise { value: exception });
+        }
+
+        let cleanup = self.instructions.len();
+        self.patch(normal_skip, cleanup)?;
+        if let Some(Instruction::EnterTry { cleanup: slot, .. }) = self.instructions.get_mut(enter)
+        {
+            *slot = cleanup;
+        }
+        if let Some(finally) = finally {
+            self.body(finally)?;
+        }
+        Ok(destination)
+    }
+
     /// Fills in a forward jump once its target is known.
     fn patch(&mut self, at: usize, target: usize) -> Result<(), CompileError> {
         match self.instructions.get_mut(at) {
             Some(
-                Instruction::JumpUnless { target: slot, .. } | Instruction::Jump { target: slot },
+                Instruction::JumpUnless { target: slot, .. }
+                | Instruction::Jump { target: slot }
+                | Instruction::EnterTry { handler: slot, .. },
             ) => {
                 *slot = target;
                 Ok(())
@@ -890,8 +1030,80 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Call {
                 callee, arguments, ..
             } => self.call(callee, arguments),
+            Expression::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_body(body, catches, finally),
+            Expression::Closure {
+                parameters,
+                body,
+                has_header: true,
+                ..
+            } => self.closure(parameters, body),
             other => Err(CompileError::new(construct_name(other))),
         }
+    }
+
+    fn closure(
+        &mut self,
+        parameters: &[String],
+        body: &[Statement],
+    ) -> Result<Register, CompileError> {
+        let captures = self.names.clone();
+        let mut closure_functions = Vec::new();
+        let mut lowering = Lowering::new(
+            self.signatures,
+            self.classes,
+            self.declared_functions,
+            &mut closure_functions,
+        );
+        for (name, _) in &captures {
+            let register = lowering.allocate()?;
+            lowering.names.push((name.clone(), register));
+        }
+        for parameter in parameters {
+            let register = lowering.allocate()?;
+            lowering.names.push((parameter.clone(), register));
+        }
+        let value = lowering.body(body)?;
+        lowering.instructions.push(Instruction::Return { value });
+        let registers = lowering.next_register as usize;
+        let instructions = std::mem::take(&mut lowering.instructions);
+        drop(lowering);
+        let function = self.declared_functions + self.closures.len();
+        if !closure_functions.is_empty() {
+            return Err(CompileError::new("nested closure"));
+        }
+        self.closures.push(Function {
+            name: "<closure>".to_owned(),
+            parameters: captures.len() + parameters.len(),
+            captures: captures.len(),
+            registers,
+            instructions,
+        });
+        let count = u16::try_from(captures.len())
+            .map_err(|_| CompileError::new("closure capture too wide"))?;
+        let first = self.next_register;
+        for (_, source) in captures {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Move {
+                destination,
+                source,
+            });
+        }
+        if count == 0 {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadNil { destination });
+        }
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::MakeClosure {
+            destination,
+            function,
+            first,
+            count,
+        });
+        Ok(destination)
     }
 
     /// Lowers a literal by RE-LEXING its text.
@@ -1007,6 +1219,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 destination,
                 left,
                 right,
+            });
+            return Ok(destination);
+        }
+        if selector == "call" {
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Send {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
             });
             return Ok(destination);
         }

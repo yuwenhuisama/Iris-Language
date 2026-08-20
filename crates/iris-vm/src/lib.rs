@@ -153,6 +153,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn catch_entry_does_not_inherit_writes_skipped_by_a_raise() {
+        let mut compiled = program("try { 1 } catch error { error }");
+        compiled.registers = 3;
+        compiled.instructions = vec![
+            Instruction::EnterTry {
+                handler: 5,
+                cleanup: 6,
+                exception: 0,
+            },
+            Instruction::LoadInteger {
+                destination: 1,
+                digits: "1".to_owned(),
+            },
+            Instruction::LeaveTry,
+            Instruction::Move {
+                destination: 2,
+                source: 1,
+            },
+            Instruction::Jump { target: 6 },
+            Instruction::Move {
+                destination: 2,
+                source: 1,
+            },
+        ];
+        compiled.result = 2;
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::ReadBeforeWrite { register: 1 })
+        );
+        assert_ne!(verify(&compiled), Ok(()));
+
+        compiled.instructions[5] = Instruction::Move {
+            destination: 2,
+            source: 0,
+        };
+        assert_eq!(verify(&compiled), Ok(()));
+        assert_ne!(
+            verify(&compiled),
+            Err(VerifyError::ReadBeforeWrite { register: 1 })
+        );
+    }
+
     /// An out-of-range register is refused rather than indexed, which is what
     /// turns corrupt bytecode into a reportable error instead of a crash.
     #[test]
@@ -496,13 +540,13 @@ mod ir_document_tests {
     #[test]
     fn the_coverage_boundary_matches_the_document() {
         for (source, construct) in [
-            ("{ |x|; x }", "closure"),
+            ("{ ||; { ||; 1 } }", "nested closure"),
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement for"),
             ("unbound_name", "name"),
             ("1[0]", "index receiver"),
             ("(1, 2)", "tuple"),
-            ("try { 1 } catch e { e }", "statement try"),
+            ("try { 1 } catch e: Integer { e }", "try filtered catch"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")
@@ -597,6 +641,57 @@ mod ir_document_tests {
             verify(&broken),
             Err(VerifyError::ReadBeforeWrite { register: 2 })
         );
+    }
+}
+
+#[cfg(test)]
+mod catch_edge_audit {
+    use super::*;
+
+    /// An independent check that the catch edge is not the try body's exit.
+    ///
+    /// This is the exception-shaped form of the unsoundness a linear scan had:
+    /// a register written PART WAY through a protected region is not written
+    /// when a raise transfers control out of that region, so treating the
+    /// handler as an ordinary fall-through would let it read an unwritten
+    /// register.
+    ///
+    /// The shape is taken from what the lowering actually emits for
+    /// `try { 1 } catch e { e }`, with the handler changed to read the try
+    /// body's register instead of the exception it is given.
+    #[test]
+    fn a_write_inside_the_try_body_is_not_written_at_the_handler() {
+        let Ok(mut compiled) =
+            compile("module M { public fun r() -> Object { try { 1 } catch e { e } } } M.r()")
+        else {
+            unreachable!("the backend covers this source")
+        };
+        let Some(function) = compiled.functions.first_mut() else {
+            unreachable!("the program declares one function")
+        };
+
+        // Register 2 is written by the try BODY, so a raise reaches the
+        // handler without it.
+        function.instructions[7] = Instruction::Move {
+            destination: 0,
+            source: 2,
+        };
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::ReadBeforeWrite { register: 2 })
+        );
+
+        // Control: reading the exception register the edge DOES write is
+        // admitted, so the refusal is about the skipped write rather than
+        // about handlers being refused wholesale.
+        let Some(function) = compiled.functions.first_mut() else {
+            unreachable!("the program declares one function")
+        };
+        function.instructions[7] = Instruction::Move {
+            destination: 0,
+            source: 1,
+        };
+        assert_eq!(verify(&compiled), Ok(()));
     }
 }
 

@@ -7,6 +7,12 @@ use iris_runtime::{
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
 
+#[derive(Clone, Debug)]
+struct ClosureRecord {
+    function: usize,
+    captures: Vec<Value>,
+}
+
 /// `IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey.
 fn truthy(value: &Value) -> bool {
     !matches!(value, Value::Bool(false) | Value::Nil)
@@ -25,6 +31,8 @@ pub enum MachineError {
     UnknownSelector(String),
     Class(ClassError),
     Construction(ConstructionError),
+    /// An Iris value propagated beyond the current frame.
+    Raised(Value),
 }
 
 /// Why a program is not well formed.
@@ -110,6 +118,15 @@ fn verify_body(
                     return Err(VerifyError::JumpOutOfRange { target: *target });
                 }
             }
+            Instruction::EnterTry {
+                handler, cleanup, ..
+            } => {
+                for target in [handler, cleanup] {
+                    if *target > instructions.len() {
+                        return Err(VerifyError::JumpOutOfRange { target: *target });
+                    }
+                }
+            }
             Instruction::Call { function, .. } => {
                 if *function >= functions {
                     return Err(VerifyError::UnknownFunction {
@@ -119,6 +136,19 @@ fn verify_body(
                 if let Instruction::Call { first, count, .. } = instruction {
                     range(*first, *count, registers)?;
                 }
+            }
+            Instruction::MakeClosure {
+                function,
+                first,
+                count,
+                ..
+            } => {
+                if *function >= functions {
+                    return Err(VerifyError::UnknownFunction {
+                        function: *function,
+                    });
+                }
+                range(*first, *count, registers)?;
             }
             Instruction::BuildArray { first, count, .. }
             | Instruction::New { first, count, .. }
@@ -172,20 +202,30 @@ fn verify_body(
         let Some(instruction) = instructions.get(at) else {
             continue;
         };
-        let mut next = state;
+        let mut next = state.clone();
         if let Some(destination) = instruction.destination() {
             next[destination as usize] = true;
         }
 
-        let successors: Vec<usize> = match instruction {
+        let successors: Vec<(usize, Vec<bool>)> = match instruction {
             // A return leaves the frame, so it has no successor at all.
             Instruction::Return { .. } => Vec::new(),
-            Instruction::Jump { target } => vec![*target],
+            Instruction::Raise { .. } => Vec::new(),
+            Instruction::Jump { target } => vec![(*target, next.clone())],
             // Both edges are live: the branch may be taken or not.
-            Instruction::JumpUnless { target, .. } => vec![*target, at + 1],
-            _ => vec![at + 1],
+            Instruction::JumpUnless { target, .. } => {
+                vec![(*target, next.clone()), (at + 1, next.clone())]
+            }
+            Instruction::EnterTry {
+                handler, exception, ..
+            } => {
+                let mut exceptional = state.clone();
+                exceptional[*exception as usize] = true;
+                vec![(*handler, exceptional), (at + 1, next.clone())]
+            }
+            _ => vec![(at + 1, next.clone())],
         };
-        for successor in successors {
+        for (successor, incoming) in successors {
             if successor >= instructions.len() {
                 continue;
             }
@@ -195,12 +235,12 @@ fn verify_body(
                 Some(existing) => {
                     let merged: Vec<bool> = existing
                         .iter()
-                        .zip(&next)
+                        .zip(&incoming)
                         .map(|(held, incoming)| *held && *incoming)
                         .collect();
                     (merged != *existing).then_some(merged)
                 }
-                None => Some(next.clone()),
+                None => Some(incoming),
             };
             if let Some(merged) = merged {
                 entry[successor] = Some(merged);
@@ -256,6 +296,7 @@ fn fall_through(
         let Some(state) = &entry[at] else { continue };
         let leaves = match instruction {
             Instruction::Return { .. } => false,
+            Instruction::Raise { .. } => false,
             Instruction::Jump { target } => *target >= instructions.len(),
             Instruction::JumpUnless { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
@@ -291,9 +332,10 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
         Instruction::JumpUnless { condition, .. } => vec![*condition],
-        Instruction::Return { value } => vec![*value],
+        Instruction::Return { value } | Instruction::Raise { value } => vec![*value],
         Instruction::BuildArray { first, count, .. }
         | Instruction::Call { first, count, .. }
+        | Instruction::MakeClosure { first, count, .. }
         | Instruction::New { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
@@ -325,6 +367,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
+        | Instruction::EnterTry { .. }
+        | Instruction::LeaveTry
         | Instruction::Jump { .. } => Vec::new(),
     }
 }
@@ -349,6 +393,8 @@ pub struct Machine {
     /// `Value::Object` and had nothing for a collector to walk.
     runtime: Runtime,
     kernel: Kernel,
+    closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
+    next_closure: u64,
 }
 
 impl Machine {
@@ -359,7 +405,12 @@ impl Machine {
     pub fn new() -> Result<Self, KernelError> {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut())?;
-        Ok(Self { runtime, kernel })
+        Ok(Self {
+            runtime,
+            kernel,
+            closures: std::collections::HashMap::new(),
+            next_closure: 1,
+        })
     }
 
     /// Verifies `program`, then runs it and answers its result register.
@@ -405,193 +456,270 @@ impl Machine {
         }
 
         let mut counter = 0;
-        while let Some(instruction) = instructions.get(counter) {
+        let mut handlers: Vec<(usize, Register)> = Vec::new();
+        macro_rules! run_frame {
+            ($label:lifetime, $call:expr) => {
+                match $call {
+                    Ok(values) => values,
+                    Err(MachineError::Raised(value)) => {
+                        let Some((handler, exception)) = handlers.pop() else {
+                            return Err(MachineError::Raised(value));
+                        };
+                        registers[exception as usize] = value;
+                        counter = handler;
+                        continue $label;
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+        }
+        'frame: while let Some(instruction) = instructions.get(counter) {
             counter += 1;
-            let produced =
-                match instruction {
-                    Instruction::LoadInteger { digits, .. } => {
-                        let Ok(number) = digits.parse() else {
-                            // The lexer produced this text, so a rejection would
-                            // mean the two disagree about integer syntax.
-                            return Err(MachineError::Kernel(KernelError::Type));
-                        };
-                        Value::Integer(number)
-                    }
-                    Instruction::LoadFloat64 { bits, .. } => Value::Float64(f64::from_bits(*bits)),
-                    Instruction::LoadFloat32 { bits, .. } => Value::Float32(f32::from_bits(*bits)),
-                    Instruction::LoadText { text, .. } => Value::Text(text.clone()),
-                    Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
-                    Instruction::LoadBool { value, .. } => Value::Bool(*value),
-                    Instruction::LoadNil { .. } => Value::Nil,
-                    Instruction::Move { source, .. } => registers[*source as usize].clone(),
-                    Instruction::Binary {
-                        selector,
-                        left,
-                        right,
-                        ..
-                    } => {
-                        let left = registers[*left as usize].clone();
-                        let right = registers[*right as usize].clone();
-                        self.send(selector, left, &[right])?
-                    }
-                    Instruction::Unary {
-                        selector, operand, ..
-                    } => {
-                        let operand = registers[*operand as usize].clone();
-                        self.send(selector, operand, &[])?
-                    }
-                    Instruction::BuildArray { first, count, .. } => {
-                        let start = *first as usize;
-                        let elements = registers[start..start + *count as usize].to_vec();
-                        Value::Array(iris_runtime::ArrayRef::new(elements))
-                    }
-                    Instruction::BuildHash { first, count, .. } => {
-                        let start = *first as usize;
-                        let mut entries = Vec::with_capacity(*count as usize);
-                        for pair in registers[start..start + *count as usize * 2].chunks_exact(2) {
-                            iris_runtime::public_hash(&pair[0])
-                                .map_err(KernelError::StableHash)
-                                .map_err(MachineError::Kernel)?;
-                            if let Some((_, value)) =
-                                entries.iter_mut().find(|(key, _)| *key == pair[0])
-                            {
-                                *value = pair[1].clone();
-                            } else {
-                                entries.push((pair[0].clone(), pair[1].clone()));
-                            }
-                        }
-                        Value::Hash(iris_runtime::HashRef::new(entries))
-                    }
-                    Instruction::Index {
-                        receiver, index, ..
-                    } => self.index(
-                        registers[*receiver as usize].clone(),
-                        registers[*index as usize].clone(),
-                    )?,
-                    Instruction::Identity { left, right, .. } => {
-                        self.identity(&registers[*left as usize], &registers[*right as usize])?
-                    }
-                    // C113 fixes the accepted range per WIDTH and requires
-                    // RangeError outside it; C114 requires the round trip to hold
-                    // for every pattern including signaling NaN, so the bits are
-                    // reinterpreted rather than converted numerically.
-                    Instruction::FromBits { width, bits, .. } => {
-                        let Value::Integer(bits) = &registers[*bits as usize] else {
-                            return Err(MachineError::Kernel(KernelError::Type));
-                        };
-                        // The runtime spells an out-of-range width `Numeric(Range)`
-                        // and the reference answers exactly that, so inventing a
-                        // separate error would make the backends disagree for a
-                        // reason that is not semantic.
-                        let Some(bits) = bits.to_u64() else {
-                            return Err(MachineError::Kernel(KernelError::Numeric(
-                                NumericError::Range,
-                            )));
-                        };
-                        match width {
-                            FloatWidth::Bits32 => {
-                                let Ok(bits) = u32::try_from(bits) else {
-                                    return Err(MachineError::Kernel(KernelError::Numeric(
-                                        NumericError::Range,
-                                    )));
-                                };
-                                Value::Float32(f32::from_bits(bits))
-                            }
-                            FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
+            let produced = match instruction {
+                Instruction::LoadInteger { digits, .. } => {
+                    let Ok(number) = digits.parse() else {
+                        // The lexer produced this text, so a rejection would
+                        // mean the two disagree about integer syntax.
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    Value::Integer(number)
+                }
+                Instruction::LoadFloat64 { bits, .. } => Value::Float64(f64::from_bits(*bits)),
+                Instruction::LoadFloat32 { bits, .. } => Value::Float32(f32::from_bits(*bits)),
+                Instruction::LoadText { text, .. } => Value::Text(text.clone()),
+                Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
+                Instruction::LoadBool { value, .. } => Value::Bool(*value),
+                Instruction::LoadNil { .. } => Value::Nil,
+                Instruction::Move { source, .. } => registers[*source as usize].clone(),
+                Instruction::Binary {
+                    selector,
+                    left,
+                    right,
+                    ..
+                } => {
+                    let left = registers[*left as usize].clone();
+                    let right = registers[*right as usize].clone();
+                    self.send(selector, left, &[right])?
+                }
+                Instruction::Unary {
+                    selector, operand, ..
+                } => {
+                    let operand = registers[*operand as usize].clone();
+                    self.send(selector, operand, &[])?
+                }
+                Instruction::BuildArray { first, count, .. } => {
+                    let start = *first as usize;
+                    let elements = registers[start..start + *count as usize].to_vec();
+                    Value::Array(iris_runtime::ArrayRef::new(elements))
+                }
+                Instruction::BuildHash { first, count, .. } => {
+                    let start = *first as usize;
+                    let mut entries = Vec::with_capacity(*count as usize);
+                    for pair in registers[start..start + *count as usize * 2].chunks_exact(2) {
+                        iris_runtime::public_hash(&pair[0])
+                            .map_err(KernelError::StableHash)
+                            .map_err(MachineError::Kernel)?;
+                        if let Some((_, value)) =
+                            entries.iter_mut().find(|(key, _)| *key == pair[0])
+                        {
+                            *value = pair[1].clone();
+                        } else {
+                            entries.push((pair[0].clone(), pair[1].clone()));
                         }
                     }
-                    // Truth is decided by the RUNTIME rather than re-derived here.
-                    // `IRIS-V1-CONTROL-C022` makes only `false` and `nil` falsey,
-                    // and a second copy of that rule would be one more place for
-                    // the backends to diverge.
-                    Instruction::JumpUnless { condition, target } => {
-                        if !truthy(&registers[*condition as usize]) {
-                            counter = *target;
+                    Value::Hash(iris_runtime::HashRef::new(entries))
+                }
+                Instruction::MakeClosure {
+                    function,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let start = *first as usize;
+                    let identity = iris_runtime::ObjectId::new(self.next_closure);
+                    self.next_closure = self.next_closure.saturating_add(1);
+                    self.closures.insert(
+                        identity,
+                        ClosureRecord {
+                            function: *function,
+                            captures: registers[start..start + *count as usize].to_vec(),
+                        },
+                    );
+                    Value::Closure(identity)
+                }
+                Instruction::Index {
+                    receiver, index, ..
+                } => self.index(
+                    registers[*receiver as usize].clone(),
+                    registers[*index as usize].clone(),
+                )?,
+                Instruction::Identity { left, right, .. } => {
+                    self.identity(&registers[*left as usize], &registers[*right as usize])?
+                }
+                // C113 fixes the accepted range per WIDTH and requires
+                // RangeError outside it; C114 requires the round trip to hold
+                // for every pattern including signaling NaN, so the bits are
+                // reinterpreted rather than converted numerically.
+                Instruction::FromBits { width, bits, .. } => {
+                    let Value::Integer(bits) = &registers[*bits as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    // The runtime spells an out-of-range width `Numeric(Range)`
+                    // and the reference answers exactly that, so inventing a
+                    // separate error would make the backends disagree for a
+                    // reason that is not semantic.
+                    let Some(bits) = bits.to_u64() else {
+                        return Err(MachineError::Kernel(KernelError::Numeric(
+                            NumericError::Range,
+                        )));
+                    };
+                    match width {
+                        FloatWidth::Bits32 => {
+                            let Ok(bits) = u32::try_from(bits) else {
+                                return Err(MachineError::Kernel(KernelError::Numeric(
+                                    NumericError::Range,
+                                )));
+                            };
+                            Value::Float32(f32::from_bits(bits))
                         }
-                        continue;
+                        FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
                     }
-                    Instruction::Jump { target } => {
+                }
+                // Truth is decided by the RUNTIME rather than re-derived here.
+                // `IRIS-V1-CONTROL-C022` makes only `false` and `nil` falsey,
+                // and a second copy of that rule would be one more place for
+                // the backends to diverge.
+                Instruction::JumpUnless { condition, target } => {
+                    if !truthy(&registers[*condition as usize]) {
                         counter = *target;
-                        continue;
                     }
-                    Instruction::Return { value } => {
-                        let value = registers[*value as usize].clone();
-                        // The answer is handed back in the frame's own result
-                        // slot, so a caller reads it without knowing the callee's
-                        // register layout.
-                        return Ok(vec![value]);
-                    }
-                    Instruction::Call {
-                        function,
-                        first,
-                        count,
-                        ..
-                    } => {
-                        let Some(callee) = program.functions.get(*function).cloned() else {
-                            return Err(MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: *function,
-                            }));
-                        };
-                        let start = *first as usize;
-                        let arguments = registers[start..start + *count as usize].to_vec();
-                        let returned = self.run_body(
+                    continue;
+                }
+                Instruction::Jump { target } => {
+                    counter = *target;
+                    continue;
+                }
+                Instruction::EnterTry {
+                    handler, exception, ..
+                } => {
+                    handlers.push((*handler, *exception));
+                    continue;
+                }
+                Instruction::LeaveTry => {
+                    handlers.pop();
+                    continue;
+                }
+                Instruction::Raise { value } => {
+                    let value = registers[*value as usize].clone();
+                    let Some((handler, exception)) = handlers.pop() else {
+                        return Err(MachineError::Raised(value));
+                    };
+                    registers[exception as usize] = value;
+                    counter = handler;
+                    continue;
+                }
+                Instruction::Return { value } => {
+                    let value = registers[*value as usize].clone();
+                    // The answer is handed back in the frame's own result
+                    // slot, so a caller reads it without knowing the callee's
+                    // register layout.
+                    return Ok(vec![value]);
+                }
+                Instruction::Call {
+                    function,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Some(callee) = program.functions.get(*function).cloned() else {
+                        return Err(MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: *function,
+                        }));
+                    };
+                    let start = *first as usize;
+                    let arguments = registers[start..start + *count as usize].to_vec();
+                    let returned = run_frame!('frame, self.run_body(
+                        &callee.instructions,
+                        callee.registers,
+                        arguments,
+                        program,
+                        classes,
+                    ));
+                    returned.into_iter().next().unwrap_or(Value::Nil)
+                }
+                Instruction::New {
+                    class,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Some(class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    let start = *first as usize;
+                    let arguments = registers[start..start + *count as usize].to_vec();
+                    let object = self
+                        .runtime
+                        .allocate(class)
+                        .map_err(MachineError::Construction)?;
+                    if let Ok(method) = self.runtime.dispatch_instance(object, Selector::INITIALIZE)
+                    {
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let mut passed = Vec::with_capacity(arguments.len() + 1);
+                        passed.push(Value::Object(object));
+                        passed.extend(arguments);
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let _ = run_frame!('frame, self.run_body(
                             &callee.instructions,
                             callee.registers,
-                            arguments,
+                            passed,
                             program,
                             classes,
-                        )?;
-                        returned.into_iter().next().unwrap_or(Value::Nil)
+                        ));
                     }
-                    Instruction::New {
-                        class,
-                        first,
-                        count,
-                        ..
-                    } => {
-                        let Some(class) = classes.get(*class).copied() else {
-                            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    Value::Object(object)
+                }
+                Instruction::Send {
+                    receiver,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let receiver = registers[*receiver as usize].clone();
+                    let start = *first as usize;
+                    let arguments = registers[start..start + *count as usize].to_vec();
+                    if selector == "call"
+                        && let Value::Closure(identity) = receiver
+                    {
+                        let Some(closure) = self.closures.get(&identity).cloned() else {
+                            return Err(MachineError::Kernel(KernelError::Type));
                         };
-                        let start = *first as usize;
-                        let arguments = registers[start..start + *count as usize].to_vec();
-                        let object = self
-                            .runtime
-                            .allocate(class)
-                            .map_err(MachineError::Construction)?;
-                        if let Ok(method) =
-                            self.runtime.dispatch_instance(object, Selector::INITIALIZE)
-                        {
-                            let function = usize::try_from(method.body().raw()).map_err(|_| {
-                                MachineError::Invalid(VerifyError::UnknownFunction {
-                                    function: usize::MAX,
-                                })
-                            })?;
-                            let mut passed = Vec::with_capacity(arguments.len() + 1);
-                            passed.push(Value::Object(object));
-                            passed.extend(arguments);
-                            let callee = program.functions.get(function).cloned().ok_or(
-                                MachineError::Invalid(VerifyError::UnknownFunction { function }),
-                            )?;
-                            let _ = self.run_body(
-                                &callee.instructions,
-                                callee.registers,
-                                passed,
-                                program,
-                                classes,
-                            )?;
+                        let Some(callee) = program.functions.get(closure.function).cloned() else {
+                            return Err(MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: closure.function,
+                            }));
+                        };
+                        if arguments.len() + closure.captures.len() != callee.parameters {
+                            return Err(MachineError::Kernel(KernelError::Arity));
                         }
-                        Value::Object(object)
-                    }
-                    Instruction::Send {
-                        receiver,
-                        selector,
-                        first,
-                        count,
-                        ..
-                    } => {
-                        let receiver = registers[*receiver as usize].clone();
-                        let start = *first as usize;
-                        let arguments = registers[start..start + *count as usize].to_vec();
+                        let mut passed = closure.captures;
+                        passed.extend(arguments);
+                        let returned = run_frame!('frame, self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            passed,
+                            program,
+                            classes,
+                        ));
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    } else {
                         let object = match receiver {
                             Value::Object(object) => object,
                             receiver => {
@@ -619,90 +747,94 @@ impl Machine {
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
-                        let returned = self.run_body(
+                        let returned = run_frame!('frame, self.run_body(
                             &callee.instructions,
                             callee.registers,
                             arguments,
                             program,
                             classes,
-                        )?;
+                        ));
                         returned.into_iter().next().unwrap_or(Value::Nil)
                     }
-                    Instruction::SendClass {
-                        class,
-                        selector,
-                        first,
-                        count,
-                        ..
-                    } => {
-                        let Some(class) = classes.get(*class).copied() else {
-                            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
-                        };
-                        let selector = selector_id(program, selector)
-                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                        let method = match self
-                            .runtime
-                            .registry()
-                            .dispatch_class_object(class, selector)
-                            .map_err(iris_runtime::ConstructionError::from)
-                            .map_err(MachineError::Construction)?
-                        {
-                            iris_runtime::DispatchOutcome::Invoke(method) => method,
-                            iris_runtime::DispatchOutcome::WouldInvokeMethodMissing {
-                                selector,
-                            } => {
-                                return Err(MachineError::Construction(
-                                    iris_runtime::DispatchError::MissingMethod { selector }.into(),
-                                ));
-                            }
-                        };
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
-                        let start = *first as usize;
-                        let mut arguments = Vec::with_capacity(*count as usize + 1);
-                        arguments.push(Value::Class(class));
-                        arguments.extend_from_slice(&registers[start..start + *count as usize]);
-                        let callee = program.functions.get(function).cloned().ok_or(
-                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
-                        )?;
-                        let returned = self.run_body(
-                            &callee.instructions,
-                            callee.registers,
-                            arguments,
-                            program,
-                            classes,
-                        )?;
-                        returned.into_iter().next().unwrap_or(Value::Nil)
-                    }
-                    Instruction::GetIvar { receiver, name, .. } => {
-                        let Value::Object(object) = registers[*receiver as usize] else {
-                            return Err(MachineError::Kernel(KernelError::Type));
-                        };
-                        let selector = selector_id(program, name)
-                            .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
-                        self.runtime
-                            .raw_ivar(object, selector)
-                            .map_err(MachineError::Construction)?
-                    }
-                    Instruction::SetIvar {
-                        receiver,
-                        name,
-                        value,
-                        ..
-                    } => {
-                        let Value::Object(object) = registers[*receiver as usize] else {
-                            return Err(MachineError::Kernel(KernelError::Type));
-                        };
-                        let selector = selector_id(program, name)
-                            .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
-                        self.runtime
-                            .assign_raw_ivar(object, selector, registers[*value as usize].clone())
-                            .map_err(MachineError::Construction)?
-                    }
-                };
+                }
+                Instruction::SendClass {
+                    class,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Some(class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    let selector = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let method = match self
+                        .runtime
+                        .registry()
+                        .dispatch_class_object(class, selector)
+                        .map_err(iris_runtime::ConstructionError::from)
+                        .map_err(MachineError::Construction)?
+                    {
+                        iris_runtime::DispatchOutcome::Invoke(method) => method,
+                        iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                            return Err(MachineError::Construction(
+                                iris_runtime::DispatchError::MissingMethod { selector }.into(),
+                            ));
+                        }
+                    };
+                    let function = usize::try_from(method.body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let start = *first as usize;
+                    let mut arguments = Vec::with_capacity(*count as usize + 1);
+                    arguments.push(Value::Class(class));
+                    arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                    let callee =
+                        program
+                            .functions
+                            .get(function)
+                            .cloned()
+                            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                                function,
+                            }))?;
+                    let returned = run_frame!('frame, self.run_body(
+                        &callee.instructions,
+                        callee.registers,
+                        arguments,
+                        program,
+                        classes,
+                    ));
+                    returned.into_iter().next().unwrap_or(Value::Nil)
+                }
+                Instruction::GetIvar { receiver, name, .. } => {
+                    let Value::Object(object) = registers[*receiver as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let selector = selector_id(program, name)
+                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    self.runtime
+                        .raw_ivar(object, selector)
+                        .map_err(MachineError::Construction)?
+                }
+                Instruction::SetIvar {
+                    receiver,
+                    name,
+                    value,
+                    ..
+                } => {
+                    let Value::Object(object) = registers[*receiver as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let selector = selector_id(program, name)
+                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    self.runtime
+                        .assign_raw_ivar(object, selector, registers[*value as usize].clone())
+                        .map_err(MachineError::Construction)?
+                }
+            };
             if let Some(destination) = instruction.destination() {
                 registers[destination as usize] = produced;
             }

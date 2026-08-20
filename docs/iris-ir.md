@@ -252,6 +252,7 @@ however the branch goes.
 | --- | --- |
 | `Call { dst, function, first, count }` | Calls `function` with the window `first .. first+count`. |
 | `Return { value }` | Returns `value` from the current frame. |
+| `MakeClosure { dst, function, first, count }` | Allocates a Closure whose captures are copied from the register window. |
 
 `function` is an **index**, not a name. Resolution happens before any
 instruction is emitted, so nothing is looked up at run time. That resolution is
@@ -262,7 +263,26 @@ representation, and it is the first thing that should move once it grows.
 A zero-argument call still allocates a window start inside the file, so `first`
 is always a valid register even when `count` is 0.
 
-### 3.7 Float reinterpretation
+A Closure body is another function. Its captures occupy the leading registers,
+followed by invocation arguments; `MakeClosure` stores a value snapshot so an
+escaped Closure outlives the defining frame. Each body lowers with its own name
+stack, so C028 shadowing allocates a fresh binding rather than overwriting a
+capture, and D-421's `return` exits only that Closure frame.
+
+### 3.7 Exceptions
+
+| Instruction | Effect |
+| --- | --- |
+| `EnterTry { handler, cleanup, exception }` | Pushes a handler and names the register receiving a raised value. |
+| `LeaveTry` | Removes the handler after normal completion. |
+| `Raise { value }` | Transfers to the innermost handler or propagates from the frame. |
+
+Lowering emits cleanup on the normal and exceptional routes as distinct CFG
+blocks, so exactly one route reaches it. A raise from a called frame is returned
+as an explicit machine outcome and routed through the caller's handler stack;
+Rust unwinding is not involved.
+
+### 3.8 Float reinterpretation
 
 | Instruction | Effect |
 | --- | --- |
@@ -286,6 +306,11 @@ Structural checks - registers in range, jump targets inside the body, call
 indices defined - are a single linear pass. **Definite assignment is a dataflow
 fixpoint** over the control-flow graph, keeping the INTERSECTION of what is
 written along every path reaching a point.
+
+`EnterTry` contributes an exceptional predecessor to its handler using the
+state at protected-region entry, with only the exception register added. A
+write later in the protected body therefore cannot become definitely assigned
+at catch entry merely because it appears earlier in instruction order.
 
 A linear scan is unsound the moment control flow exists, and this was a real
 defect rather than a hypothetical one. A forward jump that SKIPS a write left
@@ -358,7 +383,8 @@ Covered: integer, float, string, bool, nil and Symbol literals; the binary and
 unary selectors listed in §3.3; identity (`same?`, in both its infix and method
 spellings); array literals; Hash literals with explicit keys; indexing an Array
 or Hash; `let` and `mut` bindings; assignment to a bound name; statement
-sequences; `if`/`else` as a value; `while` loops; `return`;
+sequences; `if`/`else` as a value; `while` loops; `return`; unfiltered
+`try`/`catch`/`finally` and explicit `raise`; Closure capture and `.call`;
 `Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`; native selectors on
 arbitrary receivers; **plain module functions** with positional parameters,
 including recursion and mutual calls; and **user-defined classes**: declaration,
@@ -377,16 +403,16 @@ Declined, each by name: `declaration` (anything that is not a plain module),
 `module` (open, mixin, generic or decorated), `module body` (a non-method
 statement), `method` (async, override, `impl`, decorated, generic or
 class-kind), `abstract method`, `parameter` (rest, keyword or block),
-`statement <form>`, which names the form that stopped it - `try`, `for`,
-`match`, `raise`, `binding`, `global`, `shared`, `deferred`, `stored property`,
+`statement <form>`, which names the form that stopped it - `for`,
+`match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
 `break`, `continue`, `method` - and likewise `call <shape>` for a call:
 `bare name`, `closure`, `callee`, and the receiver shapes `unbound receiver`,
 `member receiver`, `literal receiver`, `array receiver`. Naming the form rather
 than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
-name), `closure`, `call arity`, `name` (unbound), `member`,
-`index receiver`, `hash key name`, `tuple`, `try`, `await`, `yield`, and the
+name), `nested closure`, filtered catch clauses, `call arity`, `name` (unbound),
+`member`, `index receiver`, `hash key name`, `tuple`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen`, `class generics`,
 `class implements`, `class mixin`, `class constraints`, `class meta deny`,
 `class superclass` and `class body`, plus the structural refusals
@@ -403,14 +429,12 @@ Named so the gaps are not mistaken for decisions:
 
 - **Methods on Classes.** Only plain module functions are covered. An instance
   method needs a receiver, dispatch through the MRO, and revision awareness.
-- **Closure capture.** Needs the HIR layer the design review places between AST
-  and execution IR; capture analysis belongs there, not here.
-- **Closures.** Declined rather than approximated. They need captured
-  environments, which the design review places in the HIR layer.
-- **Exceptions.** `try` needs exception edges through the control-flow graph,
-  which the verifier's fixpoint would have to treat as additional predecessors.
-  Approximating either would disagree with the reference for a reason no test
-  would attribute to the right cause.
+- **Nested Closures.** A Closure may capture from its immediate defining frame;
+  recursively compiling Closure bodies needs a stable function-index allocator
+  before nested Closure literals can be admitted without misaddressing code.
+- **Filtered catches and exception contexts.** They require runtime Type matching
+  and full `ExceptionContext` construction; the VM declines them rather than
+  treating every catch as a match or fabricating diagnostic metadata.
 - **Collection.** The backend now owns a `Runtime`, so it allocates real
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set

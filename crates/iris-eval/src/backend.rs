@@ -420,12 +420,10 @@ mod differential_tests {
         };
         assert_eq!(reason, "call array receiver");
 
-        // An Array literal IS covered now, so a construct that genuinely is
-        // not stands in: a closure needs frames this subset does not have.
-        let Support::Unsupported(reason) = bytecode.execute("{ |x|; x }") else {
-            unreachable!("this backend covers no closures yet")
+        let Support::Unsupported(reason) = bytecode.execute("for x in [1] { x }") else {
+            unreachable!("this backend covers no iteration yet")
         };
-        assert_eq!(reason, "closure");
+        assert_eq!(reason, "statement for");
 
         // A declined construct leaves the comparison INSUFFICIENT, so a row
         // relying on it stays held rather than passing on one backend.
@@ -589,6 +587,67 @@ mod differential_tests {
         }
     }
 
+    fn assert_agreement(source: &str, expected: &str) {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends must run: {source}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+        assert_ne!(
+            observation,
+            Observation::Value(format!("wrong:{expected}")),
+            "{source}"
+        );
+    }
+
+    #[test]
+    fn backends_agree_on_exception_control_flow() {
+        for (source, expected) in [
+            ("try { 7 } catch error { error }", "7"),
+            ("try { raise 7 } catch error { error }", "7"),
+            (
+                "try { try { raise 8 } catch inner { inner } } catch outer { outer }",
+                "8",
+            ),
+            (
+                "module M { public fun fail() -> Object { raise 9 } } try { M.fail() } catch error { error }",
+                "9",
+            ),
+            (
+                "mut mark = 0; try { 3 } finally { mark = 1 }; mark",
+                "[3, 1]",
+            ),
+            (
+                "mut mark = 0; try { raise 4 } catch error { error } finally { mark = 1 }; mark",
+                "[4, 1]",
+            ),
+            ("try { 5 } catch error { error } finally { 0 }", "5"),
+        ] {
+            assert_agreement(source, expected);
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_closure_capture_and_invocation() {
+        for (source, expected) in [
+            ("let x = 3; let f = { ||; x }; f.call()", "3"),
+            ("let x = 3; let f = { |y|; x + y }; f.call(4)", "7"),
+            ("let f = { |x|; let x = 8; x }; f.call(1)", "8"),
+            ("let f = { |x|; return x + 1; 99 }; f.call(4)", "5"),
+            (
+                "module M { public fun make(x: Integer) -> Object { { ||; x } } } let f = M.make(6); f.call()",
+                "6",
+            ),
+        ] {
+            assert_agreement(source, expected);
+        }
+    }
+
     /// The subset boundary is explicit. A construct outside it must DECLINE,
     /// so a differential row relying on it stays held rather than passing on
     /// one backend.
@@ -597,7 +656,6 @@ mod differential_tests {
         let bytecode = Bytecode;
 
         for (source, construct) in [
-            ("{ |x|; x }", "closure"),
             ("class A { }", "empty program"),
             ("for x in [1] { x }", "statement for"),
             ("unbound_name", "name"),
@@ -850,8 +908,11 @@ mod differential_tests {
         let bytecode = Bytecode;
 
         for (source, construct) in [
-            ("{ |x|; x }", "closure"),
-            ("try { 1 } finally { 2 }", "statement try"),
+            ("{ ||; { ||; 1 } }", "nested closure"),
+            (
+                "try { 1 } catch error: Integer { error }",
+                "try filtered catch",
+            ),
             ("for x in [1] { x }", "statement for"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
