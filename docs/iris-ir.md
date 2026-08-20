@@ -180,6 +180,7 @@ representation type split.
 | `Binary { dst, selector, left, right }` | `dst = left <selector> right` |
 | `Unary { dst, selector, operand }` | `dst = operand.selector()` |
 | `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
+| `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
 
 Both dispatch through `iris_runtime::Kernel` — **the same kernel the
 tree-walking evaluator uses**. This is a hard rule, not a convenience: a second
@@ -200,6 +201,13 @@ Covered binary selectors:
 ```
 
 Covered unary selectors: `negate`, `to_bits`, `hash`.
+
+`Send` also carries authored ordinary selectors which are not native kernel
+operations. The machine routes Array, Hash, and String receivers through the
+same documented convenience surface as the source runtime; selector absence,
+wrong arity, and wrong argument shape remain program errors rather than machine
+dispatch defects. In particular, Array `size` remains absent and `length` is
+the supported spelling.
 
 ### 3.4 Aggregates
 
@@ -404,7 +412,8 @@ or Hash; `let` and `mut` bindings; assignment to a bound name; statement
 sequences; `if`/`else` as a value; `while` loops; `return`; ordered catch clauses
 with named Class filters, `try`/`catch`/`finally`, and explicit `raise`; Closure capture and `.call`;
 `Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`; native selectors on
-arbitrary receivers; **plain module functions** with positional parameters,
+arbitrary receivers; authored Array, Hash, and String sends on literal,
+aggregate, bound-name, grouped, and call-result receivers; **plain module functions** with positional parameters,
 including recursion and mutual calls; and **user-defined classes**: declaration,
 construction through `new` with an initializer, raw ivar reads and writes,
 `self`, instance dispatch through the receiver's class, `class fun` declarations
@@ -413,7 +422,7 @@ inherited `override` declarations, and declarative instance-method reopens. A
 reopen is registered as an ordinary transaction after the origin transaction,
 so it advances the active revision rather than being folded into revision one.
 
-Measured against the 783 source-carrying conformance vectors, this compiles 159
+Measured against the 783 source-carrying conformance vectors, this compiles 173
 of them. The number is reported rather than estimated because the first estimate
 of what blocked the backend was WRONG: the assumed blockers were loops and
 calls, while the measurement showed a single dominant one, `class`, at 325
@@ -429,8 +438,7 @@ method`, `parameter` (rest, keyword or block),
 `statement <form>`, which names the form that stopped it - unsupported `for`,
 `match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
 `break`, `continue`, `method` - and likewise `call <shape>` for a call:
-`bare name`, `closure`, `callee`, and the receiver shapes `unbound receiver`,
-`member receiver`, `literal receiver`, `array receiver`. Naming the form rather
+`bare name`, `closure`, `callee`, and `unbound receiver`. Naming the form rather
 than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound

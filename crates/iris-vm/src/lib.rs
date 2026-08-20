@@ -49,6 +49,14 @@ mod tests {
             "class A { public fun v() -> Integer { 1 } } open class A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { A.new().v() } } M.r()",
             "class A { public fun v() -> Integer { 3 } } module M { public fun make(c: Object) -> Object { c.new().v() } public fun r() -> Object { M.make(A) } } M.r()",
             "class A { public class fun v() -> Integer { 5 } } module M { public fun invoke(c: Object) -> Object { c.v() } public fun r() -> Object { M.invoke(A) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].map({ |x|; x * 2 }) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].each({ |x|; x }) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].select({ |x|; x > 1 }) } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].reduce(0, { |a, x|; a + x }) } } M.r()",
+            "module M { public fun r() -> Object { let a = [1]; let b = a; a.push(2); b.pop() } } M.r()",
+            "module M { public fun r() -> Object { [1, 2].join(\"-\") } } M.r()",
+            "module M { public fun r() -> Object { %{ 1: 2 }.keys() } } M.r()",
+            "module M { public fun r() -> Object { \" a \".trim() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

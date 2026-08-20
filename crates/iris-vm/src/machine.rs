@@ -7,6 +7,8 @@ use iris_runtime::{
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
 
+mod stdlib;
+
 #[derive(Clone, Debug)]
 struct ClosureRecord {
     function: usize,
@@ -37,6 +39,10 @@ pub enum MachineError {
     /// A READ past the end answers nil, but a WRITE has no position to store
     /// into, so it raises rather than silently discarding the value.
     IndexError,
+    MessageNotFound {
+        receiver_class: String,
+        selector: String,
+    },
     /// An Iris value propagated beyond the current frame.
     Raised(Value),
 }
@@ -801,6 +807,21 @@ impl Machine {
                     let receiver = registers[*receiver as usize].clone();
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
+                    if let Some(value) = run_frame!(
+                        'frame,
+                        self.authored_send(
+                            &receiver,
+                            selector,
+                            &arguments,
+                            program,
+                            classes,
+                        )
+                    ) {
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = value;
+                        }
+                        continue;
+                    }
                     if selector == "call" {
                         let (callee, passed) = match receiver {
                             Value::Closure(identity) => {
@@ -1208,7 +1229,10 @@ impl Machine {
         arguments: &[Value],
     ) -> Result<Value, MachineError> {
         let Some(native) = NativeSelector::from_source(selector) else {
-            return Err(MachineError::UnknownSelector(selector.to_owned()));
+            return Err(MachineError::MessageNotFound {
+                receiver_class: value_class_name(&receiver).to_owned(),
+                selector: selector.to_owned(),
+            });
         };
         self.kernel
             .send(self.runtime.registry(), receiver, native, arguments)
@@ -1286,6 +1310,25 @@ impl Machine {
             }
             _ => Err(MachineError::UnknownSelector("[]=".to_owned())),
         }
+    }
+}
+
+fn value_class_name(value: &Value) -> &'static str {
+    match value {
+        Value::Array(_) => "Array",
+        Value::Hash(_) => "Hash",
+        Value::Text(_) => "String",
+        Value::Integer(_) => "Integer",
+        Value::Float32(_) => "Float32",
+        Value::Float64(_) => "Float64",
+        Value::Bool(_) => "Bool",
+        Value::Nil => "Nil",
+        Value::Symbol(_) => "Symbol",
+        Value::Class(_) => "Class",
+        Value::Object(_) => "Object",
+        Value::Closure(_) => "Closure",
+        Value::BoundMethod(_) => "BoundMethod",
+        _ => "Object",
     }
 }
 

@@ -9,6 +9,7 @@ use iris_runtime::NativeSelector;
 use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOperator};
 
 mod declarations;
+mod expressions;
 
 use declarations::{Signature, collect_signatures};
 
@@ -1443,16 +1444,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
-        if !matches!(receiver.as_ref(), Expression::Call { .. })
-            && !matches!(receiver.as_ref(), Expression::Name(name) if self.lookup(name).is_some())
-        {
-            return Err(CompileError::new(match receiver.as_ref() {
-                Expression::Name(_) => "call unbound receiver",
-                Expression::Member { .. } => "call member receiver",
-                Expression::Literal(_) => "call literal receiver",
-                Expression::Array(_) => "call array receiver",
-                _ => "call receiver",
-            }));
+        if let Some(construct) = expressions::ordinary_receiver_decline(receiver, |name| {
+            self.lookup(name).is_some()
+                || self.class_index(name).is_some()
+                || matches!(name, "nil" | "true" | "false")
+        }) {
+            return Err(CompileError::new(construct));
         }
         let receiver = self.expression(receiver)?;
         let (first, count) = self.argument_window(arguments)?;

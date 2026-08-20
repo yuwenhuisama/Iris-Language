@@ -116,6 +116,16 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::IndexError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IndexError),
                 )),
+                Err(iris_vm::MachineError::MessageNotFound {
+                    receiver_class,
+                    selector,
+                }) => Support::Ran(Observation::Error(format!(
+                    "{:?}",
+                    EvaluationError::MessageNotFound {
+                        receiver_class,
+                        selector,
+                    }
+                ))),
                 // A machine defect is not a program observation.
                 Err(defect) => Support::Unsupported(format!("machine defect: {defect:?}")),
             },
@@ -425,10 +435,10 @@ mod differential_tests {
         // outer construct, so that is what the backend names. The reason
         // identifies WHICH receiver shape stopped it, so a later change that
         // covers array receivers cannot leave this passing for the old cause.
-        let Support::Unsupported(reason) = bytecode.execute("[1, 2].map({ |x|; x })") else {
-            unreachable!("this backend covers no calls, arrays or closures yet")
+        let Support::Unsupported(reason) = bytecode.execute("nope.foo()") else {
+            unreachable!("an unbound receiver must remain declined")
         };
-        assert_eq!(reason, "call array receiver");
+        assert_eq!(reason, "call unbound receiver");
 
         let Support::Unsupported(reason) = bytecode.execute("for [x] in [[1]] { x }") else {
             unreachable!("this backend covers no destructuring iteration yet")
@@ -439,13 +449,117 @@ mod differential_tests {
         // relying on it stays held rather than passing on one backend.
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let Agreement::Insufficient { ran, declined } =
-            compare_backends("[1, 2].map({ |x|; x })", &backends)
+        let Agreement::Insufficient { ran, declined } = compare_backends("nope.foo()", &backends)
         else {
             unreachable!("only one backend ran it")
         };
         assert_eq!(ran, vec!["interpreter"]);
         assert_eq!(declined.len(), 1);
+    }
+
+    #[test]
+    fn backends_agree_on_authored_array_methods() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            (
+                "[1, 2].map({ |x|; x * 2 })",
+                "[2, 4]",
+                "[1, 2].map({ |x|; x * 3 })",
+            ),
+            (
+                "[1, 2].each({ |x|; x }).length()",
+                "2",
+                "[1].each({ |x|; x }).length()",
+            ),
+            (
+                "[1, 2, 3].select({ |x|; x > 1 })",
+                "[2, 3]",
+                "[1, 2, 3].select({ |x|; x > 2 })",
+            ),
+            (
+                "[1, 2, 3].reduce(0, { |a, x|; a + x })",
+                "6",
+                "[1, 2, 3].reduce(1, { |a, x|; a + x })",
+            ),
+            ("[1, 2].length()", "2", "[1].length()"),
+            (
+                "let a = [1]; let b = a; a.push(2); b.pop()",
+                "2",
+                "let a = [1]; let b = a; a.push(3); b.pop()",
+            ),
+            ("[1, 2].join(\"-\")", "\"1-2\"", "[1, 2].join(\":\")"),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let control = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover {expression}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{expression}"
+            );
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&control, &backends)
+            else {
+                unreachable!("both backends cover the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_authored_hash_and_string_methods() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, control) in [
+            ("%{ 1: 2 }.length()", "%{ 1: 2, 3: 4 }.length()"),
+            ("\"åb\".length()", "\"åbc\".length()"),
+            ("\" a \".trim()", "\" b \".trim()"),
+            ("\"a,b\".split(\",\")", "\"a:b\".split(\",\")"),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover {expression}")
+            };
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_keep_array_size_absent() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "module M { public fun r() -> Object { [1].size() } } M.r()";
+        let control = "module M { public fun r() -> Object { [1].length() } } M.r()";
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends reject the absent selector")
+        };
+        assert!(
+            matches!(observation, Observation::Error(ref error) if error.contains("MessageNotFound"))
+        );
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &backends)
+        else {
+            unreachable!("both backends cover length")
+        };
+        assert_eq!(control_observation, Observation::Value("1".to_owned()));
     }
 
     /// Both backends dispatch arithmetic through the SAME kernel, so a shared
