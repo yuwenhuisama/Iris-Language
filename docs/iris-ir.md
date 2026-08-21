@@ -479,21 +479,34 @@ instance requirements, immutable `for` conformance lists, unqualified `impl`
 methods, checked `as Contract` views, qualified `view..member()` dispatch, and
 `Class.contracts()` metadata.
 
-Also covered: `for` over an Array with `break` and `continue`; declared Class
-and Module names as VALUES, so one can be returned, passed and then sent `new`
-or a class method; global bindings and `$name` reads; index assignment on
-Arrays and Hashes, which mutates the shared handle so aliases observe it and
-raises `IndexError` for a position outside the Array; bare member reads
-answering a callable `BoundMethod`; string interpolation; and literal `match`.
+Also covered: `for` over an Array, a Hash or a Range with `break` and
+`continue`, where a Hash element is a `(key, value)` Tuple and a collection
+changed mid-loop raises `ConcurrentModification` on the next advance; declared
+Class and Module names as VALUES, so one can be returned, passed and then sent
+`new` or a class method; built-in class names as values with `.type`, `.name`,
+`.kind()`, `.subtype?` and `.assignable?`, and `value is Class` tests; global
+bindings and `$name` reads; index assignment on Arrays and Hashes, which
+mutates the shared handle so aliases observe it and raises `IndexError` for a
+position outside the Array; member assignment as a `p=` setter SEND; bare
+member reads answering a callable `BoundMethod`; string interpolation; literal
+`match`; tuples; ranges; default positional arguments; annotated local
+bindings; and `catch e, context` binding the propagation context with
+`.value`, `.cause`, `.suppressed`, `.re_raise_sites` and `.raise_location`.
 
-Measured against the 783 source-carrying conformance vectors, this compiles 216
-of them, up from 51 when the measurement started. The number is reported rather
-than estimated because the first estimate of what blocked the backend was
-WRONG: the assumed blockers were loops and calls, while the measurement showed
-a single dominant one, `class`, at 325 programs. Each subsequent round was
-aimed the same way - splitting the decline reasons showed `try` at 38 against
-`for` at 8, and later that the largest remaining bucket was Contracts rather
-than anything the coarse `name` bucket suggested.
+Measured against the 736 RUNNABLE source vectors, this compiles 297 of them, up
+from 51 when the measurement started. The number is reported rather than
+estimated because the first estimate of what blocked the backend was WRONG: the
+assumed blockers were loops and calls, while the measurement showed a single
+dominant one, `class`, at 325 programs. Each subsequent round was aimed the same
+way - splitting the decline reasons showed `try` at 38 against `for` at 8, later
+that the largest remaining bucket was Contracts rather than anything the coarse
+`name` bucket suggested, and later still that `name unbound` was mostly a tail of
+FFI fixture names rather than one gap.
+
+The DENOMINATOR was measured too, and it was wrong at first. 47 corpus vectors
+are declared `malformed` and are SUPPOSED to be rejected, so counting them as
+gaps measured the backend against programs it is right to refuse. Excluding them
+took `rejected source` from 71 to 25 and the total from 783 to 736.
 
 What the number does NOT measure is how much a compiled program can do. Adding
 the authored stdlib moved it by zero while making ordinary Iris - `[1, 2,
