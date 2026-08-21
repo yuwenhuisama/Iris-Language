@@ -1,0 +1,423 @@
+//! Expression and closure lowering.
+
+use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
+
+use super::calls::{binary_selector, construct_name};
+use super::lowering::Lowering;
+use super::{CompileError, Function, Instruction, Register};
+
+impl<'a, 'b> Lowering<'a, 'b> {
+    pub(super) fn expression(&mut self, expression: &Expression) -> Result<Register, CompileError> {
+        match expression {
+            Expression::Literal(text) => self.literal(text),
+            Expression::Symbol(name) => {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadSymbol {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
+            // As a RECEIVER these keyword values arrive as a Name rather than
+            // a Literal, so `nil.hash()` would otherwise be an unbound name.
+            Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
+                self.literal(name)
+            }
+            Expression::Name(name) if self.deferred.iter().any(|held| held == name) => {
+                Err(CompileError::new("deferred read before assignment"))
+            }
+            Expression::Name(name) => self.lookup(name).map(Ok).unwrap_or_else(|| {
+                let destination = self.allocate()?;
+                if let Some(class) = self.class_index(name) {
+                    self.instructions
+                        .push(Instruction::LoadClass { destination, class });
+                    return Ok(destination);
+                }
+                if let Some(contract) = self.contract_index(name) {
+                    self.instructions.push(Instruction::LoadContract {
+                        destination,
+                        contract,
+                    });
+                    return Ok(destination);
+                }
+                if self
+                    .signatures
+                    .iter()
+                    .any(|signature| signature.module == name && !signature.receiver)
+                {
+                    self.instructions.push(Instruction::LoadSymbol {
+                        destination,
+                        name: name.clone(),
+                    });
+                    return Ok(destination);
+                }
+                Err(CompileError::new("name unbound"))
+            }),
+            Expression::GlobalVar(name) => {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadGlobal {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
+            Expression::RawIvar(name) => {
+                let receiver = self
+                    .lookup("self")
+                    .ok_or_else(|| CompileError::new("ivar"))?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::GetIvar {
+                    destination,
+                    receiver,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
+            Expression::ClassVar(name) => {
+                let receiver = self
+                    .lookup("self")
+                    .ok_or_else(|| CompileError::new("expression class variable"))?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::GetClassVar {
+                    destination,
+                    receiver,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
+            Expression::Grouped(inner) => self.expression(inner),
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                if matches!(
+                    operator,
+                    BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr
+                ) {
+                    let destination = self.allocate()?;
+                    let left = self.expression(left)?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source: left,
+                    });
+                    let branch = self.instructions.len();
+                    self.instructions.push(Instruction::JumpUnless {
+                        condition: left,
+                        target: 0,
+                    });
+                    if *operator == BinaryOperator::LogicalOr {
+                        let skip = self.instructions.len();
+                        self.instructions.push(Instruction::Jump { target: 0 });
+                        let otherwise = self.instructions.len();
+                        let right = self.expression(right)?;
+                        self.instructions.push(Instruction::Move {
+                            destination,
+                            source: right,
+                        });
+                        let after = self.instructions.len();
+                        self.patch(branch, otherwise)?;
+                        self.patch(skip, after)?;
+                    } else {
+                        let right = self.expression(right)?;
+                        self.instructions.push(Instruction::Move {
+                            destination,
+                            source: right,
+                        });
+                        let after = self.instructions.len();
+                        self.patch(branch, after)?;
+                    }
+                    return Ok(destination);
+                }
+                if *operator == BinaryOperator::As
+                    && let Expression::Name(name) = right.as_ref()
+                    && let Some(contract) = self.contract_index(name)
+                {
+                    let receiver = self.expression(left)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::ContractCast {
+                        destination,
+                        receiver,
+                        contract,
+                    });
+                    return Ok(destination);
+                }
+                if *operator == BinaryOperator::Identity {
+                    let left = self.expression(left)?;
+                    let right = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Identity {
+                        destination,
+                        left,
+                        right,
+                    });
+                    return Ok(destination);
+                }
+                let selector = binary_selector(operator)?;
+                let left = self.expression(left)?;
+                let right = self.expression(right)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Binary {
+                    destination,
+                    selector,
+                    left,
+                    right,
+                });
+                Ok(destination)
+            }
+            Expression::Unary { operator, operand } => {
+                let operand = self.expression(operand)?;
+                if *operator == UnaryOperator::Plus {
+                    return Ok(operand);
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Unary {
+                    destination,
+                    selector: match operator {
+                        UnaryOperator::Negate => "negate",
+                        UnaryOperator::BitwiseNot => "~",
+                        UnaryOperator::Not => {
+                            return Err(CompileError::new("unary Not"));
+                        }
+                        UnaryOperator::Plus => return Ok(operand),
+                    },
+                    operand,
+                });
+                Ok(destination)
+            }
+            // An Array literal is a pure aggregate, so it needs no frames. The
+            // elements are lowered into a CONTIGUOUS run of registers, which
+            // lets the instruction name the range instead of carrying a list.
+            Expression::Array(elements) => {
+                let count = u16::try_from(elements.len())
+                    .map_err(|_| CompileError::new("array too long"))?;
+                let mut lowered = Vec::with_capacity(elements.len());
+                for element in elements {
+                    lowered.push(self.expression(element)?);
+                }
+                let first = self.next_register;
+                for source in lowered {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source,
+                    });
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BuildArray {
+                    destination,
+                    first,
+                    count,
+                });
+                Ok(destination)
+            }
+            Expression::Hash(entries) => {
+                let count =
+                    u16::try_from(entries.len()).map_err(|_| CompileError::new("hash too long"))?;
+                let mut lowered = Vec::with_capacity(entries.len() * 2);
+                for (key, value) in entries {
+                    match key {
+                        Expression::Name(_) => return Err(CompileError::new("hash key name")),
+                        key => lowered.push(self.expression(key)?),
+                    }
+                    lowered.push(self.expression(value)?);
+                }
+                let first = self.next_register;
+                for source in lowered {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source,
+                    });
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BuildHash {
+                    destination,
+                    first,
+                    count,
+                });
+                Ok(destination)
+            }
+            Expression::Index { receiver, index } => {
+                if !matches!(
+                    receiver.as_ref(),
+                    Expression::Array(_)
+                        | Expression::Hash(_)
+                        | Expression::Name(_)
+                        | Expression::GlobalVar(_)
+                ) {
+                    return Err(CompileError::new("index receiver"));
+                }
+                let receiver = self.expression(receiver)?;
+                let index = self.expression(index)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Index {
+                    destination,
+                    receiver,
+                    index,
+                });
+                Ok(destination)
+            }
+            Expression::Member { receiver, selector } => {
+                let receiver = self.expression(receiver)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BindMember {
+                    destination,
+                    receiver,
+                    selector: selector.clone(),
+                });
+                Ok(destination)
+            }
+            Expression::ContractView { .. } => {
+                Err(CompileError::new("expression contract view outside call"))
+            }
+            // Assignment writes the name's EXISTING register, which is what
+            // carries a value across a loop's back edge.
+            Expression::Assignment {
+                left,
+                operator: iris_syntax::AssignmentOperator::Assign,
+                right,
+            } => {
+                if let Expression::RawIvar(name) = left.as_ref() {
+                    let receiver = self
+                        .lookup("self")
+                        .ok_or_else(|| CompileError::new("ivar"))?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetIvar {
+                        destination,
+                        receiver,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::ClassVar(name) = left.as_ref() {
+                    let receiver = self
+                        .lookup("self")
+                        .ok_or_else(|| CompileError::new("expression class variable"))?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetClassVar {
+                        destination,
+                        receiver,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::Index { receiver, index } = left.as_ref() {
+                    let receiver = self.expression(receiver)?;
+                    let index = self.expression(index)?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetIndex {
+                        destination,
+                        receiver,
+                        index,
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::GlobalVar(name) = left.as_ref() {
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::StoreGlobal {
+                        destination,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                let Expression::Name(name) = left.as_ref() else {
+                    return Err(CompileError::new("assignment target"));
+                };
+                let Some(destination) = self.lookup(name) else {
+                    return Err(CompileError::new("name assignment unbound"));
+                };
+                let source = self.expression(right)?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source,
+                });
+                self.deferred.retain(|held| held != name);
+                Ok(destination)
+            }
+            Expression::Call {
+                callee, arguments, ..
+            } => self.call(callee, arguments),
+            Expression::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_body(body, catches, finally),
+            Expression::Closure {
+                parameters,
+                body,
+                has_header: true,
+                ..
+            } => self.closure(parameters, body),
+            other => Err(CompileError::new(construct_name(other))),
+        }
+    }
+
+    pub(super) fn closure(
+        &mut self,
+        parameters: &[String],
+        body: &[Statement],
+    ) -> Result<Register, CompileError> {
+        let captures = self.names.clone();
+        let mut closure_functions = Vec::new();
+        let mut lowering = Lowering::new(
+            self.signatures,
+            self.classes,
+            self.contracts,
+            self.declared_functions + self.closures.len(),
+            &mut closure_functions,
+        );
+        for (name, _) in &captures {
+            let register = lowering.allocate()?;
+            lowering.names.push((name.clone(), register));
+        }
+        for parameter in parameters {
+            let register = lowering.allocate()?;
+            lowering.names.push((parameter.clone(), register));
+        }
+        let value = lowering.body(body)?;
+        lowering.instructions.push(Instruction::Return { value });
+        let registers = lowering.next_register as usize;
+        let instructions = std::mem::take(&mut lowering.instructions);
+        drop(lowering);
+        let function = self.declared_functions + self.closures.len() + closure_functions.len();
+        self.closures.extend(closure_functions);
+        self.closures.push(Function {
+            name: "<closure>".to_owned(),
+            parameters: captures.len() + parameters.len(),
+            captures: captures.len(),
+            registers,
+            instructions,
+        });
+        let count = u16::try_from(captures.len())
+            .map_err(|_| CompileError::new("closure capture too wide"))?;
+        let first = self.next_register;
+        for (_, source) in captures {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Move {
+                destination,
+                source,
+            });
+        }
+        if count == 0 {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadNil { destination });
+        }
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::MakeClosure {
+            destination,
+            function,
+            first,
+            count,
+        });
+        Ok(destination)
+    }
+}

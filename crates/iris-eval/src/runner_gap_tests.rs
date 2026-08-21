@@ -4224,4 +4224,3 @@ fn a_collection_inside_a_method_keeps_the_callers_locals() {
         ])))
     );
 }
-

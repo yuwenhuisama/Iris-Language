@@ -1,0 +1,109 @@
+//! Function, statement, expression, call, and closure lowering.
+
+use super::declarations::Signature;
+use super::{Class, CompileError, Contract, Function, Instruction, Register};
+
+/// Lowers one function into its own frame.
+pub(super) fn lower_function(
+    signature: &Signature<'_>,
+    signatures: &[Signature<'_>],
+    classes: &[Class],
+    contracts: &[Contract],
+    declared_functions: usize,
+    closures: &mut Vec<Function>,
+) -> Result<Function, CompileError> {
+    let mut lowering = Lowering::new(signatures, classes, contracts, declared_functions, closures);
+    if signature.receiver {
+        let receiver = lowering.allocate()?;
+        lowering.names.push(("self".to_owned(), receiver));
+    }
+    // Parameters occupy the leading registers, so a call can copy arguments
+    // into a fresh frame without the callee knowing where they came from.
+    for parameter in &signature.parameters {
+        let register = lowering.allocate()?;
+        lowering.names.push(((*parameter).to_owned(), register));
+    }
+    let Some((last, leading)) = signature.body.split_last() else {
+        return Err(CompileError::new("empty body"));
+    };
+    for statement in leading {
+        lowering.statement(statement)?;
+    }
+    // A body's LAST expression is its value, which an explicit `Return`
+    // makes uniform: every path out of a frame goes through one instruction.
+    let value = lowering.statement(last)?;
+    lowering.instructions.push(Instruction::Return { value });
+    Ok(Function {
+        name: format!("{}.{}", signature.module, signature.selector),
+        parameters: signature.parameters.len() + usize::from(signature.receiver),
+        captures: 0,
+        registers: lowering.next_register as usize,
+        instructions: lowering.instructions,
+    })
+}
+
+pub(super) struct Lowering<'a, 'b> {
+    pub(super) instructions: Vec<Instruction>,
+    pub(super) next_register: Register,
+    /// Names bound so far, each pinned to the register holding its value.
+    pub(super) names: Vec<(String, Register)>,
+    pub(super) deferred: Vec<String>,
+    /// Functions callable from this frame, resolved before lowering.
+    pub(super) signatures: &'a [Signature<'b>],
+    pub(super) classes: &'a [Class],
+    pub(super) contracts: &'a [Contract],
+    pub(super) declared_functions: usize,
+    pub(super) closures: &'a mut Vec<Function>,
+    pub(super) loops: Vec<LoopContext>,
+}
+
+pub(super) struct LoopContext {
+    pub(super) continue_target: usize,
+    pub(super) breaks: Vec<usize>,
+}
+
+impl<'a, 'b> Lowering<'a, 'b> {
+    pub(super) fn new(
+        signatures: &'a [Signature<'b>],
+        classes: &'a [Class],
+        contracts: &'a [Contract],
+        declared_functions: usize,
+        closures: &'a mut Vec<Function>,
+    ) -> Self {
+        Self {
+            instructions: Vec::new(),
+            next_register: 0,
+            names: Vec::new(),
+            deferred: Vec::new(),
+            signatures,
+            classes,
+            contracts,
+            declared_functions,
+            closures,
+            loops: Vec::new(),
+        }
+    }
+
+    /// Resolves `Module.selector` to a function index.
+    pub(super) fn resolve(&self, module: &str, selector: &str) -> Option<usize> {
+        self.signatures
+            .iter()
+            .position(|signature| signature.module == module && signature.selector == selector)
+    }
+    /// Reserves a fresh register.
+    pub(super) fn allocate(&mut self) -> Result<Register, CompileError> {
+        let register = self.next_register;
+        self.next_register = self
+            .next_register
+            .checked_add(1)
+            .ok_or_else(|| CompileError::new("register exhaustion"))?;
+        Ok(register)
+    }
+
+    pub(super) fn lookup(&self, name: &str) -> Option<Register> {
+        self.names
+            .iter()
+            .rev()
+            .find_map(|(held, register)| (held == name).then_some(*register))
+    }
+}

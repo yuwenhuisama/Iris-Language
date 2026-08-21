@@ -1,0 +1,386 @@
+//! Bytecode instruction and program representation.
+
+/// A virtual register index.
+///
+/// Registers are virtual and unbounded at this stage. Allocation to a fixed
+/// bank belongs to a later pass; assigning them here would bake a machine
+/// constraint into the IR before any backend needs it.
+pub type Register = u16;
+
+/// One three-address instruction.
+///
+/// Every instruction names its operands and its destination explicitly, so an
+/// instruction's meaning does not depend on execution history. That is what
+/// makes the verifier a single linear pass.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Instruction {
+    /// Loads an arbitrary-precision Integer, held as canonical decimal text.
+    LoadInteger {
+        destination: Register,
+        digits: String,
+    },
+    /// Loads an IEEE-754 binary64 value, held as BITS so a literal cannot
+    /// drift through a decimal round trip.
+    LoadFloat64 {
+        destination: Register,
+        bits: u64,
+    },
+    /// Loads an IEEE-754 binary32 value, held as bits for the same reason.
+    LoadFloat32 {
+        destination: Register,
+        bits: u32,
+    },
+    /// Loads a String.
+    LoadText {
+        destination: Register,
+        text: String,
+    },
+    /// Loads an interned Symbol spelling.
+    LoadSymbol {
+        destination: Register,
+        name: String,
+    },
+    /// Loads a Bool.
+    LoadBool {
+        destination: Register,
+        value: bool,
+    },
+    /// Loads nil.
+    LoadNil {
+        destination: Register,
+    },
+    LoadClass {
+        destination: Register,
+        class: usize,
+    },
+    LoadContract {
+        destination: Register,
+        contract: usize,
+    },
+    LoadGlobal {
+        destination: Register,
+        name: String,
+    },
+    DeclareDeferred {
+        register: Register,
+    },
+    RaiseDefiniteAssignment {
+        destination: Register,
+    },
+    StoreGlobal {
+        destination: Register,
+        name: String,
+        value: Register,
+    },
+    /// Copies one register to another.
+    Move {
+        destination: Register,
+        source: Register,
+    },
+    /// Sends a native binary selector: `destination = left <selector> right`.
+    Binary {
+        destination: Register,
+        selector: &'static str,
+        left: Register,
+        right: Register,
+    },
+    /// Sends a native selector with no arguments to one register.
+    Unary {
+        destination: Register,
+        selector: &'static str,
+        operand: Register,
+    },
+    /// Builds an Array from a contiguous register range, in source order.
+    BuildArray {
+        destination: Register,
+        first: Register,
+        count: u16,
+    },
+    BuildHash {
+        destination: Register,
+        first: Register,
+        count: u16,
+    },
+    Index {
+        destination: Register,
+        receiver: Register,
+        index: Register,
+    },
+    SetIndex {
+        destination: Register,
+        receiver: Register,
+        index: Register,
+        value: Register,
+    },
+    BindMember {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+    },
+    Identity {
+        destination: Register,
+        left: Register,
+        right: Register,
+    },
+    /// Reinterprets an Integer register's bits as a float of the given width.
+    FromBits {
+        destination: Register,
+        width: FloatWidth,
+        bits: Register,
+    },
+    /// Jumps to `target` when `condition` holds FALSE.
+    ///
+    /// Only the false branch is conditional. One conditional form plus an
+    /// unconditional `Jump` expresses every shape this subset needs, and each
+    /// extra branch opcode is another case the verifier must reason about.
+    JumpUnless {
+        condition: Register,
+        target: usize,
+    },
+    /// Jumps to `target` unconditionally.
+    Jump {
+        target: usize,
+    },
+    ArrayNext {
+        destination: Register,
+        array: Register,
+        index: Register,
+        exhausted: usize,
+    },
+    /// Installs an exception handler for the following protected region.
+    EnterTry {
+        handler: usize,
+        cleanup: usize,
+        exception: Register,
+    },
+    CatchMatch {
+        destination: Register,
+        exception: Register,
+        class: String,
+    },
+    /// Removes the innermost handler after normal completion.
+    LeaveTry,
+    /// Raises the value in the current frame.
+    Raise {
+        value: Register,
+    },
+    /// Allocates a Closure with a snapshot of a contiguous capture window.
+    MakeClosure {
+        destination: Register,
+        function: usize,
+        first: Register,
+        count: u16,
+    },
+    /// Calls function `function` with a contiguous argument window.
+    ///
+    /// The arguments occupy `first .. first+count`, mirroring `BuildArray`, so
+    /// a call names a REGISTER WINDOW rather than carrying an operand list.
+    /// That is what keeps the callee's parameters addressable as ordinary
+    /// registers once the frame is pushed.
+    Call {
+        destination: Register,
+        function: usize,
+        first: Register,
+        count: u16,
+    },
+    New {
+        destination: Register,
+        class: usize,
+        first: Register,
+        count: u16,
+    },
+    Send {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    SendClass {
+        destination: Register,
+        class: usize,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    ContractCast {
+        destination: Register,
+        receiver: Register,
+        contract: usize,
+    },
+    SendContract {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    GetIvar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+    },
+    SetIvar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+        value: Register,
+    },
+    GetClassVar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+    },
+    SetClassVar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+        value: Register,
+    },
+    /// Returns `value` from the current frame.
+    Return {
+        value: Register,
+    },
+}
+
+impl Instruction {
+    /// The register this instruction writes, when it writes one.
+    pub(crate) const fn destination(&self) -> Option<Register> {
+        match self {
+            Self::LoadInteger { destination, .. }
+            | Self::LoadFloat64 { destination, .. }
+            | Self::LoadFloat32 { destination, .. }
+            | Self::LoadText { destination, .. }
+            | Self::LoadSymbol { destination, .. }
+            | Self::LoadBool { destination, .. }
+            | Self::LoadNil { destination }
+            | Self::LoadClass { destination, .. }
+            | Self::LoadContract { destination, .. }
+            | Self::LoadGlobal { destination, .. }
+            | Self::StoreGlobal { destination, .. }
+            | Self::Move { destination, .. }
+            | Self::Binary { destination, .. }
+            | Self::Unary { destination, .. }
+            | Self::BuildArray { destination, .. }
+            | Self::BuildHash { destination, .. }
+            | Self::Index { destination, .. }
+            | Self::SetIndex { destination, .. }
+            | Self::BindMember { destination, .. }
+            | Self::Identity { destination, .. }
+            | Self::Call { destination, .. }
+            | Self::New { destination, .. }
+            | Self::Send { destination, .. }
+            | Self::SendClass { destination, .. }
+            | Self::ContractCast { destination, .. }
+            | Self::SendContract { destination, .. }
+            | Self::GetIvar { destination, .. }
+            | Self::SetIvar { destination, .. }
+            | Self::GetClassVar { destination, .. }
+            | Self::SetClassVar { destination, .. }
+            | Self::MakeClosure { destination, .. }
+            | Self::FromBits { destination, .. } => Some(*destination),
+            Self::RaiseDefiniteAssignment { destination } => Some(*destination),
+            Self::CatchMatch { destination, .. } => Some(*destination),
+            // A branch or a return produces no value.
+            Self::JumpUnless { .. }
+            | Self::Jump { .. }
+            | Self::EnterTry { .. }
+            | Self::LeaveTry
+            | Self::Raise { .. }
+            | Self::Return { .. } => None,
+            Self::DeclareDeferred { .. } => None,
+            Self::ArrayNext { destination, .. } => Some(*destination),
+        }
+    }
+}
+
+/// Which IEEE interchange width a `from_bits` names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FloatWidth {
+    /// IEEE-754 binary32.
+    Bits32,
+    /// IEEE-754 binary64.
+    Bits64,
+}
+
+/// One callable body with its own register file.
+///
+/// A frame is a REGISTER WINDOW: each call gets a fresh file of `registers`
+/// slots, and parameters arrive pre-bound in registers `0 .. parameters`.
+/// Nothing is shared with the caller, so a callee cannot read a caller's
+/// registers and recursion needs no save/restore of individual registers.
+///
+/// This is also what makes a GC root set enumerable: the live frames ARE the
+/// roots. The tree-walking evaluator threads locals through a `&HashMap`
+/// parameter, so its caller frames sit on the Rust stack and cannot be walked -
+/// which is why a collection there refuses inside a method body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Function {
+    /// The name this function was declared under, for diagnostics.
+    pub(crate) name: String,
+    /// How many leading registers hold parameters.
+    pub(crate) parameters: usize,
+    pub(crate) captures: usize,
+    /// The size of this frame's register file.
+    pub(crate) registers: usize,
+    pub(crate) instructions: Vec<Instruction>,
+}
+
+/// A compiled program.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Program {
+    pub(crate) instructions: Vec<Instruction>,
+    /// How many registers the top-level frame uses.
+    pub(crate) registers: usize,
+    /// The register holding the program's answer.
+    pub(crate) result: Register,
+    /// Callable bodies, addressed by index from `Call`.
+    pub(crate) functions: Vec<Function>,
+    pub(crate) classes: Vec<Class>,
+    pub(crate) contracts: Vec<Contract>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Contract {
+    pub(crate) name: String,
+    pub(crate) requirements: Vec<(String, usize)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Class {
+    pub(crate) name: String,
+    pub(crate) superclass: Option<usize>,
+    pub(crate) methods: Vec<(String, usize)>,
+    pub(crate) class_methods: Vec<(String, usize)>,
+    pub(crate) reopens: Vec<ClassReopen>,
+    pub(crate) contracts: Vec<usize>,
+    pub(crate) property_methods: Vec<String>,
+    pub(crate) class_variables: Vec<ClassVariable>,
+    pub(crate) stored_properties: Vec<StoredProperty>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoredProperty {
+    pub(crate) name: String,
+    pub(crate) initializer: LiteralValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClassVariable {
+    pub(crate) name: String,
+    pub(crate) mutable: bool,
+    pub(crate) initializer: LiteralValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LiteralValue {
+    Integer(String),
+    Text(String),
+    Bool(bool),
+    Nil,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClassReopen {
+    pub(crate) methods: Vec<(String, usize)>,
+}

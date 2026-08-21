@@ -1,6 +1,7 @@
 use iris_syntax::{Expression, ProgramEntry, Statement};
 
-use super::{CompileError, Instruction, Lowering, Register};
+use super::lowering::Lowering;
+use super::{CompileError, Instruction, Register};
 
 pub(super) fn ordinary_receiver_decline(
     receiver: &Expression,
