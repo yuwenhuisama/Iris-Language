@@ -228,8 +228,10 @@ the supported spelling.
 | Instruction | Effect |
 | --- | --- |
 | `BuildArray { dst, first, count }` | Array from the contiguous range `first .. first+count`. |
+| `BuildTuple { dst, first, count }` | Tuple from the contiguous range `first .. first+count`. |
+| `BuildRange { dst, start, end, inclusive_end }` | Integer Range preserving its written end boundary and inferred direction. |
 | `BuildHash { dst, first, count }` | Hash from contiguous key/value register pairs. |
-| `Index { dst, receiver, index }` | Reads an Array element or Hash entry. |
+| `Index { dst, receiver, index }` | Reads an Array or Tuple element, or a Hash entry. |
 | `SetIndex { dst, receiver, index, value }` | Mutates the shared Array or Hash body and writes the assigned value to `dst`. |
 
 Elements are lowered into a **contiguous run** of registers so the instruction
@@ -252,6 +254,7 @@ r4 = BuildArray first=r2 count=2
 | `JumpUnless { condition, target }` | Jumps to `target` when `condition` is FALSEY. |
 | `Jump { target }` | Jumps unconditionally. |
 | `ArrayNext { dst, array, index, exhausted }` | Loads `array[index]` into `dst`, or jumps to `exhausted` when the Array is exhausted. |
+| `RangeNext { dst, range, index, exhausted }` | Loads the indexed Range value into `dst`, or jumps to `exhausted` after the endpoint. |
 
 Only the false branch is conditional. One conditional form plus an unconditional
 jump expresses every shape this subset needs, and each extra branch opcode is
@@ -263,11 +266,11 @@ loop's own value is nil, since `IRIS-V1-CONTROL-C023` gives a normal loop
 completion no value and only a `break` with an operand carries one - which this
 subset declines.
 
-An Array `for` loop evaluates its source once, advances an explicit Integer
-index, and uses `ArrayNext` for the exhausted edge. `continue` targets the next
+An Array or Range `for` loop evaluates its source once, advances an explicit Integer
+index, and uses the aggregate-specific next instruction for the exhausted edge. `continue` targets the next
 step and `break` targets the loop exit; both are ordinary CFG predecessors, so
 the verifier applies the same definite-assignment fixpoint as it does to
-`while`. Labels, value-carrying `break`, non-Array iterator protocols, and
+`while`. Labels, value-carrying `break`, other iterator protocols, and
 destructuring bindings remain declined rather than approximated.
 
 A `mut` binding keeps ONE register that assignment updates in place. That is
@@ -304,6 +307,11 @@ representation, and it is the first thing that should move once it grows.
 
 A zero-argument call still allocates a window start inside the file, so `first`
 is always a valid register even when `count` is 0.
+
+For an omitted trailing positional parameter, the caller evaluates its default
+expression and copies the result into the same contiguous argument window. Rest,
+keyword, keyword-rest, and block channels are declined by their specific
+parameter construct until the VM has channel-aware frames.
 
 A Closure body is another function. Its captures occupy the leading registers,
 followed by invocation arguments; `MakeClosure` stores a value snapshot so an
@@ -484,7 +492,7 @@ alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, `try exception context`, non-name `try catch filter`,
 `call arity`, `name unbound`, `name assignment unbound`,
-`member`, `index receiver`, `hash key name`, `tuple`, `await`, `yield`, and the
+`member`, `index receiver`, `hash key name`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`, `class generics`,
 `class mixin`, `class constraints`, `class meta deny`,

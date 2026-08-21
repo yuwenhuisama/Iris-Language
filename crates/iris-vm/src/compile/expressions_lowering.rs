@@ -93,6 +93,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
             } => {
                 if matches!(
                     operator,
+                    BinaryOperator::RangeInclusive | BinaryOperator::RangeExclusive
+                ) {
+                    let start = self.expression(left)?;
+                    let end = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BuildRange {
+                        destination,
+                        start,
+                        end,
+                        inclusive_end: *operator == BinaryOperator::RangeInclusive,
+                    });
+                    return Ok(destination);
+                }
+                if matches!(
+                    operator,
                     BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr
                 ) {
                     let destination = self.allocate()?;
@@ -211,6 +226,29 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
+            Expression::Tuple(elements) => {
+                let count = u16::try_from(elements.len())
+                    .map_err(|_| CompileError::new("tuple too long"))?;
+                let mut lowered = Vec::with_capacity(elements.len());
+                for element in elements {
+                    lowered.push(self.expression(element)?);
+                }
+                let first = self.next_register;
+                for source in lowered {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source,
+                    });
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BuildTuple {
+                    destination,
+                    first,
+                    count,
+                });
+                Ok(destination)
+            }
             Expression::Hash(entries) => {
                 let count =
                     u16::try_from(entries.len()).map_err(|_| CompileError::new("hash too long"))?;
@@ -243,6 +281,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     receiver.as_ref(),
                     Expression::Array(_)
                         | Expression::Hash(_)
+                        | Expression::Tuple(_)
                         | Expression::Name(_)
                         | Expression::GlobalVar(_)
                 ) {
@@ -259,6 +298,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Member { receiver, selector } => {
+                if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
+                    return self.expression(receiver);
+                }
                 let receiver = self.expression(receiver)?;
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::BindMember {
@@ -270,6 +312,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             Expression::ContractView { .. } => {
                 Err(CompileError::new("expression contract view outside call"))
+            }
+            Expression::ReifiedType(iris_syntax::TypeExpression::Name(name)) => {
+                if !matches!(
+                    name.as_str(),
+                    "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
+                ) {
+                    return Err(CompileError::new("expression reified type"));
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadBuiltinType {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
             }
             // Assignment writes the name's EXISTING register, which is what
             // carries a value across a loop's back edge.

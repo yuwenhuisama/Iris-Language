@@ -7,7 +7,7 @@ use super::{
 pub(super) struct Signature<'a> {
     pub(super) module: &'a str,
     pub(super) selector: &'a str,
-    pub(super) parameters: Vec<&'a str>,
+    pub(super) parameters: Vec<&'a iris_syntax::Parameter>,
     pub(super) body: &'a [Statement],
     pub(super) receiver: bool,
     pub(super) class_method: bool,
@@ -357,9 +357,15 @@ fn collect_methods<'a>(
         let mut parameters = Vec::with_capacity(method.parameters.len());
         for parameter in &method.parameters {
             if parameter.category != iris_syntax::ParameterCategory::Positional {
-                return Err(CompileError::new("parameter"));
+                return Err(CompileError::new(match parameter.category {
+                    iris_syntax::ParameterCategory::Rest => "parameter rest",
+                    iris_syntax::ParameterCategory::Keyword => "parameter keyword",
+                    iris_syntax::ParameterCategory::KeywordRest => "parameter keyword rest",
+                    iris_syntax::ParameterCategory::Block => "parameter block",
+                    iris_syntax::ParameterCategory::Positional => "parameter positional",
+                }));
             }
-            parameters.push(parameter.name.as_str());
+            parameters.push(parameter);
         }
         signatures.push(Signature {
             module: owner,

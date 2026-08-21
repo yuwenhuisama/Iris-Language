@@ -49,6 +49,14 @@ impl Machine {
                     .unwrap_or(Value::Nil))
             }
             Value::Hash(entries) => Ok(entries.get(&index).unwrap_or(Value::Nil)),
+            Value::Tuple(values) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                Ok(resolve_index(&index, values.len())
+                    .and_then(|index| values.get(index).cloned())
+                    .unwrap_or(Value::Nil))
+            }
             _ => Err(MachineError::UnknownSelector("[]".to_owned())),
         }
     }

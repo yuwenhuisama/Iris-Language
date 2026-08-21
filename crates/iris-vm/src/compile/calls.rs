@@ -94,6 +94,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 _ => "call callee",
             }));
         };
+        if matches!(receiver.as_ref(), Expression::Member { receiver, selector }
+            if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)))
+            && selector == "kind"
+            && arguments.is_empty()
+        {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadSymbol {
+                destination,
+                name: "nominal".to_owned(),
+            });
+            return Ok(destination);
+        }
         if let Expression::Name(name) = receiver.as_ref()
             && selector == "from_bits"
         {
@@ -179,15 +191,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if let Expression::Name(module) = receiver.as_ref()
             && let Some(function) = self.resolve(module, selector)
         {
-            let expected = self.signatures[function].parameters.len();
-            if arguments.len() != expected {
+            let parameters = &self.signatures[function].parameters;
+            let required = parameters
+                .iter()
+                .take_while(|parameter| parameter.default.is_none())
+                .count();
+            if arguments.len() < required || arguments.len() > parameters.len() {
                 return Err(CompileError::new("call arity"));
             }
             let count =
-                u16::try_from(arguments.len()).map_err(|_| CompileError::new("call too wide"))?;
-            let mut lowered = Vec::with_capacity(arguments.len());
+                u16::try_from(parameters.len()).map_err(|_| CompileError::new("call too wide"))?;
+            let mut lowered = Vec::with_capacity(parameters.len());
             for argument in arguments {
                 lowered.push(self.expression(argument)?);
+            }
+            for parameter in &parameters[arguments.len()..] {
+                let default = parameter
+                    .default
+                    .as_ref()
+                    .ok_or_else(|| CompileError::new("call arity"))?;
+                lowered.push(self.expression(default)?);
             }
             // Arguments are copied into a CONTIGUOUS window, so the call names
             // a range and the callee sees them as its leading registers.

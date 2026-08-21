@@ -21,7 +21,7 @@ pub(super) fn lower_function(
     // into a fresh frame without the callee knowing where they came from.
     for parameter in &signature.parameters {
         let register = lowering.allocate()?;
-        lowering.names.push(((*parameter).to_owned(), register));
+        lowering.names.push((parameter.name.clone(), register));
     }
     let Some((last, leading)) = signature.body.split_last() else {
         return Err(CompileError::new("empty body"));

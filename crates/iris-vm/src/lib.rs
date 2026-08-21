@@ -599,7 +599,7 @@ mod ir_document_tests {
             ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
             ("1[0]", "index receiver"),
-            ("(1, 2)", "tuple"),
+            ("%{ a: 1 }", "hash key name"),
             ("try { 1 } catch e, context { e }", "try exception context"),
         ] {
             let Err(declined) = compile(source) else {

@@ -4130,6 +4130,17 @@ impl SourceEvaluator {
             (Value::Bool(value), "to_string", []) => Ok(Some(Value::Text(value.to_string()))),
             (Value::Nil, "to_string", []) => Ok(Some(Value::Text("nil".into()))),
             (Value::Symbol(name), "to_string", []) => Ok(Some(Value::Text(name.clone()))),
+            // A float answered no text at all, so `print(1.5)` and any
+            // interpolation holding a float failed on the conversion rather
+            // than on anything the program did. Rust's shortest round-trip
+            // form is what `Debug` already renders these with elsewhere, so
+            // this reads the same as the value the source wrote.
+            (Value::Float64(value), "to_string", []) => {
+                Ok(Some(Value::Text(float_text(*value))))
+            }
+            (Value::Float32(value), "to_string", []) => {
+                Ok(Some(Value::Text(float_text(f64::from(*value)))))
+            }
             // C050 makes `to_string` answer the receiver itself.
             (Value::Text(text), "to_string", []) => Ok(Some(Value::Text(text.clone()))),
             (Value::Text(text), "split", [separator]) => {
@@ -12567,6 +12578,30 @@ fn catchable_name(error: &EvaluationError) -> Option<String> {
         _ => return None,
     };
     Some(name.to_owned())
+}
+
+/// Renders a float as text for `to_string` and interpolation.
+///
+/// An integral value keeps a trailing `.0` so the text reads back as the
+/// float it came from rather than as an Integer, which is the distinction
+/// `1.0` versus `1` carries in source.
+fn float_text(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_owned();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_positive() {
+            "Infinity".to_owned()
+        } else {
+            "-Infinity".to_owned()
+        };
+    }
+    let rendered = format!("{value}");
+    if rendered.contains(['.', 'e', 'E']) {
+        rendered
+    } else {
+        format!("{rendered}.0")
+    }
 }
 
 #[cfg(test)]

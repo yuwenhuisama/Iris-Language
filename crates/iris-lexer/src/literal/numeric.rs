@@ -36,12 +36,18 @@ pub(super) fn convert_number(source: &str) -> Segment {
 }
 
 fn candidate_width(bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .take_while(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'+' | b'-')
-        })
-        .count()
+    let mut width = 0;
+    while let Some(byte) = bytes.get(width) {
+        if *byte == b'.' && bytes.get(width + 1) == Some(&b'.') {
+            break;
+        }
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'+' | b'-') {
+            width += 1;
+        } else {
+            break;
+        }
+    }
+    width
 }
 
 fn has_radix_prefix(value: &str) -> bool {

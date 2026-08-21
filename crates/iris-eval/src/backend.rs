@@ -1434,6 +1434,51 @@ mod differential_tests {
         assert_eq!(observation, &Observation::Value("5".to_owned()));
     }
 
+    /// A float answers text, so it can be printed and interpolated.
+    ///
+    /// Every other built-in value family answered `to_string`, but neither
+    /// float width did, so `print(1.5)` failed on the CONVERSION rather than
+    /// on anything the program did. An integral value keeps its trailing
+    /// `.0`, which is what keeps `1.0` distinguishable from the Integer `1`.
+    #[test]
+    fn both_backends_render_floats_as_text() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { (1.5).to_string() } } M.r()",
+                "\"1.5\"",
+            ),
+            (
+                "module M { public fun r() -> Object { (2.0).to_string() } } M.r()",
+                "\"2.0\"",
+            ),
+            (
+                "module M { public fun r() -> Object { \"v=${1.5}\" } } M.r()",
+                "\"v=1.5\"",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must render the float: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        // Control: the Integer renders WITHOUT a trailing `.0`, so the
+        // suffix above is the float's own text rather than decoration.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { (2).to_string() } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must render the Integer: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("\"2\"".to_owned()));
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
@@ -1933,5 +1978,160 @@ mod differential_tests {
         };
         assert_ne!(observation, Observation::Value("1".to_owned()));
         assert_eq!(observation, Observation::Value("2".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_integer_range_boundaries() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { mut total = 0 for x in 1..<4 { total = total + x } total } } M.r()",
+                "6",
+                "3",
+            ),
+            (
+                "module M { public fun r() -> Object { mut total = 0 for x in 1..=3 { total = total + x } total } } M.r()",
+                "6",
+                "3",
+            ),
+            (
+                "module M { public fun r() -> Object { mut total = 0 for x in 2..<2 { total = total + x } total } } M.r()",
+                "0",
+                "2",
+            ),
+            (
+                "module M { public fun r() -> Object { mut total = 0 for x in 3..=1 { total = total + x } total } } M.r()",
+                "6",
+                "0",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, negative) in cases {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run {source}: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_agree_when_a_range_is_bound_without_iteration() {
+        let source = "module M { public fun r() -> Object { let r = 1..<4; r } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends must preserve a bound range value: {agreement:?}")
+        };
+        assert_ne!(observation, Observation::Value("nil".to_owned()));
+        assert_eq!(observation, Observation::Value("<range>".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_default_parameter_values() {
+        let source = "module M { public fun f(a: Integer, b: Integer = 2) -> Object { a + b } public fun r() -> Object { M.f(3) } } M.r()";
+        let explicit = "module M { public fun f(a: Integer, b: Integer = 2) -> Object { a + b } public fun r() -> Object { M.f(3, 4) } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (program, expected, negative) in [(source, "5", "3"), (explicit, "7", "5")] {
+            let agreement = compare_backends(program, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a defaulted call: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn bytecode_declines_unimplemented_parameter_channels_precisely() {
+        let bytecode = Bytecode;
+        for (source, construct) in [
+            (
+                "module M { public fun f(*items) -> Object { items } } M.f(1)",
+                "parameter rest",
+            ),
+            (
+                "module M { public fun f(key item) -> Object { item } } M.f(item: 1)",
+                "parameter keyword",
+            ),
+            (
+                "module M { public fun f(&block) -> Object { block } } M.f() { 1 }",
+                "parameter block",
+            ),
+        ] {
+            assert_eq!(
+                bytecode.execute(source),
+                Support::Unsupported(construct.to_owned())
+            );
+            assert_ne!(
+                bytecode.execute(source),
+                Support::Ran(Observation::Value("nil".to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_tuple_values_and_indexing() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { let t = (1, 2); t } } M.r()",
+                "[1, 2]",
+                "nil",
+            ),
+            (
+                "module M { public fun r() -> Object { let t = (1, 2); t[1] } } M.r()",
+                "2",
+                "1",
+            ),
+            (
+                "module M { public fun pick(t: Object) -> Object { t[0] } public fun r() -> Object { M.pick((4, 5)) } } M.r()",
+                "4",
+                "5",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, negative) in cases {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a tuple program: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_reified_nominal_types() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { (Integer).type } } M.r()",
+                "<type>",
+                "class",
+            ),
+            (
+                "module M { public fun r() -> Object { (Integer).type.kind() } } M.r()",
+                ":nominal",
+                ":class",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, negative) in cases {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a reified Type: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
     }
 }

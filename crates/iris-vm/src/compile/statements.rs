@@ -96,7 +96,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 binding: iris_syntax::Pattern::Name(name),
                 iterable,
                 body,
-            } => self.for_array(name, iterable, body),
+            } => self.for_iterable(name, iterable, body),
             // An `if` yields a value, so both arms write the SAME destination
             // register. That is what lets the value be read afterwards without
             // knowing which arm ran.
@@ -236,7 +236,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         Ok(value)
     }
 
-    pub(super) fn for_array(
+    pub(super) fn for_iterable(
         &mut self,
         name: &str,
         iterable: &Expression,
@@ -249,12 +249,29 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let item = self.allocate()?;
         let top = self.instructions.len();
         let next = self.instructions.len();
-        self.instructions.push(Instruction::ArrayNext {
-            destination: item,
-            array,
-            index,
-            exhausted: 0,
-        });
+        let range = matches!(
+            iterable,
+            Expression::Binary {
+                operator: iris_syntax::BinaryOperator::RangeInclusive
+                    | iris_syntax::BinaryOperator::RangeExclusive,
+                ..
+            }
+        );
+        if range {
+            self.instructions.push(Instruction::RangeNext {
+                destination: item,
+                range: array,
+                index,
+                exhausted: 0,
+            });
+        } else {
+            self.instructions.push(Instruction::ArrayNext {
+                destination: item,
+                array,
+                index,
+                exhausted: 0,
+            });
+        }
         let one = self.literal("1")?;
         let advanced = self.allocate()?;
         self.instructions.push(Instruction::Binary {
@@ -280,10 +297,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
         self.names.truncate(outer);
         self.instructions.push(Instruction::Jump { target: top });
         let after = self.instructions.len();
-        if let Some(Instruction::ArrayNext { exhausted, .. }) = self.instructions.get_mut(next) {
-            *exhausted = after;
-        } else {
-            return Err(CompileError::new("branch patch"));
+        match self.instructions.get_mut(next) {
+            Some(Instruction::ArrayNext { exhausted, .. })
+            | Some(Instruction::RangeNext { exhausted, .. }) => *exhausted = after,
+            _ => return Err(CompileError::new("branch patch")),
         }
         for jump in loop_context.breaks {
             self.patch(jump, after)?;

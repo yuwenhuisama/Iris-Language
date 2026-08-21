@@ -57,6 +57,10 @@ pub enum Instruction {
         destination: Register,
         contract: usize,
     },
+    LoadBuiltinType {
+        destination: Register,
+        name: String,
+    },
     LoadGlobal {
         destination: Register,
         name: String,
@@ -95,6 +99,17 @@ pub enum Instruction {
         destination: Register,
         first: Register,
         count: u16,
+    },
+    BuildTuple {
+        destination: Register,
+        first: Register,
+        count: u16,
+    },
+    BuildRange {
+        destination: Register,
+        start: Register,
+        end: Register,
+        inclusive_end: bool,
     },
     BuildHash {
         destination: Register,
@@ -144,6 +159,12 @@ pub enum Instruction {
     ArrayNext {
         destination: Register,
         array: Register,
+        index: Register,
+        exhausted: usize,
+    },
+    RangeNext {
+        destination: Register,
+        range: Register,
         index: Register,
         exhausted: usize,
     },
@@ -256,12 +277,15 @@ impl Instruction {
             | Self::LoadNil { destination }
             | Self::LoadClass { destination, .. }
             | Self::LoadContract { destination, .. }
+            | Self::LoadBuiltinType { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
             | Self::Binary { destination, .. }
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }
+            | Self::BuildTuple { destination, .. }
+            | Self::BuildRange { destination, .. }
             | Self::BuildHash { destination, .. }
             | Self::Index { destination, .. }
             | Self::SetIndex { destination, .. }
@@ -289,7 +313,9 @@ impl Instruction {
             | Self::Raise { .. }
             | Self::Return { .. } => None,
             Self::DeclareDeferred { .. } => None,
-            Self::ArrayNext { destination, .. } => Some(*destination),
+            Self::ArrayNext { destination, .. } | Self::RangeNext { destination, .. } => {
+                Some(*destination)
+            }
         }
     }
 }

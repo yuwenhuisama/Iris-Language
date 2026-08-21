@@ -115,6 +115,55 @@ impl Machine {
                     let elements = registers[start..start + *count as usize].to_vec();
                     Value::Array(iris_runtime::ArrayRef::new(elements))
                 }
+                Instruction::LoadBuiltinType { name, .. } => {
+                    let kind = match name.as_str() {
+                        "Object" => iris_runtime::BuiltinClass::Object,
+                        "Nil" => iris_runtime::BuiltinClass::Nil,
+                        "Bool" => iris_runtime::BuiltinClass::Bool,
+                        "Integer" => iris_runtime::BuiltinClass::Integer,
+                        "Float32" => iris_runtime::BuiltinClass::Float32,
+                        "Float64" => iris_runtime::BuiltinClass::Float64,
+                        "String" => iris_runtime::BuiltinClass::String,
+                        _ => return Err(MachineError::NameError),
+                    };
+                    Value::Type(
+                        self.kernel.class(kind).map_err(MachineError::Kernel)?,
+                        Vec::new(),
+                    )
+                }
+                Instruction::BuildTuple { first, count, .. } => {
+                    let start = *first as usize;
+                    Value::Tuple(registers[start..start + *count as usize].to_vec())
+                }
+                Instruction::BuildRange {
+                    start,
+                    end,
+                    inclusive_end,
+                    ..
+                } => {
+                    let Value::Integer(start) = &registers[*start as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Integer(end) = &registers[*end as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Bool(descending) = self.send(
+                        "<",
+                        Value::Integer(end.clone()),
+                        &[Value::Integer(start.clone())],
+                    )?
+                    else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    Value::Range(Box::new(iris_runtime::RangeValue {
+                        start: start.clone(),
+                        end: end.clone(),
+                        inclusive_end: *inclusive_end,
+                        step: if descending { "-1" } else { "1" }
+                            .parse()
+                            .map_err(|_| MachineError::Kernel(KernelError::Type))?,
+                    }))
+                }
                 Instruction::BuildHash { first, count, .. } => {
                     let start = *first as usize;
                     let mut entries = Vec::with_capacity(*count as usize);
@@ -295,6 +344,49 @@ impl Machine {
                         continue;
                     };
                     value
+                }
+                Instruction::RangeNext {
+                    range,
+                    index,
+                    exhausted,
+                    ..
+                } => {
+                    let Value::Range(range) = &registers[*range as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Integer(index) = &registers[*index as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let offset = self.send(
+                        "*",
+                        Value::Integer(index.clone()),
+                        &[Value::Integer(range.step.clone())],
+                    )?;
+                    let Value::Integer(value) =
+                        self.send("+", Value::Integer(range.start.clone()), &[offset])?
+                    else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let descending = range.step.decimal_text().starts_with('-');
+                    let selector = match (descending, range.inclusive_end) {
+                        (false, false) => "<",
+                        (false, true) => "<=",
+                        (true, false) => ">",
+                        (true, true) => ">=",
+                    };
+                    let Value::Bool(within) = self.send(
+                        selector,
+                        Value::Integer(value.clone()),
+                        &[Value::Integer(range.end.clone())],
+                    )?
+                    else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    if !within {
+                        counter = *exhausted;
+                        continue;
+                    }
+                    Value::Integer(value)
                 }
                 Instruction::EnterTry {
                     handler, exception, ..

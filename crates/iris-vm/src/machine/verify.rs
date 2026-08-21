@@ -166,6 +166,7 @@ fn verify_body(
                 range(*first, *count, registers)?;
             }
             Instruction::BuildArray { first, count, .. }
+            | Instruction::BuildTuple { first, count, .. }
             | Instruction::New { first, count, .. }
             | Instruction::Send { first, count, .. }
             | Instruction::SendClass { first, count, .. }
@@ -355,11 +356,13 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
             vec![*left, *right]
         }
+        Instruction::BuildRange { start, end, .. } => vec![*start, *end],
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
         Instruction::JumpUnless { condition, .. } => vec![*condition],
         Instruction::Return { value } | Instruction::Raise { value } => vec![*value],
         Instruction::BuildArray { first, count, .. }
+        | Instruction::BuildTuple { first, count, .. }
         | Instruction::Call { first, count, .. }
         | Instruction::MakeClosure { first, count, .. }
         | Instruction::New { first, count, .. } => {
@@ -392,6 +395,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             receiver, index, ..
         } => vec![*receiver, *index],
         Instruction::ArrayNext { array, index, .. } => vec![*array, *index],
+        Instruction::RangeNext { range, index, .. } => vec![*range, *index],
         Instruction::SetIndex {
             receiver,
             index,
@@ -417,6 +421,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadNil { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadContract { .. }
+        | Instruction::LoadBuiltinType { .. }
         | Instruction::LoadGlobal { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry

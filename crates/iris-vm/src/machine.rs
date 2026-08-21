@@ -75,6 +75,8 @@ impl Machine {
 pub(super) fn value_class_name(value: &Value) -> &'static str {
     match value {
         Value::Array(_) => "Array",
+        Value::Tuple(_) => "Tuple",
+        Value::Range(_) => "Range",
         Value::Hash(_) => "Hash",
         Value::Text(_) => "String",
         Value::Integer(_) => "Integer",
@@ -84,6 +86,7 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         Value::Nil => "Nil",
         Value::Symbol(_) => "Symbol",
         Value::Class(_) => "Class",
+        Value::Type(..) => "Type",
         Value::Object(_) => "Object",
         Value::Closure(_) => "Closure",
         Value::BoundMethod(_) => "BoundMethod",

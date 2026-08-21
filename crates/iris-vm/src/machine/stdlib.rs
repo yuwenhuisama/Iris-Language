@@ -100,6 +100,12 @@ impl Machine {
             Value::Symbol(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.clone()))
             }
+            Value::Float64(value) if selector == "to_string" && arguments.is_empty() => {
+                Some(Value::Text(float_text(*value)))
+            }
+            Value::Float32(value) if selector == "to_string" && arguments.is_empty() => {
+                Some(Value::Text(float_text(f64::from(*value))))
+            }
             Value::Class(class) if selector == "contracts" && arguments.is_empty() => {
                 let declared = classes
                     .iter()
@@ -189,6 +195,31 @@ pub(super) fn render_text(value: &Value) -> Option<String> {
         Value::Bool(value) => Some(value.to_string()),
         Value::Nil => Some("nil".to_owned()),
         Value::Symbol(value) => Some(value.clone()),
+        // Both widths answer text so a float can be printed and interpolated.
+        // The reference renders an integral value with a trailing `.0`, which
+        // keeps `1.0` distinguishable from the Integer `1` in the text.
+        Value::Float64(value) => Some(float_text(*value)),
+        Value::Float32(value) => Some(float_text(f64::from(*value))),
         _ => None,
+    }
+}
+
+/// Renders a float exactly as the reference `to_string` does.
+fn float_text(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_owned();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_positive() {
+            "Infinity".to_owned()
+        } else {
+            "-Infinity".to_owned()
+        };
+    }
+    let rendered = format!("{value}");
+    if rendered.contains(['.', 'e', 'E']) {
+        rendered
+    } else {
+        format!("{rendered}.0")
     }
 }
