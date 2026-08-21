@@ -34,8 +34,8 @@ what gives the properties the review asks for:
 
 - lowering to Cranelift IR is direct;
 - there is no stack effect to track;
-- the verifier is a single linear pass, because no operand-stack depth has to
-  be simulated per control path;
+- the verifier is a CFG dataflow fixpoint over definite assignment, with no
+  operand-stack depth to simulate per control path;
 - a disassembly reads as data flow;
 - an operand stack cannot underflow, because there is none;
 - it suits later SSA lowering.
@@ -185,8 +185,10 @@ representation type split.
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
 
-Both dispatch through `iris_runtime::Kernel` — **the same kernel the
-tree-walking evaluator uses**. This is a hard rule, not a convenience: a second
+Numeric sends dispatch through `iris_runtime::Kernel` — **the same kernel the
+tree-walking evaluator uses**. String `+` is handled by the authored String
+surface because its right operand is dynamically converted through `to_string`,
+which the numeric kernel does not own. This split is a hard rule: a second
 bigint, IEEE-754 or hash implementation is exactly the silent divergence the
 differential rows exist to detect, and two copies of one bug would agree with
 each other. The IR carries the selector name and the runtime owns its meaning.
@@ -203,7 +205,16 @@ Covered binary selectors:
 +  -  *  /  **  <<  >>  &  ^  |  ==  !=  <  <=  >  >=  <=>
 ```
 
-Covered unary selectors: `negate`, `to_bits`, `hash`.
+Covered unary selectors: `negate`, `~`, `to_bits`, `hash`. Unary `+` is an
+identity and emits no send. Logical `&&` and `||` lower to branches so the right
+operand remains lazy and the expression returns an operand value, not a Bool.
+
+An interpolated String is lowered as an ordered chain of String `+` operations.
+Each `${expr}` is parsed as one expression, evaluated once from left to right,
+and converted dynamically by the String operation. The final String is only
+published after every segment succeeds; a non-String `to_string` result raises
+`TypeContractError`, and later segments do not run after any failure. A bare `$`
+has no special lowering.
 
 `Send` also carries authored ordinary selectors which are not native kernel
 operations. The machine routes Array, Hash, String, Integer, Bool, nil, and

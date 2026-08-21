@@ -116,6 +116,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::IndexError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IndexError),
                 )),
+                Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::TypeContractError),
+                )),
                 Err(iris_vm::MachineError::MessageNotFound {
                     receiver_class,
                     selector,
@@ -582,6 +585,185 @@ mod differential_tests {
                 unreachable!("both backends cover the negative control for {expression}")
             };
             assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_interpolate_strings_in_source_order() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            ("let n = 5; \"n=${n}\"", "\"n=5\"", "let n = 6; \"n=${n}\""),
+            ("\"v=${1 + 2}\"", "\"v=3\"", "\"v=${1 + 3}\""),
+            (
+                "C.new(); \"${C.new()}${C.new()}\"",
+                "\"12\"",
+                "C.new(); \"${C.new()}\"",
+            ),
+            ("\"cost $5\"", "\"cost $5\"", "\"cost $6\""),
+        ] {
+            let declaration = if expression.starts_with("C.new") {
+                "class C { shared mut @@n: Integer = 0 public fun to_string() -> String { @@n = @@n + 1; @@n.to_string() } } "
+            } else {
+                ""
+            };
+            let source = format!(
+                "{declaration}module M {{ public fun r() -> Object {{ {expression} }} }} M.r()"
+            );
+            let negative = format!(
+                "{declaration}module M {{ public fun r() -> Object {{ {control} }} }} M.r()"
+            );
+            let agreement = compare_backends(&source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends cover interpolation in {expression}: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{expression}"
+            );
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_reject_non_string_interpolation_conversion_results() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class C { public fun to_string() -> Object { 7 } } module M { public fun r() -> Object { \"bad=${C.new()}\" } } M.r()";
+        let control = "class C { public fun to_string() -> Object { \"7\" } } module M { public fun r() -> Object { \"ok=${C.new()}\" } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!(
+                "both backends enforce the interpolation conversion contract: {agreement:?}"
+            )
+        };
+        assert_eq!(
+            observation,
+            Observation::Error(format!("{:?}", EvaluationError::TypeContractError))
+        );
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &backends)
+        else {
+            unreachable!("both backends accept the String-returning negative control")
+        };
+        assert_eq!(
+            control_observation,
+            Observation::Value("\"ok=7\"".to_owned())
+        );
+        assert_ne!(control_observation, observation);
+    }
+
+    #[test]
+    fn backends_concatenate_strings_through_dynamic_conversion() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            ("\"a\" + \"b\"", "\"ab\"", "\"a\" + \"c\""),
+            ("\"n=\" + 5", "\"n=5\"", "\"n=\" + 6"),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover String + in {expression}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{expression}"
+            );
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_the_covered_operator_surface() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, control) in [
+            ("2 + 3", "2 + 4"),
+            ("2.0 + 3.0", "2.0 + 4.0"),
+            ("\"a\" + \"b\"", "\"a\" + \"c\""),
+            ("6 & 3", "6 | 3"),
+            ("2 < 3", "3 < 2"),
+            ("true == false", "true == true"),
+            ("nil == nil", "nil != nil"),
+            ("-5", "-6"),
+            ("+5", "+6"),
+            ("~5", "~6"),
+            ("false && 1", "true && 1"),
+            ("true || 1", "false || 1"),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let agreement = compare_backends(&source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends cover {expression}: {agreement:?}")
+            };
+            let control_agreement = compare_backends(&negative, &backends);
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = control_agreement
+            else {
+                unreachable!(
+                    "both backends cover the control for {expression}: {control_agreement:?}"
+                )
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_literal_match_expressions() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            (
+                "match 2 { 1 => :one, 2 => :two, _ => :other }",
+                ":two",
+                "match 3 { 1 => :one, 2 => :two, _ => :other }",
+            ),
+            (
+                "match \"b\" { \"a\" => 1, \"b\" => { 2 }, else => 3 }",
+                "2",
+                "match \"c\" { \"a\" => 1, \"b\" => { 2 }, else => 3 }",
+            ),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover literal match {expression}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the match negative control")
+            };
+            assert_ne!(control_observation, observation);
         }
     }
 

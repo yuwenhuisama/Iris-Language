@@ -4,10 +4,74 @@ mod support;
 
 use iris_runtime::{ClassId, Value};
 
-use super::{Machine, MachineError, value_class_name};
+use super::{Machine, MachineError, VerifyError, selector_id, value_class_name};
 use crate::compile::Program;
 
 impl Machine {
+    pub(super) fn binary_send(
+        &mut self,
+        selector: &str,
+        receiver: Value,
+        argument: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Value::Text(text) = receiver else {
+            return self.send(selector, receiver, &[argument]);
+        };
+        if selector != "+" {
+            return self.send(selector, Value::Text(text), &[argument]);
+        }
+        let addition = self.text_operand(argument, program, classes)?;
+        Ok(Value::Text(format!("{text}{addition}")))
+    }
+
+    fn text_operand(
+        &mut self,
+        value: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<String, MachineError> {
+        if let Some(text) = render_text(&value) {
+            return Ok(text);
+        }
+        let Value::Object(object) = value else {
+            return Err(MachineError::MessageNotFound {
+                receiver_class: value_class_name(&value).to_owned(),
+                selector: "to_string".to_owned(),
+            });
+        };
+        let selector = selector_id(program, "to_string")
+            .ok_or_else(|| MachineError::UnknownSelector("to_string".to_owned()))?;
+        let method = self
+            .runtime
+            .dispatch_instance(object, selector)
+            .map_err(MachineError::Construction)?;
+        let function = usize::try_from(method.body().raw()).map_err(|_| {
+            MachineError::Invalid(VerifyError::UnknownFunction {
+                function: usize::MAX,
+            })
+        })?;
+        let callee = program
+            .functions
+            .get(function)
+            .cloned()
+            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                function,
+            }))?;
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            vec![Value::Object(object)],
+            program,
+            classes,
+        )?;
+        match returned.into_iter().next().unwrap_or(Value::Nil) {
+            Value::Text(text) => Ok(text),
+            _ => Err(MachineError::TypeContractError),
+        }
+    }
+
     pub(super) fn authored_send(
         &mut self,
         receiver: &Value,

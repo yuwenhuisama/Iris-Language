@@ -6,7 +6,9 @@
 //! underflow an operand stack, and suits later SSA lowering.
 
 use iris_runtime::NativeSelector;
-use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOperator};
+use iris_syntax::{
+    BinaryOperator, Expression, MatchBody, Pattern, Statement, TypeExpression, UnaryOperator,
+};
 
 mod declarations;
 mod expressions;
@@ -791,6 +793,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 catches,
                 finally,
             } => self.try_body(body, catches, finally),
+            Statement::Match {
+                subject,
+                arms,
+                fallback,
+            } => self.match_statement(subject, arms, fallback.as_ref()),
             other => Err(CompileError::new(format!(
                 "statement {}",
                 match other {
@@ -1004,6 +1011,82 @@ impl<'a, 'b> Lowering<'a, 'b> {
         Ok(destination)
     }
 
+    fn match_statement(
+        &mut self,
+        subject: &Expression,
+        arms: &[iris_syntax::MatchArm],
+        fallback: Option<&MatchBody>,
+    ) -> Result<Register, CompileError> {
+        let subject = self.expression(subject)?;
+        let destination = self.allocate()?;
+        let mut exits = Vec::new();
+        let mut previous_miss = None;
+        for arm in arms {
+            if arm.guard.is_some() {
+                return Err(CompileError::new("match guard"));
+            }
+            if let Some(miss) = previous_miss.take() {
+                self.patch(miss, self.instructions.len())?;
+            }
+            let is_fallback = matches!(&arm.pattern, Pattern::Name(name) if name == "_");
+            if !is_fallback {
+                let Pattern::Literal(literal) = &arm.pattern else {
+                    return Err(CompileError::new("match pattern"));
+                };
+                let expected = self.literal(literal)?;
+                let matches = self.allocate()?;
+                self.instructions.push(Instruction::Binary {
+                    destination: matches,
+                    selector: "==",
+                    left: subject,
+                    right: expected,
+                });
+                let miss = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition: matches,
+                    target: 0,
+                });
+                previous_miss = Some(miss);
+            }
+            let value = self.match_body(&arm.body)?;
+            self.instructions.push(Instruction::Move {
+                destination,
+                source: value,
+            });
+            let exit = self.instructions.len();
+            self.instructions.push(Instruction::Jump { target: 0 });
+            exits.push(exit);
+            if is_fallback {
+                previous_miss = None;
+                break;
+            }
+        }
+        if let Some(miss) = previous_miss {
+            self.patch(miss, self.instructions.len())?;
+        }
+        if let Some(fallback) = fallback {
+            let value = self.match_body(fallback)?;
+            self.instructions.push(Instruction::Move {
+                destination,
+                source: value,
+            });
+        } else if exits.is_empty() {
+            return Err(CompileError::new("match fallback"));
+        }
+        let after = self.instructions.len();
+        for exit in exits {
+            self.patch(exit, after)?;
+        }
+        Ok(destination)
+    }
+
+    fn match_body(&mut self, body: &MatchBody) -> Result<Register, CompileError> {
+        match body {
+            MatchBody::Expression(expression) => self.expression(expression),
+            MatchBody::Block(statements) => self.body(statements),
+        }
+    }
+
     /// Fills in a forward jump once its target is known.
     fn patch(&mut self, at: usize, target: usize) -> Result<(), CompileError> {
         match self.instructions.get_mut(at) {
@@ -1103,6 +1186,44 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 operator,
                 right,
             } => {
+                if matches!(
+                    operator,
+                    BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr
+                ) {
+                    let destination = self.allocate()?;
+                    let left = self.expression(left)?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source: left,
+                    });
+                    let branch = self.instructions.len();
+                    self.instructions.push(Instruction::JumpUnless {
+                        condition: left,
+                        target: 0,
+                    });
+                    if *operator == BinaryOperator::LogicalOr {
+                        let skip = self.instructions.len();
+                        self.instructions.push(Instruction::Jump { target: 0 });
+                        let otherwise = self.instructions.len();
+                        let right = self.expression(right)?;
+                        self.instructions.push(Instruction::Move {
+                            destination,
+                            source: right,
+                        });
+                        let after = self.instructions.len();
+                        self.patch(branch, otherwise)?;
+                        self.patch(skip, after)?;
+                    } else {
+                        let right = self.expression(right)?;
+                        self.instructions.push(Instruction::Move {
+                            destination,
+                            source: right,
+                        });
+                        let after = self.instructions.len();
+                        self.patch(branch, after)?;
+                    }
+                    return Ok(destination);
+                }
                 if *operator == BinaryOperator::As
                     && let Expression::Name(name) = right.as_ref()
                     && let Some(contract) = self.contract_index(name)
@@ -1140,17 +1261,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Unary { operator, operand } => {
-                let UnaryOperator::Negate = operator else {
-                    return Err(CompileError::new(format!("unary {operator:?}")));
-                };
-                // The runtime spells this `negate`; `-@` is not a native
-                // selector and emitting it produced a machine defect rather
-                // than the RangeError the reference answers.
                 let operand = self.expression(operand)?;
+                if *operator == UnaryOperator::Plus {
+                    return Ok(operand);
+                }
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::Unary {
                     destination,
-                    selector: "negate",
+                    selector: match operator {
+                        UnaryOperator::Negate => "negate",
+                        UnaryOperator::BitwiseNot => "~",
+                        UnaryOperator::Not => {
+                            return Err(CompileError::new("unary Not"));
+                        }
+                        UnaryOperator::Plus => return Ok(operand),
+                    },
                     operand,
                 });
                 Ok(destination)
@@ -1436,10 +1561,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 destination,
                 bits: number.to_bits(),
             },
-            iris_lexer::Literal::String(text) => Instruction::LoadText {
-                destination,
-                text: text.clone(),
-            },
+            iris_lexer::Literal::String(text) => {
+                if text.contains("${") {
+                    return self.interpolated_text(text);
+                }
+                Instruction::LoadText {
+                    destination,
+                    text: text.clone(),
+                }
+            }
         });
         Ok(destination)
     }

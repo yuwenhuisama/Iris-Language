@@ -41,6 +41,7 @@ pub enum MachineError {
     /// A READ past the end answers nil, but a WRITE has no position to store
     /// into, so it raises rather than silently discarding the value.
     IndexError,
+    TypeContractError,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -588,7 +589,10 @@ impl Machine {
                 } => {
                     let left = registers[*left as usize].clone();
                     let right = registers[*right as usize].clone();
-                    self.send(selector, left, &[right])?
+                    run_frame!(
+                        'frame,
+                        self.binary_send(selector, left, right, program, classes)
+                    )
                 }
                 Instruction::Unary {
                     selector, operand, ..
