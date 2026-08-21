@@ -24,6 +24,12 @@ pub enum MachineError {
     Construction(ConstructionError),
     NameError,
     DefiniteAssignment,
+    /// An Array changed while an iterator over it was active.
+    ///
+    /// C026 versions every length-changing or element-replacing operation so
+    /// the iterator raises on its NEXT advance rather than quietly walking a
+    /// collection that is no longer the one it started on.
+    ConcurrentModification,
     /// A write to a position outside the Array.
     ///
     /// A READ past the end answers nil, but a WRITE has no position to store
@@ -395,7 +401,13 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Index {
             receiver, index, ..
         } => vec![*receiver, *index],
-        Instruction::ArrayNext { array, index, .. } => vec![*array, *index],
+        Instruction::ArrayVersion { array, .. } => vec![*array],
+        Instruction::ArrayNext {
+            array,
+            index,
+            version,
+            ..
+        } => vec![*array, *index, *version],
         Instruction::RangeNext { range, index, .. } => vec![*range, *index],
         Instruction::SetIndex {
             receiver,

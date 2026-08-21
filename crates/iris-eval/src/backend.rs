@@ -116,6 +116,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::IndexError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IndexError),
                 )),
+                Err(iris_vm::MachineError::ConcurrentModification) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::ConcurrentModification)),
+                ),
                 Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::TypeContractError),
                 )),
@@ -1200,6 +1203,32 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_initialized_annotated_bindings() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (body, expected, wrong) in [
+            ("let x: Integer = 4; x + 1", "5", "4"),
+            ("mut x: Integer = 4; x = x + 2; x", "6", "4"),
+        ] {
+            let source = format!("module M {{ public fun r() -> Object {{ {body} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover initialized annotated bindings: {source}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn backends_agree_on_declared_class_values_inside_functions() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
@@ -1477,6 +1506,49 @@ mod differential_tests {
             unreachable!("both backends must render the Integer: {agreement:?}")
         };
         assert_eq!(observation, &Observation::Value("\"2\"".to_owned()));
+    }
+
+    /// Mutating an Array while iterating it RAISES rather than drifting.
+    ///
+    /// C026 versions every length-changing or element-replacing operation so
+    /// an active iterator detects the change on its next advance. The backend
+    /// advanced by index without comparing that version, so a loop that grew
+    /// its own Array simply ran longer and answered a plausible number no
+    /// test disputed - the silent-wrong-answer class, not a crash.
+    ///
+    /// The version must be captured OUTSIDE the loop. Capturing it at the top
+    /// re-reads it every iteration and always finds it current, which passes
+    /// this test's shape while checking nothing.
+    #[test]
+    fn mutating_an_array_while_iterating_it_raises_in_both_backends() {
+        for source in [
+            "module M { public fun r() -> Object { let a = [1,2]; mut n = 0; \
+             for x in a { n = n + 1; if n < 5 { a.push(9) } }; n } } M.r()",
+            "module M { public fun r() -> Object { let a = [1,2,3]; mut n = 0; \
+             for x in a { n = n + 1; a.pop() }; n } } M.r()",
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must raise: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Error("ConcurrentModification".to_owned()),
+                "{source}"
+            );
+        }
+
+        // Control: an unmutated loop still runs to completion, so the raise
+        // above is about the mutation rather than about iterating at all.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { let a = [1,2,3]; mut n = 0; \
+             for x in a { n = n + x }; n } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("an unmutated loop must run: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("6".to_owned()));
     }
 
     #[test]

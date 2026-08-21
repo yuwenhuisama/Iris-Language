@@ -329,15 +329,31 @@ impl Machine {
                     counter = *target;
                     continue;
                 }
-                Instruction::ArrayNext {
-                    array,
-                    index,
-                    exhausted,
-                    ..
-                } => {
+                Instruction::ArrayVersion { array, .. } => {
                     let Value::Array(array) = &registers[*array as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
+                    Value::Integer(iris_runtime::IntegerValue::from(array.version()))
+                }
+                Instruction::ArrayNext {
+                    array,
+                    index,
+                    version,
+                    exhausted,
+                    ..
+                } => {
+                    let Value::Integer(expected) = &registers[*version as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Array(array) = &registers[*array as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    // C026 raises on the iterator's NEXT advance once the
+                    // Array changed, so this is checked before the element is
+                    // read rather than after the loop finishes.
+                    if expected.to_u64() != Some(array.version()) {
+                        return Err(MachineError::ConcurrentModification);
+                    }
                     let Value::Integer(index) = &registers[*index as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };

@@ -165,10 +165,23 @@ pub enum Instruction {
     Jump {
         target: usize,
     },
+    /// Reads an Array's C026 content version into a register.
+    ArrayVersion {
+        destination: Register,
+        array: Register,
+    },
     ArrayNext {
         destination: Register,
         array: Register,
         index: Register,
+        /// The Array's content version captured when the loop began.
+        ///
+        /// C026 increments that version on every length-changing or
+        /// element-replacing operation so an ACTIVE iterator can detect the
+        /// change. Advancing without comparing it let a loop that mutated its
+        /// own Array run to a different length and answer a plausible wrong
+        /// number instead of raising.
+        version: Register,
         exhausted: usize,
     },
     RangeNext {
@@ -324,6 +337,7 @@ impl Instruction {
             | Self::Raise { .. }
             | Self::Return { .. } => None,
             Self::DeclareDeferred { .. } => None,
+            Self::ArrayVersion { destination, .. } => Some(*destination),
             Self::ArrayNext { destination, .. } | Self::RangeNext { destination, .. } => {
                 Some(*destination)
             }

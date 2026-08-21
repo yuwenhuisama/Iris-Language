@@ -15,11 +15,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Statement::Binding {
                 mutable,
                 name,
-                annotation: None,
+                annotation,
                 value,
                 ..
             } => {
                 let _ = mutable;
+                // Static analysis has already validated the annotation. The VM
+                // stores the same runtime value either way, so declining here
+                // discarded type metadata without adding a runtime guarantee.
+                let _ = annotation;
                 let value = self.expression(value)?;
                 // A rebinding SHADOWS rather than overwrites: the earlier
                 // register may still be read by a closure or an earlier
@@ -247,8 +251,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let array = self.expression(iterable)?;
         let index = self.literal("0")?;
         let item = self.allocate()?;
-        let top = self.instructions.len();
-        let next = self.instructions.len();
+        let version = self.allocate()?;
         let range = matches!(
             iterable,
             Expression::Binary {
@@ -257,6 +260,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 ..
             }
         );
+        if !range {
+            // Captured OUTSIDE the loop, above the back edge's target: taking
+            // it inside would re-read the version every iteration and always
+            // find it current, which is the same as not checking at all. A
+            // Range has no contents to mutate, so only the Array path carries
+            // one.
+            self.instructions.push(Instruction::ArrayVersion {
+                destination: version,
+                array,
+            });
+        }
+        let top = self.instructions.len();
+        let next = self.instructions.len();
         if range {
             self.instructions.push(Instruction::RangeNext {
                 destination: item,
@@ -269,6 +285,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 destination: item,
                 array,
                 index,
+                version,
                 exhausted: 0,
             });
         }
