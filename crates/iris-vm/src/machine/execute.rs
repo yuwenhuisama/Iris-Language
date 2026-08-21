@@ -329,12 +329,26 @@ impl Machine {
                     counter = *target;
                     continue;
                 }
-                Instruction::ArrayVersion { array, .. } => {
-                    let Value::Array(array) = &registers[*array as usize] else {
-                        return Err(MachineError::Kernel(KernelError::Type));
-                    };
-                    Value::Integer(iris_runtime::IntegerValue::from(array.version()))
-                }
+                Instruction::ArrayVersion { array, .. } => match &registers[*array as usize] {
+                    Value::Array(array) => {
+                        Value::Integer(iris_runtime::IntegerValue::from(array.version()))
+                    }
+                    // C034 versions a Hash's structure the way C026 versions an
+                    // Array's contents, so a Hash loop detects a change the
+                    // same way rather than being left unguarded.
+                    Value::Hash(entries) => {
+                        Value::Integer(iris_runtime::IntegerValue::from(entries.version()))
+                    }
+                    // The reference asks the receiver for an `iterator`, so a
+                    // value that has none reports the MISSING SELECTOR rather
+                    // than a type error: `for x in 5` names what 5 lacks.
+                    other => {
+                        return Err(MachineError::MessageNotFound {
+                            receiver_class: super::value_class_name(other).to_owned(),
+                            selector: "iterator".to_owned(),
+                        });
+                    }
+                },
                 Instruction::ArrayNext {
                     array,
                     index,
@@ -345,23 +359,42 @@ impl Machine {
                     let Value::Integer(expected) = &registers[*version as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
-                    let Value::Array(array) = &registers[*array as usize] else {
-                        return Err(MachineError::Kernel(KernelError::Type));
-                    };
-                    // C026 raises on the iterator's NEXT advance once the
-                    // Array changed, so this is checked before the element is
-                    // read rather than after the loop finishes.
-                    if expected.to_u64() != Some(array.version()) {
-                        return Err(MachineError::ConcurrentModification);
-                    }
                     let Value::Integer(index) = &registers[*index as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
                     let Some(index) = index.to_usize() else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
-                    let elements = array.elements();
-                    let Some(value) = elements.get(index).cloned() else {
+                    // The version is compared BEFORE the element is read, so a
+                    // collection changed mid-loop raises on the next advance
+                    // rather than after the loop has already answered.
+                    let element = match &registers[*array as usize] {
+                        Value::Array(array) => {
+                            if expected.to_u64() != Some(array.version()) {
+                                return Err(MachineError::ConcurrentModification);
+                            }
+                            array.elements().get(index).cloned()
+                        }
+                        // C021 makes a Hash element a `(key, value)` Tuple,
+                        // which is what the reference answers, so a Hash loop
+                        // binds one pair rather than a bare key.
+                        Value::Hash(entries) => {
+                            if expected.to_u64() != Some(entries.version()) {
+                                return Err(MachineError::ConcurrentModification);
+                            }
+                            entries
+                                .entries()
+                                .get(index)
+                                .map(|(key, value)| Value::Tuple(vec![key.clone(), value.clone()]))
+                        }
+                        other => {
+                            return Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(other).to_owned(),
+                                selector: "iterator".to_owned(),
+                            });
+                        }
+                    };
+                    let Some(value) = element else {
                         counter = *exhausted;
                         continue;
                     };

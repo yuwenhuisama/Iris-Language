@@ -1551,6 +1551,81 @@ mod differential_tests {
         assert_eq!(observation, &Observation::Value("6".to_owned()));
     }
 
+    /// A `for` over a Hash binds `(key, value)` pairs, and a value with no
+    /// iterator names the selector it lacks.
+    ///
+    /// The backend accepted `for k in someHash` and then failed in the
+    /// machine with a bare type error: it verified, so the compiler had
+    /// promised something the machine could not do. C021 makes a Hash element
+    /// an immutable Tuple, and the reference asks the receiver for an
+    /// `iterator`, so a String or Integer reports the MISSING SELECTOR rather
+    /// than a type error - `for x in 5` should say what 5 lacks.
+    #[test]
+    fn backends_agree_on_what_a_for_loop_can_traverse() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { mut out = []; \
+                 for k in %{ :a: 1, :b: 2 } { out.push(k) }; out } } M.r()",
+                Observation::Value("[[:a, 1], [:b, 2]]".to_owned()),
+            ),
+            (
+                "module M { public fun r() -> Object { mut n = 0; for k in %{} { n = n + 1 }; n } } M.r()",
+                Observation::Value("0".to_owned()),
+            ),
+            // A Hash changed mid-loop raises on the next advance, exactly as
+            // an Array does, rather than walking a structure that moved.
+            (
+                "module M { public fun r() -> Object { let h = %{ :a: 1 }; mut n = 0; \
+                 for k in h { n = n + 1; h[:z] = 9 }; n } } M.r()",
+                Observation::Error("ConcurrentModification".to_owned()),
+            ),
+            (
+                "module M { public fun r() -> Object { for c in \"ab\" { c } } } M.r()",
+                Observation::Error(
+                    "MessageNotFound { receiver_class: \"String\", selector: \"iterator\" }"
+                        .to_owned(),
+                ),
+            ),
+            (
+                "module M { public fun r() -> Object { for c in 5 { c } } } M.r()",
+                Observation::Error(
+                    "MessageNotFound { receiver_class: \"Integer\", selector: \"iterator\" }"
+                        .to_owned(),
+                ),
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {agreement:?}")
+            };
+            assert_eq!(observation, &expected, "{source}");
+        }
+
+        // Controls: the traversals that already worked still do, so the
+        // change above is about WHAT can be traversed rather than about
+        // rebuilding the loop.
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { mut n = 0; for x in [1,2,3] { n = n + x }; n } } M.r()",
+                "6",
+            ),
+            (
+                "module M { public fun r() -> Object { mut n = 0; for x in 1..<3 { n = n + x }; n } } M.r()",
+                "3",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
