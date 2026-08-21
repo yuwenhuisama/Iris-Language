@@ -449,12 +449,25 @@ instance requirements, immutable `for` conformance lists, unqualified `impl`
 methods, checked `as Contract` views, qualified `view..member()` dispatch, and
 `Class.contracts()` metadata.
 
-Measured against the 783 source-carrying conformance vectors, this compiles 188
-of them. The number is reported rather than estimated because the first estimate
-of what blocked the backend was WRONG: the assumed blockers were loops and
-calls, while the measurement showed a single dominant one, `class`, at 325
-programs. What remains is now dispersed across many constructs rather than
-concentrated behind one wall.
+Also covered: `for` over an Array with `break` and `continue`; declared Class
+and Module names as VALUES, so one can be returned, passed and then sent `new`
+or a class method; global bindings and `$name` reads; index assignment on
+Arrays and Hashes, which mutates the shared handle so aliases observe it and
+raises `IndexError` for a position outside the Array; bare member reads
+answering a callable `BoundMethod`; string interpolation; and literal `match`.
+
+Measured against the 783 source-carrying conformance vectors, this compiles 216
+of them, up from 51 when the measurement started. The number is reported rather
+than estimated because the first estimate of what blocked the backend was
+WRONG: the assumed blockers were loops and calls, while the measurement showed
+a single dominant one, `class`, at 325 programs. Each subsequent round was
+aimed the same way - splitting the decline reasons showed `try` at 38 against
+`for` at 8, and later that the largest remaining bucket was Contracts rather
+than anything the coarse `name` bucket suggested.
+
+What the number does NOT measure is how much a compiled program can do. Adding
+the authored stdlib moved it by zero while making ordinary Iris - `[1, 2,
+3].map({ |x|; x * 2 }).join("-")` - run for the first time.
 
 Declined, each by name: `declaration import`,
 `declaration export`, and `declaration type alias`,
@@ -505,6 +518,11 @@ Named so the gaps are not mistaken for decisions:
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set
   shape for when that changes; nothing in this backend is walked yet.
+- **Runtime subsystems.** `Reflection`, `Host`, `FFI`, `JSON` and the Iteration
+  protocol are the largest single decline bucket, and they are SUBSYSTEMS
+  rather than lowering gaps. Stubbing them would answer a differential row
+  with a fabricated value, which is the one outcome worse than a held row.
+- **Async.** `Task` semantics need suspension the machine does not model.
 
 **Bare-name Hash keys.** `%{ a: 1 }` is parsed as a Hash whose key is a NAME
 expression, and the reference evaluates it as an ordinary variable: with `a = 9`
