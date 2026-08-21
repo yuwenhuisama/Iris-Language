@@ -4135,9 +4135,7 @@ impl SourceEvaluator {
             // than on anything the program did. Rust's shortest round-trip
             // form is what `Debug` already renders these with elsewhere, so
             // this reads the same as the value the source wrote.
-            (Value::Float64(value), "to_string", []) => {
-                Ok(Some(Value::Text(float_text(*value))))
-            }
+            (Value::Float64(value), "to_string", []) => Ok(Some(Value::Text(float_text(*value)))),
             (Value::Float32(value), "to_string", []) => {
                 Ok(Some(Value::Text(float_text(f64::from(*value)))))
             }

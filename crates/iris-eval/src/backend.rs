@@ -2134,4 +2134,83 @@ mod differential_tests {
             assert_eq!(observation, Observation::Value(expected.to_owned()));
         }
     }
+
+    #[test]
+    fn backends_agree_on_builtin_class_values_and_type_queries() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { Integer } } M.r()",
+                "<class>",
+                "<type>",
+            ),
+            (
+                "module M { public fun r() -> Object { Integer.name } } M.r()",
+                "nil",
+                ":Integer",
+            ),
+            (
+                "module M { public fun r() -> Object { Integer.type.kind() } } M.r()",
+                ":nominal",
+                ":class",
+            ),
+            (
+                "module M { public fun r() -> Object { Integer.type.subtype?(Object.type) } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun r() -> Object { Object.type.assignable?(Float64.type) } } M.r()",
+                "true",
+                "false",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, negative) in cases {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a builtin Class value: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_nominal_is_tests() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { 1 is Integer } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "module M { public fun r() -> Object { 1 is Float64 } } M.r()",
+                "false",
+                "true",
+            ),
+            (
+                "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is A } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "class A { } class B { } module M { public fun r() -> Object { A.new() is B } } M.r()",
+                "false",
+                "true",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected, negative) in cases {
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a nominal `is` test: {agreement:?}")
+            };
+            assert_ne!(observation, Observation::Value(negative.to_owned()));
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
 }

@@ -23,6 +23,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
                 self.literal(name)
             }
+            Expression::Name(name)
+                if matches!(
+                    name.as_str(),
+                    "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
+                ) =>
+            {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadBuiltinClass {
+                    destination,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
             Expression::Name(name) if self.deferred.iter().any(|held| held == name) => {
                 Err(CompileError::new("deferred read before assignment"))
             }
@@ -165,6 +178,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination,
                         left,
                         right,
+                    });
+                    return Ok(destination);
+                }
+                if *operator == BinaryOperator::Is {
+                    if matches!(right.as_ref(), Expression::Name(name) if self.contract_index(name).is_some())
+                    {
+                        return Err(CompileError::new("operator Is contract"));
+                    }
+                    let value = self.expression(left)?;
+                    let target = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::TypeTest {
+                        destination,
+                        value,
+                        target,
                     });
                     return Ok(destination);
                 }

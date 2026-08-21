@@ -116,20 +116,10 @@ impl Machine {
                     Value::Array(iris_runtime::ArrayRef::new(elements))
                 }
                 Instruction::LoadBuiltinType { name, .. } => {
-                    let kind = match name.as_str() {
-                        "Object" => iris_runtime::BuiltinClass::Object,
-                        "Nil" => iris_runtime::BuiltinClass::Nil,
-                        "Bool" => iris_runtime::BuiltinClass::Bool,
-                        "Integer" => iris_runtime::BuiltinClass::Integer,
-                        "Float32" => iris_runtime::BuiltinClass::Float32,
-                        "Float64" => iris_runtime::BuiltinClass::Float64,
-                        "String" => iris_runtime::BuiltinClass::String,
-                        _ => return Err(MachineError::NameError),
-                    };
-                    Value::Type(
-                        self.kernel.class(kind).map_err(MachineError::Kernel)?,
-                        Vec::new(),
-                    )
+                    Value::Type(self.builtin_class(name)?, Vec::new())
+                }
+                Instruction::LoadBuiltinClass { name, .. } => {
+                    Value::Class(self.builtin_class(name)?)
                 }
                 Instruction::BuildTuple { first, count, .. } => {
                     let start = *first as usize;
@@ -218,67 +208,83 @@ impl Machine {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
-                    let Value::Object(object) = registers[*receiver as usize] else {
-                        return Err(MachineError::UnknownSelector(selector.clone()));
-                    };
-                    let bound_selector = selector_id(program, selector)
-                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                    let class = self
-                        .runtime
-                        .class_of(object)
-                        .map_err(MachineError::Construction)?;
-                    let class_index = classes
-                        .iter()
-                        .position(|known| *known == class)
-                        .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?;
-                    if program.classes[class_index]
-                        .stored_properties
-                        .iter()
-                        .any(|property| property.name == *selector)
-                    {
-                        let selector = selector_id(program, selector)
-                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                        self.runtime
-                            .raw_ivar(object, selector)
-                            .map_err(MachineError::Construction)?
-                    } else if program.classes[class_index]
-                        .property_methods
-                        .iter()
-                        .any(|property| property == selector)
-                    {
-                        let selector_id = selector_id(program, selector)
-                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                        let method = self
-                            .runtime
-                            .dispatch_instance(object, selector_id)
-                            .map_err(MachineError::Construction)?;
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
-                        let callee = program.functions.get(function).cloned().ok_or(
-                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
-                        )?;
-                        let returned = run_frame!('frame, self.run_body(
-                            &callee.instructions,
-                            callee.registers,
-                            vec![Value::Object(object)],
-                            program,
-                            classes,
-                        ));
-                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    if let Value::Class(class) = registers[*receiver as usize] {
+                        match selector.as_str() {
+                            "type" => Value::Type(class, Vec::new()),
+                            "name" => classes
+                                .iter()
+                                .position(|known| *known == class)
+                                .and_then(|index| program.classes.get(index))
+                                .map(|declaration| Value::Symbol(declaration.name.clone()))
+                                .unwrap_or(Value::Nil),
+                            _ => return Err(MachineError::UnknownSelector(selector.clone())),
+                        }
                     } else {
-                        self.runtime
-                            .registry_mut()
-                            .bind_instance(object, class, bound_selector)
-                            .map(Value::BoundMethod)
-                            .map_err(iris_runtime::ConstructionError::from)
-                            .map_err(MachineError::Construction)?
+                        let Value::Object(object) = registers[*receiver as usize] else {
+                            return Err(MachineError::UnknownSelector(selector.clone()));
+                        };
+                        let bound_selector = selector_id(program, selector)
+                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        let class = self
+                            .runtime
+                            .class_of(object)
+                            .map_err(MachineError::Construction)?;
+                        let class_index = classes
+                            .iter()
+                            .position(|known| *known == class)
+                            .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?;
+                        if program.classes[class_index]
+                            .stored_properties
+                            .iter()
+                            .any(|property| property.name == *selector)
+                        {
+                            let selector = selector_id(program, selector)
+                                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                            self.runtime
+                                .raw_ivar(object, selector)
+                                .map_err(MachineError::Construction)?
+                        } else if program.classes[class_index]
+                            .property_methods
+                            .iter()
+                            .any(|property| property == selector)
+                        {
+                            let selector_id = selector_id(program, selector)
+                                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                            let method = self
+                                .runtime
+                                .dispatch_instance(object, selector_id)
+                                .map_err(MachineError::Construction)?;
+                            let function = usize::try_from(method.body().raw()).map_err(|_| {
+                                MachineError::Invalid(VerifyError::UnknownFunction {
+                                    function: usize::MAX,
+                                })
+                            })?;
+                            let callee = program.functions.get(function).cloned().ok_or(
+                                MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                            )?;
+                            let returned = run_frame!('frame, self.run_body(
+                                &callee.instructions,
+                                callee.registers,
+                                vec![Value::Object(object)],
+                                program,
+                                classes,
+                            ));
+                            returned.into_iter().next().unwrap_or(Value::Nil)
+                        } else {
+                            self.runtime
+                                .registry_mut()
+                                .bind_instance(object, class, bound_selector)
+                                .map(Value::BoundMethod)
+                                .map_err(iris_runtime::ConstructionError::from)
+                                .map_err(MachineError::Construction)?
+                        }
                     }
                 }
                 Instruction::Identity { left, right, .. } => {
                     self.identity(&registers[*left as usize], &registers[*right as usize])?
+                }
+                Instruction::TypeTest { value, target, .. } => {
+                    self.type_test(&registers[*value as usize], &registers[*target as usize])?
                 }
                 // C113 fixes the accepted range per WIDTH and requires
                 // RangeError outside it; C114 requires the round trip to hold

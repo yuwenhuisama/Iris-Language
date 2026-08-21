@@ -356,6 +356,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
             vec![*left, *right]
         }
+        Instruction::TypeTest { value, target, .. } => vec![*value, *target],
         Instruction::BuildRange { start, end, .. } => vec![*start, *end],
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
@@ -422,6 +423,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadClass { .. }
         | Instruction::LoadContract { .. }
         | Instruction::LoadBuiltinType { .. }
+        | Instruction::LoadBuiltinClass { .. }
         | Instruction::LoadGlobal { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry

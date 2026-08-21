@@ -61,6 +61,10 @@ pub enum Instruction {
         destination: Register,
         name: String,
     },
+    LoadBuiltinClass {
+        destination: Register,
+        name: String,
+    },
     LoadGlobal {
         destination: Register,
         name: String,
@@ -136,6 +140,11 @@ pub enum Instruction {
         destination: Register,
         left: Register,
         right: Register,
+    },
+    TypeTest {
+        destination: Register,
+        value: Register,
+        target: Register,
     },
     /// Reinterprets an Integer register's bits as a float of the given width.
     FromBits {
@@ -278,6 +287,7 @@ impl Instruction {
             | Self::LoadClass { destination, .. }
             | Self::LoadContract { destination, .. }
             | Self::LoadBuiltinType { destination, .. }
+            | Self::LoadBuiltinClass { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
@@ -291,6 +301,7 @@ impl Instruction {
             | Self::SetIndex { destination, .. }
             | Self::BindMember { destination, .. }
             | Self::Identity { destination, .. }
+            | Self::TypeTest { destination, .. }
             | Self::Call { destination, .. }
             | Self::New { destination, .. }
             | Self::Send { destination, .. }

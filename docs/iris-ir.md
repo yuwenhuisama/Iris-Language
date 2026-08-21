@@ -156,6 +156,8 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadNil { dst }` | nil. |
 | `LoadClass { dst, class }` | The runtime Class object registered at `class`. |
 | `LoadContract { dst, contract }` | The immutable Contract object registered at `contract`. |
+| `LoadBuiltinClass { dst, name }` | Resolves a built-in nominal name such as `Integer` to its Class object. |
+| `LoadBuiltinType { dst, name }` | Resolves a built-in nominal name to its interned Type object. |
 | `LoadGlobal { dst, name }` | Reads the current package-global cell. |
 | `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
 
@@ -181,6 +183,7 @@ representation type split.
 | `Binary { dst, selector, left, right }` | `dst = left <selector> right` |
 | `Unary { dst, selector, operand }` | `dst = operand.selector()` |
 | `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
+| `TypeTest { dst, value, target }` | Tests `value` against the current nominal ancestry of the Class in `target`. |
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
@@ -208,6 +211,14 @@ Covered binary selectors:
 Covered unary selectors: `negate`, `~`, `to_bits`, `hash`. Unary `+` is an
 identity and emits no send. Logical `&&` and `||` lower to branches so the right
 operand remains lazy and the expression returns an operand value, not a Bool.
+
+Built-in names `Object`, `Nil`, `Bool`, `Integer`, `Float32`, `Float64`, and
+`String` are Class values. Their `.type` member yields a nominal Type, whose
+covered query surface is `kind()`, `subtype?(other)`, and
+`assignable?(source)`. `TypeTest` consults the runtime Class MRO rather than
+lowering `is` to equality, so inherited user Classes and built-in scalar
+Classes use one nominal rule. Contract targets are declined until the VM can
+model the reference's nominal conformance test without approximating it.
 
 An interpolated String is lowered as an ordered chain of String `+` operations.
 Each `${expr}` is parsed as one expression, evaluated once from left to right,

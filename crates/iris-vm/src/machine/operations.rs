@@ -1,10 +1,90 @@
 //! Native sends, identity, and indexed collection operations.
 
-use iris_runtime::{KernelError, NativeSelector, Value};
+use iris_runtime::{BuiltinClass, ClassId, KernelError, NativeSelector, Value};
 
 use super::{Machine, MachineError, resolve_index, value_class_name};
 
 impl Machine {
+    pub(super) fn builtin_class(&self, name: &str) -> Result<ClassId, MachineError> {
+        let kind = match name {
+            "Object" => BuiltinClass::Object,
+            "Nil" => BuiltinClass::Nil,
+            "Bool" => BuiltinClass::Bool,
+            "Integer" => BuiltinClass::Integer,
+            "Float32" => BuiltinClass::Float32,
+            "Float64" => BuiltinClass::Float64,
+            "String" => BuiltinClass::String,
+            _ => return Err(MachineError::NameError),
+        };
+        self.kernel.class(kind).map_err(MachineError::Kernel)
+    }
+
+    pub(super) fn type_test(&self, value: &Value, target: &Value) -> Result<Value, MachineError> {
+        let Value::Class(target) = target else {
+            return Err(MachineError::Kernel(KernelError::Type));
+        };
+        if *target
+            == self
+                .kernel
+                .class(BuiltinClass::Object)
+                .map_err(MachineError::Kernel)?
+        {
+            return Ok(Value::Bool(true));
+        }
+        let class = match value {
+            Value::Object(object) => self
+                .runtime
+                .class_of(*object)
+                .map_err(MachineError::Construction)?,
+            Value::Nil => self
+                .kernel
+                .class(BuiltinClass::Nil)
+                .map_err(MachineError::Kernel)?,
+            Value::Bool(_) => self
+                .kernel
+                .class(BuiltinClass::Bool)
+                .map_err(MachineError::Kernel)?,
+            Value::Integer(_) => self
+                .kernel
+                .class(BuiltinClass::Integer)
+                .map_err(MachineError::Kernel)?,
+            Value::Float32(_) => self
+                .kernel
+                .class(BuiltinClass::Float32)
+                .map_err(MachineError::Kernel)?,
+            Value::Float64(_) => self
+                .kernel
+                .class(BuiltinClass::Float64)
+                .map_err(MachineError::Kernel)?,
+            Value::Text(_) => self
+                .kernel
+                .class(BuiltinClass::String)
+                .map_err(MachineError::Kernel)?,
+            Value::Class(class) => *class,
+            _ => return Ok(Value::Bool(false)),
+        };
+        self.is_subtype(class, *target).map(Value::Bool)
+    }
+
+    pub(super) fn is_subtype(&self, class: ClassId, target: ClassId) -> Result<bool, MachineError> {
+        if target
+            == self
+                .kernel
+                .class(BuiltinClass::Object)
+                .map_err(MachineError::Kernel)?
+        {
+            return Ok(true);
+        }
+        Ok(self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(MachineError::Class)?
+            .mro()
+            .iter()
+            .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(held) if *held == target)))
+    }
+
     pub(super) fn send(
         &self,
         selector: &str,

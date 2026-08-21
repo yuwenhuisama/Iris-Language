@@ -122,6 +122,21 @@ impl Machine {
                     .unwrap_or_default();
                 Some(Value::Array(iris_runtime::ArrayRef::new(declared)))
             }
+            Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
+                Some(Value::Symbol("nominal".to_owned()))
+            }
+            Value::Type(left, _) if selector == "subtype?" => {
+                let [Value::Type(right, _)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Some(Value::Bool(self.is_subtype(*left, *right)?))
+            }
+            Value::Type(target, _) if selector == "assignable?" => {
+                let [Value::Type(source, _)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Some(Value::Bool(self.is_subtype(*source, *target)?))
+            }
             _ => None,
         };
         if result.is_none() && authored_selector(selector) {
@@ -185,6 +200,9 @@ fn authored_selector(selector: &str) -> bool {
             | "chars"
             | "to_symbol"
             | "contracts"
+            | "kind"
+            | "subtype?"
+            | "assignable?"
     )
 }
 
