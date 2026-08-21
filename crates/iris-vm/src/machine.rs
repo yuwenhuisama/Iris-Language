@@ -1,8 +1,9 @@
 //! Verifies and executes register instructions.
 
 use iris_runtime::{
-    BoundReceiver, BuiltinClass, ClassError, ClassId, ConstructionError, Kernel, KernelError,
-    MethodBody, NativeSelector, NumericError, Runtime, Selector, StaticSpine, Value, Visibility,
+    BoundReceiver, BuiltinClass, ClassError, ClassId, ConstructionError, ContractId, Kernel,
+    KernelError, MethodBody, NativeSelector, NumericError, Runtime, Selector, StaticSpine, Value,
+    Visibility,
 };
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
@@ -34,6 +35,7 @@ pub enum MachineError {
     Class(ClassError),
     Construction(ConstructionError),
     NameError,
+    DefiniteAssignment,
     /// A write to a position outside the Array.
     ///
     /// A READ past the end answers nil, but a WRITE has no position to store
@@ -124,6 +126,13 @@ fn verify_body(
                 register: destination,
             });
         }
+        if let Instruction::DeclareDeferred { register } = instruction
+            && *register as usize >= registers
+        {
+            return Err(VerifyError::RegisterOutOfRange {
+                register: *register,
+            });
+        }
         match instruction {
             Instruction::JumpUnless { target, .. } | Instruction::Jump { target } => {
                 if *target > instructions.len() {
@@ -170,7 +179,8 @@ fn verify_body(
             Instruction::BuildArray { first, count, .. }
             | Instruction::New { first, count, .. }
             | Instruction::Send { first, count, .. }
-            | Instruction::SendClass { first, count, .. } => {
+            | Instruction::SendClass { first, count, .. }
+            | Instruction::SendContract { first, count, .. } => {
                 range(*first, *count, registers)?;
             }
             Instruction::BuildHash { first, count, .. } => {
@@ -222,6 +232,9 @@ fn verify_body(
         let mut next = state.clone();
         if let Some(destination) = instruction.destination() {
             next[destination as usize] = true;
+        }
+        if let Instruction::DeclareDeferred { register } = instruction {
+            next[*register as usize] = false;
         }
 
         let successors: Vec<(usize, Vec<bool>)> = match instruction {
@@ -377,6 +390,15 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::SendClass { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
+        Instruction::SendContract {
+            receiver,
+            first,
+            count,
+            ..
+        } => std::iter::once(*receiver)
+            .chain((0..*count).map(|offset| first + offset))
+            .collect(),
+        Instruction::ContractCast { receiver, .. } => vec![*receiver],
         Instruction::Index {
             receiver, index, ..
         } => vec![*receiver, *index],
@@ -392,6 +414,10 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::SetIvar {
             receiver, value, ..
         } => vec![*receiver, *value],
+        Instruction::GetClassVar { receiver, .. } => vec![*receiver],
+        Instruction::SetClassVar {
+            receiver, value, ..
+        } => vec![*receiver, *value],
         Instruction::CatchMatch { exception, .. } => vec![*exception],
         Instruction::LoadInteger { .. }
         | Instruction::LoadFloat64 { .. }
@@ -401,10 +427,13 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
         | Instruction::LoadClass { .. }
+        | Instruction::LoadContract { .. }
         | Instruction::LoadGlobal { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry
-        | Instruction::Jump { .. } => Vec::new(),
+        | Instruction::Jump { .. }
+        | Instruction::DeclareDeferred { .. } => Vec::new(),
+        Instruction::RaiseDefiniteAssignment { .. } => Vec::new(),
     }
 }
 
@@ -533,6 +562,9 @@ impl Machine {
                     };
                     Value::Class(class)
                 }
+                Instruction::LoadContract { contract, .. } => {
+                    Value::Contract(ContractId::new(*contract as u64 + 1))
+                }
                 Instruction::LoadGlobal { name, .. } => self
                     .globals
                     .get(name)
@@ -544,6 +576,10 @@ impl Machine {
                     value
                 }
                 Instruction::Move { source, .. } => registers[*source as usize].clone(),
+                Instruction::DeclareDeferred { .. } => continue,
+                Instruction::RaiseDefiniteAssignment { .. } => {
+                    return Err(MachineError::DefiniteAssignment);
+                }
                 Instruction::Binary {
                     selector,
                     left,
@@ -622,18 +658,61 @@ impl Machine {
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::UnknownSelector(selector.clone()));
                     };
-                    let selector = selector_id(program, selector)
+                    let bound_selector = selector_id(program, selector)
                         .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                     let class = self
                         .runtime
                         .class_of(object)
                         .map_err(MachineError::Construction)?;
-                    self.runtime
-                        .registry_mut()
-                        .bind_instance(object, class, selector)
-                        .map(Value::BoundMethod)
-                        .map_err(iris_runtime::ConstructionError::from)
-                        .map_err(MachineError::Construction)?
+                    let class_index = classes
+                        .iter()
+                        .position(|known| *known == class)
+                        .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?;
+                    if program.classes[class_index]
+                        .stored_properties
+                        .iter()
+                        .any(|property| property.name == *selector)
+                    {
+                        let selector = selector_id(program, selector)
+                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        self.runtime
+                            .raw_ivar(object, selector)
+                            .map_err(MachineError::Construction)?
+                    } else if program.classes[class_index]
+                        .property_methods
+                        .iter()
+                        .any(|property| property == selector)
+                    {
+                        let selector_id = selector_id(program, selector)
+                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        let method = self
+                            .runtime
+                            .dispatch_instance(object, selector_id)
+                            .map_err(MachineError::Construction)?;
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = run_frame!('frame, self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        ));
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    } else {
+                        self.runtime
+                            .registry_mut()
+                            .bind_instance(object, class, bound_selector)
+                            .map(Value::BoundMethod)
+                            .map_err(iris_runtime::ConstructionError::from)
+                            .map_err(MachineError::Construction)?
+                    }
                 }
                 Instruction::Identity { left, right, .. } => {
                     self.identity(&registers[*left as usize], &registers[*right as usize])?
@@ -774,6 +853,7 @@ impl Machine {
                         .runtime
                         .allocate(class)
                         .map_err(MachineError::Construction)?;
+                    self.initialize_properties(program, classes, class, object)?;
                     if let Ok(method) = self.runtime.dispatch_instance(object, Selector::INITIALIZE)
                     {
                         let function = usize::try_from(method.body().raw()).map_err(|_| {
@@ -897,6 +977,7 @@ impl Machine {
                                     .runtime
                                     .allocate(class)
                                     .map_err(MachineError::Construction)?;
+                                self.initialize_properties(program, classes, class, object)?;
                                 if let Ok(method) =
                                     self.runtime.dispatch_instance(object, Selector::INITIALIZE)
                                 {
@@ -1064,6 +1145,93 @@ impl Machine {
                     ));
                     returned.into_iter().next().unwrap_or(Value::Nil)
                 }
+                Instruction::ContractCast {
+                    receiver, contract, ..
+                } => {
+                    let receiver = registers[*receiver as usize].clone();
+                    let Value::Object(object) = receiver else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let class = self
+                        .runtime
+                        .class_of(object)
+                        .map_err(MachineError::Construction)?;
+                    let conforms = classes
+                        .iter()
+                        .position(|known| *known == class)
+                        .is_some_and(|index| program.classes[index].contracts.contains(contract));
+                    if !conforms {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    }
+                    Value::ContractView(
+                        Box::new(Value::Object(object)),
+                        ContractId::new(*contract as u64 + 1),
+                    )
+                }
+                Instruction::SendContract {
+                    receiver,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Value::ContractView(receiver, contract) =
+                        registers[*receiver as usize].clone()
+                    else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Object(object) = *receiver else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let contract_index = usize::try_from(contract.raw().saturating_sub(1))
+                        .map_err(|_| MachineError::Kernel(KernelError::Type))?;
+                    let required = program
+                        .contracts
+                        .get(contract_index)
+                        .is_some_and(|contract| {
+                            contract
+                                .requirements
+                                .iter()
+                                .any(|(name, arity)| name == selector && *arity == *count as usize)
+                        });
+                    if !required {
+                        return Err(MachineError::MessageNotFound {
+                            receiver_class: "ContractView".to_owned(),
+                            selector: selector.clone(),
+                        });
+                    }
+                    let selector_id = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let method = self
+                        .runtime
+                        .dispatch_instance(object, selector_id)
+                        .map_err(MachineError::Construction)?;
+                    let function = usize::try_from(method.body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let callee =
+                        program
+                            .functions
+                            .get(function)
+                            .cloned()
+                            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                                function,
+                            }))?;
+                    let start = *first as usize;
+                    let mut arguments = Vec::with_capacity(*count as usize + 1);
+                    arguments.push(Value::Object(object));
+                    arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                    let returned = run_frame!('frame, self.run_body(
+                        &callee.instructions,
+                        callee.registers,
+                        arguments,
+                        program,
+                        classes,
+                    ));
+                    returned.into_iter().next().unwrap_or(Value::Nil)
+                }
                 Instruction::GetIvar { receiver, name, .. } => {
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
@@ -1087,6 +1255,28 @@ impl Machine {
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
                     self.runtime
                         .assign_raw_ivar(object, selector, registers[*value as usize].clone())
+                        .map_err(MachineError::Construction)?
+                }
+                Instruction::GetClassVar { receiver, name, .. } => {
+                    let class = self.receiver_class(&registers[*receiver as usize])?;
+                    let selector = selector_id(program, name)
+                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    self.runtime
+                        .class_var(class, selector)
+                        .map_err(MachineError::Construction)?
+                        .ok_or(MachineError::NameError)?
+                }
+                Instruction::SetClassVar {
+                    receiver,
+                    name,
+                    value,
+                    ..
+                } => {
+                    let class = self.receiver_class(&registers[*receiver as usize])?;
+                    let selector = selector_id(program, name)
+                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    self.runtime
+                        .assign_class_var(class, selector, registers[*value as usize].clone())
                         .map_err(MachineError::Construction)?
                 }
             };
@@ -1124,6 +1314,14 @@ impl Machine {
                         Visibility::Public,
                     )
                     .map_err(MachineError::Class)?;
+            }
+            for variable in &declaration.class_variables {
+                let selector = selector_id(program, &variable.name)
+                    .ok_or_else(|| MachineError::UnknownSelector(variable.name.clone()))?;
+                let value = literal_runtime_value(&variable.initializer)?;
+                self.runtime
+                    .declare_class_var(class, selector, value, variable.mutable)
+                    .map_err(MachineError::Construction)?;
             }
             for (selector, function) in &declaration.class_methods {
                 let selector = selector_id(program, selector)
@@ -1215,6 +1413,38 @@ impl Machine {
             };
             class = superclass;
         }
+    }
+
+    fn receiver_class(&self, receiver: &Value) -> Result<ClassId, MachineError> {
+        match receiver {
+            Value::Object(object) => self
+                .runtime
+                .class_of(*object)
+                .map_err(MachineError::Construction),
+            Value::Class(class) => Ok(*class),
+            _ => Err(MachineError::Kernel(KernelError::Type)),
+        }
+    }
+
+    fn initialize_properties(
+        &mut self,
+        program: &Program,
+        classes: &[ClassId],
+        class: ClassId,
+        object: iris_runtime::ObjectId,
+    ) -> Result<(), MachineError> {
+        let Some(index) = classes.iter().position(|known| *known == class) else {
+            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+        };
+        for property in &program.classes[index].stored_properties {
+            let selector = selector_id(program, &property.name)
+                .ok_or_else(|| MachineError::UnknownSelector(property.name.clone()))?;
+            let value = literal_runtime_value(&property.initializer)?;
+            self.runtime
+                .assign_raw_ivar(object, selector, value)
+                .map_err(MachineError::Construction)?;
+        }
+        Ok(())
     }
 
     /// Sends a native selector through the SHARED kernel.
@@ -1332,6 +1562,18 @@ fn value_class_name(value: &Value) -> &'static str {
     }
 }
 
+fn literal_runtime_value(value: &crate::compile::LiteralValue) -> Result<Value, MachineError> {
+    match value {
+        crate::compile::LiteralValue::Integer(digits) => digits
+            .parse()
+            .map(Value::Integer)
+            .map_err(|_| MachineError::Kernel(KernelError::Type)),
+        crate::compile::LiteralValue::Text(text) => Ok(Value::Text(text.clone())),
+        crate::compile::LiteralValue::Bool(value) => Ok(Value::Bool(*value)),
+        crate::compile::LiteralValue::Nil => Ok(Value::Nil),
+    }
+}
+
 fn resolve_index(index: &iris_runtime::IntegerValue, length: usize) -> Option<usize> {
     let index = index.to_i128()?;
     let length = i128::try_from(length).ok()?;
@@ -1370,6 +1612,18 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                 .iter()
                 .chain(&class.class_methods)
                 .map(|(name, _)| name.as_str())
+                .chain(
+                    class
+                        .class_variables
+                        .iter()
+                        .map(|variable| variable.name.as_str()),
+                )
+                .chain(
+                    class
+                        .stored_properties
+                        .iter()
+                        .map(|property| property.name.as_str()),
+                )
         })
         .chain(
             program
@@ -1379,9 +1633,12 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                 .filter_map(|instruction| match instruction {
                     Instruction::Send { selector, .. }
                     | Instruction::SendClass { selector, .. }
+                    | Instruction::SendContract { selector, .. }
                     | Instruction::BindMember { selector, .. }
                     | Instruction::GetIvar { name: selector, .. }
                     | Instruction::SetIvar { name: selector, .. } => Some(selector.as_str()),
+                    Instruction::GetClassVar { name, .. }
+                    | Instruction::SetClassVar { name, .. } => Some(name.as_str()),
                     _ => None,
                 }),
         )

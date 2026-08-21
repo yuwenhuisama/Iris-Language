@@ -64,6 +64,9 @@ mod tests {
             "module M { public fun r() -> Object { (5).to_string() } } M.r()",
             "module M { public fun r() -> Object { %{ 1: 2 }.keys() } } M.r()",
             "module M { public fun r() -> Object { \" a \".trim() } } M.r()",
+            "contract C { fun v() -> Integer } class A for C { public impl fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
+            "class A { public property fun v() -> Integer { 4 } } module M { public fun r() -> Object { A.new().v } } M.r()",
+            "class A { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { A.new().bump() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");
@@ -416,7 +419,11 @@ mod tests {
             ("@sealed() class A { } 1", "class decorator", "declaration"),
             ("open class A { } 1", "class reopen target", "declaration"),
             ("class A<T> { } 1", "class generics", "declaration"),
-            ("class A for C { } 1", "class implements", "declaration"),
+            (
+                "class A for C { } 1",
+                "class contract unbound",
+                "declaration",
+            ),
             ("class A mixin M { } 1", "class mixin", "declaration"),
             (
                 "class A<T> where T: Object { } 1",

@@ -36,6 +36,22 @@ impl Machine {
             Value::Symbol(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.clone()))
             }
+            Value::Class(class) if selector == "contracts" && arguments.is_empty() => {
+                let declared = classes
+                    .iter()
+                    .position(|known| known == class)
+                    .map(|index| {
+                        program.classes[index]
+                            .contracts
+                            .iter()
+                            .map(|contract| {
+                                Value::Contract(iris_runtime::ContractId::new(*contract as u64 + 1))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Some(Value::Array(iris_runtime::ArrayRef::new(declared)))
+            }
             _ => None,
         };
         if result.is_none() && authored_selector(selector) {
@@ -98,6 +114,7 @@ fn authored_selector(selector: &str) -> bool {
             | "downcase"
             | "chars"
             | "to_symbol"
+            | "contracts"
     )
 }
 

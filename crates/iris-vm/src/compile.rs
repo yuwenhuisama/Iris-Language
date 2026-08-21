@@ -11,7 +11,7 @@ use iris_syntax::{BinaryOperator, Expression, Statement, TypeExpression, UnaryOp
 mod declarations;
 mod expressions;
 
-use declarations::{Signature, collect_signatures};
+use declarations::{CollectedDeclarations, Signature, collect_signatures};
 
 /// A virtual register index.
 ///
@@ -66,9 +66,19 @@ pub enum Instruction {
         destination: Register,
         class: usize,
     },
+    LoadContract {
+        destination: Register,
+        contract: usize,
+    },
     LoadGlobal {
         destination: Register,
         name: String,
+    },
+    DeclareDeferred {
+        register: Register,
+    },
+    RaiseDefiniteAssignment {
+        destination: Register,
     },
     StoreGlobal {
         destination: Register,
@@ -206,12 +216,35 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    ContractCast {
+        destination: Register,
+        receiver: Register,
+        contract: usize,
+    },
+    SendContract {
+        destination: Register,
+        receiver: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
     GetIvar {
         destination: Register,
         receiver: Register,
         name: String,
     },
     SetIvar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+        value: Register,
+    },
+    GetClassVar {
+        destination: Register,
+        receiver: Register,
+        name: String,
+    },
+    SetClassVar {
         destination: Register,
         receiver: Register,
         name: String,
@@ -235,6 +268,7 @@ impl Instruction {
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
             | Self::LoadClass { destination, .. }
+            | Self::LoadContract { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
@@ -250,10 +284,15 @@ impl Instruction {
             | Self::New { destination, .. }
             | Self::Send { destination, .. }
             | Self::SendClass { destination, .. }
+            | Self::ContractCast { destination, .. }
+            | Self::SendContract { destination, .. }
             | Self::GetIvar { destination, .. }
             | Self::SetIvar { destination, .. }
+            | Self::GetClassVar { destination, .. }
+            | Self::SetClassVar { destination, .. }
             | Self::MakeClosure { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
+            Self::RaiseDefiniteAssignment { destination } => Some(*destination),
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }
@@ -262,6 +301,7 @@ impl Instruction {
             | Self::LeaveTry
             | Self::Raise { .. }
             | Self::Return { .. } => None,
+            Self::DeclareDeferred { .. } => None,
             Self::ArrayNext { destination, .. } => Some(*destination),
         }
     }
@@ -310,6 +350,13 @@ pub struct Program {
     /// Callable bodies, addressed by index from `Call`.
     pub(crate) functions: Vec<Function>,
     pub(crate) classes: Vec<Class>,
+    pub(crate) contracts: Vec<Contract>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Contract {
+    pub(crate) name: String,
+    pub(crate) requirements: Vec<(String, usize)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -319,6 +366,31 @@ pub(crate) struct Class {
     pub(crate) methods: Vec<(String, usize)>,
     pub(crate) class_methods: Vec<(String, usize)>,
     pub(crate) reopens: Vec<ClassReopen>,
+    pub(crate) contracts: Vec<usize>,
+    pub(crate) property_methods: Vec<String>,
+    pub(crate) class_variables: Vec<ClassVariable>,
+    pub(crate) stored_properties: Vec<StoredProperty>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StoredProperty {
+    pub(crate) name: String,
+    pub(crate) initializer: LiteralValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClassVariable {
+    pub(crate) name: String,
+    pub(crate) mutable: bool,
+    pub(crate) initializer: LiteralValue,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LiteralValue {
+    Integer(String),
+    Text(String),
+    Bool(bool),
+    Nil,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -359,7 +431,11 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // The design review places this responsibility in a HIR layer between AST
     // and execution IR; this is that resolution, done in one pass while the
     // covered surface is small enough not to need a separate representation.
-    let (signatures, classes) = collect_signatures(&parsed.program.declarations)?;
+    let CollectedDeclarations {
+        signatures,
+        classes,
+        contracts,
+    } = collect_signatures(&parsed.program.declarations)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
     let mut closures = Vec::new();
@@ -368,6 +444,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             signature,
             &signatures,
             &classes,
+            &contracts,
             signatures.len(),
             &mut closures,
         )?);
@@ -376,7 +453,13 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     if parsed.program.statements.is_empty() {
         return Err(CompileError::new("empty program"));
     }
-    let mut lowering = Lowering::new(&signatures, &classes, signatures.len(), &mut closures);
+    let mut lowering = Lowering::new(
+        &signatures,
+        &classes,
+        &contracts,
+        signatures.len(),
+        &mut closures,
+    );
     // A top-level program answers the values of its non-BINDING statements:
     // one value directly, several as an Array. That convention belongs to the
     // reference evaluator, and a backend that answered only the last statement
@@ -422,6 +505,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         result,
         functions,
         classes,
+        contracts,
     })
 }
 
@@ -430,10 +514,11 @@ fn lower_function(
     signature: &Signature<'_>,
     signatures: &[Signature<'_>],
     classes: &[Class],
+    contracts: &[Contract],
     declared_functions: usize,
     closures: &mut Vec<Function>,
 ) -> Result<Function, CompileError> {
-    let mut lowering = Lowering::new(signatures, classes, declared_functions, closures);
+    let mut lowering = Lowering::new(signatures, classes, contracts, declared_functions, closures);
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering.names.push(("self".to_owned(), receiver));
@@ -468,9 +553,11 @@ struct Lowering<'a, 'b> {
     next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
     names: Vec<(String, Register)>,
+    deferred: Vec<String>,
     /// Functions callable from this frame, resolved before lowering.
     signatures: &'a [Signature<'b>],
     classes: &'a [Class],
+    contracts: &'a [Contract],
     declared_functions: usize,
     closures: &'a mut Vec<Function>,
     loops: Vec<LoopContext>,
@@ -485,6 +572,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
     fn new(
         signatures: &'a [Signature<'b>],
         classes: &'a [Class],
+        contracts: &'a [Contract],
         declared_functions: usize,
         closures: &'a mut Vec<Function>,
     ) -> Self {
@@ -492,8 +580,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             instructions: Vec::new(),
             next_register: 0,
             names: Vec::new(),
+            deferred: Vec::new(),
             signatures,
             classes,
+            contracts,
             declared_functions,
             closures,
             loops: Vec::new(),
@@ -568,6 +658,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     value,
                 });
                 Ok(destination)
+            }
+            Statement::DeferredBinding {
+                mutable: true,
+                annotated: true,
+                name,
+            } => {
+                let register = self.allocate()?;
+                self.instructions
+                    .push(Instruction::DeclareDeferred { register });
+                self.names.push((name.clone(), register));
+                self.deferred.push(name.clone());
+                Ok(register)
             }
             // A loop is a BACKWARD jump, which is why the verifier had to
             // become a dataflow fixpoint: a body is entered before its own
@@ -719,10 +821,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
         };
         // A block scopes its bindings: a name bound inside must not leak out.
         let outer = self.names.len();
+        // A deferred binding is discharged by an assignment that happens on
+        // EVERY path, and a nested block is not every path: a branch may not
+        // run at all. Restoring what was outstanding on entry means an
+        // assignment inside a branch leaves the binding deferred, so the read
+        // after it declines rather than lowering to a register the verifier
+        // then proves unwritten - which is a compiler defect reported as a
+        // machine failure, not a program error.
+        let held = self.deferred.clone();
         for statement in leading {
             self.statement(statement)?;
         }
         let value = self.statement(last)?;
+        self.deferred = held;
         self.names.truncate(outer);
         Ok(value)
     }
@@ -924,11 +1035,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Name(name) if matches!(name.as_str(), "nil" | "true" | "false") => {
                 self.literal(name)
             }
+            Expression::Name(name) if self.deferred.iter().any(|held| held == name) => {
+                Err(CompileError::new("deferred read before assignment"))
+            }
             Expression::Name(name) => self.lookup(name).map(Ok).unwrap_or_else(|| {
                 let destination = self.allocate()?;
                 if let Some(class) = self.class_index(name) {
                     self.instructions
                         .push(Instruction::LoadClass { destination, class });
+                    return Ok(destination);
+                }
+                if let Some(contract) = self.contract_index(name) {
+                    self.instructions.push(Instruction::LoadContract {
+                        destination,
+                        contract,
+                    });
                     return Ok(destination);
                 }
                 if self
@@ -964,12 +1085,37 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
+            Expression::ClassVar(name) => {
+                let receiver = self
+                    .lookup("self")
+                    .ok_or_else(|| CompileError::new("expression class variable"))?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::GetClassVar {
+                    destination,
+                    receiver,
+                    name: name.clone(),
+                });
+                Ok(destination)
+            }
             Expression::Grouped(inner) => self.expression(inner),
             Expression::Binary {
                 left,
                 operator,
                 right,
             } => {
+                if *operator == BinaryOperator::As
+                    && let Expression::Name(name) = right.as_ref()
+                    && let Some(contract) = self.contract_index(name)
+                {
+                    let receiver = self.expression(left)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::ContractCast {
+                        destination,
+                        receiver,
+                        contract,
+                    });
+                    return Ok(destination);
+                }
                 if *operator == BinaryOperator::Identity {
                     let left = self.expression(left)?;
                     let right = self.expression(right)?;
@@ -1092,6 +1238,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
+            Expression::ContractView { .. } => {
+                Err(CompileError::new("expression contract view outside call"))
+            }
             // Assignment writes the name's EXISTING register, which is what
             // carries a value across a loop's back edge.
             Expression::Assignment {
@@ -1106,6 +1255,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     let value = self.expression(right)?;
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::SetIvar {
+                        destination,
+                        receiver,
+                        name: name.clone(),
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                if let Expression::ClassVar(name) = left.as_ref() {
+                    let receiver = self
+                        .lookup("self")
+                        .ok_or_else(|| CompileError::new("expression class variable"))?;
+                    let value = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetClassVar {
                         destination,
                         receiver,
                         name: name.clone(),
@@ -1147,6 +1310,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     source,
                 });
+                self.deferred.retain(|held| held != name);
                 Ok(destination)
             }
             Expression::Call {
@@ -1177,6 +1341,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let mut lowering = Lowering::new(
             self.signatures,
             self.classes,
+            self.contracts,
             self.declared_functions + self.closures.len(),
             &mut closure_functions,
         );
@@ -1287,6 +1452,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
         callee: &Expression,
         arguments: &[Expression],
     ) -> Result<Register, CompileError> {
+        if let Expression::ContractView { receiver, selector } = callee {
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::SendContract {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         let Expression::Member { receiver, selector } = callee else {
             return Err(CompileError::new(match callee {
                 Expression::Name(_) => "call bare name",
@@ -1466,6 +1644,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
 
     fn class_index(&self, name: &str) -> Option<usize> {
         self.classes.iter().position(|class| class.name == name)
+    }
+
+    fn contract_index(&self, name: &str) -> Option<usize> {
+        self.contracts
+            .iter()
+            .position(|contract| contract.name == name)
     }
 
     fn argument_window(

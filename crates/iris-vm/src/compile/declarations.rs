@@ -1,6 +1,8 @@
 use iris_syntax::{Statement, TypeExpression};
 
-use super::{Class, ClassReopen, CompileError};
+use super::{
+    Class, ClassReopen, ClassVariable, CompileError, Contract, LiteralValue, StoredProperty,
+};
 
 pub(super) struct Signature<'a> {
     pub(super) module: &'a str,
@@ -13,16 +15,27 @@ pub(super) struct Signature<'a> {
 
 type MethodTable = Vec<(String, usize)>;
 
+pub(super) struct CollectedDeclarations<'a> {
+    pub(super) signatures: Vec<Signature<'a>>,
+    pub(super) classes: Vec<Class>,
+    pub(super) contracts: Vec<Contract>,
+}
+
 pub(super) fn collect_signatures(
     declarations: &[iris_syntax::Declaration],
-) -> Result<(Vec<Signature<'_>>, Vec<Class>), CompileError> {
+) -> Result<CollectedDeclarations<'_>, CompileError> {
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
+    let mut contracts = Vec::new();
     for declaration in declarations {
+        if let iris_syntax::Declaration::Contract(contract) = declaration {
+            collect_contract(contract, &mut contracts)?;
+            continue;
+        }
         let iris_syntax::Declaration::Module(module) = declaration else {
             let iris_syntax::Declaration::Class(class) = declaration else {
                 return Err(CompileError::new(match declaration {
-                    iris_syntax::Declaration::Contract(_) => "declaration contract",
+                    iris_syntax::Declaration::Contract(_) => "declaration covered",
                     iris_syntax::Declaration::Import(_) => "declaration import",
                     iris_syntax::Declaration::Export(_) => "declaration export",
                     iris_syntax::Declaration::TypeAlias(_) => "declaration type alias",
@@ -31,7 +44,13 @@ pub(super) fn collect_signatures(
                     }
                 }));
             };
-            collect_class(declarations, class, &mut signatures, &mut classes)?;
+            collect_class(
+                declarations,
+                class,
+                &contracts,
+                &mut signatures,
+                &mut classes,
+            )?;
             continue;
         };
         if module.reopen
@@ -43,12 +62,63 @@ pub(super) fn collect_signatures(
         }
         collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
-    Ok((signatures, classes))
+    Ok(CollectedDeclarations {
+        signatures,
+        classes,
+        contracts,
+    })
+}
+
+fn collect_contract(
+    declaration: &iris_syntax::ContractDeclaration,
+    contracts: &mut Vec<Contract>,
+) -> Result<(), CompileError> {
+    if declaration.open
+        || !declaration.decorators.is_empty()
+        || !declaration.parameters.is_empty()
+        || !declaration.parents.is_empty()
+        || !declaration.constraints.is_empty()
+        || !declaration.meta_deny.is_empty()
+    {
+        return Err(CompileError::new("contract declaration form"));
+    }
+    let mut requirements = Vec::new();
+    for statement in &declaration.body {
+        let Statement::Method(method) = statement else {
+            return Err(CompileError::new("contract body"));
+        };
+        if matches!(method.impl_contract, Some(Some(_))) {
+            return Err(CompileError::new("qualified contract implementation"));
+        }
+        if method.body.is_some()
+            || method.kind != iris_syntax::MethodKind::Instance
+            || method.impl_contract.is_some()
+            || method.is_async
+            || !method.decorators.is_empty()
+            || !method.type_parameters.is_empty()
+        {
+            return Err(CompileError::new("contract requirement form"));
+        }
+        if method
+            .parameters
+            .iter()
+            .any(|parameter| parameter.category != iris_syntax::ParameterCategory::Positional)
+        {
+            return Err(CompileError::new("parameter"));
+        }
+        requirements.push((method.selector.clone(), method.parameters.len()));
+    }
+    contracts.push(Contract {
+        name: declaration.name.clone(),
+        requirements,
+    });
+    Ok(())
 }
 
 fn collect_class<'a>(
     declarations: &'a [iris_syntax::Declaration],
     class: &'a iris_syntax::ClassDeclaration,
+    contracts: &[Contract],
     signatures: &mut Vec<Signature<'a>>,
     classes: &mut Vec<Class>,
 ) -> Result<(), CompileError> {
@@ -57,9 +127,6 @@ fn collect_class<'a>(
     }
     if class.reopen {
         return collect_reopen(class, signatures, classes);
-    }
-    if !class.implements.is_empty() {
-        return Err(CompileError::new("class implements"));
     }
     if !class.mixins.is_empty() {
         return Err(CompileError::new("class mixin"));
@@ -79,6 +146,7 @@ fn collect_class<'a>(
         None => None,
     };
     let first_function = signatures.len();
+    let conformances = contract_indices(class, contracts)?;
     collect_methods(&class.name, &class.body, true, signatures)?;
     let superclass = match superclass_name {
         Some("Object") | None => None,
@@ -93,12 +161,56 @@ fn collect_class<'a>(
             .into(),
     };
     let (methods, class_methods) = collected_method_tables(signatures, first_function);
+    validate_contracts(class, contracts, &conformances)?;
+    let property_methods = class
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Method(method) if method.kind == iris_syntax::MethodKind::Property => {
+                Some(method.selector.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    let class_variables = class
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::SharedBinding {
+                mutable,
+                name,
+                value,
+                ..
+            } => Some(class_variable(name, *mutable, value)),
+            _ => None,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let stored_properties = class
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::StoredProperty {
+                class_level: false,
+                name,
+                initializer,
+                ..
+            } => Some(stored_property(name, initializer)),
+            Statement::StoredProperty { .. } => {
+                Some(Err(CompileError::new("class-level stored property")))
+            }
+            _ => None,
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     classes.push(Class {
         name: class.name.clone(),
         superclass,
         methods,
         class_methods,
         reopens: Vec::new(),
+        contracts: conformances,
+        property_methods,
+        class_variables,
+        stored_properties,
     });
     Ok(())
 }
@@ -130,6 +242,65 @@ fn collect_reopen<'a>(
     Ok(())
 }
 
+fn contract_indices(
+    class: &iris_syntax::ClassDeclaration,
+    contracts: &[Contract],
+) -> Result<Vec<usize>, CompileError> {
+    class
+        .implements
+        .iter()
+        .map(|target| {
+            let TypeExpression::Name(name) = target else {
+                return Err(CompileError::new("class contract type"));
+            };
+            contracts
+                .iter()
+                .position(|contract| contract.name == *name)
+                .ok_or_else(|| CompileError::new("class contract unbound"))
+        })
+        .collect()
+}
+
+fn validate_contracts(
+    class: &iris_syntax::ClassDeclaration,
+    contracts: &[Contract],
+    conformances: &[usize],
+) -> Result<(), CompileError> {
+    for statement in &class.body {
+        let Statement::Method(method) = statement else {
+            continue;
+        };
+        if method.impl_contract.is_none() {
+            continue;
+        }
+        let matches = conformances.iter().any(|contract| {
+            contracts[*contract]
+                .requirements
+                .iter()
+                .any(|(selector, arity)| {
+                    selector == &method.selector && *arity == method.parameters.len()
+                })
+        });
+        if !matches {
+            return Err(CompileError::new("contract implementation undeclared"));
+        }
+    }
+    for contract in conformances {
+        for (selector, arity) in &contracts[*contract].requirements {
+            let implemented = class.body.iter().any(|statement| {
+                matches!(statement, Statement::Method(method)
+                    if method.impl_contract.is_some()
+                        && method.selector == *selector
+                        && method.parameters.len() == *arity)
+            });
+            if !implemented {
+                return Err(CompileError::new("contract requirement absent"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn collected_method_tables(
     signatures: &[Signature<'_>],
     first_function: usize,
@@ -154,6 +325,12 @@ fn collect_methods<'a>(
     signatures: &mut Vec<Signature<'a>>,
 ) -> Result<(), CompileError> {
     for statement in body {
+        if matches!(
+            statement,
+            Statement::SharedBinding { .. } | Statement::StoredProperty { .. }
+        ) {
+            continue;
+        }
         let Statement::Method(method) = statement else {
             return Err(CompileError::new(if receiver {
                 "class body"
@@ -162,12 +339,13 @@ fn collect_methods<'a>(
             }));
         };
         if method.is_async
-            || method.impl_contract.is_some()
             || !method.decorators.is_empty()
             || !method.type_parameters.is_empty()
             || !matches!(
                 method.kind,
-                iris_syntax::MethodKind::Instance | iris_syntax::MethodKind::Class
+                iris_syntax::MethodKind::Instance
+                    | iris_syntax::MethodKind::Class
+                    | iris_syntax::MethodKind::Property
             )
             || (!receiver && method.kind != iris_syntax::MethodKind::Instance)
         {
@@ -193,6 +371,45 @@ fn collect_methods<'a>(
         });
     }
     Ok(())
+}
+
+fn class_variable(
+    name: &str,
+    mutable: bool,
+    value: &iris_syntax::Expression,
+) -> Result<ClassVariable, CompileError> {
+    let initializer = literal_value(value, "class variable initializer")?;
+    Ok(ClassVariable {
+        name: name.to_owned(),
+        mutable,
+        initializer,
+    })
+}
+
+fn stored_property(
+    name: &str,
+    value: &iris_syntax::Expression,
+) -> Result<StoredProperty, CompileError> {
+    Ok(StoredProperty {
+        name: name.to_owned(),
+        initializer: literal_value(value, "stored property initializer")?,
+    })
+}
+
+fn literal_value(
+    value: &iris_syntax::Expression,
+    construct: &str,
+) -> Result<LiteralValue, CompileError> {
+    match value {
+        iris_syntax::Expression::Literal(text) if text == "nil" => Ok(LiteralValue::Nil),
+        iris_syntax::Expression::Literal(text) if text == "true" => Ok(LiteralValue::Bool(true)),
+        iris_syntax::Expression::Literal(text) if text == "false" => Ok(LiteralValue::Bool(false)),
+        iris_syntax::Expression::Literal(text) if text.starts_with('"') => {
+            Ok(LiteralValue::Text(text.clone()))
+        }
+        iris_syntax::Expression::Literal(text) => Ok(LiteralValue::Integer(text.clone())),
+        _ => Err(CompileError::new(construct)),
+    }
 }
 
 fn method_error(method: &iris_syntax::MethodDeclaration) -> CompileError {

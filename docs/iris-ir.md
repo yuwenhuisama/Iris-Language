@@ -155,6 +155,7 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadBool { dst, value }` | Bool. |
 | `LoadNil { dst }` | nil. |
 | `LoadClass { dst, class }` | The runtime Class object registered at `class`. |
+| `LoadContract { dst, contract }` | The immutable Contract object registered at `contract`. |
 | `LoadGlobal { dst, name }` | Reads the current package-global cell. |
 | `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
 
@@ -181,6 +182,8 @@ representation type split.
 | `Unary { dst, selector, operand }` | `dst = operand.selector()` |
 | `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
+| `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
+| `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
 
 Both dispatch through `iris_runtime::Kernel` — **the same kernel the
 tree-walking evaluator uses**. This is a hard rule, not a convenience: a second
@@ -259,6 +262,11 @@ destructuring bindings remain declined rather than approximated.
 A `mut` binding keeps ONE register that assignment updates in place. That is
 what carries a value across the back edge: allocating a fresh register per
 assignment would leave the loop reading its pre-loop value forever.
+
+A typed deferred `mut` reserves that same binding register without marking it
+written. An assignment writes it normally. A read while the compiler still
+knows the cell is empty is declined as `deferred read before assignment`; no nil
+sentinel is emitted, because the reference reports `DefiniteAssignmentError`.
 
 Truth is decided by the **runtime**, not re-derived here:
 `IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey, and a second copy
@@ -423,6 +431,12 @@ and their calls, a named superclass with inherited methods and initializers,
 inherited `override` declarations, and declarative instance-method reopens. A
 reopen is registered as an ordinary transaction after the origin transaction,
 so it advances the active revision rather than being folded into revision one.
+The covered class surface also includes literal-initialized instance stored
+properties, literal-initialized `shared let`/`shared mut` class variables,
+property getter methods on bare member reads, Contract declarations with plain
+instance requirements, immutable `for` conformance lists, unqualified `impl`
+methods, checked `as Contract` views, qualified `view..member()` dispatch, and
+`Class.contracts()` metadata.
 
 Measured against the 783 source-carrying conformance vectors, this compiles 188
 of them. The number is reported rather than estimated because the first estimate
@@ -431,11 +445,11 @@ calls, while the measurement showed a single dominant one, `class`, at 325
 programs. What remains is now dispersed across many constructs rather than
 concentrated behind one wall.
 
-Declined, each by name: `declaration contract`, `declaration import`,
+Declined, each by name: `declaration import`,
 `declaration export`, and `declaration type alias`,
 `module` (open, mixin, generic or decorated), `module body` (a non-method
-statement), `method async`, `method contract implementation`, `method
-decorator`, `method generics`, `method property`, `method module`, `abstract
+statement), `method async`, `qualified contract implementation`, `method
+decorator`, `method generics`, `method module`, `abstract
 method`, `parameter` (rest, keyword or block),
 `statement <form>`, which names the form that stopped it - unsupported `for`,
 `match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
@@ -449,7 +463,7 @@ name), `nested closure`, `try exception context`, non-name `try catch filter`,
 `member`, `index receiver`, `hash key name`, `tuple`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`, `class generics`,
-`class implements`, `class mixin`, `class constraints`, `class meta deny`,
+`class mixin`, `class constraints`, `class meta deny`,
 `class superclass` and `class body`, plus the structural refusals
 `rejected source`,
 `rejected literal`, `empty program`, `empty body`, `array too long`,
@@ -462,8 +476,8 @@ fails the build.
 
 Named so the gaps are not mistaken for decisions:
 
-- **Method forms.** Async methods, Contract implementations, property methods,
-  generic methods, decorators, and non-positional/default parameters retain
+- **Method forms.** Async methods, qualified Contract implementations, property
+  setters, generic methods, decorators, and non-positional/default parameters retain
   runtime or type semantics the bytecode backend does not yet model.
 - **General iteration.** Array iteration with name bindings, unlabelled
   `break`, and unlabelled `continue` is covered. Hash, Range, String, and custom

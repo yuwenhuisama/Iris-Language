@@ -1219,6 +1219,39 @@ mod differential_tests {
         assert_eq!(observation, &Observation::Value("[9]".to_owned()));
     }
 
+    /// A deferred binding assigned inside a BRANCH is declined, not lowered.
+    ///
+    /// Assignment used to discharge the deferral wherever it appeared, so a
+    /// branch that may not run still marked the binding assigned. The read
+    /// after it lowered to a register the verifier then proved unwritten,
+    /// which surfaces as a machine failure - a COMPILER defect wearing a
+    /// program error's clothes. Declining keeps the boundary honest.
+    #[test]
+    fn a_deferred_binding_assigned_in_a_branch_is_declined() {
+        let bytecode = Bytecode;
+
+        for source in [
+            "module M { public fun r() -> Object { mut x: Integer; if true { x = 1 }; x } } M.r()",
+            "module M { public fun r() -> Object { mut x: Integer; if true { x = 1 } else { x = 2 }; x } } M.r()",
+        ] {
+            let Support::Unsupported(reason) = bytecode.execute(source) else {
+                unreachable!("a branch is not every path: {source}")
+            };
+            assert_eq!(reason, "deferred read before assignment", "{source}");
+        }
+
+        // Control: an assignment on the straight line DOES discharge it, so
+        // the decline is about the branch rather than about deferral itself.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { mut x: Integer; x = 5; x } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("a straight-line assignment must run: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("5".to_owned()));
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
@@ -1473,22 +1506,145 @@ mod differential_tests {
             );
         }
 
-        let bytecode = Bytecode;
-        for (source, construct) in [
+        let source = "class C { shared let @@value: Integer = 1 public fun value() -> Integer { @@value } } module M { public fun r() -> Object { C.new().value() } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends must read an immutable shared binding")
+        };
+        assert_ne!(observation, Observation::Value("nil".to_owned()));
+        assert_eq!(observation, Observation::Value("1".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_contract_conformance_and_dispatch() {
+        for (source, expected, wrong) in [
             (
-                "class C { shared let @@value: Integer = 1 } module M { public fun r() -> Object { 1 } } M.r()",
-                "class body",
+                "contract Named { fun name() -> String } class User for Named { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { let view = User.new() as Named; view..name() } } M.r()",
+                "\"iris\"",
+                "<method>",
             ),
             (
-                "module M { public fun r() -> Object { mut value: Integer; value } } M.r()",
-                "statement deferred",
+                "contract Named { fun name() -> String } class User for Named { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { User.contracts().length() } } M.r()",
+                "1",
+                "0",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run Contract machinery: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        let bytecode = Bytecode;
+        for (source, expected) in [
+            (
+                "contract Named { fun name() -> String } class User for Named { } module M { public fun r() -> Object { User.new() as Named } } M.r()",
+                "contract requirement absent",
+            ),
+            (
+                "contract Named { fun name() -> String } class User { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { 1 } } M.r()",
+                "contract implementation undeclared",
             ),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("the VM must decline unsupported binding state: {source}")
+                unreachable!("the VM must precisely decline invalid Contract promises: {source}")
             };
-            assert_eq!(reason, construct, "{source}");
-            assert_ne!(reason, "statement binding", "{source}");
+            assert_ne!(reason, "declaration contract", "{source}");
+            assert_eq!(reason, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_deferred_and_class_body_bindings() {
+        for (source, expected, wrong) in [
+            (
+                "class Counter { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { [Counter.new().bump(), Counter.new().bump()] } } M.r()",
+                "[2, 3]",
+                "[2, 2]",
+            ),
+            (
+                "module M { public fun r() -> Object { mut x: Integer; x = 5; x } } M.r()",
+                "5",
+                "nil",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run binding state: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        let source = "module M { public fun r() -> Object { mut x: Integer; x } } M.r()";
+        let (interpreter, bytecode) = both();
+        let Support::Ran(observation) = interpreter.execute(source) else {
+            unreachable!("the reference must diagnose a deferred read")
+        };
+        assert_ne!(observation, Observation::Value("nil".to_owned()));
+        assert!(
+            matches!(observation, Observation::Error(ref error) if error.contains("DefiniteAssignment"))
+        );
+        let Support::Unsupported(reason) = bytecode.execute(source) else {
+            unreachable!("the VM must decline a read it cannot prove initialized")
+        };
+        assert_ne!(reason, "statement deferred");
+        assert_eq!(reason, "deferred read before assignment");
+    }
+
+    #[test]
+    fn backends_agree_on_property_methods_and_stored_properties() {
+        for (source, expected, wrong) in [
+            (
+                "class Box { public property fun value() -> Integer { 7 } } module M { public fun r() -> Object { Box.new().value } } M.r()",
+                "7",
+                "<method>",
+            ),
+            (
+                "class Box { property value: Integer = 3 } module M { public fun r() -> Object { Box.new().value } } M.r()",
+                "3",
+                "nil",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run properties: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
         }
     }
 
