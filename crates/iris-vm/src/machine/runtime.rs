@@ -151,6 +151,26 @@ impl Machine {
         }
     }
 
+    /// Names the Class a dispatch failure happened on.
+    ///
+    /// The reference reports a missing selector as `MessageNotFound` naming
+    /// the receiver's CLASS, while a raw dispatch error carries only an
+    /// interned selector number. Two backends that both refuse a program but
+    /// describe the refusal differently still DISAGREE, so the name is
+    /// recovered from the program's class table.
+    pub(super) fn dispatch_class_name(
+        &self,
+        program: &Program,
+        classes: &[ClassId],
+        class: ClassId,
+    ) -> String {
+        classes
+            .iter()
+            .position(|known| *known == class)
+            .and_then(|index| program.classes.get(index))
+            .map_or_else(|| "Object".to_owned(), |entry| entry.name.clone())
+    }
+
     pub(super) fn initialize_properties(
         &mut self,
         program: &Program,

@@ -1626,6 +1626,44 @@ mod differential_tests {
         }
     }
 
+    /// `o.p = v` is a `p=` SEND, and a class without that setter is refused
+    /// by NAME rather than by an interned selector number.
+    ///
+    /// Writing the field directly would succeed where the reference refuses,
+    /// and would bypass a property setter's body where one exists. The
+    /// refusal has to match too: two backends that both reject a program but
+    /// describe the rejection differently still disagree, and a raw dispatch
+    /// error carries only `Selector(10002)` where the reference names the
+    /// Class and the selector.
+    #[test]
+    fn member_assignment_sends_a_setter_in_both_backends() {
+        let with_setter = "class C { public fun initialize() -> Nil { @v = 1; nil } \
+             public property fun v() -> Integer { @v } \
+             public property fun v=(n: Integer) -> Nil { @v = n; nil } } \
+             module M { public fun r() -> Object { let c = C.new(); c.v = 5; c.v } } M.r()";
+        let agreement = compare_backends(with_setter, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("the setter must run in both backends: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("5".to_owned()));
+
+        // Control: without the setter the send is refused, naming the Class
+        // and the `v=` selector, so the success above is the setter's doing
+        // rather than a field write that would have worked either way.
+        let without_setter = "class C { public fun initialize() -> Nil { @v = 1; nil } } \
+             module M { public fun r() -> Object { let c = C.new(); c.v = 5; 1 } } M.r()";
+        let agreement = compare_backends(without_setter, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error(
+                "MessageNotFound { receiver_class: \"C\", selector: \"v=\" }".to_owned()
+            )
+        );
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;

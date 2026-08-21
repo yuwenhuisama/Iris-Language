@@ -727,12 +727,35 @@ impl Machine {
                                 continue;
                             }
                         };
+                        let selector_name = selector.clone();
                         let selector = selector_id(program, selector)
                             .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                        let method = self
-                            .runtime
-                            .dispatch_instance(object, selector)
-                            .map_err(MachineError::Construction)?;
+                        let method = match self.runtime.dispatch_instance(object, selector) {
+                            Ok(method) => method,
+                            Err(error) => {
+                                // The reference names the CLASS and the
+                                // selector; a raw dispatch error carries only
+                                // an interned number, so two backends that
+                                // both refuse would still disagree.
+                                let class = self
+                                    .runtime
+                                    .class_of(object)
+                                    .map_err(MachineError::Construction)?;
+                                if matches!(
+                                    error,
+                                    iris_runtime::ConstructionError::Dispatch(
+                                        iris_runtime::DispatchError::MissingMethod { .. }
+                                    )
+                                ) {
+                                    return Err(MachineError::MessageNotFound {
+                                        receiver_class: self
+                                            .dispatch_class_name(program, classes, class),
+                                        selector: selector_name,
+                                    });
+                                }
+                                return Err(MachineError::Construction(error));
+                            }
+                        };
                         let function = usize::try_from(method.body().raw()).map_err(|_| {
                             MachineError::Invalid(VerifyError::UnknownFunction {
                                 function: usize::MAX,

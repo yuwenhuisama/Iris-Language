@@ -413,6 +413,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
+                // The reference lowers `o.p = v` to a `p=` SEND rather than to
+                // a stored slot, so a class without that setter answers
+                // MessageNotFound for `p=`. Writing a field directly would
+                // succeed where the reference refuses, and would bypass a
+                // property setter's body where one exists.
+                if let Expression::Member { receiver, selector } = left.as_ref() {
+                    let receiver = self.expression(receiver)?;
+                    let (first, count) = self.argument_window(std::slice::from_ref(right))?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Send {
+                        destination,
+                        receiver,
+                        selector: format!("{selector}="),
+                        first,
+                        count,
+                    });
+                    return Ok(destination);
+                }
                 let Expression::Name(name) = left.as_ref() else {
                     return Err(CompileError::new("assignment target"));
                 };
