@@ -41,7 +41,7 @@ pub enum MachineError {
         selector: String,
     },
     /// An Iris value propagated beyond the current frame.
-    Raised(Value),
+    Raised(Box<(Value, Value)>),
 }
 
 /// Why a program is not well formed.
@@ -140,8 +140,18 @@ fn verify_body(
                 }
             }
             Instruction::EnterTry {
-                handler, cleanup, ..
+                handler,
+                cleanup,
+                exception,
+                context,
             } => {
+                for register in [exception, context] {
+                    if *register as usize >= registers {
+                        return Err(VerifyError::RegisterOutOfRange {
+                            register: *register,
+                        });
+                    }
+                }
                 for target in [handler, cleanup] {
                     if *target > instructions.len() {
                         return Err(VerifyError::JumpOutOfRange { target: *target });
@@ -236,7 +246,7 @@ fn verify_body(
         let successors: Vec<(usize, Vec<bool>)> = match instruction {
             // A return leaves the frame, so it has no successor at all.
             Instruction::Return { .. } => Vec::new(),
-            Instruction::Raise { .. } => Vec::new(),
+            Instruction::Raise { .. } | Instruction::Propagate { .. } => Vec::new(),
             Instruction::Jump { target } => vec![(*target, next.clone())],
             // Both edges are live: the branch may be taken or not.
             Instruction::JumpUnless { target, .. } => {
@@ -246,10 +256,14 @@ fn verify_body(
                 vec![(*exhausted, state.clone()), (at + 1, next.clone())]
             }
             Instruction::EnterTry {
-                handler, exception, ..
+                handler,
+                exception,
+                context,
+                ..
             } => {
                 let mut exceptional = state.clone();
                 exceptional[*exception as usize] = true;
+                exceptional[*context as usize] = true;
                 vec![(*handler, exceptional), (at + 1, next.clone())]
             }
             _ => vec![(at + 1, next.clone())],
@@ -325,7 +339,7 @@ fn fall_through(
         let Some(state) = &entry[at] else { continue };
         let leaves = match instruction {
             Instruction::Return { .. } => false,
-            Instruction::Raise { .. } => false,
+            Instruction::Raise { .. } | Instruction::Propagate { .. } => false,
             Instruction::Jump { target } => *target >= instructions.len(),
             Instruction::JumpUnless { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
@@ -367,7 +381,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
         Instruction::JumpUnless { condition, .. } => vec![*condition],
-        Instruction::Return { value } | Instruction::Raise { value } => vec![*value],
+        Instruction::Return { value } | Instruction::Raise { value, .. } => vec![*value],
+        Instruction::Propagate { value, context } => vec![*value, *context],
         Instruction::BuildArray { first, count, .. }
         | Instruction::BuildTuple { first, count, .. }
         | Instruction::Call { first, count, .. }

@@ -33,16 +33,18 @@ impl Machine {
         }
 
         let mut counter = 0;
-        let mut handlers: Vec<(usize, Register)> = Vec::new();
+        let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
         macro_rules! run_frame {
             ($label:lifetime, $call:expr) => {
                 match $call {
                     Ok(values) => values,
-                    Err(MachineError::Raised(value)) => {
-                        let Some((handler, exception)) = handlers.pop() else {
-                            return Err(MachineError::Raised(value));
+                    Err(MachineError::Raised(propagation)) => {
+                        let (value, context) = *propagation;
+                        let Some((handler, exception, context_register)) = handlers.pop() else {
+                            return Err(MachineError::Raised(Box::new((value, context))));
                         };
                         registers[exception as usize] = value;
+                        registers[context_register as usize] = context;
                         counter = handler;
                         continue $label;
                     }
@@ -208,7 +210,19 @@ impl Machine {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
-                    if let Value::Class(class) = registers[*receiver as usize] {
+                    if let Value::ExceptionContext(_, value, cause, suppressed, sites, location) =
+                        &registers[*receiver as usize]
+                    {
+                        match selector.as_str() {
+                            "value" => (**value).clone(),
+                            "cause" => (**cause).clone(),
+                            "suppressed" => Value::ReadonlyArray(suppressed.clone()),
+                            "re_raise_sites" => Value::ReadonlyArray(sites.clone()),
+                            "original_stack" => Value::ReadonlyArray(Vec::new()),
+                            "raise_location" => (**location).clone(),
+                            _ => return Err(MachineError::UnknownSelector(selector.clone())),
+                        }
+                    } else if let Value::Class(class) = registers[*receiver as usize] {
                         match selector.as_str() {
                             "type" => Value::Type(class, Vec::new()),
                             "name" => classes
@@ -444,9 +458,12 @@ impl Machine {
                     Value::Integer(value)
                 }
                 Instruction::EnterTry {
-                    handler, exception, ..
+                    handler,
+                    exception,
+                    context,
+                    ..
                 } => {
-                    handlers.push((*handler, *exception));
+                    handlers.push((*handler, *exception, *context));
                     continue;
                 }
                 Instruction::CatchMatch {
@@ -461,12 +478,43 @@ impl Machine {
                     handlers.pop();
                     continue;
                 }
-                Instruction::Raise { value } => {
+                Instruction::Raise {
+                    value,
+                    cause,
+                    offset,
+                } => {
                     let value = registers[*value as usize].clone();
-                    let Some((handler, exception)) = handlers.pop() else {
-                        return Err(MachineError::Raised(value));
+                    let cause = cause
+                        .map(|register| registers[register as usize].clone())
+                        .unwrap_or(Value::Nil);
+                    if !matches!(cause, Value::Nil | Value::ExceptionContext(..)) {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    }
+                    let context = Value::ExceptionContext(
+                        iris_runtime::ObjectId::new(self.next_context),
+                        Box::new(value.clone()),
+                        Box::new(cause),
+                        Vec::new(),
+                        Vec::new(),
+                        Box::new(source_location(&program.source, *offset)),
+                    );
+                    self.next_context = self.next_context.saturating_add(1);
+                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                        return Err(MachineError::Raised(Box::new((value, context))));
                     };
                     registers[exception as usize] = value;
+                    registers[context_register as usize] = context;
+                    counter = handler;
+                    continue;
+                }
+                Instruction::Propagate { value, context } => {
+                    let value = registers[*value as usize].clone();
+                    let context = registers[*context as usize].clone();
+                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                        return Err(MachineError::Raised(Box::new((value, context))));
+                    };
+                    registers[exception as usize] = value;
+                    registers[context_register as usize] = context;
                     counter = handler;
                     continue;
                 }
@@ -970,4 +1018,20 @@ impl Machine {
         }
         Ok(registers)
     }
+}
+
+fn source_location(source: &str, offset: usize) -> Value {
+    let consumed = source.get(..offset).unwrap_or(source);
+    let line = consumed.matches('\n').count() + 1;
+    let column = consumed
+        .rfind('\n')
+        .map_or(consumed.chars().count(), |last| {
+            consumed[last + 1..].chars().count()
+        })
+        + 1;
+    Value::SourceLocation(
+        "<source>".to_owned(),
+        u32::try_from(line).unwrap_or(u32::MAX),
+        u32::try_from(column).unwrap_or(u32::MAX),
+    )
 }

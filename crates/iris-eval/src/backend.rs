@@ -132,6 +132,9 @@ impl Backend for Bytecode {
                         selector,
                     }
                 ))),
+                Err(iris_vm::MachineError::Raised(propagation)) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::Raised(propagation.0))),
+                ),
                 // A machine defect is not a program observation.
                 Err(defect) => Support::Unsupported(format!("machine defect: {defect:?}")),
             },
@@ -825,19 +828,122 @@ mod differential_tests {
         assert_ne!(observation, Observation::Value("10".to_owned()));
     }
 
-    /// ExceptionContext carries propagation metadata the register VM does not
-    /// yet model, so accepting it as the raised value would be false agreement.
     #[test]
-    fn bytecode_declines_exception_context_binding_precisely() {
-        let bytecode = Bytecode;
-        let source = "module M { public fun r() -> Object { try { raise 1 } catch e, context { e } } } M.r()";
+    fn backends_agree_on_exception_context_values_and_unused_bindings() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            (
+                "try { raise :x } catch e, context { context.value }",
+                ":x",
+                "try { raise :y } catch e, context { context.value }",
+            ),
+            (
+                "try { raise :x } catch e, context { e }",
+                ":x",
+                "try { raise :y } catch e, context { e }",
+            ),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
 
-        let Support::Unsupported(reason) = bytecode.execute(source) else {
-            unreachable!("the bytecode backend has no ExceptionContext model")
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends bind the exception context for {expression}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends run the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation);
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_exception_context_causes() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            (
+                "try { try { raise :first } catch e, first { raise :second } } catch e, second { second.cause.value }",
+                ":first",
+                "try { try { raise :other } catch e, first { raise :second } } catch e, second { second.cause.value }",
+            ),
+            (
+                "try { try { raise :first } catch e, first { raise :second from first } } catch e, second { second.cause.value }",
+                ":first",
+                "try { try { raise :other } catch e, first { raise :second from first } } catch e, second { second.cause.value }",
+            ),
+            (
+                "try { try { raise :first } catch e, first { raise :second from nil } } catch e, second { second.cause }",
+                "nil",
+                "try { try { raise :first } catch e, first { raise :second } } catch e, second { second.cause }",
+            ),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends preserve the cause for {expression}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends run the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation);
+        }
+    }
+
+    #[test]
+    fn backends_give_each_explicit_raise_a_distinct_context_identity() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise e } } catch e, second { second.same?(second.cause) } } } M.r()";
+        let control = "module M { public fun r() -> Object { try { raise :x } catch e, context { context.same?(context) } } } M.r()";
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends distinguish propagation identities")
         };
+        assert_eq!(observation, Observation::Value("false".to_owned()));
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &backends)
+        else {
+            unreachable!("both backends run the identity negative control")
+        };
+        assert_eq!(control_observation, Observation::Value("true".to_owned()));
+        assert_ne!(control_observation, observation);
+    }
 
-        assert_eq!(reason, "try exception context");
-        assert_ne!(reason, "try filtered catch");
+    #[test]
+    fn backends_propagate_an_inner_context_to_an_outer_handler() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "module M { public fun r() -> Object { try { try { raise :inner } catch e: Integer, ignored { :wrong } } catch e, context { context.value } } } M.r()";
+        let control = "module M { public fun r() -> Object { try { try { raise :other } catch e: Integer, ignored { :wrong } } catch e, context { context.value } } } M.r()";
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends propagate the inner context")
+        };
+        assert_eq!(observation, Observation::Value(":inner".to_owned()));
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &backends)
+        else {
+            unreachable!("both backends run the nested negative control")
+        };
+        assert_ne!(control_observation, observation);
     }
 
     /// Float agreement is compared by BITS, which is what makes a one-ulp
@@ -1664,25 +1770,115 @@ mod differential_tests {
         );
     }
 
+    /// `catch e, context` binds the propagation context both backends build.
+    ///
+    /// C056 gives every raise a FRESH context with a distinct identity, C057
+    /// chains an explicit `from cause` and lets `from nil` suppress chaining,
+    /// and C067 makes context equality IDENTITY rather than structural - two
+    /// contexts wrapping the same value are different contexts.
+    #[test]
+    fn backends_agree_on_the_bound_exception_context() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { \
+                 try { raise :x } catch e, ctx { ctx.value } } } M.r()",
+                ":x",
+            ),
+            // No `from`, so nothing is chained.
+            (
+                "module M { public fun r() -> Object { \
+                 try { raise :x } catch e, ctx { ctx.cause } } } M.r()",
+                "nil",
+            ),
+            (
+                "module M { public fun r() -> Object { try { \
+                 try { raise :inner } catch a, c1 { raise :outer from c1 } \
+                 } catch b, c2 { c2.cause.value } } } M.r()",
+                ":inner",
+            ),
+            // C057: `from nil` SUPPRESSES the chaining that would otherwise
+            // happen while handling another exception.
+            (
+                "module M { public fun r() -> Object { try { \
+                 try { raise :inner } catch a, c1 { raise :outer from nil } \
+                 } catch b, c2 { c2.cause } } } M.r()",
+                "nil",
+            ),
+            // C067: separate propagation events are separate contexts even
+            // when they carry the same value.
+            (
+                "module M { public fun r() -> Object { \
+                 let a = try { raise :x } catch e, c { c }; \
+                 let b = try { raise :x } catch e, c { c }; a.same?(b) } } M.r()",
+                "false",
+            ),
+            (
+                "module M { public fun r() -> Object { \
+                 let a = try { raise :x } catch e, c { c }; a.same?(a) } } M.r()",
+                "true",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    /// A refusal names the same Class in both backends.
+    ///
+    /// The backend's class-name table stopped at the families it had reached,
+    /// so a value outside it reported `Object`. Both backends then rejected
+    /// the program while DESCRIBING the rejection differently, which is a
+    /// disagreement even though neither ran it.
+    #[test]
+    fn a_refusal_names_the_same_class_in_both_backends() {
+        let readonly = "module M { public fun r() -> Object { \
+             try { raise :x } catch e, ctx { ctx.suppressed.to_string() } } } M.r()";
+        let agreement = compare_backends(readonly, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error(
+                "MessageNotFound { receiver_class: \"ReadonlyArray\", selector: \"to_string\" }"
+                    .to_owned()
+            )
+        );
+
+        // Control: a family that was ALREADY named keeps its name, so the fix
+        // added entries rather than renaming what worked.
+        let tuple = "module M { public fun r() -> Object { (1, 2).to_string() } } M.r()";
+        let agreement = compare_backends(tuple, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error(
+                "MessageNotFound { receiver_class: \"Tuple\", selector: \"to_string\" }".to_owned()
+            )
+        );
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
+        let source = "for [x] in [[1]] { x }";
 
-        for (source, construct) in [
-            (
-                "try { 1 } catch error, context { error }",
-                "try exception context",
-            ),
-            ("for [x] in [[1]] { x }", "statement for"),
-        ] {
-            let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("the VM must not approximate the declined construct: {source}")
-            };
-            // A declined construct must be named for ITSELF rather than for
-            // whatever call encloses it, so the boundary says what is missing.
-            assert!(!reason.starts_with("call"), "{source}: {reason}");
-            assert_eq!(reason, construct, "{source}");
-        }
+        let Support::Unsupported(reason) = bytecode.execute(source) else {
+            unreachable!("the VM must not approximate the declined construct: {source}")
+        };
+        // A declined construct must be named for ITSELF rather than for
+        // whatever call encloses it, so the boundary says what is missing.
+        assert!(!reason.starts_with("call"), "{source}: {reason}");
+        assert_eq!(reason, "statement for", "{source}");
     }
 
     #[test]

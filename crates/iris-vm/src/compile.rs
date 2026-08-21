@@ -126,6 +126,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     drop(lowering);
     functions.extend(closures);
     Ok(Program {
+        source: source.to_owned(),
         instructions,
         registers,
         result,

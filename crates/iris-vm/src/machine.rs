@@ -32,6 +32,7 @@ pub struct Machine {
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
     globals: std::collections::HashMap<String, Value>,
     next_closure: u64,
+    next_context: u64,
 }
 
 impl Machine {
@@ -48,6 +49,7 @@ impl Machine {
             closures: std::collections::HashMap::new(),
             globals: std::collections::HashMap::new(),
             next_closure: 1,
+            next_context: 900_000,
         })
     }
 
@@ -90,6 +92,26 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         Value::Object(_) => "Object",
         Value::Closure(_) => "Closure",
         Value::BoundMethod(_) => "BoundMethod",
+        Value::ExceptionContext(..) => "ExceptionContext",
+        // Every family the reference names must be named the SAME way here.
+        // A refusal reporting `Object` where the reference reports
+        // `ReadonlyArray` is still a DISAGREEMENT: both backends reject the
+        // program, and they describe the rejection differently.
+        Value::ReadonlyArray(_) => "ReadonlyArray",
+        Value::ContractView(..) => "ContractView",
+        Value::Contract(_) => "Contract",
+        Value::SourceLocation(..) => "SourceLocation",
+        Value::StackFrame(..) => "StackFrame",
+        Value::RaiseSite(_) => "RaiseSite",
+        Value::Method(_) => "Method",
+        Value::MutableString(_) => "MutableString",
+        Value::Bytes(_) => "Bytes",
+        Value::ByteArray(_) => "ByteArray",
+        Value::Regex(_) => "Regex",
+        Value::Match(_) => "Match",
+        Value::Gate(_) => "Gate",
+        Value::Task(..) => "Task",
+        Value::ComposedType(_) => "Type",
         _ => "Object",
     }
 }

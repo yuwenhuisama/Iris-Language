@@ -336,15 +336,24 @@ every `MakeClosure` carries its final function-table index.
 
 | Instruction | Effect |
 | --- | --- |
-| `EnterTry { handler, cleanup, exception }` | Pushes a handler and names the register receiving a raised value. |
+| `EnterTry { handler, cleanup, exception, context }` | Pushes a handler and names the registers receiving the raised value and its `ExceptionContext`. |
 | `CatchMatch { destination, exception, class }` | Writes whether the raised value matches the named Class filter. |
 | `LeaveTry` | Removes the handler after normal completion. |
-| `Raise { value }` | Transfers to the innermost handler or propagates from the frame. |
+| `Raise { value, cause, offset }` | Creates a fresh propagation context, then transfers to the innermost handler or propagates from the frame. |
+| `Propagate { value, context }` | Transfers an existing propagation context through another handler. |
 
 Lowering emits cleanup on the normal and exceptional routes as distinct CFG
 blocks, so exactly one route reaches it. A raise from a called frame is returned
 as an explicit machine outcome and routed through the caller's handler stack;
 Rust unwinding is not involved.
+
+Every explicit `raise` allocates a distinct context identity. Its `value`,
+explicit or automatic `cause`, empty `suppressed` and `re_raise_sites`
+collections, empty `original_stack`, and initial `raise_location` are observable.
+`from nil` suppresses automatic chaining. Context `same?` compares identity, so
+two explicit raises of the same value remain distinct. The catch edge marks both
+the exception and context registers written from protected-region entry state;
+writes later in the protected body do not leak into the handler.
 
 ### 3.8 Float reinterpretation
 
@@ -450,7 +459,9 @@ unary selectors listed in §3.3; identity (`same?`, in both its infix and method
 spellings); array literals; Hash literals with explicit keys; indexing an Array
 or Hash; `let` and `mut` bindings; assignment to a bound name; statement
 sequences; `if`/`else` as a value; `while` loops; `return`; ordered catch clauses
-with named Class filters, `try`/`catch`/`finally`, and explicit `raise`; Closure capture and `.call`;
+with named Class filters, `try`/`catch`/`finally`, explicit `raise`, and
+`catch value, context` bindings exposing `value`, `cause`, `suppressed`,
+`re_raise_sites`, `original_stack`, and `raise_location`; Closure capture and `.call`;
 `Float32.from_bits`/`Float64.from_bits`; `to_bits`; `hash`; native selectors on
 arbitrary receivers; authored Array, Hash, and String sends on literal,
 aggregate, bound-name, grouped, and call-result receivers; **plain module functions** with positional parameters,
@@ -501,7 +512,7 @@ method`, `parameter` (rest, keyword or block),
 than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
-name), `nested closure`, `try exception context`, non-name `try catch filter`,
+name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name unbound`, `name assignment unbound`,
 `member`, `index receiver`, `hash key name`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
@@ -530,9 +541,11 @@ Named so the gaps are not mistaken for decisions:
 - **Nested Closures.** A Closure may capture from its immediate defining frame;
   recursively compiling Closure bodies needs a stable function-index allocator
   before nested Closure literals can be admitted without misaddressing code.
-- **Exception contexts.** Full `ExceptionContext` construction requires
-  propagation identity, source locations, causes, suppression and re-raise
-  sites; the VM declines context bindings rather than fabricating metadata.
+- **Exception context mutation and cleanup metadata.** Catch bindings preserve
+  explicit propagation identity, causes, initial source locations, and the
+  read-only context collections. Bare `raise`, cleanup suppression, getter
+  replacement, and writes to get-only context properties remain outside the VM
+  surface rather than being approximated.
 - **Collection.** The backend now owns a `Runtime`, so it allocates real
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set

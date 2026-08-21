@@ -71,6 +71,9 @@ mod tests {
             "contract C { fun v() -> Integer } class A for C { public impl fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
             "class A { public property fun v() -> Integer { 4 } } module M { public fun r() -> Object { A.new().v } } M.r()",
             "class A { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { A.new().bump() } } M.r()",
+            "module M { public fun r() -> Object { try { raise :x } catch e, context { context.value } } } M.r()",
+            "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise :y from first } } catch e, second { second.cause.value } } } M.r()",
+            "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise e } } catch e, second { second.same?(second.cause) } } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");
@@ -192,6 +195,7 @@ mod tests {
                 handler: 5,
                 cleanup: 6,
                 exception: 0,
+                context: 2,
             },
             Instruction::LoadInteger {
                 destination: 1,
@@ -224,6 +228,57 @@ mod tests {
         assert_ne!(
             verify(&compiled),
             Err(VerifyError::ReadBeforeWrite { register: 1 })
+        );
+    }
+
+    #[test]
+    fn catch_entry_writes_both_exception_registers() {
+        let compiled = program(
+            "module M { public fun r() -> Object { try { raise :x } catch e, context { context.value } } } M.r()",
+        );
+
+        assert_eq!(verify(&compiled), Ok(()));
+        let function = &compiled.functions[0];
+        let Some(Instruction::EnterTry {
+            exception, context, ..
+        }) = function.instructions.first()
+        else {
+            unreachable!("the method begins with its protected region")
+        };
+        assert_ne!(exception, context);
+
+        let mut malformed = compiled.clone();
+        let function = &mut malformed.functions[0];
+        let Some(Instruction::EnterTry { context, .. }) = function.instructions.first_mut() else {
+            unreachable!("the method begins with its protected region")
+        };
+        *context = Register::try_from(function.registers).unwrap_or(Register::MAX);
+        assert!(matches!(
+            verify(&malformed),
+            Err(VerifyError::RegisterOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn explicit_raise_records_its_initial_source_location() {
+        let source = "module M { public fun r() -> Object {\n  try { raise :x } catch e, context { context.raise_location }\n} } M.r()";
+        let compiled = program(source);
+
+        assert_eq!(
+            run(&compiled),
+            Ok(iris_runtime::Value::SourceLocation(
+                "<source>".to_owned(),
+                2,
+                9
+            ))
+        );
+        assert_ne!(
+            run(&compiled),
+            Ok(iris_runtime::Value::SourceLocation(
+                "<source>".to_owned(),
+                1,
+                1
+            ))
         );
     }
 
@@ -604,7 +659,6 @@ mod ir_document_tests {
             ("unbound_name", "name unbound"),
             ("1[0]", "index receiver"),
             ("%{ a: 1 }", "hash key name"),
-            ("try { 1 } catch e, context { e }", "try exception context"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")
@@ -728,15 +782,32 @@ mod catch_edge_audit {
             unreachable!("the program declares one function")
         };
 
-        // Register 2 is written by the try BODY, so a raise reaches the
-        // handler without it.
-        function.instructions[7] = Instruction::Move {
+        let Some(Instruction::EnterTry {
+            handler, exception, ..
+        }) = function.instructions.first()
+        else {
+            unreachable!("the method begins with its protected region")
+        };
+        let handler = *handler;
+        let exception = *exception;
+        let Some(body_value) = function
+            .instructions
+            .get(1)
+            .and_then(Instruction::destination)
+        else {
+            unreachable!("the protected body produces a value")
+        };
+        // The body value is written after the protected-region entry, so a
+        // raise can reach the handler without it.
+        function.instructions[handler] = Instruction::Move {
             destination: 0,
-            source: 2,
+            source: body_value,
         };
         assert_eq!(
             verify(&compiled),
-            Err(VerifyError::ReadBeforeWrite { register: 2 })
+            Err(VerifyError::ReadBeforeWrite {
+                register: body_value
+            })
         );
 
         // Control: reading the exception register the edge DOES write is
@@ -745,9 +816,9 @@ mod catch_edge_audit {
         let Some(function) = compiled.functions.first_mut() else {
             unreachable!("the program declares one function")
         };
-        function.instructions[7] = Instruction::Move {
+        function.instructions[handler] = Instruction::Move {
             destination: 0,
-            source: 1,
+            source: exception,
         };
         assert_eq!(verify(&compiled), Ok(()));
     }

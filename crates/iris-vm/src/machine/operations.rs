@@ -112,6 +112,9 @@ impl Machine {
             (Value::Class(left), Value::Class(right)) => left == right,
             (Value::Array(left), Value::Array(right)) => left.same(right),
             (Value::Hash(left), Value::Hash(right)) => left.same(right),
+            (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {
+                left == right
+            }
             _ => return Err(MachineError::Kernel(KernelError::Identity)),
         };
         Ok(Value::Bool(same))

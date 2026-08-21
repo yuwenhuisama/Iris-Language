@@ -55,6 +55,7 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) declared_functions: usize,
     pub(super) closures: &'a mut Vec<Function>,
     pub(super) loops: Vec<LoopContext>,
+    pub(super) exception_contexts: Vec<Register>,
 }
 
 pub(super) struct LoopContext {
@@ -81,6 +82,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             declared_functions,
             closures,
             loops: Vec::new(),
+            exception_contexts: Vec::new(),
         }
     }
 

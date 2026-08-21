@@ -178,9 +178,17 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::LoadNil { destination });
                 Ok(destination)
             }
-            Statement::Raise(Some(raise)) if raise.cause.is_none() => {
+            Statement::Raise(Some(raise)) => {
                 let value = self.expression(&raise.value)?;
-                self.instructions.push(Instruction::Raise { value });
+                let cause = match &raise.cause {
+                    Some(cause) => Some(self.expression(cause)?),
+                    None => self.exception_contexts.last().copied(),
+                };
+                self.instructions.push(Instruction::Raise {
+                    value,
+                    cause,
+                    offset: raise.offset,
+                });
                 Ok(value)
             }
             Statement::Try {
@@ -331,9 +339,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
         catches: &[iris_syntax::CatchClause],
         finally: &Option<Vec<Statement>>,
     ) -> Result<Register, CompileError> {
-        if catches.iter().any(|catch| catch.context.is_some()) {
-            return Err(CompileError::new("try exception context"));
-        }
         if catches.iter().any(|catch| {
             catch
                 .filter
@@ -344,11 +349,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
         let destination = self.allocate()?;
         let exception = self.allocate()?;
+        let context = self.allocate()?;
         let enter = self.instructions.len();
         self.instructions.push(Instruction::EnterTry {
             handler: 0,
             cleanup: 0,
             exception,
+            context,
         });
         let value = self.body(body)?;
         self.instructions.push(Instruction::LeaveTry);
@@ -384,12 +391,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 handler: 0,
                 cleanup: 0,
                 exception,
+                context,
             });
             let outer = self.names.len();
             if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
                 self.names.push((name.clone(), exception));
             }
+            if let Some(name) = &catch.context {
+                self.names.push((name.clone(), context));
+            }
+            self.exception_contexts.push(context);
             let caught = self.body(&catch.body)?;
+            self.exception_contexts.pop();
             self.names.truncate(outer);
             self.instructions.push(Instruction::LeaveTry);
             self.instructions.push(Instruction::Move {
@@ -404,8 +417,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             if let Some(finally) = finally {
                 self.body(finally)?;
             }
-            self.instructions
-                .push(Instruction::Raise { value: exception });
+            self.instructions.push(Instruction::Propagate {
+                value: exception,
+                context,
+            });
             if let Some(mismatch) = mismatch {
                 let next = self.instructions.len();
                 self.patch(mismatch, next)?;
@@ -417,8 +432,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             if let Some(finally) = finally {
                 self.body(finally)?;
             }
-            self.instructions
-                .push(Instruction::Raise { value: exception });
+            self.instructions.push(Instruction::Propagate {
+                value: exception,
+                context,
+            });
         }
 
         let cleanup = self.instructions.len();

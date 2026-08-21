@@ -195,6 +195,7 @@ pub enum Instruction {
         handler: usize,
         cleanup: usize,
         exception: Register,
+        context: Register,
     },
     CatchMatch {
         destination: Register,
@@ -206,6 +207,12 @@ pub enum Instruction {
     /// Raises the value in the current frame.
     Raise {
         value: Register,
+        cause: Option<Register>,
+        offset: usize,
+    },
+    Propagate {
+        value: Register,
+        context: Register,
     },
     /// Allocates a Closure with a snapshot of a contiguous capture window.
     MakeClosure {
@@ -335,6 +342,7 @@ impl Instruction {
             | Self::EnterTry { .. }
             | Self::LeaveTry
             | Self::Raise { .. }
+            | Self::Propagate { .. }
             | Self::Return { .. } => None,
             Self::DeclareDeferred { .. } => None,
             Self::ArrayVersion { destination, .. } => Some(*destination),
@@ -380,6 +388,7 @@ pub struct Function {
 /// A compiled program.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
+    pub(crate) source: String,
     pub(crate) instructions: Vec<Instruction>,
     /// How many registers the top-level frame uses.
     pub(crate) registers: usize,
