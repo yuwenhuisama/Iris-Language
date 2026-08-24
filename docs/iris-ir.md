@@ -156,6 +156,7 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadNil { dst }` | nil. |
 | `LoadIterationDone { dst }` | Loads the unique identity-bearing `Iteration.done` singleton. |
 | `LoadClass { dst, class }` | The runtime Class object registered at `class`. |
+| `LoadType { dst, class }` | The interned nominal Type object for the runtime Class registered at `class`. |
 | `LoadContract { dst, contract }` | The immutable Contract object registered at `contract`. |
 | `LoadBuiltinClass { dst, name }` | Resolves a built-in nominal name such as `Integer` to its Class object. |
 | `LoadBuiltinType { dst, name }` | Resolves a built-in nominal name to its interned Type object. |
@@ -170,6 +171,14 @@ row exists to detect.
 Integers are carried as **canonical decimal text** rather than a machine
 integer, because `IRIS-V1-RUNTIME-V052` requires arbitrary precision with no
 representation type split.
+
+Generic Class and Method parameters are erased by this backend. A closed
+construction such as `Box<Integer>` loads the same Class identity as `Box`, so
+construction, class methods, identity checks, instance dispatch, and `is`
+continue through the ordinary Class instructions. The closed spelling is only
+retained long enough to forbid `open`; an unknown construction such as
+`Array<Integer>` still raises `NameError` rather than making built-in Classes
+generic.
 
 ### 3.2 Data movement
 
@@ -602,7 +611,7 @@ Declined, each by name: `declaration import`,
 `declaration export`, and `declaration type alias`,
 `module` (open, mixin, generic or decorated), `module body` (a non-method
 statement), `method async`, `qualified contract implementation`, `method
-decorator`, `method generics`, `method module`, `abstract
+ decorator`, `method module`, `abstract
 method`, `parameter` (rest, keyword or block),
 `statement <form>`, which names the form that stopped it - unsupported `for`,
 `match`, `binding`, `global`, `shared`, `deferred`, `stored property`,
@@ -615,7 +624,7 @@ name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name unbound`, `name assignment unbound`,
 `member`, `index receiver`, `hash key name`, `await`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
-`class reopen class method`, `class generics`,
+`class reopen class method`,
 `class mixin`, `class constraints`, `class meta deny`,
 `class superclass` and `class body`, plus the structural refusals
 `rejected source`,
@@ -630,7 +639,7 @@ fails the build.
 Named so the gaps are not mistaken for decisions:
 
 - **Method forms.** Async methods, qualified Contract implementations, property
-  setters, generic methods, decorators, and non-positional/default parameters retain
+  setters, decorators, and non-positional/default parameters retain
   runtime or type semantics the bytecode backend does not yet model.
 - **General iteration.** Array iteration with name bindings, unlabelled
   `break`, and unlabelled `continue` is covered. Hash, Range, String, and custom

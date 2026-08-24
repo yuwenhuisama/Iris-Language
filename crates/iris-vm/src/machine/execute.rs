@@ -121,6 +121,12 @@ impl Machine {
                     };
                     Value::Class(class)
                 }
+                Instruction::LoadType { class, .. } => {
+                    let Some(class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    Value::Type(class, Vec::new())
+                }
                 Instruction::LoadContract { contract, .. } => {
                     Value::Contract(ContractId::new(*contract as u64 + 1))
                 }
@@ -1345,6 +1351,9 @@ impl Machine {
                 Instruction::OpenClass {
                     class, callback, ..
                 } => dispatch!({
+                    if program.classes[*class].generic {
+                        return Err(MachineError::ClosedGenericOpenForbidden);
+                    }
                     let Some(runtime_class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
                     };

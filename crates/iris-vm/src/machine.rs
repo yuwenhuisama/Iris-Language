@@ -140,6 +140,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::AuditHistoryUnavailable => Some("AuditHistoryUnavailableError"),
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
+        MachineError::ClosedGenericOpenForbidden => Some("CLOSED_GENERIC_OPEN_FORBIDDEN"),
         _ => None,
     }
 }

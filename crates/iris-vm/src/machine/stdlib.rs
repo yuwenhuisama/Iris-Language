@@ -254,7 +254,20 @@ impl Machine {
             }
             _ => None,
         };
-        if result.is_none() && authored_selector(selector) {
+        // A USER-DEFINED receiver dispatches through its own class, so an
+        // authored name it happens to share is not a refusal - it simply is
+        // not the authored surface's business. Refusing here made every
+        // authored spelling unusable as a method name: `class C { fun first()
+        // }` reported MessageNotFound for a method the class plainly declares.
+        //
+        // The refusal still applies to the BUILT-IN families, where an
+        // authored name that answered nothing means the selector genuinely is
+        // absent - that is what pins Array `size` as MessageNotFound rather
+        // than letting it fall through to a generic dispatch error.
+        if result.is_none()
+            && authored_selector(selector)
+            && !matches!(receiver, Value::Object(_) | Value::Class(_))
+        {
             return Err(MachineError::MessageNotFound {
                 receiver_class: value_class_name(receiver).to_owned(),
                 selector: selector.to_owned(),

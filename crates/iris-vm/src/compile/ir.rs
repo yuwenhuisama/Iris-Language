@@ -60,6 +60,10 @@ pub enum Instruction {
         destination: Register,
         class: usize,
     },
+    LoadType {
+        destination: Register,
+        class: usize,
+    },
     LoadContract {
         destination: Register,
         contract: usize,
@@ -351,6 +355,7 @@ impl Instruction {
             | Self::LoadIterationDone { destination }
             | Self::BuildIterationYield { destination, .. }
             | Self::LoadClass { destination, .. }
+            | Self::LoadType { destination, .. }
             | Self::LoadContract { destination, .. }
             | Self::LoadBuiltinType { destination, .. }
             | Self::LoadBuiltinClass { destination, .. }
@@ -472,6 +477,7 @@ pub(crate) struct ContractRequirement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Class {
     pub(crate) name: String,
+    pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,
     pub(crate) class_methods: Vec<(String, usize)>,

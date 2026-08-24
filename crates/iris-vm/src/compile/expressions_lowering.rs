@@ -357,6 +357,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Err(CompileError::new("expression contract view outside call"))
             }
             Expression::ReifiedType(iris_syntax::TypeExpression::Name(name)) => {
+                if let Some(class) = self.class_index(name) {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::LoadType { destination, class });
+                    return Ok(destination);
+                }
                 if !matches!(
                     name.as_str(),
                     "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
@@ -368,6 +374,33 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     name: name.clone(),
                 });
+                Ok(destination)
+            }
+            Expression::ReifiedType(iris_syntax::TypeExpression::Generic { name, .. }) => {
+                let class = self
+                    .class_index(name)
+                    .ok_or_else(|| CompileError::new("expression reified type"))?;
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::LoadType { destination, class });
+                Ok(destination)
+            }
+            Expression::ClosedGeneric { name, .. } => {
+                let destination = self.allocate()?;
+                if let Some(class) = self.class_index(name) {
+                    self.instructions
+                        .push(Instruction::LoadClass { destination, class });
+                } else if let Some(contract) = self.contract_index(name) {
+                    self.instructions.push(Instruction::LoadContract {
+                        destination,
+                        contract,
+                    });
+                } else {
+                    self.instructions.push(Instruction::LoadGlobal {
+                        destination,
+                        name: name.clone(),
+                    });
+                }
                 Ok(destination)
             }
             // Assignment writes the name's EXISTING register, which is what

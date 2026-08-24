@@ -171,6 +171,36 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        if let Expression::ClosedGeneric { name, .. } = receiver.as_ref()
+            && selector == "open"
+            && let Some(class) = self.class_index(name)
+        {
+            let [callback] = arguments else {
+                return Err(CompileError::new("Class.open arity"));
+            };
+            let callback = self.expression(callback)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::OpenClass {
+                destination,
+                class,
+                callback,
+            });
+            return Ok(destination);
+        }
+        if let Expression::ClosedGeneric { name, .. } = receiver.as_ref()
+            && selector == "new"
+            && let Some(class) = self.class_index(name)
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::New {
+                destination,
+                class,
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if let Expression::Name(namespace) = receiver.as_ref()
             && matches!(
                 namespace.as_str(),
@@ -246,6 +276,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.instructions.push(Instruction::New {
                 destination,
                 class,
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
+        if let Expression::ClosedGeneric { name, .. } = receiver.as_ref()
+            && let Some(class) = self.class_index(name)
+            && self.signatures.iter().any(|signature| {
+                signature.module == self.classes[class].name
+                    && signature.selector == selector
+                    && signature.class_method
+            })
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::SendClass {
+                destination,
+                class,
+                selector: selector.clone(),
                 first,
                 count,
             });

@@ -23,6 +23,7 @@ pub enum MachineError {
     Class(ClassError),
     Construction(ConstructionError),
     NameError,
+    ClosedGenericOpenForbidden,
     DefiniteAssignment,
     /// An Array changed while an iterator over it was active.
     ///
@@ -473,6 +474,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadNil { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
+        | Instruction::LoadType { .. }
         | Instruction::LoadContract { .. }
         | Instruction::LoadBuiltinType { .. }
         | Instruction::LoadBuiltinClass { .. }

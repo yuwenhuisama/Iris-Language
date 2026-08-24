@@ -146,9 +146,6 @@ fn collect_class<'a>(
     if !class.constraints.is_empty() {
         return Err(CompileError::new("class constraints"));
     }
-    if !class.parameters.is_empty() {
-        return Err(CompileError::new("class generics"));
-    }
     if !class.meta_deny.is_empty() {
         return Err(CompileError::new("class meta deny"));
     }
@@ -215,6 +212,7 @@ fn collect_class<'a>(
         .collect::<Result<Vec<_>, _>>()?;
     classes.push(Class {
         name: class.name.clone(),
+        generic: !class.parameters.is_empty(),
         superclass,
         methods,
         class_methods,
@@ -350,7 +348,6 @@ fn collect_methods<'a>(
         };
         if method.is_async
             || !method.decorators.is_empty()
-            || !method.type_parameters.is_empty()
             || !matches!(
                 method.kind,
                 iris_syntax::MethodKind::Instance
@@ -436,8 +433,6 @@ fn method_error(method: &iris_syntax::MethodDeclaration) -> CompileError {
         "method contract implementation"
     } else if !method.decorators.is_empty() {
         "method decorator"
-    } else if !method.type_parameters.is_empty() {
-        "method generics"
     } else {
         match method.kind {
             iris_syntax::MethodKind::Module => "method module",

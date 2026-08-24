@@ -487,6 +487,99 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_erased_generic_classes_and_methods() {
+        let cases = [
+            (
+                "class Box<T> { public fun initialize(v: T) -> Nil { @v = v; nil } public fun get() -> T { @v } } module M { public fun r() -> Object { Box<Integer>.new(7).get() } } M.r()",
+                "class Box<T> { public fun initialize(v: T) -> Nil { @v = v; nil } public fun get() -> T { @v } } module M { public fun r() -> Object { Box<Integer>.new(8).get() } } M.r()",
+                "7",
+                "8",
+            ),
+            (
+                "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Box<String>) } } M.r()",
+                "class Box<T> { } class Other<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Other<String>) } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is Box } } M.r()",
+                "class Box<T> { } class Other { } module M { public fun r() -> Object { Box<Integer>.new() is Other } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "class Pair<A, B> { } module M { public fun r() -> Object { Pair<Integer, String>.same?(Pair<String, Integer>) } } M.r()",
+                "class Pair<A, B> { } class Other<A, B> { } module M { public fun r() -> Object { Pair<Integer, String>.same?(Other<String, Integer>) } } M.r()",
+                "true",
+                "false",
+            ),
+            (
+                "module Generic { public fun id<U>(v: U) -> U { v } } module M { public fun r() -> Object { Generic.id(3) } } M.r()",
+                "module Generic { public fun id<U>(v: U) -> U { v } } module M { public fun r() -> Object { Generic.id(4) } } M.r()",
+                "3",
+                "4",
+            ),
+        ];
+
+        for (source, control, expected, control_expected) in cases {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends execute erased generic behavior: {agreement:?}")
+            };
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = control_agreement
+            else {
+                unreachable!("the negative control must execute too: {control_agreement:?}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+            assert_eq!(
+                control_observation,
+                Observation::Value(control_expected.to_owned())
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_generic_lookup_and_open_failures() {
+        let cases = [
+            (
+                "module M { public fun r() -> Object { Array<Integer> } } M.r()",
+                "class ArrayBox<T> { } module M { public fun r() -> Object { ArrayBox<Integer> } } M.r()",
+                Observation::Error("NameError".to_owned()),
+                Observation::Value("<class>".to_owned()),
+            ),
+            (
+                "class Box<T> { } module M { public fun r() -> Object { try { Box<Integer>.open() { |target| target } } catch e { e } } } M.r()",
+                "class Plain { } module M { public fun r() -> Object { try { Plain.open() { |target| target } } catch e { e } } } M.r()",
+                Observation::Value(":CLOSED_GENERIC_OPEN_FORBIDDEN".to_owned()),
+                Observation::Value("<class>".to_owned()),
+            ),
+        ];
+
+        for (source, control, expected, control_expected) in cases {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends preserve the generic refusal: {agreement:?}")
+            };
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = control_agreement
+            else {
+                unreachable!("the non-refused control must execute: {control_agreement:?}")
+            };
+            assert_eq!(observation, expected);
+            assert_eq!(control_observation, control_expected);
+        }
+    }
+
+    #[test]
     fn backends_agree_on_module_method_lookup_and_selector() {
         let source = "module N { public fun v() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Module.method(N, :v).selector } } M.r()";
         let control = "module N { public fun v() -> Integer { 7 } public fun w() -> Integer { 8 } } module M { public fun r() -> Object { Reflection::Module.method(N, :w).selector } } M.r()";
@@ -2600,6 +2693,64 @@ mod differential_tests {
                 "{source}"
             );
         }
+    }
+
+    /// An authored stdlib NAME is still usable as a user method.
+    ///
+    /// The authored surface was consulted first and REFUSED any name it owns,
+    /// so `class C { public fun first() ... }` reported MessageNotFound for a
+    /// method the class plainly declares. Every authored spelling - first,
+    /// last, length, map, push, join, keys, split - was unusable as a method
+    /// name on a user class, which is a large hole to leave in a language.
+    ///
+    /// A user-defined receiver dispatches through its own class, so an
+    /// authored name it happens to share is simply not the authored surface's
+    /// business. The refusal still applies to the BUILT-IN families, which is
+    /// what keeps Array `size` absent rather than falling through.
+    #[test]
+    fn an_authored_name_is_usable_as_a_user_method() {
+        for selector in [
+            "first", "last", "length", "map", "push", "join", "keys", "split", "size",
+        ] {
+            let source = format!(
+                "class C {{ public fun {selector}() -> Integer {{ 1 }} }} \
+                 module M {{ public fun r() -> Object {{ C.new().{selector}() }} }} M.r()"
+            );
+            let agreement = compare_backends(&source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("the user method must answer: {selector}: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value("1".to_owned()),
+                "{selector}"
+            );
+        }
+
+        // Control: the authored surface still answers on the BUILT-IN family,
+        // so the change let user classes through rather than disabling it.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { [7,8].first() } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("Array keeps its own first: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("7".to_owned()));
+
+        // Control: Array `size` stays ABSENT, which is the refusal the
+        // authored surface exists to make.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("Array size stays absent: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Value(":MessageNotFound".to_owned())
+        );
     }
 
     #[test]

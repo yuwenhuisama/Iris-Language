@@ -91,6 +91,9 @@ mod tests {
             "class It { public fun next() -> Object { Iteration.yield(1) } } module M { public fun r() -> Object { It.new().next().value } } M.r()",
             "module M { public fun r() -> Object { Iteration.yield(1).value } } M.r()",
             "class A { } module M { public fun r() -> Object { let class_value = A; class_value.new() } } M.r()",
+            "class Box<T> { public fun initialize(v: T) -> Nil { @v = v; nil } public fun get() -> T { @v } } module M { public fun r() -> Object { Box<Integer>.new(7).get() } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Box<String>) } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is Box } } M.r()",
             "module M { public fun r() -> Object { let values = JSON.decode(\"[1,2]\"); values[1] } } M.r()",
             "module M { public fun r() -> Object { let values = JSON.decode(\"{\\\"a\\\":1}\"); values[\"a\"] } } M.r()",
             "module M { public fun r() -> Object { mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1}\") { total = total + pair[1] }; total } } M.r()",
@@ -501,7 +504,6 @@ mod tests {
         for (source, expected, old_generic_error) in [
             ("@sealed() class A { } 1", "class decorator", "declaration"),
             ("open class A { } 1", "class reopen target", "declaration"),
-            ("class A<T> { } 1", "class generics", "declaration"),
             (
                 "class A for C { } 1",
                 "class contract unbound",
