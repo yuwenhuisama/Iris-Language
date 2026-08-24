@@ -52,6 +52,13 @@ impl Machine {
             .flat_map(|class| class.methods.iter().chain(&class.class_methods))
             .map(|(name, _)| name.as_str())
             .chain(
+                program
+                    .classes
+                    .iter()
+                    .flat_map(|class| class.stored_properties.iter())
+                    .map(|property| property.name.as_str()),
+            )
+            .chain(
                 program.functions.iter().filter_map(|function| {
                     function.name.split_once('.').map(|(_, selector)| selector)
                 }),
@@ -154,6 +161,14 @@ impl Machine {
                         MethodBody::new(*function as u64),
                         Visibility::Public,
                     )
+                    .map_err(MachineError::Class)?;
+            }
+            for property in &declaration.stored_properties {
+                let selector = selector_id(program, &property.name)
+                    .ok_or_else(|| MachineError::UnknownSelector(property.name.clone()))?;
+                self.runtime
+                    .registry_mut()
+                    .publish_stored_property(class, selector, MethodBody::new(0))
                     .map_err(MachineError::Class)?;
             }
             for variable in &declaration.class_variables {

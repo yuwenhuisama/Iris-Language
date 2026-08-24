@@ -182,6 +182,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             && matches!(
                 (namespace.as_str(), selector.as_str()),
                 ("Reflection::Class" | "Reflection::Module", "method")
+                    | ("Reflection::Class", "properties" | "revision")
                     | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
             )

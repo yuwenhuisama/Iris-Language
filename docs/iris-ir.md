@@ -248,13 +248,18 @@ the supported spelling.
 
 `Reflection` is a dedicated boundary because these calls are namespace entry
 points rather than ordinary receiver dispatch. The covered surface is
-`Reflection::Class.method`, `Reflection::Module.method`,
+`Reflection::Class.method`/`properties`/`revision`, `Reflection::Module.method`,
 `Reflection::Contract.requirement`, and
 `Reflection::Object.get_ivar`/`set_ivar`. Class method lookup returns the
 runtime Method identity or nil when the slot is absent. Module method lookup
 returns the Module-owned Method for the requested declared selector. Contract
 requirement lookup returns an indexable Hash whose `:return_type` value is the
 declared nominal Type, or nil when that requirement is absent. A reflected
+Class property query returns an ordinary Array of stored-property Symbols. A
+revision query returns an ordinary Hash with `:number` and `:commit_id`; its
+number follows the active revision and therefore advances after a successful
+`open()`. These collection values retain normal indexing and iteration.
+A reflected
 Method answers `selector`, `owner`, `visibility`,
 `parameters`, `return_type`, and `source`; `bind(receiver)` produces a retained
 BoundMethod whose `call` revalidates and invokes that exact Method. The VM

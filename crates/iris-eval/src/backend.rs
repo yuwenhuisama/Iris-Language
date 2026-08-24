@@ -533,6 +533,58 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_reflected_class_properties_remain_ordinary_arrays() {
+        let source = "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); [properties.length(), properties[0]] } } M.r()";
+        let control = "class A { public property x: Integer = 1 } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); [properties.length(), properties[0]] } } M.r()";
+
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends expose reflected properties as an Array: {agreement:?}")
+        };
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = control_agreement
+        else {
+            unreachable!(
+                "a declared property must change the reflected Array: {control_agreement:?}"
+            )
+        };
+        assert_eq!(observation, Observation::Value("[0, nil]".to_owned()));
+        assert_eq!(
+            control_observation,
+            Observation::Value("[1, :@x]".to_owned())
+        );
+    }
+
+    #[test]
+    fn backends_agree_reflected_revision_hash_tracks_open_publications() {
+        let source = "class B { } module M { public fun r() -> Object { let before = Reflection::Class.revision(B); B.open() { |t| 1 }; let after = Reflection::Class.revision(B); [before[:number], after[:number], after[:commit_id] > before[:commit_id]] } } M.r()";
+        let control = "class B { } module M { public fun r() -> Object { let revision = Reflection::Class.revision(B); [revision[:number], revision[:missing], revision[:commit_id]] } } M.r()";
+
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends expose indexable revision metadata: {agreement:?}")
+        };
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = control_agreement
+        else {
+            unreachable!("an absent revision key must not alias metadata: {control_agreement:?}")
+        };
+        assert_eq!(observation, Observation::Value("[1, 2, true]".to_owned()));
+        assert!(matches!(
+            control_observation,
+            Observation::Value(value) if value.starts_with("[1, nil, ")
+        ));
+    }
+
+    #[test]
     fn backends_agree_on_raw_ivar_round_trip_and_absent_read() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];

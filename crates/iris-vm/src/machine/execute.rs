@@ -1135,6 +1135,38 @@ impl Machine {
                                 Err(error) => return Err(MachineError::Construction(error.into())),
                             }
                         }
+                        ("Reflection::Class", "properties", [Value::Class(class)]) => {
+                            let properties = self
+                                .runtime
+                                .registry()
+                                .visible_properties(*class)
+                                .map_err(MachineError::Class)?
+                                .into_iter()
+                                .map(|selector| {
+                                    self.selector_name(program, selector)
+                                        .map(|name| Value::Symbol(format!("@{name}")))
+                                        .unwrap_or(Value::Nil)
+                                })
+                                .collect();
+                            Value::Array(iris_runtime::ArrayRef::new(properties))
+                        }
+                        ("Reflection::Class", "revision", [Value::Class(class)]) => {
+                            let revision = self
+                                .runtime
+                                .registry()
+                                .active(*class)
+                                .map_err(MachineError::Class)?;
+                            Value::Hash(iris_runtime::HashRef::new(vec![
+                                (
+                                    Value::Symbol("number".to_owned()),
+                                    Value::Integer(revision.number().into()),
+                                ),
+                                (
+                                    Value::Symbol("commit_id".to_owned()),
+                                    Value::Integer(revision.commit_id().into()),
+                                ),
+                            ]))
+                        }
                         (
                             "Reflection::Module",
                             "method",
