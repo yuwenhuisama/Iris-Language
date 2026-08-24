@@ -831,6 +831,84 @@ impl Machine {
                     ));
                     returned.into_iter().next().unwrap_or(Value::Nil)
                 }
+                Instruction::BareCall {
+                    callee,
+                    name,
+                    first,
+                    count,
+                    ..
+                } => {
+                    // A NAMED failure belongs to the innermost handler, so an
+                    // unresolved bare name goes through the same routing every
+                    // other catchable error uses. Returning it directly let a
+                    // `try` around `Integer("42")` miss a refusal the
+                    // reference hands to the catch.
+                    let Some(callee) = callee else {
+                        dispatch!({
+                            Err(MachineError::MessageNotFound {
+                                receiver_class: "Symbol".to_owned(),
+                                selector: name.clone(),
+                            })?
+                        });
+                        continue;
+                    };
+                    let Value::BoundMethod(bound) = registers[*callee as usize].clone() else {
+                        return Err(MachineError::UnsupportedConstruct);
+                    };
+                    let (class, receiver) = match bound.receiver() {
+                        BoundReceiver::Object(object) => (
+                            self.runtime
+                                .class_of(object)
+                                .map_err(MachineError::Construction)?,
+                            Value::Object(object),
+                        ),
+                        BoundReceiver::Class(class) => (class, Value::Class(class)),
+                    };
+                    self.runtime
+                        .registry()
+                        .validate_method_binding(class, bound.method())
+                        .map_err(ConstructionError::from)
+                        .map_err(MachineError::Construction)?;
+                    let function = usize::try_from(bound.method().body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let start = *first as usize;
+                    let mut passed = Vec::with_capacity(*count as usize + 1);
+                    passed.push(receiver);
+                    passed.extend_from_slice(&registers[start..start + *count as usize]);
+                    let callee =
+                        program
+                            .functions
+                            .get(function)
+                            .cloned()
+                            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                                function,
+                            }))?;
+                    if passed.len() != callee.parameters {
+                        return Err(MachineError::Kernel(KernelError::Arity));
+                    }
+                    let returned = run_frame!('frame, self.run_body(
+                        &callee.instructions,
+                        callee.registers,
+                        passed,
+                        program,
+                        classes,
+                    ));
+                    returned.into_iter().next().unwrap_or(Value::Nil)
+                }
+                Instruction::Using {
+                    resource, block, ..
+                } => run_frame!(
+                    'frame,
+                    self.invoke_using(
+                        registers[*resource as usize].clone(),
+                        registers[*block as usize].clone(),
+                        program,
+                        classes,
+                    )
+                ),
                 Instruction::New {
                     class,
                     first,
@@ -1108,6 +1186,75 @@ impl Machine {
                         ));
                         returned.into_iter().next().unwrap_or(Value::Nil)
                     }
+                }
+                Instruction::SendSuper {
+                    receiver,
+                    owner,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let Value::Object(object) = registers[*receiver as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Some(owner) = classes.get(*owner).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    let selector = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let lexical_method = match self
+                        .runtime
+                        .registry()
+                        .dispatch(owner, selector)
+                        .map_err(KernelError::from)
+                        .map_err(MachineError::Kernel)?
+                    {
+                        iris_runtime::DispatchOutcome::Invoke(method) => method,
+                        iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                            return Err(MachineError::Kernel(KernelError::Dispatch(
+                                iris_runtime::DispatchError::NoSuperMethod { selector },
+                            )));
+                        }
+                    };
+                    let class = self
+                        .runtime
+                        .class_of(object)
+                        .map_err(MachineError::Construction)?;
+                    let method = self
+                        .runtime
+                        .registry()
+                        .dispatch_super_selector(class, lexical_method, selector)
+                        .map_err(KernelError::from)
+                        .map_err(MachineError::Kernel)?;
+                    let function = usize::try_from(method.body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let start = *first as usize;
+                    let mut arguments = Vec::with_capacity(*count as usize + 1);
+                    arguments.push(Value::Object(object));
+                    arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                    let callee =
+                        program
+                            .functions
+                            .get(function)
+                            .cloned()
+                            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                                function,
+                            }))?;
+                    if arguments.len() != callee.parameters {
+                        return Err(MachineError::Kernel(KernelError::Arity));
+                    }
+                    let returned = run_frame!('frame, self.run_body(
+                        &callee.instructions,
+                        callee.registers,
+                        arguments,
+                        program,
+                        classes,
+                    ));
+                    returned.into_iter().next().unwrap_or(Value::Nil)
                 }
                 Instruction::SendClass {
                     class,

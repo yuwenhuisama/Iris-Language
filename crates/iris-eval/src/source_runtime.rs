@@ -6234,6 +6234,18 @@ impl SourceEvaluator {
             Expression::Name(name) if name == "super" => {
                 self.super_send(receiver, &arguments, None)
             }
+            // These capitalized spellings are ordinary Symbol receivers in a
+            // bare call; treating them as constructors would create numeric
+            // conversion syntax that Iris does not define.
+            Expression::Name(name)
+                if matches!(name.as_str(), "Integer" | "Float64")
+                    && matches!(arguments.as_slice(), [Value::Text(_)]) =>
+            {
+                Err(EvaluationError::MessageNotFound {
+                    receiver_class: "Symbol".to_owned(),
+                    selector: name.clone(),
+                })
+            }
             // C032 makes `using` an ordinary HELPER reached by a bare
             // call. C014 keeps it an ordinary Method name, so a
             // DECLARED `using` wins and only an undeclared one reaches

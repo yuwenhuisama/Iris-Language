@@ -22,6 +22,10 @@ pub(super) fn lower_function(
         program_bindings,
         false,
     );
+    lowering.current_method = classes
+        .iter()
+        .position(|class| class.name == signature.module)
+        .map(|owner| (owner, signature.selector.to_owned()));
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering
@@ -85,6 +89,7 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) method_values: Vec<Register>,
     pub(super) program_bindings: &'a [ProgramBinding],
     pub(super) top_level: bool,
+    pub(super) current_method: Option<(usize, String)>,
 }
 
 #[derive(Clone)]
@@ -149,6 +154,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             method_values: Vec::new(),
             program_bindings,
             top_level,
+            current_method: None,
         }
     }
 

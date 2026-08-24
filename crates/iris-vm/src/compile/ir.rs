@@ -284,6 +284,18 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    BareCall {
+        destination: Register,
+        callee: Option<Register>,
+        name: String,
+        first: Register,
+        count: u16,
+    },
+    Using {
+        destination: Register,
+        resource: Register,
+        block: Register,
+    },
     New {
         destination: Register,
         class: usize,
@@ -293,6 +305,14 @@ pub enum Instruction {
     Send {
         destination: Register,
         receiver: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    SendSuper {
+        destination: Register,
+        receiver: Register,
+        owner: usize,
         selector: String,
         first: Register,
         count: u16,
@@ -414,8 +434,11 @@ impl Instruction {
             | Self::Identity { destination, .. }
             | Self::TypeTest { destination, .. }
             | Self::Call { destination, .. }
+            | Self::BareCall { destination, .. }
+            | Self::Using { destination, .. }
             | Self::New { destination, .. }
             | Self::Send { destination, .. }
+            | Self::SendSuper { destination, .. }
             | Self::SendClass { destination, .. }
             | Self::Reflection { destination, .. }
             | Self::Revision { destination, .. }

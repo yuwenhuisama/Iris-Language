@@ -9,6 +9,84 @@ use crate::compile::Program;
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 
 impl Machine {
+    pub(super) fn invoke_using(
+        &mut self,
+        resource: Value,
+        block: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Value::Closure(callback) = block else {
+            return Err(MachineError::Kernel(KernelError::Type));
+        };
+        let outcome = self.invoke_closure_value(callback, &[], program, classes);
+        let closed = self.close_resource(resource, program, classes);
+        match (outcome, closed) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(MachineError::Raised(primary)), Err(MachineError::Raised(cleanup))) => {
+                let (value, context) = *primary;
+                let (_, cleanup_context) = *cleanup;
+                let context = match context {
+                    Value::ExceptionContext(
+                        identity,
+                        held,
+                        cause,
+                        mut suppressed,
+                        sites,
+                        location,
+                    ) => {
+                        suppressed.push(cleanup_context);
+                        Value::ExceptionContext(identity, held, cause, suppressed, sites, location)
+                    }
+                    context => context,
+                };
+                Err(MachineError::Raised(Box::new((value, context))))
+            }
+            (Err(primary), _) => Err(primary),
+        }
+    }
+
+    fn close_resource(
+        &mut self,
+        resource: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        let Value::Object(object) = resource else {
+            return Err(MachineError::MessageNotFound {
+                receiver_class: super::value_class_name(&resource).to_owned(),
+                selector: "close".to_owned(),
+            });
+        };
+        let selector = selector_id(program, "close")
+            .ok_or_else(|| MachineError::UnknownSelector("close".to_owned()))?;
+        let method = self
+            .runtime
+            .dispatch_instance(object, selector)
+            .map_err(MachineError::Construction)?;
+        let function = usize::try_from(method.body().raw()).map_err(|_| {
+            MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function: usize::MAX,
+            })
+        })?;
+        let callee = program
+            .functions
+            .get(function)
+            .cloned()
+            .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function,
+            }))?;
+        self.run_body(
+            &callee.instructions,
+            callee.registers,
+            vec![Value::Object(object)],
+            program,
+            classes,
+        )?;
+        Ok(())
+    }
+
     pub(super) fn invoke_closure_value(
         &mut self,
         callback: iris_runtime::ObjectId,

@@ -111,6 +111,9 @@ mod tests {
             "module M { public fun r() -> Object { let flushed = Revision.flush(); flushed[0] } } M.r()",
             "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); B.open() { |t| 1 }; Revision.flush(); $received } } M.r()",
             "module M { public fun r() -> Object { Revision.event_errors().length() } } M.r()",
+            "class P { public fun value() -> Integer { 1 } } class C extends P { public override fun value() -> Integer { super() + 1 } } C.new().value()",
+            "class R { public fun close() -> Nil { nil } } using(R.new()) { :body }",
+            "class A { public fun m() { :old } } let saved = A.new().m; saved()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

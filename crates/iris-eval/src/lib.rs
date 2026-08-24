@@ -1124,7 +1124,21 @@ impl Evaluator {
             callee,
             arguments,
             ..
-        } => match self.expression(callee)? {
+        } if matches!(callee.as_ref(), Expression::Name(name) if matches!(name.as_str(), "Integer" | "Float64"))
+            && matches!(arguments.as_slice(), [Expression::Literal(value)] if value.starts_with('"')) => {
+                let Expression::Name(selector) = callee.as_ref() else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                Err(EvaluationError::MessageNotFound {
+                    receiver_class: "Symbol".to_owned(),
+                    selector: selector.clone(),
+                })
+            }
+            Expression::Call {
+                callee,
+                arguments,
+                ..
+            } => match self.expression(callee)? {
                 Evaluated::Member(receiver, selector) => {
                     let arguments = self.arguments(arguments, None)?;
                     self.send(receiver, &selector, &arguments)

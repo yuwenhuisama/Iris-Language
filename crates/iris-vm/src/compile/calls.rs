@@ -74,6 +74,55 @@ impl<'a, 'b> Lowering<'a, 'b> {
         callee: &Expression,
         arguments: &[Expression],
     ) -> Result<Register, CompileError> {
+        if matches!(callee, Expression::Name(name) if name == "super") {
+            let Some((owner, selector)) = self.current_method.clone() else {
+                return Err(CompileError::new("super outside method"));
+            };
+            let receiver = self
+                .lookup("self")
+                .ok_or_else(|| CompileError::new("super outside method"))?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::SendSuper {
+                destination,
+                receiver,
+                owner,
+                selector,
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
+        if matches!(callee, Expression::Name(name) if name == "using") {
+            let [resource, block] = arguments else {
+                return Err(CompileError::new("using arity"));
+            };
+            let resource = self.expression(resource)?;
+            let block = self.expression(block)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Using {
+                destination,
+                resource,
+                block,
+            });
+            return Ok(destination);
+        }
+        if let Expression::Name(name) = callee {
+            let callee = self.lookup(name);
+            if callee.is_none() && !matches!(name.as_str(), "Integer" | "Float64") {
+                return Err(CompileError::new("call bare name"));
+            }
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::BareCall {
+                destination,
+                callee,
+                name: name.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if let Expression::ContractView { receiver, selector } = callee {
             let receiver = self.expression(receiver)?;
             let (first, count) = self.argument_window(arguments)?;
@@ -89,7 +138,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
         let Expression::Member { receiver, selector } = callee else {
             return Err(CompileError::new(match callee {
-                Expression::Name(_) => "call bare name",
                 Expression::Closure { .. } => "call closure",
                 _ => "call callee",
             }));

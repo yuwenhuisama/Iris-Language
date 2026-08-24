@@ -41,6 +41,7 @@ pub enum MachineError {
     ReflectionAccess,
     JsonSyntaxError,
     SerializationError,
+    UnsupportedConstruct,
     AuditHistoryUnavailable,
     MessageNotFound {
         receiver_class: String,
@@ -176,6 +177,9 @@ fn verify_body(
                     range(*first, *count, registers)?;
                 }
             }
+            Instruction::BareCall { first, count, .. } => {
+                range(*first, *count, registers)?;
+            }
             Instruction::MakeClosure {
                 function,
                 first,
@@ -200,6 +204,7 @@ fn verify_body(
             | Instruction::BuildTuple { first, count, .. }
             | Instruction::New { first, count, .. }
             | Instruction::Send { first, count, .. }
+            | Instruction::SendSuper { first, count, .. }
             | Instruction::SendClass { first, count, .. }
             | Instruction::Reflection { first, count, .. }
             | Instruction::Json { first, count, .. }
@@ -420,7 +425,28 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::BuildHash { first, count, .. } => (0..count.saturating_mul(2))
             .map(|offset| first + offset)
             .collect(),
+        Instruction::BareCall {
+            callee,
+            first,
+            count,
+            ..
+        } => callee
+            .iter()
+            .copied()
+            .chain((0..*count).map(|offset| first + offset))
+            .collect(),
+        Instruction::Using {
+            resource, block, ..
+        } => vec![*resource, *block],
         Instruction::Send {
+            receiver,
+            first,
+            count,
+            ..
+        } => std::iter::once(*receiver)
+            .chain((0..*count).map(|offset| first + offset))
+            .collect(),
+        Instruction::SendSuper {
             receiver,
             first,
             count,

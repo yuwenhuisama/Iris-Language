@@ -214,6 +214,7 @@ lexical shadowing.
 | `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
 | `TypeTest { dst, value, target }` | Tests `value` against the current nominal ancestry of the Class in `target`. |
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
+| `SendSuper { dst, receiver, owner, selector, first, count }` | Resolves `selector` after lexical Class `owner` in the receiver's current MRO, then invokes that exact successor. |
 | `SendClass { dst, class, selector, first, count }` | Sends a declared Class method to the registered Class object. |
 | `Reflection { dst, namespace, selector, first, count }` | Executes a covered Reflection entry point with arguments in the contiguous register window. |
 | `Revision { dst, namespace, selector, first, count }` | Executes a covered Revision or RevisionHistory entry point with arguments in the contiguous register window. |
@@ -397,6 +398,8 @@ however the branch goes.
 | Instruction | Effect |
 | --- | --- |
 | `Call { dst, function, first, count }` | Calls `function` with the window `first .. first+count`. |
+| `BareCall { dst, callee, name, first, count }` | Invokes a bound local BoundMethod; the absent numeric names retained by this subset raise the reference `Symbol` MessageNotFound result. |
+| `Using { dst, resource, block }` | Invokes the Closure block, closes the resource on normal and raised exits, and merges both outcomes under the resource-cleanup rule. |
 | `Return { value }` | Returns `value` from the current frame. |
 | `MakeClosure { dst, function, first, count }` | Allocates a Closure whose capture handles and immutable values are copied from the register window. |
 
@@ -408,6 +411,18 @@ representation, and it is the first thing that should move once it grows.
 
 A zero-argument call still allocates a window start inside the file, so `first`
 is always a valid register even when `count` is 0.
+
+`super()` retains the lexical Class and selector in the instruction instead of
+re-dispatching from the receiver Class. This is required for two-level override
+chains: the same most-derived receiver must advance after each currently
+executing owner. No successor raises `NoSuperMethod` and does not enter
+`method_missing`.
+
+`using(resource) { body }` answers the block value only after `close()` succeeds.
+A body failure remains primary if cleanup also fails; a cleanup failure after a
+normal body becomes primary. The instruction therefore has the same mandatory
+cleanup discipline as iterator close rather than being compiled as two ordinary
+calls where the second could be skipped.
 
 For an omitted trailing positional parameter, the caller evaluates its default
 expression and copies the result into the same contiguous argument window. Rest,

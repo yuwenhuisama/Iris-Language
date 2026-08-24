@@ -35,9 +35,35 @@ impl Observation {
     pub fn of(outcome: Result<iris_runtime::Value, EvaluationError>) -> Self {
         match outcome {
             Ok(value) => Self::Value(render_value(&value)),
-            Err(error) => Self::Error(format!("{error:?}")),
+            Err(error) => Self::Error(normalize_error(&format!("{error:?}"))),
         }
     }
+}
+
+/// Drops an interned selector NUMBER from a rendered failure.
+///
+/// A selector id is assigned as each backend interns names, and the two
+/// backends intern a different set in a different order, so the same refusal
+/// renders as `Selector(1000)` in one and `Selector(10000)` in the other.
+/// Neither number is promised to a program, and comparing them would report a
+/// disagreement where both backends refused identically for the same reason.
+fn normalize_error(rendered: &str) -> String {
+    let mut out = String::with_capacity(rendered.len());
+    let mut rest = rendered;
+    while let Some(at) = rest.find("Selector(") {
+        out.push_str(&rest[..at]);
+        out.push_str("Selector(_)");
+        let after = &rest[at + "Selector(".len()..];
+        match after.find(')') {
+            Some(end) => rest = &after[end + 1..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// One way of executing Iris source.
@@ -104,11 +130,14 @@ impl Backend for Bytecode {
                 // A kernel failure is a real observation: a row may assert
                 // that both backends REJECT a program the same way.
                 Err(iris_vm::MachineError::Kernel(error)) => Support::Ran(Observation::Error(
-                    format!("{:?}", EvaluationError::Runtime(error)),
+                    normalize_error(&format!("{:?}", EvaluationError::Runtime(error))),
                 )),
-                Err(iris_vm::MachineError::Construction(error)) => Support::Ran(
-                    Observation::Error(format!("{:?}", EvaluationError::Construction(error))),
-                ),
+                Err(iris_vm::MachineError::Construction(error)) => {
+                    Support::Ran(Observation::Error(normalize_error(&format!(
+                        "{:?}",
+                        EvaluationError::Construction(error)
+                    ))))
+                }
                 Err(iris_vm::MachineError::NameError) => Support::Ran(Observation::Error(format!(
                     "{:?}",
                     EvaluationError::NameError
@@ -134,6 +163,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::SerializationError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::SerializationError),
                 )),
+                Err(iris_vm::MachineError::UnsupportedConstruct) => {
+                    Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
+                }
                 Err(iris_vm::MachineError::MessageNotFound {
                     receiver_class,
                     selector,
@@ -2806,6 +2838,61 @@ mod differential_tests {
         );
     }
 
+    /// An unresolved bare-name call is CATCHABLE, and a refusal does not
+    /// carry an interned selector number into the observation.
+    ///
+    /// `Integer("42")` is not a conversion in the reference - it reports
+    /// MessageNotFound naming Symbol - and that refusal belongs to the
+    /// innermost handler like every other named failure. The backend returned
+    /// it straight out of the frame, so a `try` around it never saw it.
+    ///
+    /// The second half is a HARNESS correction rather than a backend one. A
+    /// selector id is assigned as each backend interns names, so the same
+    /// refusal rendered as `Selector(1000)` in one and `Selector(10000)` in
+    /// the other. Neither number is promised to a program, and comparing them
+    /// reported a disagreement where both backends refused identically.
+    #[test]
+    fn a_bare_name_refusal_is_catchable_and_carries_no_selector_number() {
+        let caught = "module M { public fun r() -> Object { \
+             try { Integer(\"42\") } catch e { e } } } M.r()";
+        let agreement = compare_backends(caught, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("the handler must answer the refusal: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Value(":MessageNotFound".to_owned())
+        );
+
+        // A `super()` with no successor escapes the handler in BOTH backends,
+        // so this pins the shared refusal rather than a catch.
+        let no_super = "class C { public fun m() -> Integer { super() } } \
+             module M { public fun r() -> Object { try { C.new().m() } catch e { e } } } M.r()";
+        let agreement = compare_backends(no_super, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error(
+                "Runtime(Dispatch(NoSuperMethod { selector: Selector(_) }))".to_owned()
+            )
+        );
+
+        // Control: normalising the number must not erase the SELECTOR NAME a
+        // MessageNotFound carries, which is what distinguishes two refusals.
+        let named =
+            "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()";
+        let agreement = compare_backends(named, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Value(":MessageNotFound".to_owned())
+        );
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
@@ -3018,6 +3105,197 @@ mod differential_tests {
                 Observation::Value(expected.to_owned()),
                 "{source}"
             );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_super_calls() {
+        for (source, expected, wrong) in [
+            (
+                "class P { public fun value() -> Integer { 1 } } class C extends P { public override fun value() -> Integer { super() + 1 } } C.new().value()",
+                "2",
+                "1",
+            ),
+            (
+                "class P { public fun add(x: Integer) -> Integer { x + 2 } } class C extends P { public override fun add(x: Integer) -> Integer { super(x) + 3 } } C.new().add(4)",
+                "9",
+                "6",
+            ),
+            (
+                "class A { public fun value() -> Integer { 1 } } class B extends A { public override fun value() -> Integer { super() + 2 } } class C extends B { public override fun value() -> Integer { super() + 4 } } C.new().value()",
+                "7",
+                "5",
+            ),
+            (
+                "class P { public fun value() -> Integer { 1 } } class C extends P { public override fun value() -> Integer { super() + 1 } } module M { public fun r() -> Object { C.new().value() } } M.r()",
+                "2",
+                "1",
+            ),
+            (
+                "class P { public fun add(x: Integer) -> Integer { x + 2 } } class C extends P { public override fun add(x: Integer) -> Integer { super(x) + 3 } } module M { public fun r() -> Object { C.new().add(4) } } M.r()",
+                "9",
+                "6",
+            ),
+            (
+                "class A { public fun value() -> Integer { 1 } } class B extends A { public override fun value() -> Integer { super() + 2 } } class C extends B { public override fun value() -> Integer { super() + 4 } } module M { public fun r() -> Object { C.new().value() } } M.r()",
+                "7",
+                "5",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run super calls: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        for source in [
+            "class C { public fun value() -> Integer { super() } } C.new().value()",
+            "class C { public fun value() -> Integer { super() } } module M { public fun r() -> Object { C.new().value() } } M.r()",
+        ] {
+            let (interpreter, bytecode) = both();
+            for backend in [&interpreter as &dyn Backend, &bytecode as &dyn Backend] {
+                let Support::Ran(observation) = backend.execute(source) else {
+                    unreachable!("{} must run a missing super call", backend.name())
+                };
+                assert!(
+                    matches!(observation, Observation::Error(ref error) if error.contains("NoSuperMethod")),
+                    "{source}: {observation:?}"
+                );
+                assert_ne!(
+                    observation,
+                    Observation::Value("nil".to_owned()),
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_using_and_bare_callable_refusals() {
+        for (source, expected, wrong) in [
+            (
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let value = using(R.new()) { :body }; [value, closed]",
+                "[:body, true]",
+                "[:body, false]",
+            ),
+            (
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let value = using(R.new()) { :body }; [value, closed] } } M.r()",
+                "[:body, true]",
+                "[:body, false]",
+            ),
+            (
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; [caught, closed]",
+                "[:bodyfail, true]",
+                "[:bodyfail, false]",
+            ),
+            (
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; [caught, closed] } } M.r()",
+                "[:bodyfail, true]",
+                "[:bodyfail, false]",
+            ),
+            (
+                "class R { public fun close() -> Nil { raise :closefail } } try { using(R.new()) { 7 } } catch e { e }",
+                ":closefail",
+                "7",
+            ),
+            (
+                "class R { public fun close() -> Nil { raise :closefail } } module M { public fun r() -> Object { try { using(R.new()) { 7 } } catch e { e } } } M.r()",
+                ":closefail",
+                "7",
+            ),
+            (
+                "class R { public fun close() -> Nil { raise :closefail } } try { using(R.new()) { raise :bodyfail } } catch e { e }",
+                ":bodyfail",
+                ":closefail",
+            ),
+            (
+                "class R { public fun close() -> Nil { raise :closefail } } module M { public fun r() -> Object { try { using(R.new()) { raise :bodyfail } } catch e { e } } } M.r()",
+                ":bodyfail",
+                ":closefail",
+            ),
+            (
+                "class A { public fun m() { :old } } let saved = A.new().m; saved()",
+                ":old",
+                "<method>",
+            ),
+            (
+                "class A { public fun m() { :old } } module M { public fun r() -> Object { let saved = A.new().m; saved() } } M.r()",
+                ":old",
+                "<method>",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run bare calls: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        for source in [
+            "Integer(\"42\")",
+            "module M { public fun r() -> Object { Integer(\"42\") } } M.r()",
+            "Float64(\"1.5\")",
+            "module M { public fun r() -> Object { Float64(\"1.5\") } } M.r()",
+        ] {
+            let (interpreter, bytecode) = both();
+            for backend in [&interpreter as &dyn Backend, &bytecode as &dyn Backend] {
+                let Support::Ran(observation) = backend.execute(source) else {
+                    unreachable!("{} must run numeric bare refusal", backend.name())
+                };
+                assert!(
+                    matches!(observation, Observation::Error(ref error)
+                        if error.contains("MessageNotFound") && error.contains("Symbol")),
+                    "{source}: {observation:?}"
+                );
+                assert_ne!(observation, Observation::Value("42".to_owned()), "{source}");
+                assert_ne!(
+                    observation,
+                    Observation::Value("1.5".to_owned()),
+                    "{source}"
+                );
+            }
+        }
+
+        for source in [
+            "let closure = { || -> Integer; 7 }; closure()",
+            "module M { public fun r() -> Object { let closure = { || -> Integer; 7 }; closure() } } M.r()",
+        ] {
+            let (interpreter, bytecode) = both();
+            for backend in [&interpreter as &dyn Backend, &bytecode as &dyn Backend] {
+                assert_eq!(
+                    backend.execute(source),
+                    Support::Ran(Observation::Error("UnsupportedConstruct".to_owned())),
+                    "{source}"
+                );
+                assert_ne!(
+                    backend.execute(source),
+                    Support::Ran(Observation::Value("7".to_owned())),
+                    "{source}"
+                );
+            }
         }
     }
 
