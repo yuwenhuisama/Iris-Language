@@ -397,6 +397,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::StoreCell { cell, source, .. } => vec![*cell, *source],
         Instruction::BuildIterationYield { value, .. } => vec![*value],
         Instruction::StoreGlobal { value, .. } => vec![*value],
+        Instruction::PublishBinding { source, .. } | Instruction::StoreBinding { source, .. } => {
+            vec![*source]
+        }
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
             vec![*left, *right]
         }
@@ -489,6 +492,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadBuiltinType { .. }
         | Instruction::LoadBuiltinClass { .. }
         | Instruction::LoadGlobal { .. }
+        | Instruction::LoadBinding { .. }
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry
         | Instruction::Jump { .. }

@@ -57,6 +57,7 @@ pub struct Machine {
     kernel: Kernel,
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
     globals: std::collections::HashMap<String, Value>,
+    bindings: std::collections::HashMap<String, Value>,
     iterators: std::collections::HashMap<iris_runtime::ObjectId, IteratorRecord>,
     reflection_grants: Vec<(String, String)>,
     revision_subscribers: Vec<RevisionSubscriber>,
@@ -82,6 +83,7 @@ impl Machine {
             kernel,
             closures: std::collections::HashMap::new(),
             globals: std::collections::HashMap::new(),
+            bindings: std::collections::HashMap::new(),
             iterators: std::collections::HashMap::new(),
             reflection_grants: Vec::new(),
             revision_subscribers: Vec::new(),
@@ -106,6 +108,7 @@ impl Machine {
     /// Returns the verification failure or the kernel failure.
     pub fn execute(&mut self, program: &Program) -> Result<Value, MachineError> {
         verify(program).map_err(MachineError::Invalid)?;
+        self.bindings.clear();
         let classes = self.register_classes(program)?;
         let registers = self.run_body(
             &program.instructions,

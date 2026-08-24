@@ -140,6 +140,34 @@ impl Machine {
                     self.globals.insert(name.clone(), value.clone());
                     value
                 }
+                Instruction::PublishBinding { name, source, .. } => {
+                    let value = registers[*source as usize].clone();
+                    self.bindings.insert(name.clone(), value.clone());
+                    value
+                }
+                Instruction::LoadBinding { name, shared, .. } => {
+                    let value = self
+                        .bindings
+                        .get(name)
+                        .cloned()
+                        .ok_or(MachineError::NameError)?;
+                    if *shared {
+                        let Value::Array(cell) = value else {
+                            return Err(MachineError::Kernel(KernelError::Type));
+                        };
+                        cell.get(0).ok_or(MachineError::Kernel(KernelError::Type))?
+                    } else {
+                        value
+                    }
+                }
+                Instruction::StoreBinding { name, source, .. } => {
+                    let Some(Value::Array(cell)) = self.bindings.get(name) else {
+                        return Err(MachineError::NameError);
+                    };
+                    let value = registers[*source as usize].clone();
+                    cell.mutate(|elements| elements[0] = value.clone());
+                    value
+                }
                 Instruction::Move { source, .. } => registers[*source as usize].clone(),
                 Instruction::MakeCell { source, .. } => {
                     Value::Array(iris_runtime::ArrayRef::new(vec![

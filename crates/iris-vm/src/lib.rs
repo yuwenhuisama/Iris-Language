@@ -75,6 +75,8 @@ mod tests {
             "contract C { fun v() -> Integer } class A for C { public impl fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
             "class A { public property fun v() -> Integer { 4 } } module M { public fun r() -> Object { A.new().v } } M.r()",
             "class A { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { A.new().bump() } } M.r()",
+            "mut n = 0; class A { public fun bump() -> Integer { n = n + 1 } } A.new().bump(); n",
+            "let n = 7; module M { public fun read() -> Integer { n } } M.read()",
             "module M { public fun r() -> Object { try { raise :x } catch e, context { context.value } } } M.r()",
             "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise :y from first } } catch e, second { second.cause.value } } } M.r()",
             "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise e } } catch e, second { second.same?(second.cause) } } } M.r()",

@@ -11,8 +11,17 @@ pub(super) fn lower_function(
     contracts: &[Contract],
     declared_functions: usize,
     closures: &mut Vec<Function>,
+    program_bindings: &[ProgramBinding],
 ) -> Result<Function, CompileError> {
-    let mut lowering = Lowering::new(signatures, classes, contracts, declared_functions, closures);
+    let mut lowering = Lowering::new(
+        signatures,
+        classes,
+        contracts,
+        declared_functions,
+        closures,
+        program_bindings,
+        false,
+    );
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering
@@ -74,6 +83,14 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) loops: Vec<LoopContext>,
     pub(super) exception_contexts: Vec<Register>,
     pub(super) method_values: Vec<Register>,
+    pub(super) program_bindings: &'a [ProgramBinding],
+    pub(super) top_level: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct ProgramBinding {
+    pub(super) name: String,
+    pub(super) shared: bool,
 }
 
 #[derive(Clone)]
@@ -114,6 +131,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
         contracts: &'a [Contract],
         declared_functions: usize,
         closures: &'a mut Vec<Function>,
+        program_bindings: &'a [ProgramBinding],
+        top_level: bool,
     ) -> Self {
         Self {
             instructions: Vec::new(),
@@ -128,6 +147,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             loops: Vec::new(),
             exception_contexts: Vec::new(),
             method_values: Vec::new(),
+            program_bindings,
+            top_level,
         }
     }
 

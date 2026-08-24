@@ -52,6 +52,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 } else {
                     Binding::value(name.clone(), destination)
                 });
+                if self.top_level {
+                    let published = self.allocate()?;
+                    self.instructions.push(Instruction::PublishBinding {
+                        destination: published,
+                        name: name.clone(),
+                        source: destination,
+                    });
+                }
                 Ok(destination)
             }
             Statement::GlobalBinding {

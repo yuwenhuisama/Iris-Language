@@ -11,7 +11,7 @@ mod declarations;
 mod expressions;
 
 use declarations::{CollectedDeclarations, collect_signatures};
-use lowering::lower_function;
+use lowering::{ProgramBinding, lower_function};
 
 mod calls;
 mod expressions_lowering;
@@ -66,6 +66,18 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
 
     let mut functions = Vec::with_capacity(signatures.len());
     let mut closures = Vec::new();
+    let program_bindings: Vec<ProgramBinding> = parsed
+        .program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Binding { mutable, name, .. } => Some(ProgramBinding {
+                name: name.clone(),
+                shared: *mutable,
+            }),
+            _ => None,
+        })
+        .collect();
     for signature in &signatures {
         functions.push(lower_function(
             signature,
@@ -74,6 +86,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             &contracts,
             signatures.len(),
             &mut closures,
+            &program_bindings,
         )?);
     }
 
@@ -86,6 +99,8 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         &contracts,
         signatures.len(),
         &mut closures,
+        &program_bindings,
+        true,
     );
     // A top-level program answers the values of its non-BINDING statements:
     // one value directly, several as an Array. That convention belongs to the

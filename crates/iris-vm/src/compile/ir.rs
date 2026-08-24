@@ -91,6 +91,21 @@ pub enum Instruction {
         name: String,
         value: Register,
     },
+    PublishBinding {
+        destination: Register,
+        name: String,
+        source: Register,
+    },
+    LoadBinding {
+        destination: Register,
+        name: String,
+        shared: bool,
+    },
+    StoreBinding {
+        destination: Register,
+        name: String,
+        source: Register,
+    },
     /// Copies one register to another.
     Move {
         destination: Register,
@@ -380,6 +395,9 @@ impl Instruction {
             | Self::LoadBuiltinClass { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
+            | Self::PublishBinding { destination, .. }
+            | Self::LoadBinding { destination, .. }
+            | Self::StoreBinding { destination, .. }
             | Self::Move { destination, .. }
             | Self::MakeCell { destination, .. }
             | Self::LoadCell { destination, .. }

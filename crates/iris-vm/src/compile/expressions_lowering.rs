@@ -51,6 +51,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
+                if let Some(binding) = self
+                    .program_bindings
+                    .iter()
+                    .rev()
+                    .find(|binding| binding.name == *name)
+                {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::LoadBinding {
+                        destination,
+                        name: name.clone(),
+                        shared: binding.shared,
+                    });
+                    return Ok(destination);
+                }
                 let destination = self.allocate()?;
                 if let Some(class) = self.class_index(name) {
                     self.instructions
@@ -494,7 +508,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Err(CompileError::new("assignment target"));
                 };
                 let Some(binding) = self.lookup_binding(name).cloned() else {
-                    return Err(CompileError::new("name assignment unbound"));
+                    let Some(binding) = self
+                        .program_bindings
+                        .iter()
+                        .rev()
+                        .find(|binding| binding.name == *name)
+                    else {
+                        return Err(CompileError::new("name assignment unbound"));
+                    };
+                    if !binding.shared {
+                        return Err(CompileError::new("name assignment immutable"));
+                    }
+                    let source = self.expression(right)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::StoreBinding {
+                        destination,
+                        name: name.clone(),
+                        source,
+                    });
+                    return Ok(destination);
                 };
                 let source = self.expression(right)?;
                 let destination = binding.register;
@@ -541,6 +573,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.contracts,
             self.declared_functions + self.closures.len(),
             &mut closure_functions,
+            self.program_bindings,
+            false,
         );
         for capture in &captures {
             let register = lowering.allocate()?;
@@ -608,6 +642,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.contracts,
             self.declared_functions + self.closures.len(),
             &mut nested,
+            self.program_bindings,
+            false,
         );
         let receiver = lowering.allocate()?;
         lowering

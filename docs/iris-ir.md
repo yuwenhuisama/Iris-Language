@@ -162,6 +162,9 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadBuiltinType { dst, name }` | Resolves a built-in nominal name to its interned Type object. |
 | `LoadGlobal { dst, name }` | Reads the current package-global cell. |
 | `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
+| `PublishBinding { dst, name, source }` | Publishes a top-level lexical value or cell under `name`, then copies it to `dst`. |
+| `LoadBinding { dst, name, shared }` | Reads a published top-level lexical binding, dereferencing mutable storage when `shared` is true. |
+| `StoreBinding { dst, name, source }` | Replaces the value in a published mutable top-level cell and copies the assigned value to `dst`. |
 
 Floats are carried as **bits, never as a decimal rendering**. A decimal round
 trip can perturb the low bit, and `IRIS-V1-RUNTIME-V066` compares exact IEEE-754
@@ -188,6 +191,13 @@ generic.
 | `MakeCell { dst, source }` | Allocates hidden shared lexical storage initialized from `source`. |
 | `LoadCell { dst, cell }` | Reads the current value in shared lexical storage. |
 | `StoreCell { dst, cell, source }` | Replaces shared lexical storage from `source` and writes the assigned value to `dst`. |
+
+Declared methods use the program binding table because their fresh register
+frames cannot address top-level registers. Publishing a `mut` preserves the
+same cell allocated by `MakeCell`, so method reads observe later writes and
+method writes remain visible at top level. A published `let` carries its value
+without adding an assignment path. Local bindings are resolved first, preserving
+lexical shadowing.
 
 ### 3.3 Iteration results
 

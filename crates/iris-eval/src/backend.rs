@@ -3064,6 +3064,76 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_top_level_bindings_inside_declared_methods() {
+        for (source, expected, wrong) in [
+            (
+                "mut n = 5; class C { public fun get() -> Integer { n } } C.new().get()",
+                "5",
+                "nil",
+            ),
+            (
+                "mut n = 0; class C { public fun bump() -> Nil { n = n + 1; nil } } C.new().bump(); n",
+                "[nil, 1]",
+                "[nil, 0]",
+            ),
+            (
+                "mut n = 0; class C { public fun one() -> Nil { n = n + 1; nil } public fun two() -> Nil { n = n + 2; nil } } let c = C.new(); c.one(); c.two(); n",
+                "[nil, nil, 3]",
+                "[nil, nil, 2]",
+            ),
+            (
+                "mut n = 7; class C { public fun local() -> Integer { let n = 2; n } } C.new().local(); n",
+                "[2, 7]",
+                "[2, 2]",
+            ),
+            (
+                "let n = 5; class C { public fun get() -> Integer { n } } C.new().get()",
+                "5",
+                "nil",
+            ),
+            (
+                "mut n = 0; module M { public fun bump() -> Nil { n = n + 1; nil } } M.bump(); n",
+                "[nil, 1]",
+                "[nil, 0]",
+            ),
+            (
+                "mut n = 0; class It { public fun iterator() -> Object { self } public fun next() -> Object { n = n + 1; if n < 2 { Iteration.yield(nil) } else { Iteration.done } } public fun close() -> Nil { nil } } for value in It.new() { value }; n",
+                "[nil, 2]",
+                "[nil, 0]",
+            ),
+        ] {
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!(
+                    "both backends must share the top-level binding: {source}: {agreement:?}"
+                )
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        let source = "class C { public fun get() -> Object { missing } } C.new().get()";
+        let (interpreter, bytecode) = both();
+        assert_ne!(
+            interpreter.execute(source),
+            Support::Ran(Observation::Value("nil".to_owned()))
+        );
+        assert!(
+            matches!(bytecode.execute(source), Support::Unsupported(ref reason) if reason.contains("unbound"))
+        );
+    }
+
+    #[test]
     fn backends_agree_on_contract_conformance_and_dispatch() {
         for (source, expected, wrong) in [
             (
