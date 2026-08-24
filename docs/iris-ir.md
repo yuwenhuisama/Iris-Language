@@ -561,9 +561,25 @@ bindings; and `catch e, context` binding the propagation context with
 `.value`, `.cause`, `.suppressed`, `.re_raise_sites` and `.raise_location`.
 The covered subsystem surface includes `JSON.decode` and `JSON.encode` for the
 reference runtime's nil, Bool, Integer, String, Array, and String-keyed Hash
-value set, including catchable syntax and serialization failures.
+value set, including catchable syntax and serialization failures; the full
+Iteration protocol, so a `for` obtains an iterator through `iterator()`, calls
+`next()` until `Iteration.done` and CLOSES on every exit path, and an iterator
+written entirely in Iris with `Iteration.yield`/`Iteration.done` drives a loop;
+`Reflection::Class.method`, `properties` and `revision`,
+`Reflection::Object.get_ivar`/`set_ivar`, `Reflection::Module.method` and
+`Reflection::Contract.requirement`, with an ungranted call raising a catchable
+`ReflectionAccessError`; and `Revision.subscribe`/`flush`/`event_errors` with
+`RevisionHistory.events`/`prune`, where `Class.open()` publishes a real
+revision that `active_revision` reports.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 297 of them, up
+A NAMED runtime failure is an ordinary catchable Iris error: `IndexError`,
+`MessageNotFound`, `ConcurrentModificationError`, `IteratorStateError`,
+`JSONSyntaxError` and `ReflectionAccessError` all reach a handler as the
+specification's name. Uncaught, the same failure surfaces as ITSELF rather than
+as a raised Symbol, so a program that never wrote a handler sees what the
+reference reports.
+
+Measured against the 736 RUNNABLE source vectors, this compiles 340 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
