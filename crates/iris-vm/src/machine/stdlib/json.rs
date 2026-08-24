@@ -1,0 +1,192 @@
+use iris_runtime::{ArrayRef, HashRef, KernelError, Value};
+
+use super::super::{Machine, MachineError};
+
+impl Machine {
+    pub(crate) fn json_call(
+        &mut self,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Value, MachineError> {
+        let [value] = arguments else {
+            return Err(MachineError::Kernel(KernelError::Arity));
+        };
+        match selector {
+            "decode" => {
+                let Value::Text(text) = value else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let mut cursor = text.chars().peekable();
+                decode_json(&mut cursor)
+            }
+            "encode" => {
+                let mut rendered = String::new();
+                encode_json(value, &mut rendered)?;
+                Ok(Value::Text(rendered))
+            }
+            _ => Err(MachineError::MessageNotFound {
+                receiver_class: "JSON".to_owned(),
+                selector: selector.to_owned(),
+            }),
+        }
+    }
+}
+
+fn encode_json(value: &Value, output: &mut String) -> Result<(), MachineError> {
+    match value {
+        Value::Nil => output.push_str("null"),
+        Value::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
+        Value::Integer(number) => output.push_str(&number.decimal_text()),
+        Value::Text(text) => render_json_text(text, output),
+        Value::Array(values) => {
+            output.push('[');
+            for (index, element) in values.elements().iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                encode_json(element, output)?;
+            }
+            output.push(']');
+        }
+        Value::Hash(entries) => {
+            output.push('{');
+            for (index, (key, held)) in entries.entries().iter().enumerate() {
+                let Value::Text(key) = key else {
+                    return Err(MachineError::SerializationError);
+                };
+                if index > 0 {
+                    output.push(',');
+                }
+                render_json_text(key, output);
+                output.push(':');
+                encode_json(held, output)?;
+            }
+            output.push('}');
+        }
+        _ => return Err(MachineError::SerializationError),
+    }
+    Ok(())
+}
+
+fn render_json_text(value: &str, output: &mut String) {
+    output.push('"');
+    for scalar in value.chars() {
+        match scalar {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            scalar => output.push(scalar),
+        }
+    }
+    output.push('"');
+}
+
+fn decode_json(
+    cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Result<Value, MachineError> {
+    while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+        cursor.next();
+    }
+    let Some(&scalar) = cursor.peek() else {
+        return Err(MachineError::JsonSyntaxError);
+    };
+    match scalar {
+        '[' | '{' => decode_container(cursor, scalar),
+        '"' => decode_text(cursor),
+        _ => decode_scalar(cursor),
+    }
+}
+
+fn decode_container(
+    cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    opening: char,
+) -> Result<Value, MachineError> {
+    let closing = if opening == '[' { ']' } else { '}' };
+    cursor.next();
+    let mut values = Vec::new();
+    let mut entries = Vec::new();
+    loop {
+        while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+            cursor.next();
+        }
+        if cursor.peek() == Some(&closing) {
+            cursor.next();
+            break;
+        }
+        if closing == ']' {
+            values.push(decode_json(cursor)?);
+        } else {
+            let key = decode_json(cursor)?;
+            while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+                cursor.next();
+            }
+            if cursor.next() != Some(':') {
+                return Err(MachineError::JsonSyntaxError);
+            }
+            let held = decode_json(cursor)?;
+            if entries.iter().any(|(existing, _)| *existing == key) {
+                return Err(MachineError::JsonSyntaxError);
+            }
+            entries.push((key, held));
+        }
+        while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
+            cursor.next();
+        }
+        if cursor.peek() == Some(&',') {
+            cursor.next();
+        }
+    }
+    if closing == ']' {
+        Ok(Value::Array(ArrayRef::new(values)))
+    } else {
+        Ok(Value::Hash(HashRef::new(entries)))
+    }
+}
+
+fn decode_text(
+    cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Result<Value, MachineError> {
+    cursor.next();
+    let mut text = String::new();
+    loop {
+        let Some(scalar) = cursor.next() else {
+            return Err(MachineError::JsonSyntaxError);
+        };
+        match scalar {
+            '"' => break,
+            '\\' => match cursor.next() {
+                Some('n') => text.push('\n'),
+                Some('t') => text.push('\t'),
+                Some('r') => text.push('\r'),
+                Some(other) => text.push(other),
+                None => return Err(MachineError::JsonSyntaxError),
+            },
+            other => text.push(other),
+        }
+    }
+    Ok(Value::Text(text))
+}
+
+fn decode_scalar(
+    cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) -> Result<Value, MachineError> {
+    let mut token = String::new();
+    while let Some(&scalar) = cursor.peek() {
+        if scalar.is_whitespace() || matches!(scalar, ',' | ']' | '}' | ':') {
+            break;
+        }
+        token.push(scalar);
+        cursor.next();
+    }
+    match token.as_str() {
+        "null" => Ok(Value::Nil),
+        "true" => Ok(Value::Bool(true)),
+        "false" => Ok(Value::Bool(false)),
+        _ => token
+            .parse()
+            .map(Value::Integer)
+            .map_err(|_| MachineError::JsonSyntaxError),
+    }
+}

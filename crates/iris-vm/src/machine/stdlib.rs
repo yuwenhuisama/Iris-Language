@@ -1,6 +1,7 @@
 mod array;
 mod hash_text;
 mod iteration;
+mod json;
 mod support;
 
 use iris_runtime::{ClassId, MethodOwner, Value, Visibility};

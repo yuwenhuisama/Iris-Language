@@ -38,6 +38,8 @@ pub enum MachineError {
     IndexError,
     TypeContractError,
     ReflectionAccess,
+    JsonSyntaxError,
+    SerializationError,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -191,6 +193,7 @@ fn verify_body(
             | Instruction::Send { first, count, .. }
             | Instruction::SendClass { first, count, .. }
             | Instruction::Reflection { first, count, .. }
+            | Instruction::Json { first, count, .. }
             | Instruction::SendContract { first, count, .. } => {
                 range(*first, *count, registers)?;
             }
@@ -414,7 +417,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::SendClass { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
-        Instruction::Reflection { first, count, .. } => {
+        Instruction::Reflection { first, count, .. } | Instruction::Json { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
         Instruction::SendContract {

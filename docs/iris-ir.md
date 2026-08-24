@@ -194,6 +194,7 @@ representation type split.
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
 | `SendClass { dst, class, selector, first, count }` | Sends a declared Class method to the registered Class object. |
 | `Reflection { dst, namespace, selector, first, count }` | Executes a covered Reflection entry point with arguments in the contiguous register window. |
+| `Json { dst, selector, first, count }` | Executes covered `JSON.decode` or `JSON.encode` with arguments in the contiguous register window. |
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
 
@@ -257,6 +258,16 @@ table, absent reads answer nil, and writes return the stored value. A machine
 with Host grants checks `reflection.inspect` and `reflection.mutate` separately
 against the target Class; a denied or out-of-scope operation raises the
 catchable `ReflectionAccessError`.
+
+`Json` is likewise a subsystem boundary rather than an ordinary receiver send.
+`decode` accepts one String and produces nil, Bool, Integer, String, Array, or
+Hash values recursively; object names remain String keys, so the resulting Hash
+can be indexed and iterated through the ordinary collection surface. The parser
+matches the reference runtime's current value set: decimal floats are rejected
+as the catchable `JSONSyntaxError`. `encode` accepts that same value set and
+emits compact JSON without spaces; unsupported values, including floats and
+non-String Hash keys, raise the catchable `SerializationError`. Malformed input
+never publishes a partial value.
 
 ### 3.4 Aggregates
 
@@ -523,6 +534,9 @@ member reads answering a callable `BoundMethod`; string interpolation; literal
 `match`; tuples; ranges; default positional arguments; annotated local
 bindings; and `catch e, context` binding the propagation context with
 `.value`, `.cause`, `.suppressed`, `.re_raise_sites` and `.raise_location`.
+The covered subsystem surface includes `JSON.decode` and `JSON.encode` for the
+reference runtime's nil, Bool, Integer, String, Array, and String-keyed Hash
+value set, including catchable syntax and serialization failures.
 
 Measured against the 736 RUNNABLE source vectors, this compiles 297 of them, up
 from 51 when the measurement started. The number is reported rather than
@@ -595,8 +609,9 @@ Named so the gaps are not mistaken for decisions:
   which registers its own frames (§7). The frames here are the right root-set
   shape for when that changes; nothing in this backend is walked yet.
 - **Runtime subsystems.** Reflection method lookup and object raw-ivar access,
-  plus the Iteration protocol, are covered. The remaining `Reflection`, `Host`,
-  `FFI`, and `JSON` surfaces are SUBSYSTEMS rather than lowering gaps. Stubbing
+  the Iteration protocol, and the default JSON value surface are covered. The
+  remaining `Reflection`, `Host`, `FFI`, and extended JSON option surfaces are
+  SUBSYSTEMS rather than lowering gaps. Stubbing
   them would answer a differential row with a fabricated value, which is the
   one outcome worse than a held row.
 - **Async.** `Task` semantics need suspension the machine does not model.

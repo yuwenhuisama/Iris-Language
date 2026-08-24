@@ -114,6 +114,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .push(Instruction::BuildIterationYield { destination, value });
             return Ok(destination);
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "JSON")
+            && matches!(selector.as_str(), "decode" | "encode")
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Json {
+                destination,
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if let Expression::Name(namespace) = receiver.as_ref()
             && matches!(
                 namespace.as_str(),

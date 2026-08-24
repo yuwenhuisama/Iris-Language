@@ -128,6 +128,12 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::ReflectionAccess) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::ReflectionAccess),
                 )),
+                Err(iris_vm::MachineError::JsonSyntaxError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::JsonSyntaxError),
+                )),
+                Err(iris_vm::MachineError::SerializationError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::SerializationError),
+                )),
                 Err(iris_vm::MachineError::MessageNotFound {
                     receiver_class,
                     selector,
@@ -557,7 +563,10 @@ mod differential_tests {
             denial_source,
             vec![("reflection.inspect".to_owned(), "Other".to_owned())],
         );
-        eprintln!("DENIAL DIFF interpreter={:?} bytecode={:?}", denied.0, denied.1);
+        eprintln!(
+            "DENIAL DIFF interpreter={:?} bytecode={:?}",
+            denied.0, denied.1
+        );
         assert_eq!(denied.0, denied.1);
     }
 
@@ -771,6 +780,100 @@ mod differential_tests {
             } = compare_backends(&negative, &backends)
             else {
                 unreachable!("both backends cover the negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_json_values_and_produced_collections() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, expected, control) in [
+            (
+                "JSON.decode(\"[1,{\\\"a\\\":[true,false,null]}]\")",
+                "[1, {\"a\": [true, false, nil]}]",
+                "JSON.decode(\"[2,{\\\"a\\\":[true,false,null]}]\")",
+            ),
+            ("JSON.decode(\"[]\")", "[]", "JSON.decode(\"[1]\")"),
+            (
+                "JSON.decode(\"{}\")",
+                "{}",
+                "JSON.decode(\"{\\\"a\\\":1}\")",
+            ),
+            (
+                "let h = JSON.decode(\"{\\\"a\\\":1,\\\"b\\\":2}\"); h[\"a\"]",
+                "1",
+                "let h = JSON.decode(\"{\\\"a\\\":1,\\\"b\\\":2}\"); h[\"b\"]",
+            ),
+            (
+                "mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1,\\\"b\\\":2}\") { total = total + pair[1] }; total",
+                "3",
+                "mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1,\\\"b\\\":3}\") { total = total + pair[1] }; total",
+            ),
+            (
+                "JSON.encode([1,true,false,nil,%{ \"a\": [2] }])",
+                "\"[1,true,false,null,{\\\"a\\\":[2]}]\"",
+                "JSON.encode([2,true,false,nil,%{ \"a\": [2] }])",
+            ),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover JSON in {expression}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{expression}"
+            );
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the JSON negative control for {expression}")
+            };
+            assert_ne!(control_observation, observation, "{expression}");
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_json_float_refusals_and_catchable_syntax_errors() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        for (expression, control) in [
+            (
+                "try { JSON.decode(\"[\") } catch JSONSyntaxError { :caught }",
+                "try { JSON.decode(\"[]\") } catch JSONSyntaxError { :caught }",
+            ),
+            (
+                "try { JSON.decode(\"1.5\") } catch JSONSyntaxError { :caught }",
+                "try { JSON.decode(\"1\") } catch JSONSyntaxError { :caught }",
+            ),
+            (
+                "try { JSON.encode(1.5) } catch SerializationError { :caught }",
+                "try { JSON.encode(1) } catch SerializationError { :caught }",
+            ),
+        ] {
+            let source =
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()");
+            let negative = format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()");
+            let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends) else {
+                unreachable!("both backends cover JSON failure behavior in {expression}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(":caught".to_owned()),
+                "{expression}"
+            );
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = compare_backends(&negative, &backends)
+            else {
+                unreachable!("both backends cover the JSON failure negative control")
             };
             assert_ne!(control_observation, observation, "{expression}");
         }

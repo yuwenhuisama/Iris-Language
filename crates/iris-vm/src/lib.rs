@@ -87,6 +87,10 @@ mod tests {
             "class It { public fun next() -> Object { Iteration.yield(1) } } module M { public fun r() -> Object { It.new().next().value } } M.r()",
             "module M { public fun r() -> Object { Iteration.yield(1).value } } M.r()",
             "class A { } module M { public fun r() -> Object { let class_value = A; class_value.new() } } M.r()",
+            "module M { public fun r() -> Object { let values = JSON.decode(\"[1,2]\"); values[1] } } M.r()",
+            "module M { public fun r() -> Object { let values = JSON.decode(\"{\\\"a\\\":1}\"); values[\"a\"] } } M.r()",
+            "module M { public fun r() -> Object { mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1}\") { total = total + pair[1] }; total } } M.r()",
+            "module M { public fun r() -> Object { JSON.encode([1, 2]) } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

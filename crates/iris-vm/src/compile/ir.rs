@@ -279,6 +279,12 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    Json {
+        destination: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
     ContractCast {
         destination: Register,
         receiver: Register,
@@ -355,6 +361,7 @@ impl Instruction {
             | Self::Send { destination, .. }
             | Self::SendClass { destination, .. }
             | Self::Reflection { destination, .. }
+            | Self::Json { destination, .. }
             | Self::ContractCast { destination, .. }
             | Self::SendContract { destination, .. }
             | Self::GetIvar { destination, .. }

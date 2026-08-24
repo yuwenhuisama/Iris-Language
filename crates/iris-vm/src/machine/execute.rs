@@ -1156,6 +1156,15 @@ impl Machine {
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     }
                 }),
+                Instruction::Json {
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => dispatch!({
+                    let start = *first as usize;
+                    self.json_call(selector, &registers[start..start + *count as usize])?
+                }),
                 Instruction::ContractCast {
                     receiver, contract, ..
                 } => {
