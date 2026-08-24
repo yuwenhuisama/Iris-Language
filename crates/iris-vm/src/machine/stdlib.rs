@@ -117,6 +117,20 @@ impl Machine {
             Value::Float32(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(float_text(f64::from(*value))))
             }
+            // C017 numbers the origin revision 1 and gives the next per-Class
+            // integer to each successful structural publication. The Class
+            // answered `contracts` but not this, so a program that verified
+            // died in the machine on a property the reference plainly has.
+            Value::Class(class) if selector == "active_revision" && arguments.is_empty() => {
+                let revision = self
+                    .runtime
+                    .registry()
+                    .active(*class)
+                    .map_err(MachineError::Class)?;
+                Some(Value::Integer(iris_runtime::IntegerValue::from(
+                    revision.number(),
+                )))
+            }
             Value::Class(class) if selector == "contracts" && arguments.is_empty() => {
                 let declared = classes
                     .iter()

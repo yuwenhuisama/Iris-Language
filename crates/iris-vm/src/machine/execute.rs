@@ -305,6 +305,20 @@ impl Machine {
                                 .and_then(|index| program.classes.get(index))
                                 .map(|declaration| Value::Symbol(declaration.name.clone()))
                                 .unwrap_or(Value::Nil),
+                            // C017 numbers the origin revision 1 and gives the
+                            // next per-Class integer to each successful
+                            // structural publication. This is a bare member
+                            // READ rather than a send, so it belongs here: the
+                            // Class answered `type` and `name` but died on a
+                            // property the reference plainly has.
+                            "active_revision" => {
+                                let revision = self
+                                    .runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?;
+                                Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
+                            }
                             _ => return Err(MachineError::UnknownSelector(selector.clone())),
                         }
                     } else {
@@ -1155,6 +1169,142 @@ impl Machine {
                         }
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     }
+                }),
+                Instruction::Revision {
+                    namespace,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => dispatch!({
+                    let start = *first as usize;
+                    let arguments = &registers[start..start + *count as usize];
+                    match (namespace.as_str(), selector.as_str(), arguments) {
+                        ("Revision", "subscribe", [Value::Closure(callback)]) => {
+                            self.revision_subscribers.push(super::RevisionSubscriber {
+                                callback: *callback,
+                                queued: Vec::new(),
+                            });
+                            Value::Nil
+                        }
+                        ("Revision", "flush", []) => {
+                            let mut delivered = Vec::new();
+                            for index in 0..self.revision_subscribers.len() {
+                                let (callback, queued) = {
+                                    let subscriber = &mut self.revision_subscribers[index];
+                                    (subscriber.callback, std::mem::take(&mut subscriber.queued))
+                                };
+                                for (commit, target) in queued {
+                                    let event = Value::Tuple(vec![
+                                        Value::Symbol("RevisionEvent".to_owned()),
+                                        Value::Integer(commit.into()),
+                                        Value::Array(iris_runtime::ArrayRef::new(vec![
+                                            Value::Symbol(target),
+                                        ])),
+                                    ]);
+                                    delivered.push(event.clone());
+                                    if let Err(error) = self.invoke_closure_value(
+                                        callback,
+                                        &[event],
+                                        program,
+                                        classes,
+                                    ) {
+                                        let recorded = match error {
+                                            MachineError::Raised(raised) => raised.0,
+                                            other => super::catchable_name(&other).map_or_else(
+                                                || Value::Symbol("SubscriberError".to_owned()),
+                                                |name| Value::Symbol(name.to_owned()),
+                                            ),
+                                        };
+                                        self.revision_event_errors.push(recorded);
+                                    }
+                                }
+                            }
+                            Value::Tuple(vec![
+                                Value::Symbol("delivered".to_owned()),
+                                Value::Array(iris_runtime::ArrayRef::new(delivered)),
+                                Value::Integer(0_u8.into()),
+                                Value::Array(iris_runtime::ArrayRef::new(
+                                    self.revision_event_errors.clone(),
+                                )),
+                            ])
+                        }
+                        ("Revision", "event_errors", []) => Value::Array(
+                            iris_runtime::ArrayRef::new(self.revision_event_errors.clone()),
+                        ),
+                        (
+                            "RevisionHistory",
+                            "events",
+                            [Value::Integer(from), Value::Integer(to)],
+                        ) => {
+                            let (Some(from), Some(to)) = (from.to_u64(), to.to_u64()) else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            let mut found = Vec::new();
+                            for commit in from..=to {
+                                if !self.revision_history.contains(&commit) {
+                                    return Err(MachineError::AuditHistoryUnavailable);
+                                }
+                                found.push(Value::Integer(commit.into()));
+                            }
+                            Value::Array(iris_runtime::ArrayRef::new(found))
+                        }
+                        ("RevisionHistory", "prune", [Value::Integer(commit)]) => {
+                            let Some(commit) = commit.to_u64() else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            self.revision_history.retain(|held| *held != commit);
+                            Value::Nil
+                        }
+                        _ => return Err(MachineError::Kernel(KernelError::Type)),
+                    }
+                }),
+                Instruction::OpenClass {
+                    class, callback, ..
+                } => dispatch!({
+                    let Some(runtime_class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    let Value::Closure(callback) = registers[*callback as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    // C022 makes the body a transaction over a CANDIDATE that
+                    // publishes on success, and C017 gives that publication the
+                    // next per-Class revision number. The body ran without any
+                    // transaction at all, so an open queued its event while
+                    // `active_revision` stayed on the origin - the backend
+                    // reported 1 where the reference reports 2.
+                    self.runtime
+                        .registry_mut()
+                        .begin_transaction(runtime_class)
+                        .map_err(MachineError::Class)?;
+                    let value = match self.invoke_closure_value(
+                        callback,
+                        &[Value::Class(runtime_class)],
+                        program,
+                        classes,
+                    ) {
+                        Ok(value) => value,
+                        // C034 rolls the candidate back on failure and
+                        // publishes nothing, so a body that raised must not
+                        // leave a revision behind.
+                        Err(error) => {
+                            self.runtime.registry_mut().roll_back_group();
+                            return Err(error);
+                        }
+                    };
+                    self.runtime
+                        .registry_mut()
+                        .commit_group()
+                        .map_err(MachineError::Class)?;
+                    let commit = self.next_commit;
+                    self.next_commit = self.next_commit.saturating_add(1);
+                    self.revision_history.push(commit);
+                    let target = program.classes[*class].name.clone();
+                    for subscriber in &mut self.revision_subscribers {
+                        subscriber.queued.push((commit, target.clone()));
+                    }
+                    value
                 }),
                 Instruction::Json {
                     selector,

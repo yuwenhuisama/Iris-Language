@@ -9,6 +9,38 @@ use crate::compile::Program;
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 
 impl Machine {
+    pub(super) fn invoke_closure_value(
+        &mut self,
+        callback: iris_runtime::ObjectId,
+        arguments: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let closure = self
+            .closures
+            .get(&callback)
+            .cloned()
+            .ok_or(MachineError::Kernel(KernelError::Type))?;
+        let callee =
+            program
+                .functions
+                .get(closure.function)
+                .cloned()
+                .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                    function: closure.function,
+                }))?;
+        let mut passed = closure.captures;
+        passed.extend_from_slice(arguments);
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            passed,
+            program,
+            classes,
+        )?;
+        Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+    }
+
     pub(super) fn selector_name(
         &self,
         program: &Program,

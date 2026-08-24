@@ -40,6 +40,7 @@ pub enum MachineError {
     ReflectionAccess,
     JsonSyntaxError,
     SerializationError,
+    AuditHistoryUnavailable,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -417,9 +418,12 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::SendClass { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
-        Instruction::Reflection { first, count, .. } | Instruction::Json { first, count, .. } => {
+        Instruction::Reflection { first, count, .. }
+        | Instruction::Revision { first, count, .. }
+        | Instruction::Json { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
+        Instruction::OpenClass { callback, .. } => vec![*callback],
         Instruction::SendContract {
             receiver,
             first,

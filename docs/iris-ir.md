@@ -194,6 +194,8 @@ representation type split.
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
 | `SendClass { dst, class, selector, first, count }` | Sends a declared Class method to the registered Class object. |
 | `Reflection { dst, namespace, selector, first, count }` | Executes a covered Reflection entry point with arguments in the contiguous register window. |
+| `Revision { dst, namespace, selector, first, count }` | Executes a covered Revision or RevisionHistory entry point with arguments in the contiguous register window. |
+| `OpenClass { dst, class, callback }` | Invokes an open callback, records the resulting commit, and enqueues its after-commit event. |
 | `Json { dst, selector, first, count }` | Executes covered `JSON.decode` or `JSON.encode` with arguments in the contiguous register window. |
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
@@ -268,6 +270,17 @@ as the catchable `JSONSyntaxError`. `encode` accepts that same value set and
 emits compact JSON without spaces; unsupported values, including floats and
 non-String Hash keys, raise the catchable `SerializationError`. Malformed input
 never publishes a partial value.
+
+`Revision` separates after-commit delivery from ordinary sends. The covered
+surface is `Revision.subscribe`, `Revision.flush`, `Revision.event_errors`,
+`RevisionHistory.events(from_commit, to_commit)`, and
+`RevisionHistory.prune(commit)`. `OpenClass` invokes the callback before it
+publishes a monotonically numbered audit record, then queues one immutable
+`RevisionEvent` per subscriber. `flush` invokes subscribed Closures and answers
+`(:delivered, delivered_events, 0, event_errors)`; a callback failure is
+recorded without undoing the commit or preventing later delivery. History range
+reads fail atomically with `AuditHistoryUnavailableError` when any requested
+commit was never retained or has been pruned.
 
 ### 3.4 Aggregates
 

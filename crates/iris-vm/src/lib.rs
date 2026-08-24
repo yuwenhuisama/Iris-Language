@@ -91,6 +91,9 @@ mod tests {
             "module M { public fun r() -> Object { let values = JSON.decode(\"{\\\"a\\\":1}\"); values[\"a\"] } } M.r()",
             "module M { public fun r() -> Object { mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1}\") { total = total + pair[1] }; total } } M.r()",
             "module M { public fun r() -> Object { JSON.encode([1, 2]) } } M.r()",
+            "module M { public fun r() -> Object { let flushed = Revision.flush(); flushed[0] } } M.r()",
+            "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); B.open() { |t| 1 }; Revision.flush(); $received } } M.r()",
+            "module M { public fun r() -> Object { Revision.event_errors().length() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

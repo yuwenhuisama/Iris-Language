@@ -279,6 +279,18 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    Revision {
+        destination: Register,
+        namespace: String,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
+    OpenClass {
+        destination: Register,
+        class: usize,
+        callback: Register,
+    },
     Json {
         destination: Register,
         selector: String,
@@ -361,6 +373,8 @@ impl Instruction {
             | Self::Send { destination, .. }
             | Self::SendClass { destination, .. }
             | Self::Reflection { destination, .. }
+            | Self::Revision { destination, .. }
+            | Self::OpenClass { destination, .. }
             | Self::Json { destination, .. }
             | Self::ContractCast { destination, .. }
             | Self::SendContract { destination, .. }

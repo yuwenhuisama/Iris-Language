@@ -605,6 +605,58 @@ mod differential_tests {
         }
     }
 
+    #[test]
+    fn backends_agree_revision_subscribers_receive_committed_events() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); B.open() { |t| 1 }; Revision.flush(); $received } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends deliver a committed event to the closure: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Value("[:none, :RevisionEvent]".to_owned())
+        );
+
+        let negative = "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); Revision.flush(); $received } } M.r()";
+        let Agreement::Agreed { observation, .. } = compare_backends(negative, &backends) else {
+            unreachable!("flushing without a commit must not fabricate an event")
+        };
+        assert_eq!(observation, Observation::Value("[:none, :none]".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_empty_revision_surfaces() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { Revision.subscribe({ |event| event }) } } M.r()",
+                "nil",
+            ),
+            (
+                "module M { public fun r() -> Object { Revision.flush() } } M.r()",
+                "[:delivered, [], 0, []]",
+            ),
+            (
+                "module M { public fun r() -> Object { Revision.event_errors() } } M.r()",
+                "[]",
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+                unreachable!("both backends must expose the empty Revision surface")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+
+        let negative = "module M { public fun r() -> Object { Revision.subscribe(1) } } M.r()";
+        assert_ne!(interpreter.execute(negative), interpreter.execute("module M { public fun r() -> Object { Revision.subscribe({ |event| event }) } } M.r()"));
+    }
+
     /// `IRIS-V1-RUNTIME-V052`: an arbitrary-precision Integer survives a
     /// round trip with NO representation Type split, and both backends see it.
     #[test]
@@ -2406,6 +2458,50 @@ mod differential_tests {
             observation,
             &Observation::Error("ConcurrentModification".to_owned())
         );
+    }
+
+    /// A Class answers `active_revision`, and an open ADVANCES it.
+    ///
+    /// Two defects met here. The read verified and then died in the machine:
+    /// the Class answered `type` and `name` but not a property the reference
+    /// plainly has, which is the fifth time a value has been produced without
+    /// an operation programs perform on it.
+    ///
+    /// Underneath that, `B.open()` ran its body with NO registry transaction
+    /// at all. C022 makes the body a transaction over a candidate that
+    /// publishes on success and C017 gives that publication the next number,
+    /// so the backend queued a revision event while the revision itself never
+    /// moved - it reported 1 where the reference reports 2.
+    #[test]
+    fn an_open_advances_the_active_revision_in_both_backends() {
+        for (source, expected) in [
+            (
+                "class B { } module M { public fun r() -> Object { B.active_revision } } M.r()",
+                "1",
+            ),
+            (
+                "class B { } module M { public fun r() -> Object { \
+                 B.open() { |t| 1 }; B.active_revision } } M.r()",
+                "2",
+            ),
+            // Two opens advance twice, so the number tracks publications
+            // rather than merely becoming non-origin once.
+            (
+                "class B { } module M { public fun r() -> Object { \
+                 B.open() { |t| 1 }; B.open() { |t| 1 }; B.active_revision } } M.r()",
+                "3",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
     }
 
     #[test]

@@ -128,6 +128,41 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if let Expression::Name(namespace) = receiver.as_ref()
+            && matches!(namespace.as_str(), "Revision" | "RevisionHistory")
+            && matches!(
+                (namespace.as_str(), selector.as_str()),
+                ("Revision", "subscribe" | "flush" | "event_errors")
+                    | ("RevisionHistory", "events" | "prune")
+            )
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Revision {
+                destination,
+                namespace: namespace.clone(),
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
+        if let Expression::Name(class) = receiver.as_ref()
+            && selector == "open"
+            && let Some(class) = self.class_index(class)
+        {
+            let [callback] = arguments else {
+                return Err(CompileError::new("Class.open arity"));
+            };
+            let callback = self.expression(callback)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::OpenClass {
+                destination,
+                class,
+                callback,
+            });
+            return Ok(destination);
+        }
+        if let Expression::Name(namespace) = receiver.as_ref()
             && matches!(
                 namespace.as_str(),
                 "Reflection::Class" | "Reflection::Object"

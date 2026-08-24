@@ -16,6 +16,12 @@ struct ClosureRecord {
 }
 
 #[derive(Clone, Debug)]
+struct RevisionSubscriber {
+    callback: iris_runtime::ObjectId,
+    queued: Vec<(u64, String)>,
+}
+
+#[derive(Clone, Debug)]
 enum IteratorSource {
     Array {
         source: iris_runtime::ArrayRef,
@@ -53,6 +59,10 @@ pub struct Machine {
     globals: std::collections::HashMap<String, Value>,
     iterators: std::collections::HashMap<iris_runtime::ObjectId, IteratorRecord>,
     reflection_grants: Vec<(String, String)>,
+    revision_subscribers: Vec<RevisionSubscriber>,
+    revision_history: Vec<u64>,
+    revision_event_errors: Vec<Value>,
+    next_commit: u64,
     next_closure: u64,
     next_context: u64,
     next_iterator: u64,
@@ -73,6 +83,10 @@ impl Machine {
             globals: std::collections::HashMap::new(),
             iterators: std::collections::HashMap::new(),
             reflection_grants: Vec::new(),
+            revision_subscribers: Vec::new(),
+            revision_history: Vec::new(),
+            revision_event_errors: Vec::new(),
+            next_commit: 1,
             next_closure: 1,
             next_context: 900_000,
             next_iterator: 1_000_000,
@@ -121,6 +135,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
         MachineError::SerializationError => Some("SerializationError"),
+        MachineError::AuditHistoryUnavailable => Some("AuditHistoryUnavailableError"),
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
         _ => None,
@@ -247,6 +262,7 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                     Instruction::Send { selector, .. }
                     | Instruction::SendClass { selector, .. }
                     | Instruction::Reflection { selector, .. }
+                    | Instruction::Revision { selector, .. }
                     | Instruction::SendContract { selector, .. }
                     | Instruction::BindMember { selector, .. }
                     | Instruction::GetIvar { name: selector, .. }
