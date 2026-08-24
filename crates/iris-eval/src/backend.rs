@@ -1173,6 +1173,83 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_source_iteration_results() {
+        for (body, expected, control) in [
+            (
+                "let step = Iteration.yield(nil); [step.yield?, step.done?, step.value]",
+                "[true, false, nil]",
+                "let step = Iteration.yield(1); [step.yield?, step.done?, step.value]",
+            ),
+            (
+                "let first = Iteration.done; let second = Iteration.done; [first.done?, first.yield?, first.same?(second)]",
+                "[true, false, true]",
+                "let first = Iteration.yield(1); let second = Iteration.done; [first.done?, first.yield?, second.yield?]",
+            ),
+            (
+                "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 2 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+                "3",
+                "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 1 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+            ),
+            (
+                "class It { public fun next() -> Object { Iteration.done } public fun close() -> Nil { nil } } let it = It.new(); let first = it.next(); let second = it.next(); first.same?(second)",
+                "true",
+                "Iteration.yield(nil).done?",
+            ),
+        ] {
+            let wrap = |body: &str| {
+                let boundary = body.find(" mut sum").or_else(|| body.find(" let it"));
+                boundary.map_or_else(
+                    || format!("module M {{ public fun r() -> Object {{ {body} }} }} M.r()"),
+                    |boundary| {
+                        let (declarations, method_body) = body.split_at(boundary);
+                        format!(
+                            "{declarations} module M {{ public fun r() -> Object {{ {method_body} }} }} M.r()"
+                        )
+                    },
+                )
+            };
+            let source = wrap(body);
+            let control = wrap(control);
+            assert_agreement(&source, expected);
+
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let Agreement::Agreed { observation, .. } = compare_backends(&control, &backends)
+            else {
+                unreachable!(
+                    "both backends must run the iteration-result negative control: {control}"
+                )
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{control}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_that_iteration_done_has_no_value() {
+        let source = "module M { public fun r() -> Object { Iteration.done.value } } M.r()";
+        let control = "module M { public fun r() -> Object { Iteration.yield(nil).value } } M.r()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+            unreachable!("both backends must report Iteration.done.value")
+        };
+        assert!(
+            matches!(observation, Observation::Error(ref error) if error.contains("IteratorState"))
+        );
+
+        let Agreement::Agreed { observation, .. } = compare_backends(control, &backends) else {
+            unreachable!("both backends must run the yielded-nil negative control")
+        };
+        assert_eq!(observation, Observation::Value("nil".to_owned()));
+        assert_ne!(observation, Observation::Error("IteratorState".to_owned()));
+    }
+
+    #[test]
     fn backends_agree_on_iteration_failures() {
         for (body, expected_fragment, control_fragment) in [
             (

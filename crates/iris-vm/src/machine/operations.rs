@@ -106,8 +106,12 @@ impl Machine {
         let same = match (left, right) {
             (Value::Nil, Value::Nil)
             | (Value::Bool(false), Value::Bool(false))
-            | (Value::Bool(true), Value::Bool(true)) => true,
+            | (Value::Bool(true), Value::Bool(true))
+            | (Value::IterationDone, Value::IterationDone) => true,
             (Value::Nil, _) | (Value::Bool(_), _) | (_, Value::Nil) | (_, Value::Bool(_)) => false,
+            (Value::IterationDone, _) | (_, Value::IterationDone) => false,
+            (Value::IterationYield(_), Value::IterationYield(_)) => false,
+            (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => false,
             (Value::Object(left), Value::Object(right)) => left == right,
             (Value::Class(left), Value::Class(right)) => left == right,
             (Value::Array(left), Value::Array(right)) => left.same(right),

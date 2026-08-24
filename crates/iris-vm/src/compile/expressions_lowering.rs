@@ -326,6 +326,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Member { receiver, selector } => {
+                if matches!(receiver.as_ref(), Expression::Name(name) if name == "Iteration")
+                    && selector == "done"
+                {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::LoadIterationDone { destination });
+                    return Ok(destination);
+                }
                 if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
                     return self.expression(receiver);
                 }

@@ -379,6 +379,7 @@ fn fall_through(
 fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
         Instruction::Move { source, .. } => vec![*source],
+        Instruction::BuildIterationYield { value, .. } => vec![*value],
         Instruction::StoreGlobal { value, .. } => vec![*value],
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {
             vec![*left, *right]
@@ -458,6 +459,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
+        | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadContract { .. }
         | Instruction::LoadBuiltinType { .. }

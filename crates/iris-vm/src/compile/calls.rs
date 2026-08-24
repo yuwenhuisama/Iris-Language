@@ -94,6 +94,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 _ => "call callee",
             }));
         };
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Iteration")
+            && selector == "yield"
+        {
+            let [value] = arguments else {
+                return Err(CompileError::new("yield arity"));
+            };
+            let value = self.expression(value)?;
+            let destination = self.allocate()?;
+            self.instructions
+                .push(Instruction::BuildIterationYield { destination, value });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Member { receiver, selector }
             if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)))
             && selector == "kind"

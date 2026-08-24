@@ -76,6 +76,9 @@ mod tests {
             "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise e } } catch e, second { second.same?(second.cause) } } } M.r()",
             "module M { public fun r() -> Object { let it = [1].iterator(); [it.next().value, it.next().done?, it.close()] } } M.r()",
             "class C { public fun iterator() -> Object { [7].iterator() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
+            "module M { public fun r() -> Object { Iteration.yield(nil).value } } M.r()",
+            "module M { public fun r() -> Object { Iteration.done.done? } } M.r()",
+            "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 2 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

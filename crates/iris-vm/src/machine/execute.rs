@@ -111,6 +111,10 @@ impl Machine {
                 Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
                 Instruction::LoadBool { value, .. } => Value::Bool(*value),
                 Instruction::LoadNil { .. } => Value::Nil,
+                Instruction::LoadIterationDone { .. } => Value::IterationDone,
+                Instruction::BuildIterationYield { value, .. } => {
+                    Value::IterationYield(Box::new(registers[*value as usize].clone()))
+                }
                 Instruction::LoadClass { class, .. } => {
                     let Some(class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
@@ -564,14 +568,40 @@ impl Machine {
                     ..
                 } => {
                     let iterator = registers[*iterator as usize].clone();
-                    let Some(step) = run_frame!(
+                    let step = if let Some(step) = run_frame!(
                         'frame,
                         self.iteration_send(&iterator, "next", &[])
-                    ) else {
-                        return Err(MachineError::MessageNotFound {
-                            receiver_class: super::value_class_name(&iterator).to_owned(),
-                            selector: "next".to_owned(),
-                        });
+                    ) {
+                        step
+                    } else {
+                        let Value::Object(object) = iterator else {
+                            return Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(&iterator).to_owned(),
+                                selector: "next".to_owned(),
+                            });
+                        };
+                        let selector = selector_id(program, "next")
+                            .ok_or_else(|| MachineError::UnknownSelector("next".to_owned()))?;
+                        let method = self
+                            .runtime
+                            .dispatch_instance(object, selector)
+                            .map_err(MachineError::Construction)?;
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = run_frame!('frame, self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        ));
+                        returned.into_iter().next().unwrap_or(Value::Nil)
                     };
                     match step {
                         Value::IterationYield(value) => *value,
@@ -584,15 +614,40 @@ impl Machine {
                 }
                 Instruction::IteratorClose { iterator } => {
                     let iterator = registers[*iterator as usize].clone();
-                    let Some(_) = run_frame!(
+                    if run_frame!(
                         'frame,
                         self.iteration_send(&iterator, "close", &[])
-                    ) else {
-                        return Err(MachineError::MessageNotFound {
-                            receiver_class: super::value_class_name(&iterator).to_owned(),
-                            selector: "close".to_owned(),
-                        });
-                    };
+                    )
+                    .is_none()
+                    {
+                        let Value::Object(object) = iterator else {
+                            return Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(&iterator).to_owned(),
+                                selector: "close".to_owned(),
+                            });
+                        };
+                        let selector = selector_id(program, "close")
+                            .ok_or_else(|| MachineError::UnknownSelector("close".to_owned()))?;
+                        let method = self
+                            .runtime
+                            .dispatch_instance(object, selector)
+                            .map_err(MachineError::Construction)?;
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let _ = run_frame!('frame, self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        ));
+                    }
                     continue;
                 }
                 Instruction::EnterTry {

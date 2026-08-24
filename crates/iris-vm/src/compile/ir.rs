@@ -49,6 +49,13 @@ pub enum Instruction {
     LoadNil {
         destination: Register,
     },
+    LoadIterationDone {
+        destination: Register,
+    },
+    BuildIterationYield {
+        destination: Register,
+        value: Register,
+    },
     LoadClass {
         destination: Register,
         class: usize,
@@ -316,6 +323,8 @@ impl Instruction {
             | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
+            | Self::LoadIterationDone { destination }
+            | Self::BuildIterationYield { destination, .. }
             | Self::LoadClass { destination, .. }
             | Self::LoadContract { destination, .. }
             | Self::LoadBuiltinType { destination, .. }

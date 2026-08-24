@@ -154,6 +154,7 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadText { dst, text }` | String. |
 | `LoadBool { dst, value }` | Bool. |
 | `LoadNil { dst }` | nil. |
+| `LoadIterationDone { dst }` | Loads the unique identity-bearing `Iteration.done` singleton. |
 | `LoadClass { dst, class }` | The runtime Class object registered at `class`. |
 | `LoadContract { dst, contract }` | The immutable Contract object registered at `contract`. |
 | `LoadBuiltinClass { dst, name }` | Resolves a built-in nominal name such as `Integer` to its Class object. |
@@ -176,7 +177,13 @@ representation type split.
 | --- | --- |
 | `Move { dst, source }` | `dst = source`. |
 
-### 3.3 Sends
+### 3.3 Iteration results
+
+| Instruction | Effect |
+| --- | --- |
+| `BuildIterationYield { dst, value }` | Builds an immutable, identity-less `Iteration.yield(value)` result; `value` may be nil. |
+
+### 3.4 Sends
 
 | Instruction | Effect |
 | --- | --- |
