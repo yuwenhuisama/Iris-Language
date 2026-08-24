@@ -3156,6 +3156,79 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_share_mutable_closure_captures() {
+        for (source, expected, wrong) in [
+            (
+                "module M { public fun r() -> Object { mut n = 0; let f = { |x|; n = n + x }; f.call(3); n } } M.r()",
+                "3",
+                "0",
+            ),
+            (
+                "mut n = 0; let f = { |x|; n = n + x }; f.call(3); n",
+                "[3, 3]",
+                "[3, 0]",
+            ),
+            (
+                "module M { public fun r() -> Object { mut n = 5; { |x|; n + x }.call(3) } } M.r()",
+                "8",
+                "3",
+            ),
+            ("mut n = 5; { |x|; n + x }.call(3)", "8", "3"),
+            (
+                "module M { public fun r() -> Object { mut n = 0; let f = { |x|; let n = 99; n }; [f.call(1), n] } } M.r()",
+                "[99, 0]",
+                "[99, 99]",
+            ),
+            (
+                "mut n = 0; let f = { |x|; let n = 99; n }; f.call(1); n",
+                "[99, 0]",
+                "[99, 99]",
+            ),
+            (
+                "module M { public fun r() -> Object { mut n = 0; let add = { |x|; n = n + x }; let get = { ||; n }; [add.call(2), get.call(), add.call(3), get.call()] } } M.r()",
+                "[2, 2, 5, 5]",
+                "[2, 0, 3, 0]",
+            ),
+            (
+                "mut n = 0; let add = { |x|; n = n + x }; let get = { ||; n }; add.call(2); get.call(); add.call(3); get.call()",
+                "[2, 2, 5, 5]",
+                "[2, 0, 3, 0]",
+            ),
+            (
+                "module M { public fun r() -> Object { let n = 5; { |x|; n + x }.call(3) } } M.r()",
+                "8",
+                "5",
+            ),
+            ("let n = 5; { |x|; n + x }.call(3)", "8", "5"),
+            (
+                "module M { public fun r() -> Object { mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); [inner.call(2), n] } } M.r()",
+                "[2, 2]",
+                "[2, 0]",
+            ),
+            (
+                "mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); inner.call(2); n",
+                "[2, 2]",
+                "[2, 0]",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must share mutable captures: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn added_values_remain_usable_across_method_frames() {
         for (source, expected, wrong) in [
             (

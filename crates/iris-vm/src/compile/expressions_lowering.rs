@@ -39,7 +39,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
             Expression::Name(name) if self.deferred.iter().any(|held| held == name) => {
                 Err(CompileError::new("deferred read before assignment"))
             }
-            Expression::Name(name) => self.lookup(name).map(Ok).unwrap_or_else(|| {
+            Expression::Name(name) => {
+                if let Some(binding) = self.lookup_binding(name).cloned() {
+                    if !binding.shared {
+                        return Ok(binding.register);
+                    }
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::LoadCell {
+                        destination,
+                        cell: binding.register,
+                    });
+                    return Ok(destination);
+                }
                 let destination = self.allocate()?;
                 if let Some(class) = self.class_index(name) {
                     self.instructions
@@ -65,7 +76,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Ok(destination);
                 }
                 Err(CompileError::new("name unbound"))
-            }),
+            }
             Expression::GlobalVar(name) => {
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::LoadGlobal {
@@ -482,16 +493,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let Expression::Name(name) = left.as_ref() else {
                     return Err(CompileError::new("assignment target"));
                 };
-                let Some(destination) = self.lookup(name) else {
+                let Some(binding) = self.lookup_binding(name).cloned() else {
                     return Err(CompileError::new("name assignment unbound"));
                 };
                 let source = self.expression(right)?;
-                self.instructions.push(Instruction::Move {
-                    destination,
-                    source,
-                });
+                let destination = binding.register;
+                if binding.shared {
+                    self.instructions.push(Instruction::StoreCell {
+                        destination: source,
+                        cell: destination,
+                        source,
+                    });
+                } else {
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source,
+                    });
+                }
                 self.deferred.retain(|held| held != name);
-                Ok(destination)
+                Ok(if binding.shared { source } else { destination })
             }
             Expression::Call {
                 callee, arguments, ..
@@ -525,13 +545,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.declared_functions + self.closures.len(),
             &mut closure_functions,
         );
-        for (name, _) in &captures {
+        for capture in &captures {
             let register = lowering.allocate()?;
-            lowering.names.push((name.clone(), register));
+            lowering.names.push(if capture.shared {
+                super::lowering::Binding::shared(capture.name.clone(), register)
+            } else {
+                super::lowering::Binding::value(capture.name.clone(), register)
+            });
         }
         for parameter in parameters {
             let register = lowering.allocate()?;
-            lowering.names.push((parameter.clone(), register));
+            lowering
+                .names
+                .push(super::lowering::Binding::value(parameter.clone(), register));
         }
         let value = lowering.body(body)?;
         lowering.instructions.push(Instruction::Return { value });
@@ -552,11 +578,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let count = u16::try_from(captures.len())
             .map_err(|_| CompileError::new("closure capture too wide"))?;
         let first = self.next_register;
-        for (_, source) in captures {
+        for capture in captures {
             let destination = self.allocate()?;
             self.instructions.push(Instruction::Move {
                 destination,
-                source,
+                source: capture.register,
             });
         }
         if count == 0 {

@@ -185,6 +185,9 @@ generic.
 | Instruction | Effect |
 | --- | --- |
 | `Move { dst, source }` | `dst = source`. |
+| `MakeCell { dst, source }` | Allocates hidden shared lexical storage initialized from `source`. |
+| `LoadCell { dst, cell }` | Reads the current value in shared lexical storage. |
+| `StoreCell { dst, cell, source }` | Replaces shared lexical storage from `source` and writes the assigned value to `dst`. |
 
 ### 3.3 Iteration results
 
@@ -384,7 +387,7 @@ however the branch goes.
 | --- | --- |
 | `Call { dst, function, first, count }` | Calls `function` with the window `first .. first+count`. |
 | `Return { value }` | Returns `value` from the current frame. |
-| `MakeClosure { dst, function, first, count }` | Allocates a Closure whose captures are copied from the register window. |
+| `MakeClosure { dst, function, first, count }` | Allocates a Closure whose capture handles and immutable values are copied from the register window. |
 
 `function` is an **index**, not a name. Resolution happens before any
 instruction is emitted, so nothing is looked up at run time. That resolution is
@@ -401,12 +404,14 @@ keyword, keyword-rest, and block channels are declined by their specific
 parameter construct until the VM has channel-aware frames.
 
 A Closure body is another function. Its captures occupy the leading registers,
-followed by invocation arguments; `MakeClosure` stores a value snapshot so an
-escaped Closure outlives the defining frame. Each body lowers with its own name
-stack, so C028 shadowing allocates a fresh binding rather than overwriting a
-capture, and D-421's `return` exits only that Closure frame. Nested Closure
-bodies are allocated recursively before their enclosing body is appended, so
-every `MakeClosure` carries its final function-table index.
+followed by invocation arguments. Immutable captures are value snapshots;
+mutable lexical bindings are hidden shared cells, so copying their handles into
+an escaped or nested Closure preserves one binding after the defining frame
+ends. Reads and assignments use `LoadCell` and `StoreCell`; a nested `let` still
+allocates a fresh binding and therefore shadows without replacing the captured
+cell. D-421's `return` exits only that Closure frame. Nested Closure bodies are
+allocated recursively before their enclosing body is appended, so every
+`MakeClosure` carries its final function-table index.
 
 ### 3.7 Exceptions
 

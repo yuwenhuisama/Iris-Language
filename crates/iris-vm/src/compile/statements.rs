@@ -2,7 +2,7 @@
 
 use iris_syntax::{Expression, MatchBody, Pattern, Statement, TypeExpression};
 
-use super::lowering::{LoopContext, Lowering};
+use super::lowering::{Binding, LoopContext, Lowering};
 use super::{CompileError, Instruction, Register};
 
 impl<'a, 'b> Lowering<'a, 'b> {
@@ -19,7 +19,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 value,
                 ..
             } => {
-                let _ = mutable;
                 // Static analysis has already validated the annotation. The VM
                 // stores the same runtime value either way, so declining here
                 // discarded type metadata without adding a runtime guarantee.
@@ -34,14 +33,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // value across iterations: a fresh register per assignment
                 // would leave the loop reading its pre-loop value forever.
                 let destination = self.allocate()?;
-                self.instructions.push(Instruction::Move {
-                    destination,
-                    source: value,
-                });
+                if *mutable {
+                    self.instructions.push(Instruction::MakeCell {
+                        destination,
+                        source: value,
+                    });
+                } else {
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source: value,
+                    });
+                }
                 if self.method_values.contains(&value) {
                     self.method_values.push(destination);
                 }
-                self.names.push((name.clone(), destination));
+                self.names.push(if *mutable {
+                    Binding::shared(name.clone(), destination)
+                } else {
+                    Binding::value(name.clone(), destination)
+                });
                 Ok(destination)
             }
             Statement::GlobalBinding {
@@ -67,7 +77,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let register = self.allocate()?;
                 self.instructions
                     .push(Instruction::DeclareDeferred { register });
-                self.names.push((name.clone(), register));
+                self.names.push(Binding::value(name.clone(), register));
                 self.deferred.push(name.clone());
                 Ok(register)
             }
@@ -289,7 +299,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             exhausted: 0,
         });
         let outer = self.names.len();
-        self.names.push((name.to_owned(), item));
+        self.names.push(Binding::value(name.to_owned(), item));
         self.loops.push(LoopContext {
             continue_target: top,
             breaks: Vec::new(),
@@ -395,10 +405,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             let outer = self.names.len();
             if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
-                self.names.push((name.clone(), exception));
+                self.names.push(Binding::value(name.clone(), exception));
             }
             if let Some(name) = &catch.context {
-                self.names.push((name.clone(), context));
+                self.names.push(Binding::value(name.clone(), context));
             }
             self.exception_contexts.push(context);
             let caught = self.body(&catch.body)?;

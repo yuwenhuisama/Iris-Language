@@ -385,7 +385,9 @@ fn fall_through(
 /// Every register an instruction reads.
 fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
-        Instruction::Move { source, .. } => vec![*source],
+        Instruction::Move { source, .. } | Instruction::MakeCell { source, .. } => vec![*source],
+        Instruction::LoadCell { cell, .. } => vec![*cell],
+        Instruction::StoreCell { cell, source, .. } => vec![*cell, *source],
         Instruction::BuildIterationYield { value, .. } => vec![*value],
         Instruction::StoreGlobal { value, .. } => vec![*value],
         Instruction::Binary { left, right, .. } | Instruction::Identity { left, right, .. } => {

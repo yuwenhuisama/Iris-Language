@@ -141,6 +141,25 @@ impl Machine {
                     value
                 }
                 Instruction::Move { source, .. } => registers[*source as usize].clone(),
+                Instruction::MakeCell { source, .. } => {
+                    Value::Array(iris_runtime::ArrayRef::new(vec![
+                        registers[*source as usize].clone(),
+                    ]))
+                }
+                Instruction::LoadCell { cell, .. } => {
+                    let Value::Array(cell) = &registers[*cell as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    cell.get(0).ok_or(MachineError::Kernel(KernelError::Type))?
+                }
+                Instruction::StoreCell { cell, source, .. } => {
+                    let Value::Array(cell) = &registers[*cell as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let value = registers[*source as usize].clone();
+                    cell.mutate(|elements| elements[0] = value.clone());
+                    value
+                }
                 Instruction::DeclareDeferred { .. } => continue,
                 Instruction::RaiseDefiniteAssignment { .. } => {
                     return Err(MachineError::DefiniteAssignment);

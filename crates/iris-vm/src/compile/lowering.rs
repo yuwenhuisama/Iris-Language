@@ -15,13 +15,17 @@ pub(super) fn lower_function(
     let mut lowering = Lowering::new(signatures, classes, contracts, declared_functions, closures);
     if signature.receiver {
         let receiver = lowering.allocate()?;
-        lowering.names.push(("self".to_owned(), receiver));
+        lowering
+            .names
+            .push(Binding::value("self".to_owned(), receiver));
     }
     // Parameters occupy the leading registers, so a call can copy arguments
     // into a fresh frame without the callee knowing where they came from.
     for parameter in &signature.parameters {
         let register = lowering.allocate()?;
-        lowering.names.push((parameter.name.clone(), register));
+        lowering
+            .names
+            .push(Binding::value(parameter.name.clone(), register));
     }
     let Some((last, leading)) = signature.body.split_last() else {
         return Err(CompileError::new("empty body"));
@@ -59,7 +63,7 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) instructions: Vec<Instruction>,
     pub(super) next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
-    pub(super) names: Vec<(String, Register)>,
+    pub(super) names: Vec<Binding>,
     pub(super) deferred: Vec<String>,
     /// Functions callable from this frame, resolved before lowering.
     pub(super) signatures: &'a [Signature<'b>],
@@ -70,6 +74,31 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) loops: Vec<LoopContext>,
     pub(super) exception_contexts: Vec<Register>,
     pub(super) method_values: Vec<Register>,
+}
+
+#[derive(Clone)]
+pub(super) struct Binding {
+    pub(super) name: String,
+    pub(super) register: Register,
+    pub(super) shared: bool,
+}
+
+impl Binding {
+    pub(super) const fn value(name: String, register: Register) -> Self {
+        Self {
+            name,
+            register,
+            shared: false,
+        }
+    }
+
+    pub(super) const fn shared(name: String, register: Register) -> Self {
+        Self {
+            name,
+            register,
+            shared: true,
+        }
+    }
 }
 
 pub(super) struct LoopContext {
@@ -119,9 +148,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
     }
 
     pub(super) fn lookup(&self, name: &str) -> Option<Register> {
-        self.names
-            .iter()
-            .rev()
-            .find_map(|(held, register)| (held == name).then_some(*register))
+        self.lookup_binding(name).map(|binding| binding.register)
+    }
+
+    pub(super) fn lookup_binding(&self, name: &str) -> Option<&Binding> {
+        self.names.iter().rev().find(|binding| binding.name == name)
     }
 }

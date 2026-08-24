@@ -96,6 +96,19 @@ pub enum Instruction {
         destination: Register,
         source: Register,
     },
+    MakeCell {
+        destination: Register,
+        source: Register,
+    },
+    LoadCell {
+        destination: Register,
+        cell: Register,
+    },
+    StoreCell {
+        destination: Register,
+        cell: Register,
+        source: Register,
+    },
     /// Sends a native binary selector: `destination = left <selector> right`.
     Binary {
         destination: Register,
@@ -362,6 +375,9 @@ impl Instruction {
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
             | Self::Move { destination, .. }
+            | Self::MakeCell { destination, .. }
+            | Self::LoadCell { destination, .. }
+            | Self::StoreCell { destination, .. }
             | Self::Binary { destination, .. }
             | Self::Unary { destination, .. }
             | Self::BuildArray { destination, .. }

@@ -76,3 +76,25 @@ Each outcome is recorded in `docs/spec-defects-v1.md`.
   remains is this question, which is an adjudication rather than a defect we
   can resolve by guessing. Fixing it by adding publications until the numbers
   match would be tuning to the expectations rather than to the rule.
+
+- **A captured `mut` binding that outlives its defining frame.** The backend
+  now shares mutable captures through a cell, so a closure's write is visible
+  to the enclosing scope - fixing a silent wrong answer where `mut n = 0; { |x|;
+  n = n + x }.call(3)` left `n` at 0. Every realistic shape agrees with the
+  reference: writing, reading, sibling closures sharing one binding, a nested
+  closure, an inner `let` shadowing without leaking, and a closure passed DOWN
+  into another method.
+
+  One corner does not. When a closure ESCAPES the frame that declared the
+  binding - returned out of the method that wrote `mut n` - the reference
+  answers `NameError`, for a read as much as for a write, while the backend
+  answers the value. The reference keeps `mut` bindings in a scoped table that
+  `restore_shadowed` unwinds when the block exits, so the name is genuinely
+  gone once the frame returns; a `let` capture survives because it is copied
+  into the closure's own locals.
+
+  Which is correct is a language question rather than an implementation one.
+  Making the cell die with the frame would reproduce `NameError` exactly, but
+  it would also make a returned counter closure - an ordinary thing to write -
+  fail on its own captured state, and no corpus vector exercises the escaping
+  form. Recorded rather than guessed at.
