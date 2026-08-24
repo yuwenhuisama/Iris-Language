@@ -15,6 +15,26 @@ struct ClosureRecord {
     captures: Vec<Value>,
 }
 
+#[derive(Clone, Debug)]
+enum IteratorSource {
+    Array {
+        source: iris_runtime::ArrayRef,
+        expected_version: u64,
+    },
+    Hash {
+        source: iris_runtime::HashRef,
+        keys: Vec<Value>,
+        expected_version: u64,
+    },
+    Values(Vec<Value>),
+}
+
+#[derive(Clone, Debug)]
+struct IteratorRecord {
+    source: Option<IteratorSource>,
+    position: usize,
+}
+
 mod verify;
 
 pub(super) use verify::truthy;
@@ -31,8 +51,10 @@ pub struct Machine {
     kernel: Kernel,
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
     globals: std::collections::HashMap<String, Value>,
+    iterators: std::collections::HashMap<iris_runtime::ObjectId, IteratorRecord>,
     next_closure: u64,
     next_context: u64,
+    next_iterator: u64,
 }
 
 impl Machine {
@@ -48,8 +70,10 @@ impl Machine {
             kernel,
             closures: std::collections::HashMap::new(),
             globals: std::collections::HashMap::new(),
+            iterators: std::collections::HashMap::new(),
             next_closure: 1,
             next_context: 900_000,
+            next_iterator: 1_000_000,
         })
     }
 
@@ -74,6 +98,25 @@ impl Machine {
     }
 }
 
+/// The specification-named error a machine failure reports, when it names one.
+///
+/// C056 hands the ORIGINAL raised value to the catch, and the reference makes
+/// a failure the specification names catchable under that name, binding the
+/// Symbol. Returning `None` keeps a failure that names no such error - and
+/// every control-flow unwind - travelling to its own boundary instead of being
+/// intercepted by an unrelated handler.
+pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
+    match error {
+        MachineError::IndexError => Some("IndexError"),
+        MachineError::IteratorState => Some("IteratorStateError"),
+        MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
+        MachineError::TypeContractError => Some("TypeContractError"),
+        MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
+        MachineError::NameError => Some("NameError"),
+        _ => None,
+    }
+}
+
 pub(super) fn value_class_name(value: &Value) -> &'static str {
     match value {
         Value::Array(_) => "Array",
@@ -93,6 +136,9 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         Value::Closure(_) => "Closure",
         Value::BoundMethod(_) => "BoundMethod",
         Value::ExceptionContext(..) => "ExceptionContext",
+        Value::ArrayIterator(_) => "ArrayIterator",
+        Value::HashIterator(_) => "HashIterator",
+        Value::IterationYield(_) | Value::IterationDone => "Iteration",
         // Every family the reference names must be named the SAME way here.
         // A refusal reporting `Object` where the reference reports
         // `ReadonlyArray` is still a DISAGREEMENT: both backends reject the

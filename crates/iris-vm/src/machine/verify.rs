@@ -30,6 +30,7 @@ pub enum MachineError {
     /// the iterator raises on its NEXT advance rather than quietly walking a
     /// collection that is no longer the one it started on.
     ConcurrentModification,
+    IteratorState,
     /// A write to a position outside the Array.
     ///
     /// A READ past the end answers nil, but a WRITE has no position to store
@@ -134,7 +135,9 @@ fn verify_body(
                     return Err(VerifyError::JumpOutOfRange { target: *target });
                 }
             }
-            Instruction::ArrayNext { exhausted, .. } => {
+            Instruction::ArrayNext { exhausted, .. }
+            | Instruction::RangeNext { exhausted, .. }
+            | Instruction::IteratorNext { exhausted, .. } => {
                 if *exhausted > instructions.len() {
                     return Err(VerifyError::JumpOutOfRange { target: *exhausted });
                 }
@@ -252,7 +255,9 @@ fn verify_body(
             Instruction::JumpUnless { target, .. } => {
                 vec![(*target, next.clone()), (at + 1, next.clone())]
             }
-            Instruction::ArrayNext { exhausted, .. } => {
+            Instruction::ArrayNext { exhausted, .. }
+            | Instruction::RangeNext { exhausted, .. }
+            | Instruction::IteratorNext { exhausted, .. } => {
                 vec![(*exhausted, state.clone()), (at + 1, next.clone())]
             }
             Instruction::EnterTry {
@@ -344,7 +349,9 @@ fn fall_through(
             Instruction::JumpUnless { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
             }
-            Instruction::ArrayNext { exhausted, .. } => {
+            Instruction::ArrayNext { exhausted, .. }
+            | Instruction::RangeNext { exhausted, .. }
+            | Instruction::IteratorNext { exhausted, .. } => {
                 *exhausted >= instructions.len() || at + 1 >= instructions.len()
             }
             _ => at + 1 >= instructions.len(),
@@ -424,6 +431,10 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             ..
         } => vec![*array, *index, *version],
         Instruction::RangeNext { range, index, .. } => vec![*range, *index],
+        Instruction::IteratorOpen { iterable, .. } => vec![*iterable],
+        Instruction::IteratorNext { iterator, .. } | Instruction::IteratorClose { iterator } => {
+            vec![*iterator]
+        }
         Instruction::SetIndex {
             receiver,
             index,

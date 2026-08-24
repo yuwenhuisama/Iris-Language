@@ -266,6 +266,9 @@ r4 = BuildArray first=r2 count=2
 | `Jump { target }` | Jumps unconditionally. |
 | `ArrayNext { dst, array, index, exhausted }` | Loads `array[index]` into `dst`, or jumps to `exhausted` when the Array is exhausted. |
 | `RangeNext { dst, range, index, exhausted }` | Loads the indexed Range value into `dst`, or jumps to `exhausted` after the endpoint. |
+| `IteratorOpen { dst, iterable }` | Sends `iterator()` once and writes the fresh cursor to `dst`. |
+| `IteratorNext { dst, iterator, exhausted }` | Sends `next()`; writes a yield payload to `dst`, or jumps to `exhausted` for `Iteration.done`. |
+| `IteratorClose { iterator }` | Sends the idempotent `close()` cleanup message and discards its nil result. |
 
 Only the false branch is conditional. One conditional form plus an unconditional
 jump expresses every shape this subset needs, and each extra branch opcode is
@@ -277,12 +280,16 @@ loop's own value is nil, since `IRIS-V1-CONTROL-C023` gives a normal loop
 completion no value and only a `break` with an operand carries one - which this
 subset declines.
 
-An Array or Range `for` loop evaluates its source once, advances an explicit Integer
-index, and uses the aggregate-specific next instruction for the exhausted edge. `continue` targets the next
-step and `break` targets the loop exit; both are ordinary CFG predecessors, so
-the verifier applies the same definite-assignment fixpoint as it does to
-`while`. Labels, value-carrying `break`, other iterator protocols, and
-destructuring bindings remain declined rather than approximated.
+A `for` loop evaluates its source once, obtains the cursor with `IteratorOpen`,
+and drives it through `IteratorNext`. Arrays, Hashes, and Ranges use the same
+protocol instructions as user-defined iterables; their machine-owned cursors
+preserve fail-fast version checks. `continue` targets the next advance. Natural
+exhaustion and `break` join at `IteratorClose`; `return` closes every active
+iterator before leaving the frame; and the loop body is protected by an
+exception handler whose propagation path closes the iterator before re-raising.
+These cleanup paths are explicit CFG predecessors in the verifier. Labels,
+value-carrying `break`, and destructuring bindings remain declined rather than
+approximated.
 
 A `mut` binding keeps ONE register that assignment updates in place. That is
 what carries a value across the back edge: allocating a fresh register per

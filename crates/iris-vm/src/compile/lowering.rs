@@ -61,6 +61,7 @@ pub(super) struct Lowering<'a, 'b> {
 pub(super) struct LoopContext {
     pub(super) continue_target: usize,
     pub(super) breaks: Vec<usize>,
+    pub(super) iterator: Option<Register>,
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {

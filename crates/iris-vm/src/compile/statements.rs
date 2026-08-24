@@ -152,6 +152,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination
                     }
                 };
+                // A return bypasses the exception handlers that protect loop
+                // bodies, so active iterators must be closed explicitly here.
+                for iterator in self.loops.iter().rev().filter_map(|loop_| loop_.iterator) {
+                    self.instructions
+                        .push(Instruction::IteratorClose { iterator });
+                }
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
             }
@@ -256,64 +262,35 @@ impl<'a, 'b> Lowering<'a, 'b> {
     ) -> Result<Register, CompileError> {
         let destination = self.allocate()?;
         self.instructions.push(Instruction::LoadNil { destination });
-        let array = self.expression(iterable)?;
-        let index = self.literal("0")?;
-        let item = self.allocate()?;
-        let version = self.allocate()?;
-        let range = matches!(
+        let iterable = self.expression(iterable)?;
+        let iterator = self.allocate()?;
+        self.instructions.push(Instruction::IteratorOpen {
+            destination: iterator,
             iterable,
-            Expression::Binary {
-                operator: iris_syntax::BinaryOperator::RangeInclusive
-                    | iris_syntax::BinaryOperator::RangeExclusive,
-                ..
-            }
-        );
-        if !range {
-            // Captured OUTSIDE the loop, above the back edge's target: taking
-            // it inside would re-read the version every iteration and always
-            // find it current, which is the same as not checking at all. A
-            // Range has no contents to mutate, so only the Array path carries
-            // one.
-            self.instructions.push(Instruction::ArrayVersion {
-                destination: version,
-                array,
-            });
-        }
+        });
+        let item = self.allocate()?;
+        let exception = self.allocate()?;
+        let context = self.allocate()?;
+        let protected = self.instructions.len();
+        self.instructions.push(Instruction::EnterTry {
+            handler: 0,
+            cleanup: 0,
+            exception,
+            context,
+        });
         let top = self.instructions.len();
         let next = self.instructions.len();
-        if range {
-            self.instructions.push(Instruction::RangeNext {
-                destination: item,
-                range: array,
-                index,
-                exhausted: 0,
-            });
-        } else {
-            self.instructions.push(Instruction::ArrayNext {
-                destination: item,
-                array,
-                index,
-                version,
-                exhausted: 0,
-            });
-        }
-        let one = self.literal("1")?;
-        let advanced = self.allocate()?;
-        self.instructions.push(Instruction::Binary {
-            destination: advanced,
-            selector: "+",
-            left: index,
-            right: one,
-        });
-        self.instructions.push(Instruction::Move {
-            destination: index,
-            source: advanced,
+        self.instructions.push(Instruction::IteratorNext {
+            destination: item,
+            iterator,
+            exhausted: 0,
         });
         let outer = self.names.len();
         self.names.push((name.to_owned(), item));
         self.loops.push(LoopContext {
             continue_target: top,
             breaks: Vec::new(),
+            iterator: Some(iterator),
         });
         self.body(body)?;
         let Some(loop_context) = self.loops.pop() else {
@@ -321,15 +298,35 @@ impl<'a, 'b> Lowering<'a, 'b> {
         };
         self.names.truncate(outer);
         self.instructions.push(Instruction::Jump { target: top });
-        let after = self.instructions.len();
+        let close = self.instructions.len();
         match self.instructions.get_mut(next) {
-            Some(Instruction::ArrayNext { exhausted, .. })
-            | Some(Instruction::RangeNext { exhausted, .. }) => *exhausted = after,
+            Some(Instruction::IteratorNext { exhausted, .. }) => *exhausted = close,
             _ => return Err(CompileError::new("branch patch")),
         }
         for jump in loop_context.breaks {
-            self.patch(jump, after)?;
+            self.patch(jump, close)?;
         }
+        self.instructions.push(Instruction::LeaveTry);
+        self.instructions
+            .push(Instruction::IteratorClose { iterator });
+        let skip_handler = self.instructions.len();
+        self.instructions.push(Instruction::Jump { target: 0 });
+        let exceptional = self.instructions.len();
+        if let Some(Instruction::EnterTry {
+            handler, cleanup, ..
+        }) = self.instructions.get_mut(protected)
+        {
+            *handler = exceptional;
+            *cleanup = close;
+        }
+        self.instructions
+            .push(Instruction::IteratorClose { iterator });
+        self.instructions.push(Instruction::Propagate {
+            value: exception,
+            context,
+        });
+        let after = self.instructions.len();
+        self.patch(skip_handler, after)?;
         Ok(destination)
     }
 

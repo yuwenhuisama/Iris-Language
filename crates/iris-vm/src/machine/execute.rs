@@ -34,6 +34,11 @@ impl Machine {
 
         let mut counter = 0;
         let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
+        // A NAMED runtime error is catchable, so it is handed to a handler as
+        // a Symbol. If no handler answers it, the program must still fail with
+        // the ORIGINAL error rather than with a raised Symbol: an uncaught
+        // ConcurrentModification is that error, not `Raised(:...)`.
+        let mut converted: Option<MachineError> = None;
         macro_rules! run_frame {
             ($label:lifetime, $call:expr) => {
                 match $call {
@@ -48,12 +53,49 @@ impl Machine {
                         counter = handler;
                         continue $label;
                     }
-                    Err(error) => return Err(error),
+                    // A failure the specification NAMES is an ordinary
+                    // catchable Iris error, so it belongs to the innermost
+                    // handler rather than to the frame boundary. Returning it
+                    // here let `try { [].iterator().next().value } catch ...`
+                    // escape the catch entirely - the handler was reachable
+                    // and simply never consulted.
+                    Err(error) => match (super::catchable_name(&error), handlers.pop()) {
+                        (Some(name), Some((handler, exception, context_register))) => {
+                            registers[exception as usize] = Value::Symbol(name.to_owned());
+                            registers[context_register as usize] = Value::Nil;
+                            converted = Some(error);
+                            counter = handler;
+                            continue $label;
+                        }
+                        _ => return Err(error),
+                    },
                 }
             };
         }
         'frame: while let Some(instruction) = instructions.get(counter) {
             counter += 1;
+            // Every instruction's own failure goes through `dispatch` so a
+            // NAMED runtime error reaches the innermost handler. Letting the
+            // `?` operators inside leave the frame directly meant a `try`
+            // around `a[0] = 1` never saw the IndexError: the handler was on
+            // the stack and simply never consulted.
+            macro_rules! dispatch {
+                ($body:expr) => {
+                    match (|| -> Result<Value, MachineError> { Ok($body) })() {
+                        Ok(value) => value,
+                        Err(error) => match (super::catchable_name(&error), handlers.pop()) {
+                            (Some(name), Some((handler, exception, context_register))) => {
+                                registers[exception as usize] = Value::Symbol(name.to_owned());
+                                registers[context_register as usize] = Value::Nil;
+                                converted = Some(error);
+                                counter = handler;
+                                continue 'frame;
+                            }
+                            _ => return Err(error),
+                        },
+                    }
+                };
+            }
             let produced = match instruction {
                 Instruction::LoadInteger { digits, .. } => {
                     let Ok(number) = digits.parse() else {
@@ -202,16 +244,27 @@ impl Machine {
                     index,
                     value,
                     ..
-                } => self.set_index(
+                } => dispatch!(self.set_index(
                     registers[*receiver as usize].clone(),
                     registers[*index as usize].clone(),
                     registers[*value as usize].clone(),
-                )?,
+                )?),
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
-                    if let Value::ExceptionContext(_, value, cause, suppressed, sites, location) =
-                        &registers[*receiver as usize]
+                    if let Some(value) = run_frame!(
+                        'frame,
+                        self.iteration_send(&registers[*receiver as usize], selector, &[])
+                    ) {
+                        value
+                    } else if let Value::ExceptionContext(
+                        _,
+                        value,
+                        cause,
+                        suppressed,
+                        sites,
+                        location,
+                    ) = &registers[*receiver as usize]
                     {
                         match selector.as_str() {
                             "value" => (**value).clone(),
@@ -457,6 +510,91 @@ impl Machine {
                     }
                     Value::Integer(value)
                 }
+                Instruction::IteratorOpen { iterable, .. } => {
+                    let iterable = registers[*iterable as usize].clone();
+                    if let Some(iterator) = self.open_builtin_iterator(&iterable)? {
+                        iterator
+                    } else {
+                        let Value::Object(object) = iterable else {
+                            return Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(&iterable).to_owned(),
+                                selector: "iterator".to_owned(),
+                            });
+                        };
+                        let selector = selector_id(program, "iterator")
+                            .ok_or_else(|| MachineError::UnknownSelector("iterator".to_owned()))?;
+                        let method = match self.runtime.dispatch_instance(object, selector) {
+                            Ok(method) => method,
+                            Err(ConstructionError::Dispatch(
+                                iris_runtime::DispatchError::MissingMethod { .. },
+                            )) => {
+                                let class = self
+                                    .runtime
+                                    .class_of(object)
+                                    .map_err(MachineError::Construction)?;
+                                return Err(MachineError::MessageNotFound {
+                                    receiver_class: self
+                                        .dispatch_class_name(program, classes, class),
+                                    selector: "iterator".to_owned(),
+                                });
+                            }
+                            Err(error) => return Err(MachineError::Construction(error)),
+                        };
+                        let function = usize::try_from(method.body().raw()).map_err(|_| {
+                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                function: usize::MAX,
+                            })
+                        })?;
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = run_frame!('frame, self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        ));
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    }
+                }
+                Instruction::IteratorNext {
+                    iterator,
+                    exhausted,
+                    ..
+                } => {
+                    let iterator = registers[*iterator as usize].clone();
+                    let Some(step) = run_frame!(
+                        'frame,
+                        self.iteration_send(&iterator, "next", &[])
+                    ) else {
+                        return Err(MachineError::MessageNotFound {
+                            receiver_class: super::value_class_name(&iterator).to_owned(),
+                            selector: "next".to_owned(),
+                        });
+                    };
+                    match step {
+                        Value::IterationYield(value) => *value,
+                        Value::IterationDone => {
+                            counter = *exhausted;
+                            continue;
+                        }
+                        _ => return Err(MachineError::TypeContractError),
+                    }
+                }
+                Instruction::IteratorClose { iterator } => {
+                    let iterator = registers[*iterator as usize].clone();
+                    let Some(_) = run_frame!(
+                        'frame,
+                        self.iteration_send(&iterator, "close", &[])
+                    ) else {
+                        return Err(MachineError::MessageNotFound {
+                            receiver_class: super::value_class_name(&iterator).to_owned(),
+                            selector: "close".to_owned(),
+                        });
+                    };
+                    continue;
+                }
                 Instruction::EnterTry {
                     handler,
                     exception,
@@ -511,6 +649,13 @@ impl Machine {
                     let value = registers[*value as usize].clone();
                     let context = registers[*context as usize].clone();
                     let Some((handler, exception, context_register)) = handlers.pop() else {
+                        // Cleanup ran and nothing answered it, so a converted
+                        // error leaves as ITSELF. Re-raising the Symbol would
+                        // report `Raised(:IndexError)` where the reference
+                        // reports IndexError.
+                        if let Some(error) = converted.take() {
+                            return Err(error);
+                        }
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
                     registers[exception as usize] = value;

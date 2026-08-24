@@ -190,6 +190,18 @@ pub enum Instruction {
         index: Register,
         exhausted: usize,
     },
+    IteratorOpen {
+        destination: Register,
+        iterable: Register,
+    },
+    IteratorNext {
+        destination: Register,
+        iterator: Register,
+        exhausted: usize,
+    },
+    IteratorClose {
+        iterator: Register,
+    },
     /// Installs an exception handler for the following protected region.
     EnterTry {
         handler: usize,
@@ -334,6 +346,9 @@ impl Instruction {
             | Self::SetClassVar { destination, .. }
             | Self::MakeClosure { destination, .. }
             | Self::FromBits { destination, .. } => Some(*destination),
+            Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
+                Some(*destination)
+            }
             Self::RaiseDefiniteAssignment { destination } => Some(*destination),
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
@@ -344,6 +359,7 @@ impl Instruction {
             | Self::Raise { .. }
             | Self::Propagate { .. }
             | Self::Return { .. } => None,
+            Self::IteratorClose { .. } => None,
             Self::DeclareDeferred { .. } => None,
             Self::ArrayVersion { destination, .. } => Some(*destination),
             Self::ArrayNext { destination, .. } | Self::RangeNext { destination, .. } => {

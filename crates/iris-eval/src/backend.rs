@@ -119,6 +119,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::ConcurrentModification) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::ConcurrentModification)),
                 ),
+                Err(iris_vm::MachineError::IteratorState) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::IteratorState),
+                )),
                 Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::TypeContractError),
                 )),
@@ -780,7 +783,8 @@ mod differential_tests {
         let source = "module M { public fun r() -> Object { [1].size() } } M.r()";
         let control = "module M { public fun r() -> Object { [1].length() } } M.r()";
 
-        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
             unreachable!("both backends reject the absent selector")
         };
         assert!(
@@ -820,7 +824,8 @@ mod differential_tests {
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         let source = "module M { public fun r() -> Object { try { raise 1 } catch e: Symbol { 10 } catch e: Integer { e + 1 } } } M.r()";
 
-        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
             unreachable!("both backends run filtered catches in method frames")
         };
 
@@ -1084,8 +1089,9 @@ mod differential_tests {
     fn assert_agreement(source: &str, expected: &str) {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let Agreement::Agreed { observation, .. } = compare_backends(source, &backends) else {
-            unreachable!("both backends must run: {source}")
+        let agreement = compare_backends(source, &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends must run: {source}: {agreement:?}")
         };
         assert_eq!(
             observation,
@@ -1097,6 +1103,122 @@ mod differential_tests {
             Observation::Value(format!("wrong:{expected}")),
             "{source}"
         );
+    }
+
+    #[test]
+    fn backends_agree_on_iteration_protocol() {
+        for (body, expected, control) in [
+            (
+                "class C { public fun iterator() -> Object { [7].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+                "7",
+                "class C { public fun iterator() -> Object { [8].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+            ),
+            (
+                "let it = [1, 2].iterator(); [it.next().value, it.next().value, it.next().done?]",
+                "[1, 2, true]",
+                "let it = [1, 3].iterator(); [it.next().value, it.next().value, it.next().done?]",
+            ),
+            (
+                "let it = [].iterator(); [it.close(), it.close(), it.next().done?]",
+                "[nil, nil, true]",
+                "let it = [1].iterator(); [it.close(), it.close(), it.next().yield?]",
+            ),
+            (
+                "let it = [].iterator(); let a = it.next(); let b = it.next(); [a.done?, b.done?]",
+                "[true, true]",
+                "let it = [1].iterator(); let a = it.next(); let b = it.next(); [a.done?, b.done?]",
+            ),
+            (
+                "class C { public fun iterator() -> Object { [7, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
+                "7",
+                "class C { public fun iterator() -> Object { [8, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
+            ),
+            (
+                "mut sum = 0; for x in [1, 2] { sum = sum + x }; for pair in %{ :a: 3 } { sum = sum + pair[1] }; for x in (4 ..= 5) { sum = sum + x }; sum",
+                "15",
+                "mut sum = 0; for x in [1] { sum = sum + x }; for pair in %{ :b: 4 } { sum = sum + pair[1] }; for x in (6 ..= 6) { sum = sum + x }; sum",
+            ),
+        ] {
+            let source = if body.starts_with("class C")
+                && let Some((declaration, method_body)) = body.split_once("}; ")
+            {
+                format!(
+                    "{declaration}}} module M {{ public fun r() -> Object {{ {method_body} }} }} M.r()"
+                )
+            } else {
+                format!("module M {{ public fun r() -> Object {{ {body} }} }} M.r()")
+            };
+            let control = if control.starts_with("class C")
+                && let Some((declaration, method_body)) = control.split_once("}; ")
+            {
+                format!(
+                    "{declaration}}} module M {{ public fun r() -> Object {{ {method_body} }} }} M.r()"
+                )
+            } else {
+                format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()")
+            };
+            assert_agreement(&source, expected);
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let Agreement::Agreed { observation, .. } = compare_backends(&control, &backends)
+            else {
+                unreachable!("both backends must run the iteration negative control: {control}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{control}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_iteration_failures() {
+        for (body, expected_fragment, control_fragment) in [
+            (
+                "[].iterator().next().value",
+                "IteratorState",
+                "MessageNotFound",
+            ),
+            (
+                "for x in 5 { x }",
+                "receiver_class: \"Integer\", selector: \"iterator\"",
+                "receiver_class: \"String\", selector: \"iterator\"",
+            ),
+            (
+                "let values = [1, 2]; for x in values { values[0] = 9 }",
+                "ConcurrentModification",
+                "IteratorState",
+            ),
+            (
+                "class C { public fun iterator() -> Object { [1].iterator() } }; for x in C.new() { raise :boom }",
+                "Raised",
+                "ConcurrentModification",
+            ),
+        ] {
+            let source = if body.starts_with("class C")
+                && let Some((declaration, method_body)) = body.split_once("}; ")
+            {
+                format!(
+                    "{declaration}}} module M {{ public fun r() -> Object {{ {method_body} }} }} M.r()"
+                )
+            } else {
+                format!("module M {{ public fun r() -> Object {{ {body} }} }} M.r()")
+            };
+            let (interpreter, bytecode) = both();
+            let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+            let agreement = compare_backends(&source, &backends);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!(
+                    "both backends must run the iteration failure: {source}: {agreement:?}"
+                )
+            };
+            let Observation::Error(error) = observation else {
+                unreachable!("iteration failure must raise: {source}")
+            };
+            assert!(error.contains(expected_fragment), "{source}: {error}");
+            assert!(!error.contains(control_fragment), "{source}: {error}");
+        }
     }
 
     #[test]
@@ -1864,6 +1986,66 @@ mod differential_tests {
             &Observation::Error(
                 "MessageNotFound { receiver_class: \"Tuple\", selector: \"to_string\" }".to_owned()
             )
+        );
+    }
+
+    /// A named runtime failure is an ORDINARY CATCHABLE Iris error.
+    ///
+    /// The backend returned these straight out of the frame, so a `try` around
+    /// them never saw them: the handler was on the stack and simply never
+    /// consulted. C056 hands the raised value to the catch, and the reference
+    /// binds the specification's name as a Symbol, so `catch e { e }` answers
+    /// `:IndexError` rather than dying.
+    ///
+    /// Uncaught, the SAME failure must still surface as itself. Converting it
+    /// eagerly reported `Raised(:IndexError)` where the reference reports
+    /// IndexError - a program that never wrote a handler would have seen the
+    /// error change shape because handlers exist elsewhere in the machine.
+    #[test]
+    fn a_named_runtime_failure_is_catchable_in_both_backends() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { \
+                 try { let a = []; a[0] = 1; :no } catch e { e } } } M.r()",
+                ":IndexError",
+            ),
+            (
+                "module M { public fun r() -> Object { \
+                 try { [].iterator().next().value } catch e { e } } } M.r()",
+                ":IteratorStateError",
+            ),
+            (
+                "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()",
+                ":MessageNotFound",
+            ),
+            (
+                "module M { public fun r() -> Object { try { let a = [1,2]; \
+                 for x in a { a[0] = 9 } } catch e { e } } } M.r()",
+                ":ConcurrentModificationError",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("the handler must answer it: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        // Control: with NO handler the failure is still itself, so the
+        // conversion above is the catch's doing rather than a rename.
+        let uncaught = "module M { public fun r() -> Object { \
+             let a = [1,2]; for x in a { a[0] = 9 } } } M.r()";
+        let agreement = compare_backends(uncaught, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("an uncaught failure must surface as itself: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error("ConcurrentModification".to_owned())
         );
     }
 

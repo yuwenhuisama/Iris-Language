@@ -1,5 +1,6 @@
 mod array;
 mod hash_text;
+mod iteration;
 mod support;
 
 use iris_runtime::{ClassId, Value};
@@ -81,6 +82,15 @@ impl Machine {
         classes: &[ClassId],
     ) -> Result<Option<Value>, MachineError> {
         let result = match receiver {
+            Value::Array(_) | Value::Hash(_) | Value::Range(_)
+                if selector == "iterator" && arguments.is_empty() =>
+            {
+                self.open_builtin_iterator(receiver)?
+            }
+            Value::ArrayIterator(_)
+            | Value::HashIterator(_)
+            | Value::IterationYield(_)
+            | Value::IterationDone => self.iteration_send(receiver, selector, arguments)?,
             Value::Array(values) => {
                 self.array_send(values, receiver, selector, arguments, program, classes)?
             }
