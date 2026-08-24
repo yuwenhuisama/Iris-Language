@@ -3,7 +3,7 @@ mod hash_text;
 mod iteration;
 mod support;
 
-use iris_runtime::{ClassId, Value};
+use iris_runtime::{ClassId, MethodOwner, Value, Visibility};
 
 use super::{Machine, MachineError, VerifyError, selector_id, value_class_name};
 use crate::compile::Program;
@@ -132,6 +132,96 @@ impl Machine {
                     .unwrap_or_default();
                 Some(Value::Array(iris_runtime::ArrayRef::new(declared)))
             }
+            Value::Method(method) => match selector {
+                "selector" if arguments.is_empty() => Some(
+                    self.selector_name(program, method.selector())
+                        .map(Value::Symbol)
+                        .unwrap_or(Value::Nil),
+                ),
+                "owner" if arguments.is_empty() => Some(match method.owner() {
+                    MethodOwner::Class(class) => Value::Class(class),
+                    MethodOwner::Module(_) => Value::Nil,
+                }),
+                "visibility" if arguments.is_empty() => Some(Value::Symbol(
+                    match method.visibility() {
+                        Visibility::Public => "public",
+                        Visibility::Protected => "protected",
+                        Visibility::Private => "private",
+                    }
+                    .to_owned(),
+                )),
+                "parameters" if arguments.is_empty() => {
+                    let function = usize::try_from(method.body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let metadata = program
+                        .functions
+                        .get(function)
+                        .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                            function,
+                        }))?;
+                    Some(Value::Array(iris_runtime::ArrayRef::new(
+                        metadata
+                            .parameter_types
+                            .iter()
+                            .cloned()
+                            .map(Value::Symbol)
+                            .collect(),
+                    )))
+                }
+                "return_type" if arguments.is_empty() => {
+                    let function = usize::try_from(method.body().raw()).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: usize::MAX,
+                        })
+                    })?;
+                    let metadata = program
+                        .functions
+                        .get(function)
+                        .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                            function,
+                        }))?;
+                    Some(Value::Symbol(metadata.return_type.clone()))
+                }
+                "source" if arguments.is_empty() => {
+                    let MethodOwner::Class(owner) = method.owner() else {
+                        return Ok(Some(Value::Symbol("dynamic-only".to_owned())));
+                    };
+                    let revision = self
+                        .runtime
+                        .registry()
+                        .active(owner)
+                        .map_err(MachineError::Class)?;
+                    Some(Value::Array(iris_runtime::ArrayRef::new(vec![
+                        Value::Symbol("runtime-local".to_owned()),
+                        Value::Integer(revision.number().into()),
+                        Value::Integer(revision.commit_id().into()),
+                        Value::Symbol("static".to_owned()),
+                    ])))
+                }
+                "bind" => {
+                    let [target] = arguments else {
+                        return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                    };
+                    let bound = match target {
+                        Value::Object(object) => self
+                            .runtime
+                            .registry_mut()
+                            .bind_retained_instance(*object, *method),
+                        Value::Class(class) => self
+                            .runtime
+                            .registry_mut()
+                            .bind_retained_class(*class, *method),
+                        _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                    }
+                    .map_err(iris_runtime::ConstructionError::from)
+                    .map_err(MachineError::Construction)?;
+                    Some(Value::BoundMethod(bound))
+                }
+                _ => None,
+            },
             Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
                 Some(Value::Symbol("nominal".to_owned()))
             }
@@ -213,6 +303,13 @@ fn authored_selector(selector: &str) -> bool {
             | "kind"
             | "subtype?"
             | "assignable?"
+            | "selector"
+            | "owner"
+            | "visibility"
+            | "parameters"
+            | "return_type"
+            | "source"
+            | "bind"
     )
 }
 

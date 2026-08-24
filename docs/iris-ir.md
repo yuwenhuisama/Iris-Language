@@ -192,6 +192,8 @@ representation type split.
 | `BindMember { dst, receiver, selector }` | Resolves an object member and allocates a BoundMethod without invoking it. |
 | `TypeTest { dst, value, target }` | Tests `value` against the current nominal ancestry of the Class in `target`. |
 | `Send { dst, receiver, selector, first, count }` | Sends an ordinary selector with arguments in the contiguous register window. |
+| `SendClass { dst, class, selector, first, count }` | Sends a declared Class method to the registered Class object. |
+| `Reflection { dst, namespace, selector, first, count }` | Executes a covered Reflection entry point with arguments in the contiguous register window. |
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
 
@@ -240,6 +242,21 @@ Symbol receivers through the same documented convenience surface as the source r
 wrong arity, and wrong argument shape remain program errors rather than machine
 dispatch defects. In particular, Array `size` remains absent and `length` is
 the supported spelling.
+
+`Reflection` is a dedicated boundary because these calls are namespace entry
+points rather than ordinary receiver dispatch. The covered surface is
+`Reflection::Class.method` and `Reflection::Object.get_ivar`/`set_ivar`.
+Class method lookup returns the runtime Method identity or nil when the slot is
+absent. A reflected Method answers `selector`, `owner`, `visibility`,
+`parameters`, `return_type`, and `source`; `bind(receiver)` produces a retained
+BoundMethod whose `call` revalidates and invokes that exact Method. The VM
+declines `Method.signature`, `Method.package`, and an unbound `Method.call`
+before emitting bytecode because the reference runtime does not currently
+implement those sends. Raw ivar names accept the Symbol spelling used by the runtime selector
+table, absent reads answer nil, and writes return the stored value. A machine
+with Host grants checks `reflection.inspect` and `reflection.mutate` separately
+against the target Class; a denied or out-of-scope operation raises the
+catchable `ReflectionAccessError`.
 
 ### 3.4 Aggregates
 
@@ -577,10 +594,11 @@ Named so the gaps are not mistaken for decisions:
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set
   shape for when that changes; nothing in this backend is walked yet.
-- **Runtime subsystems.** `Reflection`, `Host`, `FFI`, `JSON` and the Iteration
-  protocol are the largest single decline bucket, and they are SUBSYSTEMS
-  rather than lowering gaps. Stubbing them would answer a differential row
-  with a fabricated value, which is the one outcome worse than a held row.
+- **Runtime subsystems.** Reflection method lookup and object raw-ivar access,
+  plus the Iteration protocol, are covered. The remaining `Reflection`, `Host`,
+  `FFI`, and `JSON` surfaces are SUBSYSTEMS rather than lowering gaps. Stubbing
+  them would answer a differential row with a fabricated value, which is the
+  one outcome worse than a held row.
 - **Async.** `Task` semantics need suspension the machine does not model.
 
 **Bare-name Hash keys.** `%{ a: 1 }` is parsed as a Hash whose key is a NAME

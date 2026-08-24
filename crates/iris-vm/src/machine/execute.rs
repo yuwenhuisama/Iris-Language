@@ -256,9 +256,26 @@ impl Machine {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
-                    if let Some(value) = run_frame!(
+                    if matches!(registers[*receiver as usize], Value::Method(_))
+                        && let Some(value) = run_frame!(
+                            'frame,
+                            self.authored_send(
+                                &registers[*receiver as usize],
+                                selector,
+                                &[],
+                                program,
+                                classes,
+                            )
+                        )
+                    {
+                        value
+                    } else if let Some(value) = run_frame!(
                         'frame,
-                        self.iteration_send(&registers[*receiver as usize], selector, &[])
+                        self.iteration_send(
+                            &registers[*receiver as usize],
+                            selector,
+                            &[]
+                        )
                     ) {
                         value
                     } else if let Value::ExceptionContext(
@@ -1077,6 +1094,68 @@ impl Machine {
                     ));
                     returned.into_iter().next().unwrap_or(Value::Nil)
                 }
+                Instruction::Reflection {
+                    namespace,
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => dispatch!({
+                    let start = *first as usize;
+                    let arguments = &registers[start..start + *count as usize];
+                    match (namespace.as_str(), selector.as_str(), arguments) {
+                        (
+                            "Reflection::Class",
+                            "method",
+                            [Value::Class(class), Value::Symbol(name)],
+                        ) => {
+                            let selector = selector_id(program, name)
+                                .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                            match self.runtime.registry().dispatch(*class, selector) {
+                                Ok(iris_runtime::DispatchOutcome::Invoke(method)) => {
+                                    Value::Method(method)
+                                }
+                                Ok(iris_runtime::DispatchOutcome::WouldInvokeMethodMissing {
+                                    ..
+                                }) => Value::Nil,
+                                Err(error) => return Err(MachineError::Construction(error.into())),
+                            }
+                        }
+                        (
+                            "Reflection::Object",
+                            "get_ivar",
+                            [Value::Object(object), Value::Symbol(name)],
+                        ) => {
+                            let class = self
+                                .runtime
+                                .class_of(*object)
+                                .map_err(MachineError::Construction)?;
+                            self.require_reflection("inspect", class, program, classes)?;
+                            let selector = selector_id(program, name)
+                                .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                            self.runtime
+                                .raw_ivar(*object, selector)
+                                .map_err(MachineError::Construction)?
+                        }
+                        (
+                            "Reflection::Object",
+                            "set_ivar",
+                            [Value::Object(object), Value::Symbol(name), value],
+                        ) => {
+                            let class = self
+                                .runtime
+                                .class_of(*object)
+                                .map_err(MachineError::Construction)?;
+                            self.require_reflection("mutate", class, program, classes)?;
+                            let selector = selector_id(program, name)
+                                .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                            self.runtime
+                                .assign_raw_ivar(*object, selector, value.clone())
+                                .map_err(MachineError::Construction)?
+                        }
+                        _ => return Err(MachineError::Kernel(KernelError::Type)),
+                    }
+                }),
                 Instruction::ContractCast {
                     receiver, contract, ..
                 } => {

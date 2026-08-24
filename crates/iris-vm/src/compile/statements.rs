@@ -38,6 +38,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     source: value,
                 });
+                if self.method_values.contains(&value) {
+                    self.method_values.push(destination);
+                }
                 self.names.push((name.clone(), destination));
                 Ok(destination)
             }

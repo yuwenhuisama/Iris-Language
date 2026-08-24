@@ -37,9 +37,22 @@ pub(super) fn lower_function(
         name: format!("{}.{}", signature.module, signature.selector),
         parameters: signature.parameters.len() + usize::from(signature.receiver),
         captures: 0,
+        parameter_types: signature
+            .parameters
+            .iter()
+            .map(|parameter| reflected_type(parameter.annotation.as_ref()))
+            .collect(),
+        return_type: reflected_type(signature.return_type),
         registers: lowering.next_register as usize,
         instructions: lowering.instructions,
     })
+}
+
+fn reflected_type(annotation: Option<&iris_syntax::TypeExpression>) -> String {
+    match annotation {
+        Some(iris_syntax::TypeExpression::Name(name)) => name.clone(),
+        _ => "Dynamic<Object>".to_owned(),
+    }
 }
 
 pub(super) struct Lowering<'a, 'b> {
@@ -56,6 +69,7 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) closures: &'a mut Vec<Function>,
     pub(super) loops: Vec<LoopContext>,
     pub(super) exception_contexts: Vec<Register>,
+    pub(super) method_values: Vec<Register>,
 }
 
 pub(super) struct LoopContext {
@@ -84,6 +98,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             closures,
             loops: Vec::new(),
             exception_contexts: Vec::new(),
+            method_values: Vec::new(),
         }
     }
 

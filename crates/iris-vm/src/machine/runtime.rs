@@ -9,6 +9,47 @@ use crate::compile::Program;
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 
 impl Machine {
+    pub(super) fn selector_name(
+        &self,
+        program: &Program,
+        selector: iris_runtime::Selector,
+    ) -> Option<String> {
+        program
+            .classes
+            .iter()
+            .flat_map(|class| class.methods.iter().chain(&class.class_methods))
+            .map(|(name, _)| name)
+            .find(|name| selector_id(program, name).is_some_and(|known| known == selector))
+            .cloned()
+    }
+
+    pub(super) fn require_reflection(
+        &self,
+        operation: &str,
+        target: ClassId,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        if self.reflection_grants.is_empty() {
+            return Ok(());
+        }
+        let requested = format!("reflection.{operation}");
+        let target_name = self.dispatch_class_name(program, classes, target);
+        let granted = self.reflection_grants.iter().any(|(name, scope)| {
+            name == &requested
+                && (scope.is_empty()
+                    || scope
+                        .rsplit("::")
+                        .next()
+                        .is_some_and(|name| name == target_name))
+        });
+        if granted {
+            Ok(())
+        } else {
+            Err(MachineError::ReflectionAccess)
+        }
+    }
+
     pub(super) fn register_classes(
         &mut self,
         program: &Program,

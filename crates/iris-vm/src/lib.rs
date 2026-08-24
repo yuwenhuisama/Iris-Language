@@ -79,6 +79,14 @@ mod tests {
             "module M { public fun r() -> Object { Iteration.yield(nil).value } } M.r()",
             "module M { public fun r() -> Object { Iteration.done.done? } } M.r()",
             "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 2 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
+            "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Class.method(A, :value) } } M.r()",
+            "class A { } module M { public fun r() -> Object { let a = A.new(); Reflection::Object.set_ivar(a, :@value, 9); Reflection::Object.get_ivar(a, :@value) } } M.r()",
+            "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :value); method.selector } } M.r()",
+            "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :value); method.bind(A.new()).call() } } M.r()",
+            "module M { public fun r() -> Object { let closure = { |x|; x }; closure.call(7) } } M.r()",
+            "class It { public fun next() -> Object { Iteration.yield(1) } } module M { public fun r() -> Object { It.new().next().value } } M.r()",
+            "module M { public fun r() -> Object { Iteration.yield(1).value } } M.r()",
+            "class A { } module M { public fun r() -> Object { let class_value = A; class_value.new() } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

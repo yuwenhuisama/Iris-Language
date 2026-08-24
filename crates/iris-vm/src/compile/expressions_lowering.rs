@@ -310,6 +310,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     Expression::Array(_)
                         | Expression::Hash(_)
                         | Expression::Tuple(_)
+                        | Expression::Member { .. }
                         | Expression::Name(_)
                         | Expression::GlobalVar(_)
                 ) {
@@ -338,6 +339,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return self.expression(receiver);
                 }
                 let receiver = self.expression(receiver)?;
+                if self.method_values.contains(&receiver)
+                    && matches!(selector.as_str(), "signature" | "package" | "call")
+                {
+                    return Err(CompileError::new(format!("Method.{selector}")));
+                }
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::BindMember {
                     destination,
@@ -504,6 +510,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             name: "<closure>".to_owned(),
             parameters: captures.len() + parameters.len(),
             captures: captures.len(),
+            parameter_types: vec!["Dynamic<Object>".to_owned(); parameters.len()],
+            return_type: "Dynamic<Object>".to_owned(),
             registers,
             instructions,
         });

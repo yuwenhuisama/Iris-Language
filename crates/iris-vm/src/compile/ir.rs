@@ -272,6 +272,13 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    Reflection {
+        destination: Register,
+        namespace: String,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
     ContractCast {
         destination: Register,
         receiver: Register,
@@ -347,6 +354,7 @@ impl Instruction {
             | Self::New { destination, .. }
             | Self::Send { destination, .. }
             | Self::SendClass { destination, .. }
+            | Self::Reflection { destination, .. }
             | Self::ContractCast { destination, .. }
             | Self::SendContract { destination, .. }
             | Self::GetIvar { destination, .. }
@@ -405,6 +413,8 @@ pub struct Function {
     /// How many leading registers hold parameters.
     pub(crate) parameters: usize,
     pub(crate) captures: usize,
+    pub(crate) parameter_types: Vec<String>,
+    pub(crate) return_type: String,
     /// The size of this frame's register file.
     pub(crate) registers: usize,
     pub(crate) instructions: Vec<Instruction>,

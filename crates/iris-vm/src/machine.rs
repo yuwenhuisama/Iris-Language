@@ -52,6 +52,7 @@ pub struct Machine {
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
     globals: std::collections::HashMap<String, Value>,
     iterators: std::collections::HashMap<iris_runtime::ObjectId, IteratorRecord>,
+    reflection_grants: Vec<(String, String)>,
     next_closure: u64,
     next_context: u64,
     next_iterator: u64,
@@ -71,10 +72,16 @@ impl Machine {
             closures: std::collections::HashMap::new(),
             globals: std::collections::HashMap::new(),
             iterators: std::collections::HashMap::new(),
+            reflection_grants: Vec::new(),
             next_closure: 1,
             next_context: 900_000,
             next_iterator: 1_000_000,
         })
+    }
+
+    /// Replaces the Host reflection grants governing this machine run.
+    pub fn enter_reflection_grants(&mut self, grants: Vec<(String, String)>) {
+        self.reflection_grants = grants;
     }
 
     /// Verifies `program`, then runs it and answers its result register.
@@ -111,6 +118,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
+        MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
         _ => None,
@@ -232,15 +240,18 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                 .functions
                 .iter()
                 .flat_map(|function| function.instructions.iter())
+                .chain(program.instructions.iter())
                 .filter_map(|instruction| match instruction {
                     Instruction::Send { selector, .. }
                     | Instruction::SendClass { selector, .. }
+                    | Instruction::Reflection { selector, .. }
                     | Instruction::SendContract { selector, .. }
                     | Instruction::BindMember { selector, .. }
                     | Instruction::GetIvar { name: selector, .. }
                     | Instruction::SetIvar { name: selector, .. } => Some(selector.as_str()),
                     Instruction::GetClassVar { name, .. }
-                    | Instruction::SetClassVar { name, .. } => Some(name.as_str()),
+                    | Instruction::SetClassVar { name, .. }
+                    | Instruction::LoadSymbol { name, .. } => Some(name.as_str()),
                     _ => None,
                 }),
         )

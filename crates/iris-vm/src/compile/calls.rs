@@ -94,6 +94,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 _ => "call callee",
             }));
         };
+        if let Expression::Name(name) = receiver.as_ref()
+            && self
+                .lookup(name)
+                .is_some_and(|register| self.method_values.contains(&register))
+            && selector == "call"
+        {
+            return Err(CompileError::new("Method.call"));
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "Iteration")
             && selector == "yield"
         {
@@ -104,6 +112,30 @@ impl<'a, 'b> Lowering<'a, 'b> {
             let destination = self.allocate()?;
             self.instructions
                 .push(Instruction::BuildIterationYield { destination, value });
+            return Ok(destination);
+        }
+        if let Expression::Name(namespace) = receiver.as_ref()
+            && matches!(
+                namespace.as_str(),
+                "Reflection::Class" | "Reflection::Object"
+            )
+            && matches!(
+                (namespace.as_str(), selector.as_str()),
+                ("Reflection::Class", "method") | ("Reflection::Object", "get_ivar" | "set_ivar")
+            )
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Reflection {
+                destination,
+                namespace: namespace.clone(),
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            if namespace == "Reflection::Class" && selector == "method" {
+                self.method_values.push(destination);
+            }
             return Ok(destination);
         }
         if matches!(receiver.as_ref(), Expression::Member { receiver, selector }

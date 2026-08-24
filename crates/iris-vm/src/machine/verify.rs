@@ -37,6 +37,7 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    ReflectionAccess,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -189,6 +190,7 @@ fn verify_body(
             | Instruction::New { first, count, .. }
             | Instruction::Send { first, count, .. }
             | Instruction::SendClass { first, count, .. }
+            | Instruction::Reflection { first, count, .. }
             | Instruction::SendContract { first, count, .. } => {
                 range(*first, *count, registers)?;
             }
@@ -410,6 +412,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             .chain((0..*count).map(|offset| first + offset))
             .collect(),
         Instruction::SendClass { first, count, .. } => {
+            (0..*count).map(|offset| first + offset).collect()
+        }
+        Instruction::Reflection { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()
         }
         Instruction::SendContract {

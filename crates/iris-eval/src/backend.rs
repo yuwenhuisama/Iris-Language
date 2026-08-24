@@ -125,6 +125,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::TypeContractError),
                 )),
+                Err(iris_vm::MachineError::ReflectionAccess) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::ReflectionAccess),
+                )),
                 Err(iris_vm::MachineError::MessageNotFound {
                     receiver_class,
                     selector,
@@ -415,6 +418,182 @@ mod differential_tests {
 
     fn both() -> (Interpreter, Bytecode) {
         (Interpreter, Bytecode)
+    }
+
+    fn execute_with_grants(
+        source: &str,
+        grants: Vec<(String, String)>,
+    ) -> (Observation, Observation) {
+        let packages = vec![(
+            "app".to_owned(),
+            vec![("main.iris".to_owned(), source.to_owned())],
+        )];
+        let interpreted =
+            crate::load_package_tree_with_grants(&packages, grants.clone(), Some("M.r()"))
+                .map(|(_, value)| value.unwrap_or(iris_runtime::Value::Nil));
+        let interpreter = Observation::of(interpreted);
+        let bytecode_source = format!("{source} M.r()");
+        let bytecode = match iris_vm::compile(&bytecode_source) {
+            Ok(program) => match iris_vm::Machine::new() {
+                Ok(mut machine) => {
+                    machine.enter_reflection_grants(grants);
+                    match machine.execute(&program) {
+                        Ok(value) => Observation::Value(render_value(&value)),
+                        Err(iris_vm::MachineError::ReflectionAccess) => {
+                            Observation::Error(format!("{:?}", EvaluationError::ReflectionAccess))
+                        }
+                        Err(error) => Observation::Error(format!("machine defect: {error:?}")),
+                    }
+                }
+                Err(error) => Observation::of(Err(EvaluationError::Runtime(error))),
+            },
+            Err(_) => Observation::Error("bytecode declined reflection fixture".to_owned()),
+        };
+        (interpreter, bytecode)
+    }
+
+    #[test]
+    fn backends_agree_on_reflecting_an_existing_class_method() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Class.method(A, :value) } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends reflect a declared method")
+        };
+        assert_eq!(observation, Observation::Value("<method>".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_that_reflecting_an_absent_class_method_answers_nil() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Class.method(A, :missing) } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends distinguish an absent method")
+        };
+        assert_eq!(observation, Observation::Value("nil".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_raw_ivar_round_trip_and_absent_read() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, 9); [stored, Reflection::Object.get_ivar(a, :@value), Reflection::Object.get_ivar(a, :@absent)] } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends preserve raw instance state")
+        };
+        assert_eq!(observation, Observation::Value("[9, 9, nil]".to_owned()));
+    }
+
+    #[test]
+    fn reflection_object_values_remain_ordinary_downstream_values() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, [1]); let read = Reflection::Object.get_ivar(a, :@value); stored.push(2); read.push(3); [read, Reflection::Object.get_ivar(a, :@missing)] } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("reflected ivar values keep their ordinary value protocols: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Value("[[1, 2, 3], nil]".to_owned())
+        );
+    }
+
+    #[test]
+    fn backends_agree_on_granted_and_ungranted_reflection_access() {
+        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); try { Reflection::Object.set_ivar(a, :@value, 9); Reflection::Object.get_ivar(a, :@value) } catch e { e } } }";
+
+        let granted = execute_with_grants(
+            source,
+            vec![
+                ("reflection.inspect".to_owned(), "A".to_owned()),
+                ("reflection.mutate".to_owned(), "A".to_owned()),
+            ],
+        );
+        let denied = execute_with_grants(
+            source,
+            vec![("reflection.inspect".to_owned(), "Other".to_owned())],
+        );
+
+        assert_eq!(granted.0, granted.1);
+        assert_eq!(granted.0, Observation::Value("9".to_owned()));
+        assert_eq!(denied.0, denied.1);
+        assert_eq!(
+            denied.0,
+            Observation::Value(":ReflectionAccessError".to_owned())
+        );
+    }
+
+    #[test]
+    fn requested_method_differential_evidence() {
+        let (interpreter, bytecode) = both();
+        let programs = [
+            "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { Reflection::Class.method(A, :m).selector } } M.r()",
+            "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { Reflection::Class.method(A, :m).owner } } M.r()",
+            "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { Reflection::Class.method(A, :m).visibility } } M.r()",
+            "class A { public fun m() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Class.method(A, :m).bind(A.new()).call() } } M.r()",
+        ];
+
+        for source in programs {
+            let interpreted = interpreter.execute(source);
+            let compiled = bytecode.execute(source);
+            eprintln!("METHOD DIFF interpreter={interpreted:?} bytecode={compiled:?}");
+            assert_eq!(interpreted, compiled);
+        }
+        let denial_source = "class A { } module M { public fun r() -> Object { try { Reflection::Object.get_ivar(A.new(), :@value) } catch e { e } } }";
+        let denied = execute_with_grants(
+            denial_source,
+            vec![("reflection.inspect".to_owned(), "Other".to_owned())],
+        );
+        eprintln!("DENIAL DIFF interpreter={:?} bytecode={:?}", denied.0, denied.1);
+        assert_eq!(denied.0, denied.1);
+    }
+
+    #[test]
+    fn backends_agree_on_method_metadata_and_bound_invocation() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = "class A { public fun m() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :m); [method.selector, method.owner same? A, method.visibility, method.parameters, method.return_type, method.source[3], method.bind(A.new()).call()] } } M.r()";
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends expose and bind the reflected Method: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Value("[:m, true, :public, [], :Integer, :static, 7]".to_owned())
+        );
+    }
+
+    #[test]
+    fn bytecode_declines_unimplemented_method_view_members_before_execution() {
+        let bytecode = Bytecode;
+        let prefix = "class A { public fun m() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :m); ";
+
+        for (expression, expected) in [
+            ("method.signature", "Method.signature"),
+            ("method.package", "Method.package"),
+            ("method.call()", "Method.call"),
+        ] {
+            let source = format!("{prefix}{expression} }} }} M.r()");
+            let Support::Unsupported(reason) = bytecode.execute(&source) else {
+                unreachable!("an unimplemented Method member must be declined")
+            };
+            assert_eq!(reason, expected);
+        }
     }
 
     /// `IRIS-V1-RUNTIME-V052`: an arbitrary-precision Integer survives a
