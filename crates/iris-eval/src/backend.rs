@@ -1866,6 +1866,59 @@ mod differential_tests {
         }
     }
 
+    #[test]
+    fn backends_agree_on_headerless_block_closures() {
+        for (source, expected, wrong) in [
+            ("{ 7 }.call()", "7", "nil"),
+            (
+                "module M { public fun r() -> Object { { 7 }.call() } } M.r()",
+                "7",
+                "nil",
+            ),
+            (
+                "class B { } B.open() { |t| t.define_method(:a) { 1 } }; B.new().a()",
+                "[nil, 1]",
+                "[nil, nil]",
+            ),
+            (
+                "class B { } module M { public fun r() -> Object { B.open() { |t| t.define_method(:a) { 1 } }; B.new().a() } } M.r()",
+                "1",
+                "nil",
+            ),
+            (
+                "mut n = 0; let f = { n = n + 2 }; f.call(); n",
+                "[2, 2]",
+                "[2, 0]",
+            ),
+            (
+                "module M { public fun r() -> Object { mut n = 0; let f = { n = n + 2 }; f.call(); n } } M.r()",
+                "2",
+                "0",
+            ),
+            ("{ { 9 } }.call().call()", "9", "nil"),
+            (
+                "module M { public fun r() -> Object { { { 9 } }.call().call() } } M.r()",
+                "9",
+                "nil",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run a headerless block: {source}: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
     /// The subset boundary is explicit. A construct outside it must DECLINE,
     /// so a differential row relying on it stays held rather than passing on
     /// one backend.

@@ -208,6 +208,7 @@ generic.
 | `Reflection { dst, namespace, selector, first, count }` | Executes a covered Reflection entry point with arguments in the contiguous register window. |
 | `Revision { dst, namespace, selector, first, count }` | Executes a covered Revision or RevisionHistory entry point with arguments in the contiguous register window. |
 | `OpenClass { dst, class, callback }` | Invokes an open callback, records the resulting commit, and enqueues its after-commit event. |
+| `DefineMethod { dst, receiver, name, function }` | Stages `function` as the public instance Method named by the Symbol in `name` on the Class in `receiver`, and writes nil. |
 | `Json { dst, selector, first, count }` | Executes covered `JSON.decode` or `JSON.encode` with arguments in the contiguous register window. |
 | `ContractCast { dst, receiver, contract }` | Checks nominal conformance and builds an immutable Contract view. |
 | `SendContract { dst, receiver, selector, first, count }` | Sends through the requirement namespace of a Contract view. |
@@ -403,7 +404,8 @@ expression and copies the result into the same contiguous argument window. Rest,
 keyword, keyword-rest, and block channels are declined by their specific
 parameter construct until the VM has channel-aware frames.
 
-A Closure body is another function. Its captures occupy the leading registers,
+A Closure body is another function whether its source uses a parameter header
+or the header-less block spelling. Its captures occupy the leading registers,
 followed by invocation arguments. Immutable captures are value snapshots;
 mutable lexical bindings are hidden shared cells, so copying their handles into
 an escaped or nested Closure preserves one binding after the defining frame
@@ -412,6 +414,11 @@ allocates a fresh binding and therefore shadows without replacing the captured
 cell. D-421's `return` exits only that Closure frame. Nested Closure bodies are
 allocated recursively before their enclosing body is appended, so every
 `MakeClosure` carries its final function-table index.
+
+`define_method` lowers its block body directly to a function with `self` in its
+leading register. It intentionally does not create a Closure value or copy the
+surrounding capture window, because Iris turns this block into an ordinary
+Method body rather than a closure over the open callback's locals.
 
 ### 3.7 Exceptions
 

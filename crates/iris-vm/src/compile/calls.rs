@@ -114,6 +114,28 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .push(Instruction::BuildIterationYield { destination, value });
             return Ok(destination);
         }
+        if selector == "define_method" {
+            let [
+                name,
+                Expression::Closure {
+                    parameters, body, ..
+                },
+            ] = arguments
+            else {
+                return Err(CompileError::new("define_method arity"));
+            };
+            let receiver = self.expression(receiver)?;
+            let name = self.expression(name)?;
+            let function = self.dynamic_method(parameters, body)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::DefineMethod {
+                destination,
+                receiver,
+                name,
+                function,
+            });
+            return Ok(destination);
+        }
         if let Expression::Name(namespace) = receiver.as_ref()
             && matches!(
                 namespace.as_str(),

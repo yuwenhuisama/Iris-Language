@@ -189,6 +189,13 @@ fn verify_body(
                 }
                 range(*first, *count, registers)?;
             }
+            Instruction::DefineMethod { function, .. } => {
+                if *function >= functions {
+                    return Err(VerifyError::UnknownFunction {
+                        function: *function,
+                    });
+                }
+            }
             Instruction::BuildArray { first, count, .. }
             | Instruction::BuildTuple { first, count, .. }
             | Instruction::New { first, count, .. }
@@ -427,6 +434,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             (0..*count).map(|offset| first + offset).collect()
         }
         Instruction::OpenClass { callback, .. } => vec![*callback],
+        Instruction::DefineMethod { receiver, name, .. } => vec![*receiver, *name],
         Instruction::SendContract {
             receiver,
             first,

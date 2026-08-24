@@ -308,6 +308,12 @@ pub enum Instruction {
         class: usize,
         callback: Register,
     },
+    DefineMethod {
+        destination: Register,
+        receiver: Register,
+        name: Register,
+        function: usize,
+    },
     Json {
         destination: Register,
         selector: String,
@@ -396,6 +402,7 @@ impl Instruction {
             | Self::Reflection { destination, .. }
             | Self::Revision { destination, .. }
             | Self::OpenClass { destination, .. }
+            | Self::DefineMethod { destination, .. }
             | Self::Json { destination, .. }
             | Self::ContractCast { destination, .. }
             | Self::SendContract { destination, .. }

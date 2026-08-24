@@ -1417,6 +1417,36 @@ impl Machine {
                     }
                     value
                 }),
+                Instruction::DefineMethod {
+                    receiver,
+                    name,
+                    function,
+                    ..
+                } => dispatch!({
+                    let Value::Class(class) = registers[*receiver as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let Value::Symbol(name) = &registers[*name as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let selector = selector_id(program, name)
+                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    let body = u64::try_from(*function).map_err(|_| {
+                        MachineError::Invalid(VerifyError::UnknownFunction {
+                            function: *function,
+                        })
+                    })?;
+                    self.runtime
+                        .registry_mut()
+                        .publish_method(
+                            class,
+                            selector,
+                            iris_runtime::MethodBody::new(body),
+                            iris_runtime::Visibility::Public,
+                        )
+                        .map_err(MachineError::Class)?;
+                    Value::Nil
+                }),
                 Instruction::Json {
                     selector,
                     first,

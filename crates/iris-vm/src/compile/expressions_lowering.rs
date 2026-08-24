@@ -522,10 +522,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 finally,
             } => self.try_body(body, catches, finally),
             Expression::Closure {
-                parameters,
-                body,
-                has_header: true,
-                ..
+                parameters, body, ..
             } => self.closure(parameters, body),
             other => Err(CompileError::new(construct_name(other))),
         }
@@ -597,5 +594,47 @@ impl<'a, 'b> Lowering<'a, 'b> {
             count,
         });
         Ok(destination)
+    }
+
+    pub(super) fn dynamic_method(
+        &mut self,
+        parameters: &[String],
+        body: &[Statement],
+    ) -> Result<usize, CompileError> {
+        let mut nested = Vec::new();
+        let mut lowering = Lowering::new(
+            self.signatures,
+            self.classes,
+            self.contracts,
+            self.declared_functions + self.closures.len(),
+            &mut nested,
+        );
+        let receiver = lowering.allocate()?;
+        lowering
+            .names
+            .push(super::lowering::Binding::value("self".to_owned(), receiver));
+        for parameter in parameters {
+            let register = lowering.allocate()?;
+            lowering
+                .names
+                .push(super::lowering::Binding::value(parameter.clone(), register));
+        }
+        let value = lowering.body(body)?;
+        lowering.instructions.push(Instruction::Return { value });
+        let registers = lowering.next_register as usize;
+        let instructions = std::mem::take(&mut lowering.instructions);
+        drop(lowering);
+        let function = self.declared_functions + self.closures.len() + nested.len();
+        self.closures.extend(nested);
+        self.closures.push(Function {
+            name: "<dynamic-method>".to_owned(),
+            parameters: parameters.len() + 1,
+            captures: 0,
+            parameter_types: vec!["Dynamic<Object>".to_owned(); parameters.len()],
+            return_type: "Dynamic<Object>".to_owned(),
+            registers,
+            instructions,
+        });
+        Ok(function)
     }
 }
