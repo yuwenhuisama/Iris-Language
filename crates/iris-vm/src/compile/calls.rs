@@ -114,6 +114,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .push(Instruction::BuildIterationYield { destination, value });
             return Ok(destination);
         }
+        if let Expression::Name(namespace) = receiver.as_ref()
+            && matches!(
+                namespace.as_str(),
+                "Reflection::Class" | "Reflection::Module"
+            )
+            && selector == "invoke"
+        {
+            return Err(CompileError::new(format!("{namespace}.invoke")));
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "JSON")
             && matches!(selector.as_str(), "decode" | "encode")
         {
@@ -165,11 +174,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if let Expression::Name(namespace) = receiver.as_ref()
             && matches!(
                 namespace.as_str(),
-                "Reflection::Class" | "Reflection::Object"
+                "Reflection::Class"
+                    | "Reflection::Module"
+                    | "Reflection::Contract"
+                    | "Reflection::Object"
             )
             && matches!(
                 (namespace.as_str(), selector.as_str()),
-                ("Reflection::Class", "method") | ("Reflection::Object", "get_ivar" | "set_ivar")
+                ("Reflection::Class" | "Reflection::Module", "method")
+                    | ("Reflection::Contract", "requirement")
+                    | ("Reflection::Object", "get_ivar" | "set_ivar")
             )
         {
             let (first, count) = self.argument_window(arguments)?;
@@ -181,7 +195,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 first,
                 count,
             });
-            if namespace == "Reflection::Class" && selector == "method" {
+            if matches!(
+                namespace.as_str(),
+                "Reflection::Class" | "Reflection::Module"
+            ) && selector == "method"
+            {
                 self.method_values.push(destination);
             }
             return Ok(destination);

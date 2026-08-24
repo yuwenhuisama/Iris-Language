@@ -20,7 +20,8 @@ mod lowering;
 mod statements;
 
 pub(crate) use ir::{
-    Class, ClassReopen, ClassVariable, Contract, Function, LiteralValue, StoredProperty,
+    Class, ClassReopen, ClassVariable, Contract, ContractRequirement, Function, LiteralValue,
+    StoredProperty,
 };
 pub use ir::{FloatWidth, Instruction, Program, Register};
 

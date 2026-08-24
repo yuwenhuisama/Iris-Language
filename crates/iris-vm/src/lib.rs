@@ -83,6 +83,8 @@ mod tests {
             "class A { } module M { public fun r() -> Object { let a = A.new(); Reflection::Object.set_ivar(a, :@value, 9); Reflection::Object.get_ivar(a, :@value) } } M.r()",
             "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :value); method.selector } } M.r()",
             "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :value); method.bind(A.new()).call() } } M.r()",
+            "module N { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Module.method(N, :value).selector } } M.r()",
+            "contract C { fun value() -> Integer } module M { public fun r() -> Object { let metadata = Reflection::Contract.requirement(C, :value); metadata[:return_type].kind() } } M.r()",
             "module M { public fun r() -> Object { let closure = { |x|; x }; closure.call(7) } } M.r()",
             "class It { public fun next() -> Object { Iteration.yield(1) } } module M { public fun r() -> Object { It.new().next().value } } M.r()",
             "module M { public fun r() -> Object { Iteration.yield(1).value } } M.r()",

@@ -50,9 +50,14 @@ impl Machine {
             .classes
             .iter()
             .flat_map(|class| class.methods.iter().chain(&class.class_methods))
-            .map(|(name, _)| name)
+            .map(|(name, _)| name.as_str())
+            .chain(
+                program.functions.iter().filter_map(|function| {
+                    function.name.split_once('.').map(|(_, selector)| selector)
+                }),
+            )
             .find(|name| selector_id(program, name).is_some_and(|known| known == selector))
-            .cloned()
+            .map(str::to_owned)
     }
 
     pub(super) fn require_reflection(
@@ -86,6 +91,44 @@ impl Machine {
         &mut self,
         program: &Program,
     ) -> Result<Vec<ClassId>, MachineError> {
+        self.modules.clear();
+        let mut module_names = Vec::new();
+        for declaration in &program.functions {
+            let Some((module, _)) = declaration.name.split_once('.') else {
+                continue;
+            };
+            if program.classes.iter().any(|class| class.name == module)
+                || module_names.iter().any(|known| known == module)
+            {
+                continue;
+            }
+            module_names.push(module.to_owned());
+            let module_id = self
+                .runtime
+                .registry_mut()
+                .define_module(&[])
+                .map_err(MachineError::Class)?;
+            self.modules.push((module.to_owned(), module_id));
+            for (function, method) in program.functions.iter().enumerate() {
+                let Some((owner, selector)) = method.name.split_once('.') else {
+                    continue;
+                };
+                if owner != module {
+                    continue;
+                }
+                let selector = selector_id(program, selector)
+                    .ok_or_else(|| MachineError::UnknownSelector(selector.to_owned()))?;
+                self.runtime
+                    .registry_mut()
+                    .define_module_method(
+                        module_id,
+                        selector,
+                        MethodBody::new(function as u64),
+                        Visibility::Public,
+                    )
+                    .map_err(MachineError::Class)?;
+            }
+        }
         let mut classes = Vec::with_capacity(program.classes.len());
         for (index, declaration) in program.classes.iter().enumerate() {
             let superclass = declaration

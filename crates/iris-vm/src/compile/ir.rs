@@ -459,7 +459,14 @@ pub struct Program {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Contract {
     pub(crate) name: String,
-    pub(crate) requirements: Vec<(String, usize)>,
+    pub(crate) requirements: Vec<ContractRequirement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContractRequirement {
+    pub(crate) selector: String,
+    pub(crate) arity: usize,
+    pub(crate) return_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

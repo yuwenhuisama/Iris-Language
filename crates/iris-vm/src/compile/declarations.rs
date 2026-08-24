@@ -1,7 +1,8 @@
 use iris_syntax::{Statement, TypeExpression};
 
 use super::{
-    Class, ClassReopen, ClassVariable, CompileError, Contract, LiteralValue, StoredProperty,
+    Class, ClassReopen, ClassVariable, CompileError, Contract, ContractRequirement, LiteralValue,
+    StoredProperty,
 };
 
 pub(super) struct Signature<'a> {
@@ -107,7 +108,17 @@ fn collect_contract(
         {
             return Err(CompileError::new("parameter"));
         }
-        requirements.push((method.selector.clone(), method.parameters.len()));
+        requirements.push(ContractRequirement {
+            selector: method.selector.clone(),
+            arity: method.parameters.len(),
+            return_type: method
+                .return_type
+                .as_ref()
+                .and_then(|annotation| match annotation {
+                    TypeExpression::Name(name) => Some(name.clone()),
+                    _ => None,
+                }),
+        });
     }
     contracts.push(Contract {
         name: declaration.name.clone(),
@@ -275,24 +286,22 @@ fn validate_contracts(
             continue;
         }
         let matches = conformances.iter().any(|contract| {
-            contracts[*contract]
-                .requirements
-                .iter()
-                .any(|(selector, arity)| {
-                    selector == &method.selector && *arity == method.parameters.len()
-                })
+            contracts[*contract].requirements.iter().any(|requirement| {
+                requirement.selector == method.selector
+                    && requirement.arity == method.parameters.len()
+            })
         });
         if !matches {
             return Err(CompileError::new("contract implementation undeclared"));
         }
     }
     for contract in conformances {
-        for (selector, arity) in &contracts[*contract].requirements {
+        for requirement in &contracts[*contract].requirements {
             let implemented = class.body.iter().any(|statement| {
                 matches!(statement, Statement::Method(method)
                     if method.impl_contract.is_some()
-                        && method.selector == *selector
-                        && method.parameters.len() == *arity)
+                        && method.selector == requirement.selector
+                        && method.parameters.len() == requirement.arity)
             });
             if !implemented {
                 return Err(CompileError::new("contract requirement absent"));

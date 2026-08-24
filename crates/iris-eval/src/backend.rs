@@ -487,6 +487,52 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_module_method_lookup_and_selector() {
+        let source = "module N { public fun v() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Module.method(N, :v).selector } } M.r()";
+        let control = "module N { public fun v() -> Integer { 7 } public fun w() -> Integer { 8 } } module M { public fun r() -> Object { Reflection::Module.method(N, :w).selector } } M.r()";
+
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends expose a Module Method selector: {agreement:?}")
+        };
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = control_agreement
+        else {
+            unreachable!(
+                "both backends preserve the requested Module selector: {control_agreement:?}"
+            )
+        };
+        assert_eq!(observation, Observation::Value(":v".to_owned()));
+        assert_eq!(control_observation, Observation::Value(":w".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_on_indexing_contract_requirement_metadata() {
+        let source = "contract C { fun m() -> Integer } module M { public fun r() -> Object { Reflection::Contract.requirement(C, :m)[:return_type].kind() } } M.r()";
+        let absent = "contract C { fun m() -> Integer } module M { public fun r() -> Object { Reflection::Contract.requirement(C, :missing) } } M.r()";
+
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let absent_agreement = compare_backends(absent, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends expose indexable requirement metadata: {agreement:?}")
+        };
+        let Agreement::Agreed {
+            observation: absent_observation,
+            ..
+        } = absent_agreement
+        else {
+            unreachable!("both backends distinguish an absent requirement: {absent_agreement:?}")
+        };
+        assert_eq!(observation, Observation::Value(":nominal".to_owned()));
+        assert_eq!(absent_observation, Observation::Value("nil".to_owned()));
+    }
+
+    #[test]
     fn backends_agree_on_raw_ivar_round_trip_and_absent_read() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];

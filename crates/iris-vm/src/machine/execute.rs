@@ -1136,6 +1136,57 @@ impl Machine {
                             }
                         }
                         (
+                            "Reflection::Module",
+                            "method",
+                            [Value::Symbol(module), Value::Symbol(name)],
+                        ) => {
+                            let selector = selector_id(program, name)
+                                .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                            self.modules
+                                .iter()
+                                .find(|(known, _)| known == module)
+                                .and_then(|(_, module)| {
+                                    self.runtime.registry().module_method(*module, selector)
+                                })
+                                .map(Value::Method)
+                                .unwrap_or(Value::Nil)
+                        }
+                        (
+                            "Reflection::Contract",
+                            "requirement",
+                            [Value::Contract(contract), Value::Symbol(name)],
+                        ) => {
+                            let Some(index) = contract
+                                .raw()
+                                .checked_sub(1)
+                                .and_then(|raw| usize::try_from(raw).ok())
+                            else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            let Some(contract) = program.contracts.get(index) else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            match contract
+                                .requirements
+                                .iter()
+                                .find(|requirement| requirement.selector == *name)
+                            {
+                                Some(requirement) => {
+                                    let return_type = match &requirement.return_type {
+                                        Some(name) => {
+                                            Value::Type(self.builtin_class(name)?, Vec::new())
+                                        }
+                                        None => Value::Nil,
+                                    };
+                                    Value::Hash(iris_runtime::HashRef::new(vec![(
+                                        Value::Symbol("return_type".to_owned()),
+                                        return_type,
+                                    )]))
+                                }
+                                None => Value::Nil,
+                            }
+                        }
+                        (
                             "Reflection::Object",
                             "get_ivar",
                             [Value::Object(object), Value::Symbol(name)],
@@ -1359,10 +1410,10 @@ impl Machine {
                         .contracts
                         .get(contract_index)
                         .is_some_and(|contract| {
-                            contract
-                                .requirements
-                                .iter()
-                                .any(|(name, arity)| name == selector && *arity == *count as usize)
+                            contract.requirements.iter().any(|requirement| {
+                                requirement.selector == *selector
+                                    && requirement.arity == *count as usize
+                            })
                         });
                     if !required {
                         return Err(MachineError::MessageNotFound {

@@ -248,14 +248,21 @@ the supported spelling.
 
 `Reflection` is a dedicated boundary because these calls are namespace entry
 points rather than ordinary receiver dispatch. The covered surface is
-`Reflection::Class.method` and `Reflection::Object.get_ivar`/`set_ivar`.
-Class method lookup returns the runtime Method identity or nil when the slot is
-absent. A reflected Method answers `selector`, `owner`, `visibility`,
+`Reflection::Class.method`, `Reflection::Module.method`,
+`Reflection::Contract.requirement`, and
+`Reflection::Object.get_ivar`/`set_ivar`. Class method lookup returns the
+runtime Method identity or nil when the slot is absent. Module method lookup
+returns the Module-owned Method for the requested declared selector. Contract
+requirement lookup returns an indexable Hash whose `:return_type` value is the
+declared nominal Type, or nil when that requirement is absent. A reflected
+Method answers `selector`, `owner`, `visibility`,
 `parameters`, `return_type`, and `source`; `bind(receiver)` produces a retained
 BoundMethod whose `call` revalidates and invokes that exact Method. The VM
 declines `Method.signature`, `Method.package`, and an unbound `Method.call`
 before emitting bytecode because the reference runtime does not currently
-implement those sends. Raw ivar names accept the Symbol spelling used by the runtime selector
+implement those sends. `Reflection::Class.invoke` and
+`Reflection::Module.invoke` are declined as those exact constructs because the
+reference evaluator itself reports them unsupported. Raw ivar names accept the Symbol spelling used by the runtime selector
 table, absent reads answer nil, and writes return the stored value. A machine
 with Host grants checks `reflection.inspect` and `reflection.mutate` separately
 against the target Class; a denied or out-of-scope operation raises the

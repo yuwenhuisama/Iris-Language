@@ -310,6 +310,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     Expression::Array(_)
                         | Expression::Hash(_)
                         | Expression::Tuple(_)
+                        | Expression::Call { .. }
                         | Expression::Member { .. }
                         | Expression::Name(_)
                         | Expression::GlobalVar(_)

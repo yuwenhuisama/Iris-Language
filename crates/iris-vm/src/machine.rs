@@ -62,6 +62,7 @@ pub struct Machine {
     revision_subscribers: Vec<RevisionSubscriber>,
     revision_history: Vec<u64>,
     revision_event_errors: Vec<Value>,
+    modules: Vec<(String, iris_runtime::ModuleId)>,
     next_commit: u64,
     next_closure: u64,
     next_context: u64,
@@ -86,6 +87,7 @@ impl Machine {
             revision_subscribers: Vec::new(),
             revision_history: Vec::new(),
             revision_event_errors: Vec::new(),
+            modules: Vec::new(),
             next_commit: 1,
             next_closure: 1,
             next_context: 900_000,
@@ -252,6 +254,19 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                         .map(|property| property.name.as_str()),
                 )
         })
+        .chain(
+            program
+                .contracts
+                .iter()
+                .flat_map(|contract| contract.requirements.iter())
+                .map(|requirement| requirement.selector.as_str()),
+        )
+        .chain(
+            program
+                .functions
+                .iter()
+                .filter_map(|function| function.name.split_once('.').map(|(_, selector)| selector)),
+        )
         .chain(
             program
                 .functions
