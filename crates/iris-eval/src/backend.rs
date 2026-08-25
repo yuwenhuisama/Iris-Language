@@ -2893,6 +2893,79 @@ mod differential_tests {
         );
     }
 
+    /// Array growth and removal, and a top-level binding as a RECEIVER.
+    ///
+    /// `append` was missing entirely, and it is the most used authored method
+    /// in the corpus at 69 calls - almost always a top-level accumulator that
+    /// a method appends to. It is NOT an alias for `push`: C024 makes append,
+    /// insert, delete and clear the explicit growth and removal operations
+    /// answering NIL, while `push` answers the receiver, and the difference is
+    /// observable.
+    ///
+    /// The receiver half was a separate defect. A method could READ a
+    /// top-level binding but not SEND to one, because the receiver check
+    /// consulted locals and classes only - so `log.append(:x)` inside a method
+    /// declined while `log` alone already worked.
+    #[test]
+    fn arrays_grow_and_a_top_level_binding_receives() {
+        for (source, expected) in [
+            // append mutates and answers nil; push answers the Array.
+            ("mut a = []; let r = a.append(1); [r, a]", "[nil, [1]]"),
+            ("mut a = []; let r = a.push(1); [r, a]", "[[1], [1]]"),
+            ("mut a = [1,2]; let r = a.clear(); [r, a]", "[nil, []]"),
+            // delete removes the FIRST equal element, not every one.
+            (
+                "mut a = [1,2,1]; let r = a.delete(1); [r, a]",
+                "[nil, [2, 1]]",
+            ),
+            (
+                "mut a = [1,3]; let r = a.insert(1, 2); [r, a]",
+                "[nil, [1, 2, 3]]",
+            ),
+            // The END position is a valid insertion point even though it is
+            // out of range for a read.
+            ("mut a = [1]; a.insert(1, 9); a", "[nil, [1, 9]]"),
+            // A method SENDS to a top-level binding, not just reads it.
+            (
+                "mut log = []; class C { public fun add() -> Nil { log.append(:x); nil } } \
+                 C.new().add(); log",
+                "[nil, [:x]]",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {source}: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        // Control: past the end is still refused, so admitting the end
+        // position widened the boundary by exactly one rather than removing it.
+        let agreement = compare_backends(
+            "mut a = [1]; try { a.insert(5, 9) } catch e { e }",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must refuse: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value(":IndexError".to_owned()));
+
+        // Control: a USER class may still define `append`, which the authored
+        // surface must not intercept.
+        let agreement = compare_backends(
+            "class C { public fun append(v: Integer) -> Integer { v * 2 } } C.new().append(4)",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("the user method must answer: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("8".to_owned()));
+    }
+
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;

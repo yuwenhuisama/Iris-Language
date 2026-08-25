@@ -500,6 +500,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if let Some(construct) = expressions::ordinary_receiver_decline(receiver, |name| {
             self.lookup(name).is_some()
                 || self.class_index(name).is_some()
+                // A top-level binding is a legitimate RECEIVER inside a method
+                // body, not only a readable name: `mut log = []` followed by
+                // `log.append(:x)` in a method is how most of the corpus
+                // accumulates. The check consulted locals and classes only, so
+                // the send declined while the plain read already worked.
+                || self
+                    .program_bindings
+                    .iter()
+                    .any(|binding| binding.name == *name)
                 || matches!(name, "nil" | "true" | "false")
         }) {
             return Err(CompileError::new(construct));

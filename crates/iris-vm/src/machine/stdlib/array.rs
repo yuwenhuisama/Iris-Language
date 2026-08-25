@@ -1,6 +1,6 @@
 use iris_runtime::{ArrayRef, ClassId, KernelError, Value};
 
-use super::super::{Machine, MachineError, truthy};
+use super::super::{Machine, MachineError, resolve_index, truthy};
 use crate::compile::Program;
 
 impl Machine {
@@ -96,6 +96,45 @@ impl Machine {
             ("push", [value]) => {
                 values.mutate(|elements| elements.push(value.clone()));
                 receiver.clone()
+            }
+            // C024 makes append, insert, delete and clear the explicit growth
+            // and removal operations, and they answer NIL rather than the
+            // receiver - unlike `push`, which answers the Array. The
+            // difference is observable, so the two spellings are not aliases.
+            ("append", [value]) => {
+                values.mutate(|elements| elements.push(value.clone()));
+                Value::Nil
+            }
+            ("clear", []) => {
+                values.mutate(Vec::clear);
+                Value::Nil
+            }
+            // `delete` removes the FIRST equal element, using the in-order
+            // element comparison C026 fixes as Array equality.
+            ("delete", [target]) => {
+                values.mutate(|elements| {
+                    if let Some(position) = elements.iter().position(|held| held == target) {
+                        elements.remove(position);
+                    }
+                });
+                Value::Nil
+            }
+            ("insert", [Value::Integer(index), value]) => {
+                // The END position is a valid insertion point, so the length
+                // itself resolves even though it is out of range for a read.
+                // The END position is a valid insertion point, which the
+                // ordinary read resolver rejects because it is out of range
+                // for a READ. Resolving against `length + 1` admits it while
+                // still refusing anything past it.
+                let length = values.len();
+                let Some(position) = resolve_index(index, length.saturating_add(1)) else {
+                    return Err(MachineError::IndexError);
+                };
+                if position > length {
+                    return Err(MachineError::IndexError);
+                }
+                values.mutate(|elements| elements.insert(position, value.clone()));
+                Value::Nil
             }
             ("pop", []) => values.mutate(Vec::pop).unwrap_or(Value::Nil),
             ("join", [Value::Text(separator)]) => {
