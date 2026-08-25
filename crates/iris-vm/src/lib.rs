@@ -734,7 +734,6 @@ mod ir_document_tests {
                 "expression keyword argument",
             ),
             ("for [x] in [[1]] { x }", "statement for"),
-            ("unbound_name", "name unbound"),
             ("%{ a: 1 }", "hash key name"),
         ] {
             let Err(declined) = compile(source) else {

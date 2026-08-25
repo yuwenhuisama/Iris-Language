@@ -1137,14 +1137,21 @@ M.r()"#;
     fn the_bytecode_backend_declines_uncovered_constructs() {
         let bytecode = Bytecode;
 
-        // `.map(...)` is a CALL whose receiver is an array; the call is the
-        // outer construct, so that is what the backend names. The reason
-        // identifies WHICH receiver shape stopped it, so a later change that
-        // covers array receivers cannot leave this passing for the old cause.
-        let Support::Unsupported(reason) = bytecode.execute("nope.foo()") else {
-            unreachable!("an unbound receiver must remain declined")
+        // A SERVICE receiver the VM lacks stays declined: the reference
+        // answers `Unicode.version()`, so raising NameError for one of these
+        // would be a wrong answer rather than an honest hold.
+        let Support::Unsupported(reason) = bytecode.execute("Unicode.version()") else {
+            unreachable!("an unimplemented service receiver must remain declined")
         };
         assert_eq!(reason, "call unbound receiver");
+
+        // An ORDINARY unbound receiver is a program error the reference
+        // raises when the call runs, so it is not declined.
+        let agreement = compare_backends("nope.foo()", &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
 
         let Support::Unsupported(reason) = bytecode.execute("for [x] in [[1]] { x }") else {
             unreachable!("this backend covers no destructuring iteration yet")
@@ -1155,7 +1162,8 @@ M.r()"#;
         // relying on it stays held rather than passing on one backend.
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let Agreement::Insufficient { ran, declined } = compare_backends("nope.foo()", &backends)
+        let Agreement::Insufficient { ran, declined } =
+            compare_backends("Unicode.version()", &backends)
         else {
             unreachable!("only one backend ran it")
         };
@@ -2196,13 +2204,20 @@ M.r()"#;
                 "expression keyword argument",
             ),
             ("for [x] in [[1]] { x }", "statement for"),
-            ("unbound_name", "name unbound"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
             };
             assert_eq!(reason, construct, "{source}");
         }
+
+        // Control: an unbound NAME is not a gap in coverage but a program
+        // error, so it RUNS to the reference's own `NameError` instead.
+        let agreement = compare_backends("unbound_name", &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
     }
 
     /// The design review's first vertical-slice milestone: Integer, Bool/Nil,
@@ -3808,14 +3823,16 @@ M.r()"#;
         }
 
         let source = "class C { public fun get() -> Object { missing } } C.new().get()";
-        let (interpreter, bytecode) = both();
+        let (interpreter, _) = both();
         assert_ne!(
             interpreter.execute(source),
             Support::Ran(Observation::Value("nil".to_owned()))
         );
-        assert!(
-            matches!(bytecode.execute(source), Support::Unsupported(ref reason) if reason.contains("unbound"))
-        );
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
     }
 
     #[test]
@@ -4073,14 +4090,25 @@ M.r()"#;
         }
     }
 
+    /// An unbound NAME now fails at run time; the neighbouring forms decline.
+    ///
+    /// The reference raises `NameError` when the read runs, so declining
+    /// refused the same program while describing it differently and held the
+    /// row. The forms the VM genuinely lacks still decline, and the reasons
+    /// stay specific rather than collapsing to `name` or `expression`.
     #[test]
     fn bytecode_declines_name_and_expression_forms_precisely() {
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { missing } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
+
         let bytecode = Bytecode;
         for (source, expected) in [
-            (
-                "module M { public fun r() -> Object { missing } } M.r()",
-                "name unbound",
-            ),
             (
                 "module M { public fun r() -> Object { missing = 1 } } M.r()",
                 "name assignment unbound",

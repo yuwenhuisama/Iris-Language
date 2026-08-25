@@ -99,7 +99,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
-                Err(CompileError::new("name unbound"))
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseNameError { destination });
+                Ok(destination)
             }
             Expression::GlobalVar(name) => {
                 let destination = self.allocate()?;

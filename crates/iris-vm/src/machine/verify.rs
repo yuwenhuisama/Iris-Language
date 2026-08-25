@@ -547,7 +547,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::DeclareDeferred { .. }
         | Instruction::MarkAssigned { .. }
         | Instruction::RaiseNoActiveException => Vec::new(),
-        Instruction::RaiseUnsupported { .. } => Vec::new(),
+        Instruction::RaiseUnsupported { .. } | Instruction::RaiseNameError { .. } => Vec::new(),
     }
 }
 

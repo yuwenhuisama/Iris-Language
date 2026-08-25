@@ -127,6 +127,14 @@ pub enum Instruction {
     RaiseUnsupported {
         destination: Register,
     },
+    /// Refuses an unbound NAME the way the reference does, at run time.
+    ///
+    /// A name with no binding is a `NameError` the reference raises when the
+    /// read runs. Declining instead made both backends refuse the same
+    /// program while describing it differently, which holds the row.
+    RaiseNameError {
+        destination: Register,
+    },
     StoreGlobal {
         destination: Register,
         name: String,
@@ -521,7 +529,9 @@ impl Instruction {
             Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
                 Some(*destination)
             }
-            Self::RaiseUnsupported { destination } => Some(*destination),
+            Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
+                Some(*destination)
+            }
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }

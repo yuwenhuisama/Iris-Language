@@ -684,6 +684,16 @@ carried `has_header: false`, so the gap was the bare block form. `call unbound
 receiver` at 70 looked like missing subsystems, and 19 of them were an ordinary
 accumulator named `log` calling an Array method the backend did not have.
 
+Twice a bucket turned out not to be a coverage gap at all, but a REFUSAL the
+backend was describing differently from the reference. An unbound name, and an
+unbound ordinary receiver, are a `NameError` the reference raises when the read
+or the call RUNS; declining them refused the same program in a way that could
+not agree, and held the row. Emitting `RaiseNameError` instead moved 45
+programs. The boundary matters: a name the reference resolves to a standard
+SERVICE - `Unicode`, `Gate`, `FFI`, and the rest of `SERVICE_RECEIVERS` - is
+unimplemented rather than absent, and `Unicode.version()` answers `"17.0.0"`
+there, so those still decline rather than answering a confident wrong failure.
+
 The DENOMINATOR was measured too, and it was wrong at first. 47 corpus vectors
 are declared `malformed` and are SUPPOSED to be rejected, so counting them as
 gaps measured the backend against programs it is right to refuse. Excluding them
@@ -707,7 +717,7 @@ than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, non-name `try catch filter`,
-`call arity`, `name unbound`, `name assignment unbound`,
+`call arity`, `name assignment unbound`,
 `member`, `hash key name`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`,

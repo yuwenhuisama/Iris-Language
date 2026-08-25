@@ -225,6 +225,9 @@ impl Machine {
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
                 }
+                Instruction::RaiseNameError { .. } => {
+                    dispatch!(Err(MachineError::NameError)?)
+                }
                 Instruction::Binary {
                     selector,
                     left,

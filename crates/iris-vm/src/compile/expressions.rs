@@ -3,12 +3,46 @@ use iris_syntax::{Expression, ProgramEntry, Statement};
 use super::lowering::Lowering;
 use super::{CompileError, Instruction, Register};
 
+/// Names the reference resolves to a standard SERVICE rather than to a
+/// binding, so an unbound one of these is unimplemented rather than absent.
+///
+/// The distinction decides the difference between a hold and a WRONG ANSWER:
+/// an ordinary unbound receiver is a `NameError` the reference raises when
+/// the call runs, but `Unicode.version()` answers `"17.0.0"` there. Raising
+/// NameError for a service the VM merely lacks would answer confidently and
+/// wrongly, so those still decline.
+pub(super) const SERVICE_RECEIVERS: &[&str] = &[
+    "Revision",
+    "RevisionHistory",
+    "Gate",
+    "Diagnostics",
+    "JSON",
+    "File",
+    "Package",
+    "IrisValue",
+    "Unicode",
+    "Encoding",
+    "Host",
+    "FFI",
+    "NativeFixture",
+    "Reflection",
+    "Reflection::Class",
+    "Reflection::Module",
+];
+
 pub(super) fn ordinary_receiver_decline(
     receiver: &Expression,
     is_bound: impl FnOnce(&str) -> bool,
 ) -> Option<&'static str> {
     match receiver {
-        Expression::Name(name) if !is_bound(name) => Some("call unbound receiver"),
+        Expression::Name(name)
+            if !is_bound(name)
+                && (SERVICE_RECEIVERS.contains(&name.as_str())
+                    || name.starts_with("Encoding::")
+                    || name.starts_with("Reflection::")) =>
+        {
+            Some("call unbound receiver")
+        }
         _ => None,
     }
 }
