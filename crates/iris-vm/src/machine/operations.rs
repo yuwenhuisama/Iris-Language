@@ -91,6 +91,18 @@ impl Machine {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, MachineError> {
+        match (&receiver, selector, arguments) {
+            (Value::Bytes(bytes), "length", []) => {
+                return Ok(Value::Integer((bytes.len() as u64).into()));
+            }
+            (Value::ByteArray(bytes), "length", []) => {
+                return Ok(Value::Integer((bytes.len() as u64).into()));
+            }
+            (Value::MutableString(text), "length", []) => {
+                return Ok(Value::Integer((text.text().chars().count() as u64).into()));
+            }
+            _ => {}
+        }
         let Some(native) = NativeSelector::from_source(selector) else {
             return Err(MachineError::MessageNotFound {
                 receiver_class: value_class_name(&receiver).to_owned(),
@@ -148,6 +160,33 @@ impl Machine {
                 };
                 Ok(resolve_index(&index, values.len())
                     .and_then(|index| values.get(index).cloned())
+                    .unwrap_or(Value::Nil))
+            }
+            Value::ReadonlyArray(values) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                Ok(resolve_index(&index, values.len())
+                    .and_then(|index| values.get(index).cloned())
+                    .unwrap_or(Value::Nil))
+            }
+            Value::Bytes(bytes) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                Ok(resolve_index(&index, bytes.len())
+                    .and_then(|index| bytes.get(index).copied())
+                    .map(|byte| Value::Integer(byte.into()))
+                    .unwrap_or(Value::Nil))
+            }
+            Value::ByteArray(bytes) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let bytes = bytes.bytes();
+                Ok(resolve_index(&index, bytes.len())
+                    .and_then(|index| bytes.get(index).copied())
+                    .map(|byte| Value::Integer(byte.into()))
                     .unwrap_or(Value::Nil))
             }
             _ => Err(MachineError::UnknownSelector("[]".to_owned())),

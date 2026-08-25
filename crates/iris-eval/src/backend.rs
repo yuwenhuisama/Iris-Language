@@ -163,6 +163,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::SerializationError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::SerializationError),
                 )),
+                Err(iris_vm::MachineError::NoActiveException) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::NoActiveExceptionError),
+                )),
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
                 }
@@ -456,6 +459,126 @@ mod differential_tests {
 
     fn both() -> (Interpreter, Bytecode) {
         (Interpreter, Bytecode)
+    }
+
+    #[test]
+    fn backends_preserve_prefixed_literal_values_at_top_level() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let cases = [
+            ("\"ab\"", "\"ab\""),
+            ("b\"ab\"", "bytes:6162"),
+            ("b\"é\"", "bytes:c3a9"),
+            (r#"b"\xFF""#, "bytes:ff"),
+            ("mb\"ab\"", "byte_array:6162"),
+            ("m\"ab\"", "m\"ab\""),
+        ];
+
+        for (source, expected) in cases {
+            let agreement = compare_backends(source, &backends);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends preserve {source}: {agreement:?}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_preserve_prefixed_literal_values_in_modules_and_operations() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let cases = [
+            (
+                "module M { public fun r() -> Object { \"ab\" } } M.r()",
+                "\"ab\"",
+            ),
+            (
+                "module M { public fun r() -> Object { b\"ab\" } } M.r()",
+                "bytes:6162",
+            ),
+            (
+                "module M { public fun r() -> Object { m\"ab\" } } M.r()",
+                "m\"ab\"",
+            ),
+            (
+                "module M { public fun r() -> Object { b\"ab\".length } } M.r()",
+                "2",
+            ),
+            (
+                "module M { public fun r() -> Object { b\"ab\" + b\"cd\" } } M.r()",
+                "bytes:61626364",
+            ),
+            (
+                "module M { public fun r() -> Object { b\"ab\"[1] } } M.r()",
+                "98",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let agreement = compare_backends(source, &backends);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends preserve prefixed module values: {agreement:?}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_agree_on_bare_raise_at_top_level() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let cases = [
+            ("try { raise :explicit } catch e { e }", ":explicit"),
+            (
+                "try { try { raise :reraised } catch e { raise } } catch e { e }",
+                ":reraised",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let agreement = compare_backends(source, &backends);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends agree on bare raise: {agreement:?}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+
+        let agreement = compare_backends("raise", &backends);
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends report no active exception: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Error("NoActiveExceptionError".to_owned())
+        );
+    }
+
+    #[test]
+    fn backends_accumulate_bare_raise_sites_in_order_inside_modules() {
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+        let source = r#"module M {
+  public fun r() -> Object {
+    try {
+      try {
+        try { raise :a } catch e { raise }
+      } catch e { raise }
+    } catch e, context {
+      [e, context.re_raise_sites[0].location.line, context.re_raise_sites[1].location.line]
+    }
+  }
+}
+M.r()"#;
+
+        let agreement = compare_backends(source, &backends);
+
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends retain ordered re-raise sites: {agreement:?}")
+        };
+        assert_eq!(observation, Observation::Value("[:a, 1, 1]".to_owned()));
     }
 
     fn execute_with_grants(
@@ -2071,9 +2194,6 @@ mod differential_tests {
             ),
             ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
-            // `if`, `while`, and built-in indexes ARE covered now, so a
-            // genuinely unsupported receiver remains outside the subset.
-            ("1[0]", "index receiver"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
@@ -3073,6 +3193,78 @@ mod differential_tests {
             unreachable!("the user method must answer: {agreement:?}")
         };
         assert_eq!(observation, &Observation::Value("8".to_owned()));
+    }
+
+    /// A produced value can be MEASURED, and a bare raise is not catchable.
+    ///
+    /// Prefixed literals were fixed to answer Bytes and MutableString rather
+    /// than plain Strings, but a Bytes the backend can build and not measure
+    /// is the same defect one layer along - and the suppressed list handed to
+    /// a catch had the same hole. C067 gives these families their own
+    /// literals; a program that cannot ask how long one is gained nothing.
+    ///
+    /// `NoActiveExceptionError` is NOT catchable. A bare `raise` with nothing
+    /// propagating is a control-flow error rather than a raised value, so it
+    /// travels to its own boundary: the backend had it in the catchable set
+    /// and answered `:NoActiveExceptionError` where the reference fails.
+    #[test]
+    fn produced_values_answer_length_and_a_bare_raise_escapes() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { b\"ab\".length() } } M.r()",
+                "2",
+            ),
+            (
+                "module M { public fun r() -> Object { mb\"abc\".length() } } M.r()",
+                "3",
+            ),
+            (
+                "module M { public fun r() -> Object { \
+                 try { raise :x } catch e, c { c.suppressed.length() } } } M.r()",
+                "0",
+            ),
+            // D-155 APPENDS a re-raise site in occurrence order, so continuing
+            // a propagation records it rather than replacing the root stack.
+            (
+                "module M { public fun r() -> Object { try { \
+                 try { raise :a } catch e, c { raise } } catch o, c2 { \
+                 c2.re_raise_sites.length() } } } M.r()",
+                "1",
+            ),
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {source}: {agreement:?}")
+            };
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+
+        // A bare `raise` with nothing active fails PAST the handler.
+        let escaping =
+            "module M { public fun r() -> Object { try { raise } catch e { e } } } M.r()";
+        let agreement = compare_backends(escaping, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &Observation::Error("NoActiveExceptionError".to_owned())
+        );
+
+        // Control: a bare raise INSIDE a catch does continue the active
+        // propagation, so the escape above is about there being nothing to
+        // continue rather than about bare raise itself.
+        let continuing = "module M { public fun r() -> Object { try { \
+             try { raise :a } catch e { raise } } catch o { o } } } M.r()";
+        let agreement = compare_backends(continuing, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value(":a".to_owned()));
     }
 
     #[test]

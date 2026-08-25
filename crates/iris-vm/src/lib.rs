@@ -76,6 +76,10 @@ mod tests {
             "module M { public fun r() -> Object { (5).to_string() } } M.r()",
             "module M { public fun r() -> Object { %{ 1: 2 }.keys() } } M.r()",
             "module M { public fun r() -> Object { \" a \".trim() } } M.r()",
+            "module M { public fun r() -> Object { b\"ab\".length } } M.r()",
+            "module M { public fun r() -> Object { b\"ab\" + b\"cd\" } } M.r()",
+            "module M { public fun r() -> Object { b\"ab\"[1] } } M.r()",
+            "module M { public fun r() -> Object { m\"ab\".length } } M.r()",
             "contract C { fun v() -> Integer } class A for C { public impl fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
             "class A { public property fun v() -> Integer { 4 } } module M { public fun r() -> Object { A.new().v } } M.r()",
             "class A { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { A.new().bump() } } M.r()",
@@ -731,7 +735,6 @@ mod ir_document_tests {
             ),
             ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
-            ("1[0]", "index receiver"),
             ("%{ a: 1 }", "hash key name"),
         ] {
             let Err(declined) = compile(source) else {

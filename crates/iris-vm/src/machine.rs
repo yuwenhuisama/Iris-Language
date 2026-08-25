@@ -153,6 +153,10 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::SerializationError => Some("SerializationError"),
         MachineError::AuditHistoryUnavailable => Some("AuditHistoryUnavailableError"),
         MachineError::HostDriveUnavailable => Some("HostDriveUnavailableError"),
+        // NOT catchable. A bare `raise` with nothing propagating is a
+        // control-flow error rather than a raised value, and the reference
+        // lets it travel to its own boundary: `try { raise } catch e { e }`
+        // answers the FAILURE, not `:NoActiveExceptionError`.
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
         MachineError::ClosedGenericOpenForbidden => Some("CLOSED_GENERIC_OPEN_FORBIDDEN"),

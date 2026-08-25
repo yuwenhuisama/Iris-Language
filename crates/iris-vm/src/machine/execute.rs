@@ -119,6 +119,16 @@ impl Machine {
                 Instruction::LoadFloat64 { bits, .. } => Value::Float64(f64::from_bits(*bits)),
                 Instruction::LoadFloat32 { bits, .. } => Value::Float32(f32::from_bits(*bits)),
                 Instruction::LoadText { text, .. } => Value::Text(text.clone()),
+                Instruction::LoadBytes { bytes, .. } => Value::Bytes(bytes.clone()),
+                Instruction::LoadByteArray { bytes, .. } => {
+                    Value::ByteArray(iris_runtime::ByteArrayRef::new(bytes.clone()))
+                }
+                Instruction::MakeMutableString { source, .. } => {
+                    let Value::Text(text) = &registers[*source as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    Value::MutableString(iris_runtime::MutableStringRef::new(text.clone()))
+                }
                 Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
                 Instruction::LoadBool { value, .. } => Value::Bool(*value),
                 Instruction::LoadNil { .. } => Value::Nil,
@@ -366,6 +376,20 @@ impl Machine {
                             "raise_location" => (**location).clone(),
                             _ => return Err(MachineError::UnknownSelector(selector.clone())),
                         }
+                    } else if let Value::RaiseSite(location) = &registers[*receiver as usize] {
+                        match selector.as_str() {
+                            "location" => (**location).clone(),
+                            _ => return Err(MachineError::UnknownSelector(selector.clone())),
+                        }
+                    } else if let Value::SourceLocation(path, line, column) =
+                        &registers[*receiver as usize]
+                    {
+                        match selector.as_str() {
+                            "path" => Value::Text(path.clone()),
+                            "line" => Value::Integer(u64::from(*line).into()),
+                            "column" => Value::Integer(u64::from(*column).into()),
+                            _ => return Err(MachineError::UnknownSelector(selector.clone())),
+                        }
                     } else if let Value::Class(class) = registers[*receiver as usize] {
                         match selector.as_str() {
                             "type" => Value::Type(class, Vec::new()),
@@ -391,6 +415,11 @@ impl Machine {
                             }
                             _ => return Err(MachineError::UnknownSelector(selector.clone())),
                         }
+                    } else if matches!(
+                        registers[*receiver as usize],
+                        Value::Bytes(_) | Value::ByteArray(_) | Value::MutableString(_)
+                    ) {
+                        self.send(selector, registers[*receiver as usize].clone(), &[])?
                     } else {
                         let Value::Object(object) = registers[*receiver as usize] else {
                             return Err(MachineError::UnknownSelector(selector.clone()));
@@ -820,6 +849,41 @@ impl Machine {
                     registers[exception as usize] = value;
                     registers[context_register as usize] = context;
                     counter = handler;
+                    continue;
+                }
+                Instruction::ReRaise {
+                    value,
+                    context,
+                    offset,
+                } => {
+                    let value = registers[*value as usize].clone();
+                    let Value::ExceptionContext(
+                        identity,
+                        held,
+                        cause,
+                        suppressed,
+                        mut sites,
+                        location,
+                    ) = registers[*context as usize].clone()
+                    else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    sites.push(Value::RaiseSite(Box::new(source_location(
+                        &program.source,
+                        *offset,
+                    ))));
+                    let context =
+                        Value::ExceptionContext(identity, held, cause, suppressed, sites, location);
+                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                        return Err(MachineError::Raised(Box::new((value, context))));
+                    };
+                    registers[exception as usize] = value;
+                    registers[context_register as usize] = context;
+                    counter = handler;
+                    continue;
+                }
+                Instruction::RaiseNoActiveException => {
+                    dispatch!(Err(MachineError::NoActiveException)?);
                     continue;
                 }
                 Instruction::Propagate { value, context } => {

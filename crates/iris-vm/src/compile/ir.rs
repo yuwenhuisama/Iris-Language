@@ -35,6 +35,18 @@ pub enum Instruction {
         destination: Register,
         text: String,
     },
+    LoadBytes {
+        destination: Register,
+        bytes: Vec<u8>,
+    },
+    LoadByteArray {
+        destination: Register,
+        bytes: Vec<u8>,
+    },
+    MakeMutableString {
+        destination: Register,
+        source: Register,
+    },
     /// Loads an interned Symbol spelling.
     LoadSymbol {
         destination: Register,
@@ -285,6 +297,12 @@ pub enum Instruction {
         cause: Option<Register>,
         offset: usize,
     },
+    ReRaise {
+        value: Register,
+        context: Register,
+        offset: usize,
+    },
+    RaiseNoActiveException,
     Propagate {
         value: Register,
         context: Register,
@@ -427,6 +445,9 @@ impl Instruction {
             | Self::LoadFloat64 { destination, .. }
             | Self::LoadFloat32 { destination, .. }
             | Self::LoadText { destination, .. }
+            | Self::LoadBytes { destination, .. }
+            | Self::LoadByteArray { destination, .. }
+            | Self::MakeMutableString { destination, .. }
             | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
@@ -493,6 +514,8 @@ impl Instruction {
             | Self::EnterTry { .. }
             | Self::LeaveTry
             | Self::Raise { .. }
+            | Self::ReRaise { .. }
+            | Self::RaiseNoActiveException
             | Self::Propagate { .. }
             | Self::Return { .. } => None,
             Self::IteratorClose { .. } => None,

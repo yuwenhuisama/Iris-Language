@@ -18,6 +18,31 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        if let Value::Bytes(mut bytes) = receiver {
+            if selector != "+" {
+                return self.send(selector, Value::Bytes(bytes), &[argument]);
+            }
+            let addition = match argument {
+                Value::Bytes(bytes) => bytes,
+                Value::ByteArray(bytes) => bytes.bytes(),
+                _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+            };
+            bytes.extend_from_slice(&addition);
+            return Ok(Value::Bytes(bytes));
+        }
+        if let Value::ByteArray(bytes) = receiver {
+            if selector != "+" {
+                return self.send(selector, Value::ByteArray(bytes), &[argument]);
+            }
+            let addition = match argument {
+                Value::Bytes(bytes) => bytes,
+                Value::ByteArray(bytes) => bytes.bytes(),
+                _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+            };
+            let mut joined = bytes.bytes();
+            joined.extend_from_slice(&addition);
+            return Ok(Value::ByteArray(iris_runtime::ByteArrayRef::new(joined)));
+        }
         let Value::Text(text) = receiver else {
             return self.send(selector, receiver, &[argument]);
         };
@@ -111,6 +136,19 @@ impl Machine {
             Value::Nil if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text("nil".to_owned()))
             }
+            // These families answer `length` in the reference, and a value the
+            // backend can PRODUCE but not measure is the defect that has
+            // recurred here: a suppressed list handed to a catch, or a byte
+            // literal, is useless if a program cannot ask how long it is.
+            Value::Bytes(bytes) if selector == "length" && arguments.is_empty() => Some(
+                Value::Integer(iris_runtime::IntegerValue::from(bytes.len() as u64)),
+            ),
+            Value::ByteArray(bytes) if selector == "length" && arguments.is_empty() => Some(
+                Value::Integer(iris_runtime::IntegerValue::from(bytes.bytes().len() as u64)),
+            ),
+            Value::ReadonlyArray(values) if selector == "length" && arguments.is_empty() => Some(
+                Value::Integer(iris_runtime::IntegerValue::from(values.len() as u64)),
+            ),
             Value::Symbol(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.clone()))
             }

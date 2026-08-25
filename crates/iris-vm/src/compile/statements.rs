@@ -209,7 +209,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let value = self.expression(&raise.value)?;
                 let cause = match &raise.cause {
                     Some(cause) => Some(self.expression(cause)?),
-                    None => self.exception_contexts.last().copied(),
+                    None => self.exception_contexts.last().map(|(_, context)| *context),
                 };
                 self.instructions.push(Instruction::Raise {
                     value,
@@ -217,6 +217,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     offset: raise.offset,
                 });
                 Ok(value)
+            }
+            Statement::Raise(None) => {
+                if let Some((value, context)) = self.exception_contexts.last().copied() {
+                    self.instructions.push(Instruction::ReRaise {
+                        value,
+                        context,
+                        offset: 0,
+                    });
+                } else {
+                    self.instructions.push(Instruction::RaiseNoActiveException);
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
             }
             Statement::Try {
                 body,
@@ -418,7 +432,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             if let Some(name) = &catch.context {
                 self.names.push(Binding::value(name.clone(), context));
             }
-            self.exception_contexts.push(context);
+            self.exception_contexts.push((exception, context));
             let caught = self.body(&catch.body)?;
             self.exception_contexts.pop();
             self.names.truncate(outer);

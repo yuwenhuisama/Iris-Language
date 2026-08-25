@@ -344,6 +344,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         | Expression::Tuple(_)
                         | Expression::Call { .. }
                         | Expression::Member { .. }
+                        | Expression::Literal(_)
                         | Expression::Name(_)
                         | Expression::GlobalVar(_)
                 ) {

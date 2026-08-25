@@ -1584,8 +1584,11 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         Expression::Binary { left, right, .. } => {
             source_runtime_expression(left) || source_runtime_expression(right)
         }
+        Expression::Literal(source) => {
+            let prefix = source.split(['"', '\'']).next().unwrap_or_default();
+            matches!(prefix, "b" | "br" | "mb" | "mbr" | "m" | "mr")
+        }
         Expression::Name(_)
-        | Expression::Literal(_)
         | Expression::Symbol(_)
         | Expression::RawIvar(_)
         | Expression::ClassVar(_) => false,

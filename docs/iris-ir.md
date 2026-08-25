@@ -153,6 +153,9 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadFloat64 { dst, bits }` | IEEE-754 binary64, carried as BITS. |
 | `LoadFloat32 { dst, bits }` | IEEE-754 binary32, carried as BITS. |
 | `LoadText { dst, text }` | String. |
+| `LoadBytes { dst, bytes }` | Immutable Bytes, preserving raw `\xNN` octets. |
+| `LoadByteArray { dst, bytes }` | A fresh identity-bearing ByteArray. |
+| `MakeMutableString { dst, source }` | A fresh MutableString copied from the String in `source`. |
 | `LoadBool { dst, value }` | Bool. |
 | `LoadNil { dst }` | nil. |
 | `LoadIterationDone { dst }` | Loads the unique identity-bearing `Iteration.done` singleton. |
@@ -470,6 +473,8 @@ Method body rather than a closure over the open callback's locals.
 | `CatchMatch { destination, exception, class }` | Writes whether the raised value matches the named Class filter. |
 | `LeaveTry` | Removes the handler after normal completion. |
 | `Raise { value, cause, offset }` | Creates a fresh propagation context, then transfers to the innermost handler or propagates from the frame. |
+| `ReRaise { value, context, offset }` | Appends a `RaiseSite` to `context` and continues that existing propagation. |
+| `RaiseNoActiveException` | Raises the catchable `NoActiveExceptionError` when no propagation can be continued. |
 | `Propagate { value, context }` | Transfers an existing propagation context through another handler. |
 
 Lowering emits cleanup on the normal and exceptional routes as distinct CFG
@@ -698,7 +703,7 @@ alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name unbound`, `name assignment unbound`,
-`member`, `index receiver`, `hash key name`, `yield`, and the
+`member`, `hash key name`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`,
 `class mixin`, `class constraints`, `class meta deny`,
@@ -735,9 +740,10 @@ Named so the gaps are not mistaken for decisions:
   before nested Closure literals can be admitted without misaddressing code.
 - **Exception context mutation and cleanup metadata.** Catch bindings preserve
   explicit propagation identity, causes, initial source locations, and the
-  read-only context collections. Bare `raise`, cleanup suppression, getter
-  replacement, and writes to get-only context properties remain outside the VM
-  surface rather than being approximated.
+  read-only context collections. Bare `raise` appends ordered continuation
+  sites. Cleanup suppression, getter replacement, and writes to get-only
+  context properties remain outside the VM surface rather than being
+  approximated.
 - **Collection.** The backend now owns a `Runtime`, so it allocates real
   objects, but the collector still runs only in the tree-walking evaluator,
   which registers its own frames (§7). The frames here are the right root-set

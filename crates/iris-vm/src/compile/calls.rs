@@ -33,6 +33,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             _ => {}
         }
+        if let Some((bytes, mutable)) = byte_literal(text)? {
+            self.instructions.push(if mutable {
+                Instruction::LoadByteArray { destination, bytes }
+            } else {
+                Instruction::LoadBytes { destination, bytes }
+            });
+            return Ok(destination);
+        }
+        if let Some(string_source) = mutable_string_literal(text) {
+            let source = self.literal(&string_source)?;
+            self.instructions.push(Instruction::MakeMutableString {
+                destination,
+                source,
+            });
+            return Ok(destination);
+        }
         let conversion = iris_lexer::convert_literals(text);
         if !conversion.diagnostics().is_empty() {
             return Err(CompileError::new("rejected literal"));
@@ -585,6 +601,74 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.instructions.push(Instruction::LoadNil { destination });
         }
         Ok((first, count))
+    }
+}
+
+/// Decodes byte prefixes before the ordinary lexer can erase their value kind.
+fn byte_literal(source: &str) -> Result<Option<(Vec<u8>, bool)>, CompileError> {
+    let Some(prefix_end) = source.find(['"', '\'']) else {
+        return Ok(None);
+    };
+    let (prefix, body) = source.split_at(prefix_end);
+    let mutable = match prefix {
+        "b" | "br" => false,
+        "mb" | "mbr" => true,
+        _ => return Ok(None),
+    };
+    let raw = prefix.ends_with('r');
+    let quote = body
+        .chars()
+        .next()
+        .ok_or_else(|| CompileError::new("literal byte body"))?;
+    let body = body
+        .strip_prefix(quote)
+        .and_then(|body| body.strip_suffix(quote))
+        .ok_or_else(|| CompileError::new("literal byte body"))?;
+    let mut bytes = Vec::new();
+    let mut characters = body.chars();
+    while let Some(character) = characters.next() {
+        if raw || character != '\\' {
+            let mut buffer = [0_u8; 4];
+            bytes.extend_from_slice(character.encode_utf8(&mut buffer).as_bytes());
+            continue;
+        }
+        let escape = characters
+            .next()
+            .ok_or_else(|| CompileError::new("literal byte escape"))?;
+        match escape {
+            'x' => {
+                let high = characters
+                    .next()
+                    .ok_or_else(|| CompileError::new("literal byte hex escape"))?;
+                let low = characters
+                    .next()
+                    .ok_or_else(|| CompileError::new("literal byte hex escape"))?;
+                let pair = format!("{high}{low}");
+                let value = u8::from_str_radix(&pair, 16)
+                    .map_err(|_| CompileError::new("literal byte hex escape"))?;
+                bytes.push(value);
+            }
+            'n' => bytes.push(b'\n'),
+            'r' => bytes.push(b'\r'),
+            't' => bytes.push(b'\t'),
+            '0' => bytes.push(0),
+            '\\' => bytes.push(b'\\'),
+            '"' => bytes.push(b'"'),
+            '\'' => bytes.push(b'\''),
+            _ => return Err(CompileError::new("literal byte escape")),
+        }
+    }
+    Ok(Some((bytes, mutable)))
+}
+
+/// Returns equivalent String source so all String-family body rules stay shared.
+fn mutable_string_literal(source: &str) -> Option<String> {
+    let prefix_end = source.find(['"', '\''])?;
+    let (prefix, body) = source.split_at(prefix_end);
+    match prefix {
+        "m" => Some(body.to_owned()),
+        "mr" => Some(format!("r{body}")),
+        _ => None,
     }
 }
 

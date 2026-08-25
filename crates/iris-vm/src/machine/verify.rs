@@ -44,6 +44,7 @@ pub enum MachineError {
     UnsupportedConstruct,
     AuditHistoryUnavailable,
     HostDriveUnavailable,
+    NoActiveException,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -269,7 +270,10 @@ fn verify_body(
         let successors: Vec<(usize, Vec<bool>)> = match instruction {
             // A return leaves the frame, so it has no successor at all.
             Instruction::Return { .. } => Vec::new(),
-            Instruction::Raise { .. } | Instruction::Propagate { .. } => Vec::new(),
+            Instruction::Raise { .. }
+            | Instruction::ReRaise { .. }
+            | Instruction::RaiseNoActiveException
+            | Instruction::Propagate { .. } => Vec::new(),
             Instruction::Jump { target } => vec![(*target, next.clone())],
             // Both edges are live: the branch may be taken or not.
             Instruction::JumpUnless { target, .. } => {
@@ -364,7 +368,10 @@ fn fall_through(
         let Some(state) = &entry[at] else { continue };
         let leaves = match instruction {
             Instruction::Return { .. } => false,
-            Instruction::Raise { .. } | Instruction::Propagate { .. } => false,
+            Instruction::Raise { .. }
+            | Instruction::ReRaise { .. }
+            | Instruction::RaiseNoActiveException
+            | Instruction::Propagate { .. } => false,
             Instruction::Jump { target } => *target >= instructions.len(),
             Instruction::JumpUnless { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
@@ -398,7 +405,9 @@ fn fall_through(
 /// Every register an instruction reads.
 fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
-        Instruction::Move { source, .. } | Instruction::MakeCell { source, .. } => vec![*source],
+        Instruction::Move { source, .. }
+        | Instruction::MakeCell { source, .. }
+        | Instruction::MakeMutableString { source, .. } => vec![*source],
         Instruction::LoadCell { cell, .. } => vec![*cell],
         Instruction::StoreCell { cell, source, .. } => vec![*cell, *source],
         Instruction::BuildIterationYield { value, .. } => vec![*value],
@@ -417,6 +426,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::UnobservedFailures { .. } => Vec::new(),
         Instruction::JumpUnless { condition, .. } => vec![*condition],
         Instruction::Return { value } | Instruction::Raise { value, .. } => vec![*value],
+        Instruction::ReRaise { value, context, .. } => vec![*value, *context],
         Instruction::Propagate { value, context } => vec![*value, *context],
         Instruction::BuildArray { first, count, .. }
         | Instruction::BuildTuple { first, count, .. }
@@ -511,6 +521,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadFloat64 { .. }
         | Instruction::LoadFloat32 { .. }
         | Instruction::LoadText { .. }
+        | Instruction::LoadBytes { .. }
+        | Instruction::LoadByteArray { .. }
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
@@ -526,7 +538,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::EnterTry { .. }
         | Instruction::LeaveTry
         | Instruction::Jump { .. }
-        | Instruction::DeclareDeferred { .. } => Vec::new(),
+        | Instruction::DeclareDeferred { .. }
+        | Instruction::RaiseNoActiveException => Vec::new(),
         Instruction::RaiseDefiniteAssignment { .. } | Instruction::RaiseUnsupported { .. } => {
             Vec::new()
         }
