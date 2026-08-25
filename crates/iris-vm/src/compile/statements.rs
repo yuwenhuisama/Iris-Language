@@ -83,10 +83,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 name,
             } => {
                 let register = self.allocate()?;
+                let assigned = self.allocate()?;
                 self.instructions
-                    .push(Instruction::DeclareDeferred { register });
-                self.names.push(Binding::value(name.clone(), register));
-                self.deferred.push(name.clone());
+                    .push(Instruction::DeclareDeferred { register, assigned });
+                self.names
+                    .push(Binding::deferred(name.clone(), register, assigned));
                 Ok(register)
             }
             // A loop is a BACKWARD jump, which is why the verifier had to
@@ -272,19 +273,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
         };
         // A block scopes its bindings: a name bound inside must not leak out.
         let outer = self.names.len();
-        // A deferred binding is discharged by an assignment that happens on
-        // EVERY path, and a nested block is not every path: a branch may not
-        // run at all. Restoring what was outstanding on entry means an
-        // assignment inside a branch leaves the binding deferred, so the read
-        // after it declines rather than lowering to a register the verifier
-        // then proves unwritten - which is a compiler defect reported as a
-        // machine failure, not a program error.
-        let held = self.deferred.clone();
         for statement in leading {
             self.statement(statement)?;
         }
         let value = self.statement(last)?;
-        self.deferred = held;
         self.names.truncate(outer);
         Ok(value)
     }

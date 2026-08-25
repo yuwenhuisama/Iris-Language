@@ -396,10 +396,15 @@ A `mut` binding keeps ONE register that assignment updates in place. That is
 what carries a value across the back edge: allocating a fresh register per
 assignment would leave the loop reading its pre-loop value forever.
 
-A typed deferred `mut` reserves that same binding register without marking it
-written. An assignment writes it normally. A read while the compiler still
-knows the cell is empty is declined as `deferred read before assignment`; no nil
-sentinel is emitted, because the reference reports `DefiniteAssignmentError`.
+A typed deferred `mut` reserves that same binding register PLUS an `assigned`
+flag register that `DeclareDeferred` clears, every assignment sets via
+`MarkAssigned`, and every read consults via `ReadDeferred`, which fails with
+`DefiniteAssignment` when the flag is false. The check is emitted rather than
+decided at compile time because it is not a compile-time fact: in
+`mut x: Integer; if c { x = 1 }; x` the same code answers `1` when `c` holds
+and fails when it does not. Deciding it in the compiler either declined a
+program the reference accepts or, when any branch assignment discharged the
+deferral, answered a silently wrong `nil` on the path that skipped it.
 
 Truth is decided by the **runtime**, not re-derived here:
 `IRIS-V1-CONTROL-C022` makes exactly `false` and `nil` falsey, and a second copy

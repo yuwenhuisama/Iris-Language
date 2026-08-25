@@ -79,7 +79,6 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
     pub(super) names: Vec<Binding>,
-    pub(super) deferred: Vec<String>,
     /// Functions callable from this frame, resolved before lowering.
     pub(super) signatures: &'a [Signature<'b>],
     pub(super) classes: &'a [Class],
@@ -106,6 +105,8 @@ pub(super) struct Binding {
     pub(super) name: String,
     pub(super) register: Register,
     pub(super) shared: bool,
+    /// Register holding whether a DEFERRED binding has been assigned yet.
+    pub(super) assigned: Option<Register>,
 }
 
 impl Binding {
@@ -114,6 +115,16 @@ impl Binding {
             name,
             register,
             shared: false,
+            assigned: None,
+        }
+    }
+
+    pub(super) const fn deferred(name: String, register: Register, assigned: Register) -> Self {
+        Self {
+            name,
+            register,
+            shared: false,
+            assigned: Some(assigned),
         }
     }
 
@@ -122,6 +133,7 @@ impl Binding {
             name,
             register,
             shared: true,
+            assigned: None,
         }
     }
 }
@@ -169,7 +181,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
             instructions: Vec::new(),
             next_register: 0,
             names: Vec::new(),
-            deferred: Vec::new(),
             signatures,
             classes,
             contracts,

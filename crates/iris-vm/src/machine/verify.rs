@@ -130,11 +130,11 @@ fn verify_body(
                 register: destination,
             });
         }
-        if let Instruction::DeclareDeferred { register } = instruction
-            && *register as usize >= registers
+        if let Instruction::DeclareDeferred { assigned, .. } = instruction
+            && *assigned as usize >= registers
         {
             return Err(VerifyError::RegisterOutOfRange {
-                register: *register,
+                register: *assigned,
             });
         }
         match instruction {
@@ -263,8 +263,11 @@ fn verify_body(
         if let Some(destination) = instruction.destination() {
             next[destination as usize] = true;
         }
-        if let Instruction::DeclareDeferred { register } = instruction {
-            next[*register as usize] = false;
+        // A declaration writes BOTH of its registers, and the flag is not the
+        // instruction's value, so the fixpoint would otherwise prove it
+        // unwritten at the read that consults it.
+        if let Instruction::DeclareDeferred { assigned, .. } = instruction {
+            next[*assigned as usize] = true;
         }
 
         let successors: Vec<(usize, Vec<bool>)> = match instruction {
@@ -517,6 +520,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             receiver, value, ..
         } => vec![*receiver, *value],
         Instruction::CatchMatch { exception, .. } => vec![*exception],
+        Instruction::ReadDeferred {
+            value, assigned, ..
+        } => vec![*value, *assigned],
         Instruction::LoadInteger { .. }
         | Instruction::LoadFloat64 { .. }
         | Instruction::LoadFloat32 { .. }
@@ -539,10 +545,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LeaveTry
         | Instruction::Jump { .. }
         | Instruction::DeclareDeferred { .. }
+        | Instruction::MarkAssigned { .. }
         | Instruction::RaiseNoActiveException => Vec::new(),
-        Instruction::RaiseDefiniteAssignment { .. } | Instruction::RaiseUnsupported { .. } => {
-            Vec::new()
-        }
+        Instruction::RaiseUnsupported { .. } => Vec::new(),
     }
 }
 

@@ -36,11 +36,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
-            Expression::Name(name) if self.deferred.iter().any(|held| held == name) => {
-                Err(CompileError::new("deferred read before assignment"))
-            }
+            // Reading a deferred binding checks, at RUN time, whether an
+            // assignment actually ran: the same code answers a value on a path
+            // that assigned and fails on one that did not, so the check cannot
+            // be settled here.
             Expression::Name(name) => {
                 if let Some(binding) = self.lookup_binding(name).cloned() {
+                    if let Some(assigned) = binding.assigned {
+                        let destination = self.allocate()?;
+                        self.instructions.push(Instruction::ReadDeferred {
+                            destination,
+                            value: binding.register,
+                            assigned,
+                        });
+                        return Ok(destination);
+                    }
                     if !binding.shared {
                         return Ok(binding.register);
                     }
@@ -225,6 +235,30 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination,
                         value,
                         target,
+                    });
+                    return Ok(destination);
+                }
+                // C082 makes `=~`, `!~` and a NAMED infix ordinary sends on
+                // the subject, so they dispatch like any other selector. They
+                // cannot go through `Binary`, whose selector is a `'static`
+                // str, because a named infix carries the name the source
+                // wrote.
+                if let Some(selector) = match operator {
+                    iris_syntax::BinaryOperator::NamedInfix { selector } => Some(selector.clone()),
+                    iris_syntax::BinaryOperator::Match => Some("=~".to_owned()),
+                    iris_syntax::BinaryOperator::NotMatch
+                    | iris_syntax::BinaryOperator::RegexDoesNotMatch => Some("!~".to_owned()),
+                    _ => None,
+                } {
+                    let receiver = self.expression(left)?;
+                    let (first, count) = self.argument_window(std::slice::from_ref(right))?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Send {
+                        destination,
+                        receiver,
+                        selector,
+                        first,
+                        count,
                     });
                     return Ok(destination);
                 }
@@ -570,7 +604,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         source,
                     });
                 }
-                self.deferred.retain(|held| held != name);
+                if let Some(assigned) = binding.assigned {
+                    self.instructions
+                        .push(Instruction::MarkAssigned { assigned });
+                }
                 Ok(if binding.shared { source } else { destination })
             }
             Expression::Call {

@@ -209,12 +209,21 @@ impl Machine {
                     cell.mutate(|elements| elements[0] = value.clone());
                     value
                 }
-                Instruction::DeclareDeferred { .. } => continue,
+                Instruction::DeclareDeferred { assigned, .. } => {
+                    registers[*assigned as usize] = Value::Bool(false);
+                    Value::Nil
+                }
+                Instruction::MarkAssigned { .. } => Value::Bool(true),
+                Instruction::ReadDeferred {
+                    value, assigned, ..
+                } => {
+                    if !truthy(&registers[*assigned as usize]) {
+                        return Err(MachineError::DefiniteAssignment);
+                    }
+                    registers[*value as usize].clone()
+                }
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
-                }
-                Instruction::RaiseDefiniteAssignment { .. } => {
-                    return Err(MachineError::DefiniteAssignment);
                 }
                 Instruction::Binary {
                     selector,

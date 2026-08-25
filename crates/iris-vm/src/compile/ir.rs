@@ -96,11 +96,27 @@ pub enum Instruction {
         destination: Register,
         name: String,
     },
+    /// Declares a deferred binding: a value register plus an ASSIGNED flag.
+    ///
+    /// The reference checks definite assignment when the binding is READ, at
+    /// RUN time, and whether an assignment ran is not a compile-time fact:
+    /// `mut x: Integer; if c { x = 1 }; x` answers `1` when `c` holds and
+    /// fails when it does not, for the SAME code. So the flag is carried in a
+    /// register and consulted by `ReadDeferred`, rather than being tracked as
+    /// a set the compiler discharges.
     DeclareDeferred {
         register: Register,
+        assigned: Register,
     },
-    RaiseDefiniteAssignment {
+    /// Marks a deferred binding assigned, whenever this instruction RUNS.
+    MarkAssigned {
+        assigned: Register,
+    },
+    /// Reads a deferred binding, failing unless it was actually assigned.
+    ReadDeferred {
         destination: Register,
+        value: Register,
+        assigned: Register,
     },
     /// Refuses a program the reference refuses at RUN time.
     ///
@@ -505,8 +521,7 @@ impl Instruction {
             Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
                 Some(*destination)
             }
-            Self::RaiseDefiniteAssignment { destination }
-            | Self::RaiseUnsupported { destination } => Some(*destination),
+            Self::RaiseUnsupported { destination } => Some(*destination),
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }
@@ -519,7 +534,9 @@ impl Instruction {
             | Self::Propagate { .. }
             | Self::Return { .. } => None,
             Self::IteratorClose { .. } => None,
-            Self::DeclareDeferred { .. } => None,
+            Self::DeclareDeferred { register, .. } => Some(*register),
+            Self::MarkAssigned { assigned } => Some(*assigned),
+            Self::ReadDeferred { destination, .. } => Some(*destination),
             Self::ArrayVersion { destination, .. } => Some(*destination),
             Self::ArrayNext { destination, .. } | Self::RangeNext { destination, .. } => {
                 Some(*destination)

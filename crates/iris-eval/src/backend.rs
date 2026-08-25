@@ -166,6 +166,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::NoActiveException) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::NoActiveExceptionError),
                 )),
+                Err(iris_vm::MachineError::DefiniteAssignment) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::DefiniteAssignment),
+                )),
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
                 }
@@ -2574,45 +2577,75 @@ M.r()"#;
         assert_eq!(observation, &Observation::Value("[9]".to_owned()));
     }
 
-    /// A deferred binding assigned inside a BRANCH is declined, not lowered.
+    /// A deferred binding is checked when it is READ, at run time.
     ///
-    /// Assignment used to discharge the deferral wherever it appeared, so a
-    /// branch that may not run still marked the binding assigned. The read
-    /// after it lowered to a register the verifier then proved unwritten,
-    /// which surfaces as a machine failure - a COMPILER defect wearing a
-    /// program error's clothes. Declining keeps the boundary honest.
+    /// I first made the backend decline an assignment inside a branch, then
+    /// made any branch assignment discharge the deferral at compile time.
+    /// Measuring the reference showed both are wrong: it decides on the path
+    /// actually TAKEN, so `if c { x = 1 }; x` answers `1` when `c` holds and
+    /// fails when it does not, for the same code. A compile-time set cannot
+    /// express that, so the VM carries an assigned flag and checks it at the
+    /// read.
     #[test]
-    fn a_deferred_binding_assigned_in_a_branch_is_declined() {
-        let bytecode = Bytecode;
-
-        for source in [
-            "module M { public fun r() -> Object { mut x: Integer; if true { x = 1 }; x } } M.r()",
-            "module M { public fun r() -> Object { mut x: Integer; if true { x = 1 } else { x = 2 }; x } } M.r()",
+    fn a_deferred_binding_is_checked_on_the_path_taken() {
+        for (source, expected) in [
+            (
+                "module M { public fun r() -> Object { mut x: Integer; if true { x = 1 }; x } } M.r()",
+                "1",
+            ),
+            (
+                "module M { public fun r() -> Object { \
+                 mut x: Integer; if true { x = 1 } else { x = 2 }; x } } M.r()",
+                "1",
+            ),
+            (
+                "module M { public fun r() -> Object { mut x: Integer; x = 5; x } } M.r()",
+                "5",
+            ),
+            // The assigning branch is chosen at RUN time, so the same body
+            // must answer a value here...
+            (
+                "module M { public fun f(c: Bool) -> Object { mut x: Integer; if c { x = 1 }; x } \
+                 public fun r() -> Object { M.f(true) } } M.r()",
+                "1",
+            ),
         ] {
-            let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("a branch is not every path: {source}")
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {source}: {agreement:?}")
             };
-            assert_eq!(reason, "deferred read before assignment", "{source}");
+            assert_eq!(
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
+            );
         }
 
-        // Control: an assignment on the straight line DOES discharge it, so
-        // the decline is about the branch rather than about deferral itself.
-        let agreement = compare_backends(
-            "module M { public fun r() -> Object { mut x: Integer; x = 5; x } } M.r()",
-            &[&Interpreter, &Bytecode],
-        );
-        let Agreement::Agreed { observation, .. } = &agreement else {
-            unreachable!("a straight-line assignment must run: {agreement:?}")
-        };
-        assert_eq!(observation, &Observation::Value("5".to_owned()));
+        // ...and FAIL on the path that skips the assignment. A `nil` here is
+        // the silently wrong answer a compile-time discharge produced.
+        for source in [
+            "module M { public fun r() -> Object { mut x: Integer; if false { x = 1 }; x } } M.r()",
+            "module M { public fun f(c: Bool) -> Object { mut x: Integer; if c { x = 1 }; x } \
+             public fun r() -> Object { M.f(false) } } M.r()",
+            "module M { public fun r() -> Object { mut x: Integer; x } } M.r()",
+        ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must fail alike: {source}: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                &Observation::Value("nil".to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                &Observation::Error("DefiniteAssignment".to_owned()),
+                "{source}"
+            );
+        }
     }
 
-    /// A float answers text, so it can be printed and interpolated.
-    ///
-    /// Every other built-in value family answered `to_string`, but neither
-    /// float width did, so `print(1.5)` failed on the CONVERSION rather than
-    /// on anything the program did. An integral value keeps its trailing
-    /// `.0`, which is what keeps `1.0` distinguishable from the Integer `1`.
     #[test]
     fn both_backends_render_floats_as_text() {
         for (source, expected) in [
@@ -3868,20 +3901,19 @@ M.r()"#;
             );
         }
 
+        // A read of a binding that was NEVER assigned fails in both backends.
+        // The backend used to decline it, which refuses the same program while
+        // describing it differently and holds the row; it raises now.
         let source = "module M { public fun r() -> Object { mut x: Integer; x } } M.r()";
-        let (interpreter, bytecode) = both();
-        let Support::Ran(observation) = interpreter.execute(source) else {
-            unreachable!("the reference must diagnose a deferred read")
+        let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
         };
-        assert_ne!(observation, Observation::Value("nil".to_owned()));
-        assert!(
-            matches!(observation, Observation::Error(ref error) if error.contains("DefiniteAssignment"))
+        assert_ne!(observation, &Observation::Value("nil".to_owned()));
+        assert_eq!(
+            observation,
+            &Observation::Error("DefiniteAssignment".to_owned())
         );
-        let Support::Unsupported(reason) = bytecode.execute(source) else {
-            unreachable!("the VM must decline a read it cannot prove initialized")
-        };
-        assert_ne!(reason, "statement deferred");
-        assert_eq!(reason, "deferred read before assignment");
     }
 
     #[test]
