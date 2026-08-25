@@ -161,6 +161,7 @@ The register IR uses explicit destinations. `dst` is the destination register.
 | `LoadContract { dst, contract }` | The immutable Contract object registered at `contract`. |
 | `LoadBuiltinClass { dst, name }` | Resolves a built-in nominal name such as `Integer` to its Class object. |
 | `LoadBuiltinType { dst, name }` | Resolves a built-in nominal name to its interned Type object. |
+| `BuildType { dst, expression }` | Resolves and normalizes a union or intersection Type expression. |
 | `LoadGlobal { dst, name }` | Reads the current package-global cell. |
 | `StoreGlobal { dst, name, value }` | Stores `value` in the package-global cell and writes the assigned value to `dst`. |
 | `PublishBinding { dst, name, source }` | Publishes a top-level lexical value or cell under `name`, then copies it to `dst`. |
@@ -256,6 +257,18 @@ covered query surface is `kind()`, `subtype?(other)`, and
 lowering `is` to equality, so inherited user Classes and built-in scalar
 Classes use one nominal rule. Contract targets are declined until the VM can
 model the reference's nominal conformance test without approximating it.
+
+`BuildType` preserves the parsed Type-expression tree until runtime Class and
+Contract identities are available. It then applies the reference evaluator's
+normal form: nested like-kind forms flatten; members sort and deduplicate;
+nominal subtype absorption keeps the wider union member or narrower
+intersection member; `Never` is the union identity and intersection absorber;
+`Object` follows from nominal top-type absorption; and intersecting `NonNil`
+removes `Nil`, including from a compact nested union. A union nested inside an
+intersection remains one atom rather than distributing. One nominal atom
+collapses to the ordinary nominal Type value, so normalization makes
+`((String | Nil) & NonNil).type same? String.type` true. `same?` compares
+nominal and composed Type values by their canonical structure.
 
 An interpolated String is lowered as an ordered chain of String `+` operations.
 Each `${expr}` is parsed as one expression, evaluated once from left to right,
@@ -621,6 +634,10 @@ written entirely in Iris with `Iteration.yield`/`Iteration.done` drives a loop;
 `ReflectionAccessError`; and `Revision.subscribe`/`flush`/`event_errors` with
 `RevisionHistory.events`/`prune`, where `Class.open()` publishes a real
 revision that `active_revision` reports.
+Also covered: reified union and intersection Type values over known nominal
+Classes and Contracts, including `.type`, `.kind()`, structural `same?`,
+nilability, nominal absorption, `Never`, `NonNil`, compact nested unions, and
+use of those forms as binding annotations.
 
 A NAMED runtime failure is an ordinary catchable Iris error: `IndexError`,
 `MessageNotFound`, `ConcurrentModificationError`, `IteratorStateError`,
@@ -689,6 +706,8 @@ class forms `class decorator`, `class reopen target`, `class reopen header`,
 `rejected source`,
 `rejected literal`, `empty body`, `array too long`,
 `call too wide`, `from_bits arity`, `branch patch` and `register exhaustion`.
+Reified `typeof`, callable Types, composed generic members, and unresolved Type
+names retain the exact `expression reified type` decline.
 
 A program of only declarations, or only bindings, is NOT declined. It answers
 no value, and the reference raises `UnsupportedConstruct` when it runs, so the

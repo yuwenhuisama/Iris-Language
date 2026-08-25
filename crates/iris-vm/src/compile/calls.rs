@@ -327,7 +327,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if matches!(receiver.as_ref(), Expression::Member { receiver, selector }
-            if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)))
+        if selector == "type"
+            && matches!(
+                receiver.as_ref(),
+                Expression::ReifiedType(iris_syntax::TypeExpression::Name(_)
+                    | iris_syntax::TypeExpression::Generic { .. })
+            ))
             && selector == "kind"
             && arguments.is_empty()
         {

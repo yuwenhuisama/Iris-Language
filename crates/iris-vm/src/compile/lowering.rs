@@ -133,6 +133,29 @@ pub(super) struct LoopContext {
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {
+    pub(super) fn validate_composed_type(
+        &self,
+        expression: &iris_syntax::TypeExpression,
+    ) -> Result<(), CompileError> {
+        match expression {
+            iris_syntax::TypeExpression::Name(name)
+                if matches!(name.as_str(), "Never" | "NonNil")
+                    || self.class_index(name).is_some()
+                    || self.contract_index(name).is_some()
+                    || matches!(
+                        name.as_str(),
+                        "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
+                    ) =>
+            {
+                Ok(())
+            }
+            iris_syntax::TypeExpression::Union(members)
+            | iris_syntax::TypeExpression::Intersection(members) => members
+                .iter()
+                .try_for_each(|member| self.validate_composed_type(member)),
+            _ => Err(CompileError::new("expression reified type")),
+        }
+    }
     pub(super) fn new(
         signatures: &'a [Signature<'b>],
         classes: &'a [Class],

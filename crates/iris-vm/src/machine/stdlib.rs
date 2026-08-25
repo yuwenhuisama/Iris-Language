@@ -243,6 +243,21 @@ impl Machine {
             Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
                 Some(Value::Symbol("nominal".to_owned()))
             }
+            value @ (Value::Type(..) | Value::ComposedType(_))
+                if selector == "type" && arguments.is_empty() =>
+            {
+                Some(value.clone())
+            }
+            Value::ComposedType(form) if selector == "kind" && arguments.is_empty() => {
+                Some(Value::Symbol(
+                    match form {
+                        iris_runtime::ComposedType::Never => "never",
+                        iris_runtime::ComposedType::Union(_) => "union",
+                        iris_runtime::ComposedType::Intersection(_) => "intersection",
+                    }
+                    .to_owned(),
+                ))
+            }
             Value::Type(left, _) if selector == "subtype?" => {
                 let [Value::Type(right, _)] = arguments else {
                     return Err(MachineError::Kernel(iris_runtime::KernelError::Type));

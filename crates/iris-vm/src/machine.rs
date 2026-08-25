@@ -4,6 +4,7 @@ use iris_runtime::{Kernel, KernelError, NativeSelector, Runtime, Selector, Value
 
 use crate::compile::{Instruction, Program};
 
+mod composed_types;
 mod execute;
 mod operations;
 mod runtime;

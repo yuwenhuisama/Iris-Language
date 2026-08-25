@@ -49,6 +49,10 @@ mod tests {
             "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { let m = C.new().v; m.call() } } M.r()",
             "module M { public fun r() -> Object { (7).hash() } } M.r()",
             "module M { public fun r() -> Object { Integer.type.kind() } } M.r()",
+            "module M { public fun r() -> Object { (String | Nil).type } } M.r()",
+            "module M { public fun r() -> Object { (String?).type same? (String | Nil).type } } M.r()",
+            "module M { public fun r() -> Object { ((String | Nil) & NonNil).type same? String.type } } M.r()",
+            "module M { public fun r() -> Object { let value: String | Nil = nil; value } } M.r()",
             "module M { public fun r() -> Object { Integer.type.subtype?(Object.type) } } M.r()",
             "module M { public fun r() -> Object { Object.type.assignable?(Float64.type) } } M.r()",
             "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is A } } M.r()",
@@ -129,6 +133,31 @@ mod tests {
                 "{source}: {result:?}"
             );
             assert!(result.is_ok(), "{source}: {result:?}");
+        }
+    }
+
+    #[test]
+    fn composed_types_normalize_before_identity_comparison() {
+        for (source, control) in [
+            (
+                "(String?).type same? (String | Nil).type",
+                "(String?).type same? Integer.type",
+            ),
+            (
+                "((String | Nil) & NonNil).type same? String.type",
+                "((String | Nil) & NonNil).type same? Nil.type",
+            ),
+            (
+                "(String | Never).type same? String.type",
+                "(String | Never).type same? Nil.type",
+            ),
+            (
+                "(Nil & NonNil).type same? (String & Never).type",
+                "(Nil & NonNil).type same? Nil.type",
+            ),
+        ] {
+            assert_eq!(run(&program(source)), Ok(iris_runtime::Value::Bool(true)));
+            assert_eq!(run(&program(control)), Ok(iris_runtime::Value::Bool(false)));
         }
     }
 

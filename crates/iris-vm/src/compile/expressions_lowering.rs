@@ -389,6 +389,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Err(CompileError::new("expression contract view outside call"))
             }
             Expression::ReifiedType(iris_syntax::TypeExpression::Name(name)) => {
+                if matches!(name.as_str(), "Never" | "NonNil") {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BuildType {
+                        destination,
+                        expression: iris_syntax::TypeExpression::Name(name.clone()),
+                    });
+                    return Ok(destination);
+                }
                 if let Some(class) = self.class_index(name) {
                     let destination = self.allocate()?;
                     self.instructions
@@ -415,6 +423,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let destination = self.allocate()?;
                 self.instructions
                     .push(Instruction::LoadType { destination, class });
+                Ok(destination)
+            }
+            Expression::ReifiedType(
+                expression @ (iris_syntax::TypeExpression::Union(_)
+                | iris_syntax::TypeExpression::Intersection(_)),
+            ) => {
+                self.validate_composed_type(expression)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::BuildType {
+                    destination,
+                    expression: expression.clone(),
+                });
                 Ok(destination)
             }
             Expression::ClosedGeneric { name, .. } => {

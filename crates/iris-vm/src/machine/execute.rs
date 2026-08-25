@@ -233,6 +233,9 @@ impl Machine {
                 Instruction::LoadBuiltinType { name, .. } => {
                     Value::Type(self.builtin_class(name)?, Vec::new())
                 }
+                Instruction::BuildType { expression, .. } => {
+                    self.reify_type(expression, program, classes)?
+                }
                 Instruction::LoadBuiltinClass { name, .. } => {
                     Value::Class(self.builtin_class(name)?)
                 }

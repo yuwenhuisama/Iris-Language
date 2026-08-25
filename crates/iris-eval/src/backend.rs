@@ -4059,6 +4059,77 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_normalized_composed_types() {
+        let cases = [
+            (
+                "(String | Nil).type",
+                "<type>",
+                "(String | Nil).type.kind()",
+            ),
+            (
+                "(String?).type same? (String | Nil).type",
+                "true",
+                "(String?).type same? Integer.type",
+            ),
+            (
+                "((String | Nil) & NonNil).type same? String.type",
+                "true",
+                "((String | Nil) & NonNil).type same? Nil.type",
+            ),
+            (
+                "let value: String | Nil = nil; value",
+                "nil",
+                "let value: String | Nil = \"text\"; value",
+            ),
+            (
+                "(String | Never).type same? String.type",
+                "true",
+                "(String | Never).type same? Nil.type",
+            ),
+            (
+                "(Nil & NonNil).type same? (String & Never).type",
+                "true",
+                "(Nil & NonNil).type same? Nil.type",
+            ),
+        ];
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        for (expression, expected, control) in cases {
+            for source in [
+                expression.to_owned(),
+                format!("module M {{ public fun r() -> Object {{ {expression} }} }} M.r()"),
+            ] {
+                let Agreement::Agreed { observation, .. } = compare_backends(&source, &backends)
+                else {
+                    unreachable!("both backends must run a composed Type: {source}")
+                };
+                assert_eq!(
+                    observation,
+                    Observation::Value(expected.to_owned()),
+                    "{source}"
+                );
+            }
+            for source in [
+                control.to_owned(),
+                format!("module M {{ public fun r() -> Object {{ {control} }} }} M.r()"),
+            ] {
+                let agreement = compare_backends(&source, &backends);
+                let Agreement::Agreed { observation, .. } = agreement else {
+                    unreachable!(
+                        "both backends must run the composed-Type control: {source}: {agreement:?}"
+                    )
+                };
+                assert_ne!(
+                    observation,
+                    Observation::Value(expected.to_owned()),
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn backends_agree_on_builtin_class_values_and_type_queries() {
         let cases = [
             (

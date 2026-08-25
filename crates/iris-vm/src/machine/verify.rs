@@ -519,6 +519,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadType { .. }
         | Instruction::LoadContract { .. }
         | Instruction::LoadBuiltinType { .. }
+        | Instruction::BuildType { .. }
         | Instruction::LoadBuiltinClass { .. }
         | Instruction::LoadGlobal { .. }
         | Instruction::LoadBinding { .. }

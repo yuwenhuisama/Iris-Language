@@ -114,6 +114,12 @@ impl Machine {
             (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => false,
             (Value::Object(left), Value::Object(right)) => left == right,
             (Value::Class(left), Value::Class(right)) => left == right,
+            (Value::Type(left, left_arguments), Value::Type(right, right_arguments)) => {
+                left == right && left_arguments == right_arguments
+            }
+            (Value::ComposedType(left), Value::ComposedType(right)) => left == right,
+            (Value::Type(..), Value::ComposedType(_))
+            | (Value::ComposedType(_), Value::Type(..)) => false,
             (Value::Array(left), Value::Array(right)) => left.same(right),
             (Value::Hash(left), Value::Hash(right)) => left.same(right),
             (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {

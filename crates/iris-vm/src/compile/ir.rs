@@ -72,6 +72,10 @@ pub enum Instruction {
         destination: Register,
         name: String,
     },
+    BuildType {
+        destination: Register,
+        expression: iris_syntax::TypeExpression,
+    },
     LoadBuiltinClass {
         destination: Register,
         name: String,
@@ -432,6 +436,7 @@ impl Instruction {
             | Self::LoadType { destination, .. }
             | Self::LoadContract { destination, .. }
             | Self::LoadBuiltinType { destination, .. }
+            | Self::BuildType { destination, .. }
             | Self::LoadBuiltinClass { destination, .. }
             | Self::LoadGlobal { destination, .. }
             | Self::StoreGlobal { destination, .. }
