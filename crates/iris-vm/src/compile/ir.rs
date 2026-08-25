@@ -86,6 +86,15 @@ pub enum Instruction {
     RaiseDefiniteAssignment {
         destination: Register,
     },
+    /// Refuses a program the reference refuses at RUN time.
+    ///
+    /// A program of only declarations, or only bindings, has no value to
+    /// answer. The reference raises UnsupportedConstruct when it runs, so
+    /// declining at COMPILE time made the two backends describe the same
+    /// refusal differently and held the row instead of agreeing.
+    RaiseUnsupported {
+        destination: Register,
+    },
     StoreGlobal {
         destination: Register,
         name: String,
@@ -470,7 +479,8 @@ impl Instruction {
             Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
                 Some(*destination)
             }
-            Self::RaiseDefiniteAssignment { destination } => Some(*destination),
+            Self::RaiseDefiniteAssignment { destination }
+            | Self::RaiseUnsupported { destination } => Some(*destination),
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }

@@ -90,9 +90,6 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         )?);
     }
 
-    if parsed.program.statements.is_empty() {
-        return Err(CompileError::new("empty program"));
-    }
     let mut lowering = lowering::Lowering::new(
         &signatures,
         &classes,
@@ -115,7 +112,17 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         }
     }
     let result = match produced.as_slice() {
-        [] => return Err(CompileError::new("no program value")),
+        // A program of only declarations, or only bindings, answers no value.
+        // The reference raises UnsupportedConstruct when it RUNS, so refusing
+        // at compile time made both backends refuse the same program while
+        // describing it differently - which holds the row rather than agreeing.
+        [] => {
+            let destination = lowering.allocate()?;
+            lowering
+                .instructions
+                .push(Instruction::RaiseUnsupported { destination });
+            destination
+        }
         [single] => *single,
         _ => {
             let first = lowering.next_register;

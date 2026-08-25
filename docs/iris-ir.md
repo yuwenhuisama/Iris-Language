@@ -687,8 +687,14 @@ class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class mixin`, `class constraints`, `class meta deny`,
 `class superclass` and `class body`, plus the structural refusals
 `rejected source`,
-`rejected literal`, `empty program`, `empty body`, `array too long`,
+`rejected literal`, `empty body`, `array too long`,
 `call too wide`, `from_bits arity`, `branch patch` and `register exhaustion`.
+
+A program of only declarations, or only bindings, is NOT declined. It answers
+no value, and the reference raises `UnsupportedConstruct` when it runs, so the
+backend raises the same thing at run time. Refusing it at compile time made
+both backends refuse the same program while describing the refusal
+differently, which holds a differential row rather than agreeing on it.
 
 This list is pinned by test, so widening coverage without updating this document
 fails the build.

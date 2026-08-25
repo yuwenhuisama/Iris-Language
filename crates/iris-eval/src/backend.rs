@@ -2064,7 +2064,11 @@ mod differential_tests {
         let bytecode = Bytecode;
 
         for (source, construct) in [
-            ("class A { }", "empty program"),
+            (
+                "module M { public fun r() -> Object { M.f(a: 1) } \
+                 public fun f(a: Integer) -> Integer { a } } M.r()",
+                "expression keyword argument",
+            ),
             ("for [x] in [[1]] { x }", "statement for"),
             ("unbound_name", "name unbound"),
             // `if`, `while`, and built-in indexes ARE covered now, so a

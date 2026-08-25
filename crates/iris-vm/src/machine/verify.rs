@@ -526,7 +526,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LeaveTry
         | Instruction::Jump { .. }
         | Instruction::DeclareDeferred { .. } => Vec::new(),
-        Instruction::RaiseDefiniteAssignment { .. } => Vec::new(),
+        Instruction::RaiseDefiniteAssignment { .. } | Instruction::RaiseUnsupported { .. } => {
+            Vec::new()
+        }
     }
 }
 

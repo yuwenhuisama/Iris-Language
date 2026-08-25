@@ -200,6 +200,9 @@ impl Machine {
                     value
                 }
                 Instruction::DeclareDeferred { .. } => continue,
+                Instruction::RaiseUnsupported { .. } => {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
                 Instruction::RaiseDefiniteAssignment { .. } => {
                     return Err(MachineError::DefiniteAssignment);
                 }
