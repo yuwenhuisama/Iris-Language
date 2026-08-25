@@ -629,7 +629,19 @@ specification's name. Uncaught, the same failure surfaces as ITSELF rather than
 as a raised Symbol, so a program that never wrote a handler sees what the
 reference reports.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 340 of them, up
+Also covered: erased generics, so `Box<Integer>` and `Box<String>` are the SAME
+Class and a type argument list carries no runtime identity; `super()` through
+several levels of inheritance; `using(resource) { body }`, which closes on every
+exit including a raising body; header-less block closures, which is the form
+`define_method(:a) { 1 }` passes; top-level bindings that a method body can
+read, write and SEND to; Array `append`, `insert`, `delete` and `clear`, which
+answer nil rather than the receiver unlike `push`; and **async methods**, where
+C012 makes creating the Task and starting its initial run ONE call operation -
+the body executes at CALL time, `Host.run` and `await` observe an
+already-computed outcome, and a failing task stays in the Diagnostics channel
+until observed.
+
+Measured against the 736 RUNNABLE source vectors, this compiles 419 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -638,6 +650,12 @@ way - splitting the decline reasons showed `try` at 38 against `for` at 8, later
 that the largest remaining bucket was Contracts rather than anything the coarse
 `name` bucket suggested, and later still that `name unbound` was mostly a tail of
 FFI fixture names rather than one gap.
+
+Splitting a bucket by the actual NAME in it has repeatedly found something the
+category hid. `closure` at 19 was not about closures: every declining one
+carried `has_header: false`, so the gap was the bare block form. `call unbound
+receiver` at 70 looked like missing subsystems, and 19 of them were an ordinary
+accumulator named `log` calling an Array method the backend did not have.
 
 The DENOMINATOR was measured too, and it was wrong at first. 47 corpus vectors
 are declared `malformed` and are SUPPOSED to be rejected, so counting them as
