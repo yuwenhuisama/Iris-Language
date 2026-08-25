@@ -193,6 +193,27 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Host")
+            && selector == "run"
+        {
+            let [argument] = arguments else {
+                return Err(CompileError::new("Host.run arity"));
+            };
+            let task = self.expression(argument)?;
+            let destination = self.allocate()?;
+            self.instructions
+                .push(Instruction::HostRun { destination, task });
+            return Ok(destination);
+        }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Diagnostics")
+            && selector == "unobserved_failures"
+            && arguments.is_empty()
+        {
+            let destination = self.allocate()?;
+            self.instructions
+                .push(Instruction::UnobservedFailures { destination });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "JSON")
             && matches!(selector.as_str(), "decode" | "encode")
         {

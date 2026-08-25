@@ -13,6 +13,7 @@ pub(super) struct Signature<'a> {
     pub(super) body: &'a [Statement],
     pub(super) receiver: bool,
     pub(super) class_method: bool,
+    pub(super) is_async: bool,
 }
 
 type MethodTable = Vec<(String, usize)>;
@@ -346,8 +347,7 @@ fn collect_methods<'a>(
                 "module body"
             }));
         };
-        if method.is_async
-            || !method.decorators.is_empty()
+        if !method.decorators.is_empty()
             || !matches!(
                 method.kind,
                 iris_syntax::MethodKind::Instance
@@ -382,6 +382,7 @@ fn collect_methods<'a>(
             body,
             receiver,
             class_method: method.kind == iris_syntax::MethodKind::Class,
+            is_async: method.is_async,
         });
     }
     Ok(())

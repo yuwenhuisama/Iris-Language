@@ -41,6 +41,8 @@ struct IteratorRecord {
     position: usize,
 }
 
+type TaskOutcome = Result<Value, Box<MachineError>>;
+
 mod verify;
 
 pub(super) use verify::truthy;
@@ -68,6 +70,10 @@ pub struct Machine {
     next_closure: u64,
     next_context: u64,
     next_iterator: u64,
+    tasks: std::collections::HashMap<iris_runtime::ObjectId, TaskOutcome>,
+    unobserved_failures: Vec<iris_runtime::ObjectId>,
+    async_depth: usize,
+    closure_depth: usize,
 }
 
 impl Machine {
@@ -94,6 +100,10 @@ impl Machine {
             next_closure: 1,
             next_context: 900_000,
             next_iterator: 1_000_000,
+            tasks: std::collections::HashMap::new(),
+            unobserved_failures: Vec::new(),
+            async_depth: 0,
+            closure_depth: 0,
         })
     }
 
@@ -141,6 +151,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
         MachineError::SerializationError => Some("SerializationError"),
         MachineError::AuditHistoryUnavailable => Some("AuditHistoryUnavailableError"),
+        MachineError::HostDriveUnavailable => Some("HostDriveUnavailableError"),
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
         MachineError::ClosedGenericOpenForbidden => Some("CLOSED_GENERIC_OPEN_FORBIDDEN"),

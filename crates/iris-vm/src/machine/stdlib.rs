@@ -83,6 +83,9 @@ impl Machine {
         classes: &[ClassId],
     ) -> Result<Option<Value>, MachineError> {
         let result = match receiver {
+            Value::Task(_) if selector == "class_name" && arguments.is_empty() => {
+                Some(Value::Text("Task".to_owned()))
+            }
             Value::Array(_) | Value::Hash(_) | Value::Range(_)
                 if selector == "iterator" && arguments.is_empty() =>
             {

@@ -70,6 +70,7 @@ A `Function` carries:
 | --- | --- |
 | `name` | The declared name, for diagnostics only. |
 | `parameters` | How many LEADING registers hold parameters. |
+| `is_async` | Whether invocation eagerly records the body's outcome in a fresh Task. |
 | `registers` | The size of this frame's register file. |
 | `instructions` | The body. |
 
@@ -402,6 +403,9 @@ however the branch goes.
 | `Using { dst, resource, block }` | Invokes the Closure block, closes the resource on normal and raised exits, and merges both outcomes under the resource-cleanup rule. |
 | `Return { value }` | Returns `value` from the current frame. |
 | `MakeClosure { dst, function, first, count }` | Allocates a Closure whose capture handles and immutable values are copied from the register window. |
+| `Await { dst, task }` | Observes an already-completed Task, answering its value or propagating its retained failure. |
+| `HostRun { dst, task }` | Observes a completed Task outside async and Closure bodies. |
+| `UnobservedFailures { dst }` | Answers the Tasks whose failed outcomes have not been observed. |
 
 `function` is an **index**, not a name. Resolution happens before any
 instruction is emitted, so nothing is looked up at run time. That resolution is
@@ -647,7 +651,7 @@ the authored stdlib moved it by zero while making ordinary Iris - `[1, 2,
 Declined, each by name: `declaration import`,
 `declaration export`, and `declaration type alias`,
 `module` (open, mixin, generic or decorated), `module body` (a non-method
-statement), `method async`, `qualified contract implementation`, `method
+statement), `qualified contract implementation`, `method
  decorator`, `method module`, `abstract
 method`, `parameter` (rest, keyword or block),
 `statement <form>`, which names the form that stopped it - unsupported `for`,
@@ -659,7 +663,7 @@ alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name unbound`, `name assignment unbound`,
-`member`, `index receiver`, `hash key name`, `await`, `yield`, and the
+`member`, `index receiver`, `hash key name`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`,
 `class mixin`, `class constraints`, `class meta deny`,
@@ -675,7 +679,7 @@ fails the build.
 
 Named so the gaps are not mistaken for decisions:
 
-- **Method forms.** Async methods, qualified Contract implementations, property
+- **Method forms.** Qualified Contract implementations, property
   setters, decorators, and non-positional/default parameters retain
   runtime or type semantics the bytecode backend does not yet model.
 - **General iteration.** Array iteration with name bindings, unlabelled
@@ -701,7 +705,10 @@ Named so the gaps are not mistaken for decisions:
   SUBSYSTEMS rather than lowering gaps. Stubbing
   them would answer a differential row with a fabricated value, which is the
   one outcome worse than a held row.
-- **Async.** `Task` semantics need suspension the machine does not model.
+- **Async suspension.** Async bodies run eagerly and completed Task outcomes,
+  `await`, `Host.run`, and unobserved failures are covered. A body that reaches
+  an incomplete Awaitable still requires continuation and scheduler state and
+  remains outside the machine rather than being approximated.
 
 **Bare-name Hash keys.** `%{ a: 1 }` is parsed as a Hash whose key is a NAME
 expression, and the reference evaluates it as an ordinary variable: with `a = 9`

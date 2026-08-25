@@ -124,6 +124,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Grouped(inner) => self.expression(inner),
+            Expression::Await(operand) => {
+                let task = self.expression(operand)?;
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::Await { destination, task });
+                Ok(destination)
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -603,6 +610,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             captures: captures.len(),
             parameter_types: vec!["Dynamic<Object>".to_owned(); parameters.len()],
             return_type: "Dynamic<Object>".to_owned(),
+            is_async: false,
             registers,
             instructions,
         });
@@ -668,6 +676,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             captures: 0,
             parameter_types: vec!["Dynamic<Object>".to_owned(); parameters.len()],
             return_type: "Dynamic<Object>".to_owned(),
+            is_async: false,
             registers,
             instructions,
         });

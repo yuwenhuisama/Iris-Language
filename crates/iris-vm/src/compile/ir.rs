@@ -191,6 +191,17 @@ pub enum Instruction {
         width: FloatWidth,
         bits: Register,
     },
+    Await {
+        destination: Register,
+        task: Register,
+    },
+    HostRun {
+        destination: Register,
+        task: Register,
+    },
+    UnobservedFailures {
+        destination: Register,
+    },
     /// Jumps to `target` when `condition` holds FALSE.
     ///
     /// Only the false branch is conditional. One conditional form plus an
@@ -452,7 +463,10 @@ impl Instruction {
             | Self::GetClassVar { destination, .. }
             | Self::SetClassVar { destination, .. }
             | Self::MakeClosure { destination, .. }
-            | Self::FromBits { destination, .. } => Some(*destination),
+            | Self::FromBits { destination, .. }
+            | Self::Await { destination, .. }
+            | Self::HostRun { destination, .. } => Some(*destination),
+            Self::UnobservedFailures { destination } => Some(*destination),
             Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
                 Some(*destination)
             }
@@ -505,6 +519,7 @@ pub struct Function {
     pub(crate) captures: usize,
     pub(crate) parameter_types: Vec<String>,
     pub(crate) return_type: String,
+    pub(crate) is_async: bool,
     /// The size of this frame's register file.
     pub(crate) registers: usize,
     pub(crate) instructions: Vec<Instruction>,

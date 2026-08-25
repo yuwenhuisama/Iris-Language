@@ -576,6 +576,111 @@ mod differential_tests {
     }
 
     #[test]
+    fn backends_agree_on_eager_async_tasks_and_observation() {
+        let cases = [
+            (
+                "module M { public async fun f() -> Integer { 7 } public fun r() -> Object { M.f() } } M.r()",
+                "module M { public fun f() -> Integer { 7 } public fun r() -> Object { M.f() } } M.r()",
+                "<task>",
+                "7",
+            ),
+            (
+                "module M { public async fun f() -> Integer { 7 } public fun r() -> Object { Host.run(M.f()) } } M.r()",
+                "module M { public async fun f() -> Integer { 8 } public fun r() -> Object { Host.run(M.f()) } } M.r()",
+                "7",
+                "8",
+            ),
+            (
+                "mut log = []\nmodule M { public async fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let t = M.f(); [log, Host.run(t), log] } } M.r()",
+                "mut log = []\nmodule M { public fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let v = M.f(); [log, v, log] } } M.r()",
+                "[[:ran], nil, [:ran]]",
+                "[[:ran], nil, [:ran]]",
+            ),
+            (
+                "module M { public async fun inner() -> Integer { 7 } public async fun outer() -> Integer { await M.inner() } } Host.run(M.outer())",
+                "module M { public async fun inner() -> Integer { 8 } public async fun outer() -> Integer { await M.inner() } } Host.run(M.outer())",
+                "7",
+                "8",
+            ),
+            (
+                "mut log = []\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(1); let b = M.f(2); [log, Host.run(a), Host.run(b)] } } M.r()",
+                "mut log = []\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(2); let b = M.f(1); [log, Host.run(a), Host.run(b)] } } M.r()",
+                "[[1, 2], 1, 2]",
+                "[[2, 1], 2, 1]",
+            ),
+            (
+                "module M { public async fun f() -> Nil { raise :boom } public fun r() -> Object { try { Host.run(M.f()) } catch e { e } } } M.r()",
+                "module M { public async fun f() -> Nil { raise :other } public fun r() -> Object { try { Host.run(M.f()) } catch e { e } } } M.r()",
+                ":boom",
+                ":other",
+            ),
+        ];
+
+        for (source, control, expected, control_expected) in cases {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
+
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends execute async behavior: {agreement:?}")
+            };
+            let Agreement::Agreed {
+                observation: control_observation,
+                ..
+            } = control_agreement
+            else {
+                unreachable!("the async negative control must execute: {control_agreement:?}")
+            };
+            assert_eq!(observation, Observation::Value(expected.to_owned()));
+            assert_eq!(
+                control_observation,
+                Observation::Value(control_expected.to_owned())
+            );
+        }
+    }
+
+    #[test]
+    fn backends_agree_awaiting_a_non_task_is_a_type_failure() {
+        let source = "module M { public async fun f() -> Object { await 7 } } Host.run(M.f())";
+        let control = "module M { public async fun f() -> Object { await M.g() } public async fun g() -> Integer { 7 } } Host.run(M.f())";
+
+        let Agreement::Agreed { observation, .. } =
+            compare_backends(source, &[&Interpreter, &Bytecode])
+        else {
+            unreachable!("both backends preserve the non-Task refusal")
+        };
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &[&Interpreter, &Bytecode])
+        else {
+            unreachable!("both backends execute the Task negative control")
+        };
+        assert_eq!(observation, Observation::Error("Runtime(Type)".to_owned()));
+        assert_eq!(control_observation, Observation::Value("7".to_owned()));
+    }
+
+    #[test]
+    fn backends_agree_unobserved_async_failures_remain_diagnostic() {
+        let source = "module M { public async fun f() -> Nil { raise :boom } public fun r() -> Object { let t = M.f(); Diagnostics.unobserved_failures().length() } } M.r()";
+        let control = "module M { public async fun f() -> Nil { raise :boom } public fun r() -> Object { let t = M.f(); try { Host.run(t) } catch e { nil }; Diagnostics.unobserved_failures().length() } } M.r()";
+
+        let Agreement::Agreed { observation, .. } =
+            compare_backends(source, &[&Interpreter, &Bytecode])
+        else {
+            unreachable!("both backends retain an unobserved failed Task")
+        };
+        let Agreement::Agreed {
+            observation: control_observation,
+            ..
+        } = compare_backends(control, &[&Interpreter, &Bytecode])
+        else {
+            unreachable!("both backends execute the observed-failure negative control")
+        };
+        assert_eq!(observation, Observation::Value("1".to_owned()));
+        assert_eq!(control_observation, Observation::Value("0".to_owned()));
+    }
+
+    #[test]
     fn backends_agree_on_generic_lookup_and_open_failures() {
         let cases = [
             (

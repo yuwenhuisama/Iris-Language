@@ -26,6 +26,7 @@ pub(super) fn lower_function(
         .iter()
         .position(|class| class.name == signature.module)
         .map(|owner| (owner, signature.selector.to_owned()));
+    lowering.async_body = signature.is_async;
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering
@@ -60,6 +61,7 @@ pub(super) fn lower_function(
             .map(|parameter| reflected_type(parameter.annotation.as_ref()))
             .collect(),
         return_type: reflected_type(signature.return_type),
+        is_async: signature.is_async,
         registers: lowering.next_register as usize,
         instructions: lowering.instructions,
     })
@@ -90,6 +92,7 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) program_bindings: &'a [ProgramBinding],
     pub(super) top_level: bool,
     pub(super) current_method: Option<(usize, String)>,
+    pub(super) async_body: bool,
 }
 
 #[derive(Clone)]
@@ -155,6 +158,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             program_bindings,
             top_level,
             current_method: None,
+            async_body: false,
         }
     }
 

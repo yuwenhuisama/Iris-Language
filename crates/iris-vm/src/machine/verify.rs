@@ -43,6 +43,7 @@ pub enum MachineError {
     SerializationError,
     UnsupportedConstruct,
     AuditHistoryUnavailable,
+    HostDriveUnavailable,
     MessageNotFound {
         receiver_class: String,
         selector: String,
@@ -412,6 +413,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::BuildRange { start, end, .. } => vec![*start, *end],
         Instruction::Unary { operand, .. } => vec![*operand],
         Instruction::FromBits { bits, .. } => vec![*bits],
+        Instruction::Await { task, .. } | Instruction::HostRun { task, .. } => vec![*task],
+        Instruction::UnobservedFailures { .. } => Vec::new(),
         Instruction::JumpUnless { condition, .. } => vec![*condition],
         Instruction::Return { value } | Instruction::Raise { value, .. } => vec![*value],
         Instruction::Propagate { value, context } => vec![*value, *context],

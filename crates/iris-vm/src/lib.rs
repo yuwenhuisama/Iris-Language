@@ -114,6 +114,8 @@ mod tests {
             "class P { public fun value() -> Integer { 1 } } class C extends P { public override fun value() -> Integer { super() + 1 } } C.new().value()",
             "class R { public fun close() -> Nil { nil } } using(R.new()) { :body }",
             "class A { public fun m() { :old } } let saved = A.new().m; saved()",
+            "module M { public async fun f() -> Integer { 7 } public fun r() -> Object { M.f().class_name() } } M.r()",
+            "module M { public async fun f() -> Integer { 7 } public fun r() -> Object { Host.run(M.f()) } } M.r()",
         ] {
             let program = program(source);
             assert_eq!(verify(&program), Ok(()), "{source}");

@@ -9,6 +9,66 @@ use crate::compile::Program;
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 
 impl Machine {
+    pub(super) fn invoke_function(
+        &mut self,
+        function: usize,
+        arguments: Vec<Value>,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let callee = program
+            .functions
+            .get(function)
+            .cloned()
+            .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function,
+            }))?;
+        if arguments.len() != callee.parameters {
+            return Err(MachineError::Kernel(KernelError::Arity));
+        }
+        if !callee.is_async {
+            let returned = self.run_body(
+                &callee.instructions,
+                callee.registers,
+                arguments,
+                program,
+                classes,
+            )?;
+            return Ok(returned.into_iter().next().unwrap_or(Value::Nil));
+        }
+        self.async_depth += 1;
+        let outcome = self
+            .run_body(
+                &callee.instructions,
+                callee.registers,
+                arguments,
+                program,
+                classes,
+            )
+            .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil));
+        self.async_depth -= 1;
+        let identity = iris_runtime::ObjectId::new(self.next_context);
+        self.next_context = self.next_context.saturating_add(1);
+        if outcome.is_err() {
+            self.unobserved_failures.push(identity);
+        }
+        self.tasks.insert(identity, outcome.map_err(Box::new));
+        Ok(Value::Task(identity))
+    }
+
+    pub(super) fn observe_task(&mut self, task: Value) -> Result<Value, MachineError> {
+        let Value::Task(identity) = task else {
+            return Err(MachineError::Kernel(KernelError::Type));
+        };
+        let outcome = self
+            .tasks
+            .get(&identity)
+            .cloned()
+            .ok_or(MachineError::UnsupportedConstruct)?;
+        self.unobserved_failures.retain(|held| *held != identity);
+        outcome.map_err(|error| *error)
+    }
+
     pub(super) fn invoke_using(
         &mut self,
         resource: Value,
@@ -109,13 +169,16 @@ impl Machine {
                 }))?;
         let mut passed = closure.captures;
         passed.extend_from_slice(arguments);
+        self.closure_depth += 1;
         let returned = self.run_body(
             &callee.instructions,
             callee.registers,
             passed,
             program,
             classes,
-        )?;
+        );
+        self.closure_depth -= 1;
+        let returned = returned?;
         Ok(returned.into_iter().next().unwrap_or(Value::Nil))
     }
 

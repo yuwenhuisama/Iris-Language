@@ -83,6 +83,17 @@ impl Machine {
                 ($body:expr) => {
                     match (|| -> Result<Value, MachineError> { Ok($body) })() {
                         Ok(value) => value,
+                        Err(MachineError::Raised(propagation)) => {
+                            let (value, context) = *propagation;
+                            let Some((handler, exception, context_register)) = handlers.pop()
+                            else {
+                                return Err(MachineError::Raised(Box::new((value, context))));
+                            };
+                            registers[exception as usize] = value;
+                            registers[context_register as usize] = context;
+                            counter = handler;
+                            continue 'frame;
+                        }
                         Err(error) => match (super::catchable_name(&error), handlers.pop()) {
                             (Some(name), Some((handler, exception, context_register))) => {
                                 registers[exception as usize] = Value::Symbol(name.to_owned());
@@ -470,6 +481,27 @@ impl Machine {
                         FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
                     }
                 }
+                Instruction::Await { task, .. } => {
+                    let task = registers[*task as usize].clone();
+                    dispatch!(self.observe_task(task)?)
+                }
+                Instruction::HostRun { task, .. } => {
+                    if self.async_depth > 0 || self.closure_depth > 0 {
+                        dispatch!(Err(MachineError::HostDriveUnavailable)?)
+                    } else {
+                        let task = registers[*task as usize].clone();
+                        dispatch!(self.observe_task(task)?)
+                    }
+                }
+                Instruction::UnobservedFailures { .. } => {
+                    Value::Array(iris_runtime::ArrayRef::new(
+                        self.unobserved_failures
+                            .iter()
+                            .copied()
+                            .map(Value::Task)
+                            .collect(),
+                    ))
+                }
                 // Truth is decided by the RUNTIME rather than re-derived here.
                 // `IRIS-V1-CONTROL-C022` makes only `false` and `nil` falsey,
                 // and a second copy of that rule would be one more place for
@@ -815,21 +847,14 @@ impl Machine {
                     count,
                     ..
                 } => {
-                    let Some(callee) = program.functions.get(*function).cloned() else {
-                        return Err(MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: *function,
-                        }));
-                    };
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
-                    let returned = run_frame!('frame, self.run_body(
-                        &callee.instructions,
-                        callee.registers,
+                    run_frame!('frame, self.invoke_function(
+                        *function,
                         arguments,
                         program,
                         classes,
-                    ));
-                    returned.into_iter().next().unwrap_or(Value::Nil)
+                    ))
                 }
                 Instruction::BareCall {
                     callee,
@@ -1247,14 +1272,12 @@ impl Machine {
                     if arguments.len() != callee.parameters {
                         return Err(MachineError::Kernel(KernelError::Arity));
                     }
-                    let returned = run_frame!('frame, self.run_body(
-                        &callee.instructions,
-                        callee.registers,
+                    run_frame!('frame, self.invoke_function(
+                        function,
                         arguments,
                         program,
                         classes,
-                    ));
-                    returned.into_iter().next().unwrap_or(Value::Nil)
+                    ))
                 }
                 Instruction::SendClass {
                     class,
@@ -1291,22 +1314,12 @@ impl Machine {
                     let mut arguments = Vec::with_capacity(*count as usize + 1);
                     arguments.push(Value::Class(class));
                     arguments.extend_from_slice(&registers[start..start + *count as usize]);
-                    let callee =
-                        program
-                            .functions
-                            .get(function)
-                            .cloned()
-                            .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
-                                function,
-                            }))?;
-                    let returned = run_frame!('frame, self.run_body(
-                        &callee.instructions,
-                        callee.registers,
+                    run_frame!('frame, self.invoke_function(
+                        function,
                         arguments,
                         program,
                         classes,
-                    ));
-                    returned.into_iter().next().unwrap_or(Value::Nil)
+                    ))
                 }
                 Instruction::Reflection {
                     namespace,
