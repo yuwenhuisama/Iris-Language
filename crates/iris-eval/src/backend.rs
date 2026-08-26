@@ -3867,23 +3867,33 @@ M.r()"#;
             );
         }
 
+        // A conformance whose requirement is UNIMPLEMENTED is not refused at
+        // declaration: the reference casts it to a contract view all the same,
+        // so declining measured the backend against a rule the language does
+        // not have.
+        let agreement = compare_backends(
+            "contract Named { fun name() -> String } class User for Named { } \
+             module M { public fun r() -> Object { User.new() as Named } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("<contract>".to_owned()));
+
+        // Control: an `impl` marker naming NO declared conformance is still
+        // declined, so dropping the requirement check did not drop every
+        // contract rule.
         let bytecode = Bytecode;
-        for (source, expected) in [
-            (
-                "contract Named { fun name() -> String } class User for Named { } module M { public fun r() -> Object { User.new() as Named } } M.r()",
-                "contract requirement absent",
-            ),
-            (
-                "contract Named { fun name() -> String } class User { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { 1 } } M.r()",
-                "contract implementation undeclared",
-            ),
-        ] {
-            let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("the VM must precisely decline invalid Contract promises: {source}")
-            };
-            assert_ne!(reason, "declaration contract", "{source}");
-            assert_eq!(reason, expected, "{source}");
-        }
+        let Support::Unsupported(reason) = bytecode.execute(
+            "contract Named { fun name() -> String } \
+             class User { public impl fun name() -> String { \"iris\" } } \
+             module M { public fun r() -> Object { 1 } } M.r()",
+        ) else {
+            unreachable!("the VM must precisely decline invalid Contract promises")
+        };
+        assert_ne!(reason, "declaration contract");
+        assert_eq!(reason, "contract implementation undeclared");
     }
 
     #[test]

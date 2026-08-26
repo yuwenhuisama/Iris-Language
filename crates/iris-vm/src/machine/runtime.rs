@@ -282,10 +282,25 @@ impl Machine {
             let superclass = declaration
                 .superclass
                 .and_then(|parent| classes.get(parent).copied());
+            // A mixin is resolved to a module IDENTITY here rather than at
+            // compile time, because modules are registered in the same load
+            // and the runtime composes them into the class's MRO.
+            let mut modules = Vec::with_capacity(declaration.mixins.len());
+            for name in &declaration.mixins {
+                let Some((_, module)) = self.modules.iter().find(|(known, _)| known == name) else {
+                    return Err(MachineError::NameError);
+                };
+                modules.push(*module);
+            }
             let class = self
                 .runtime
                 .registry_mut()
-                .define_class(StaticSpine::new(index as u64 + 1), superclass)
+                .define_class_with_capabilities_and_modules(
+                    StaticSpine::new(index as u64 + 1),
+                    superclass,
+                    iris_runtime::MetaCapabilities::all(),
+                    &modules,
+                )
                 .map_err(MachineError::Class)?;
             self.runtime
                 .registry_mut()

@@ -4396,3 +4396,63 @@ fn accepted_declaration_forms_run_rather_than_decline() {
     };
     assert_eq!(reason, "expression keyword argument");
 }
+
+/// Mixins compose, and a Contract conformance is not enforced at DECLARATION.
+///
+/// A `mixin` names a Module the runtime already composes into a class's MRO,
+/// so wiring the declaration through was enough. The Contract check was the
+/// opposite: the backend demanded an `impl` marker for every requirement, but
+/// the reference runs `class X for C { }` with `C` unimplemented, so the rule
+/// refused programs the language accepts.
+#[test]
+fn mixins_compose_and_conformance_is_not_enforced_at_declaration() {
+    for (source, expected) in [
+        // A later mixin WINS, which is the MRO order rather than a first match.
+        (
+            "module A { public fun w() { :a } } module B { public fun w() { :b } } \
+             class C mixin A, B { } C.new().w()",
+            ":b",
+        ),
+        (
+            "module A { public fun h() -> Integer { 1 } } class C mixin A { } C.new().h()",
+            "1",
+        ),
+        // The class's OWN method still outranks a mixed-in one.
+        (
+            "module A { public fun h() -> Integer { 1 } } \
+             class C mixin A { public fun h() -> Integer { 2 } } C.new().h()",
+            "2",
+        ),
+        (
+            "contract C { fun m() -> String } class X for C { public fun m() -> String { \"c\" } } \
+             X.new().m()",
+            "\"c\"",
+        ),
+        // A cast through an UNIMPLEMENTED requirement is not refused...
+        (
+            "contract Named { fun name() -> String } class User for Named { } \
+             module M { public fun r() -> Object { User.new() as Named } } M.r()",
+            "<contract>",
+        ),
+        // ...and a send through the view dispatches the object's own method.
+        (
+            "contract Named { fun name() -> String } \
+             class User for Named { public fun name() -> String { \"n\" } } \
+             module M { public fun r() -> Object { (User.new() as Named).name() } } M.r()",
+            "\"n\"",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

@@ -1079,6 +1079,15 @@ impl Machine {
                     let receiver = registers[*receiver as usize].clone();
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
+                    // A cast produces a ContractView at RUN time, so a send to
+                    // one arrives here rather than through `SendContract`,
+                    // whose receiver the compiler could name statically. It
+                    // unwraps to the underlying object, which is what makes
+                    // `(x as C).m()` dispatch the object's own `m`.
+                    let receiver = match receiver {
+                        Value::ContractView(inner, _) => *inner,
+                        other => other,
+                    };
                     if let Some(value) = run_frame!(
                         'frame,
                         self.authored_send(

@@ -557,7 +557,14 @@ mod tests {
                 "class contract unbound",
                 "declaration",
             ),
-            ("class A mixin M { } 1", "class mixin", "declaration"),
+            // A PRIVATE-access mixin carries visibility rules the backend does
+            // not model, so it is still declined - while the plain `mixin M`
+            // form now compiles, which the differential tests cover.
+            (
+                "module M { } class A mixin M private { } 1",
+                "class mixin",
+                "declaration",
+            ),
             (
                 "class A<T> where T: Object { } 1",
                 "class constraints",

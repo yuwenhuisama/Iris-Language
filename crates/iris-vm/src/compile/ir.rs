@@ -657,6 +657,11 @@ pub(crate) struct Class {
     pub(crate) class_methods: Vec<(String, usize)>,
     pub(crate) reopens: Vec<ClassReopen>,
     pub(crate) contracts: Vec<usize>,
+    /// Modules mixed into this class, by NAME.
+    ///
+    /// A module is registered before any class, so the name resolves to a
+    /// module identity at load time rather than at compile time.
+    pub(crate) mixins: Vec<String>,
     pub(crate) property_methods: Vec<String>,
     pub(crate) class_variables: Vec<ClassVariable>,
     pub(crate) stored_properties: Vec<StoredProperty>,

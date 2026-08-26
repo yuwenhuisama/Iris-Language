@@ -141,8 +141,18 @@ fn collect_class<'a>(
     if class.reopen {
         return collect_reopen(class, signatures, classes);
     }
-    if !class.mixins.is_empty() {
-        return Err(CompileError::new("class mixin"));
+    // A mixin names a MODULE, which the runtime composes into the class's MRO.
+    // A generic or private-access mixin carries rules the backend does not
+    // model yet, so only the plain form is lowered rather than approximated.
+    let mut mixins = Vec::with_capacity(class.mixins.len());
+    for mixin in &class.mixins {
+        let TypeExpression::Name(name) = &mixin.target else {
+            return Err(CompileError::new("class mixin"));
+        };
+        if mixin.private_access {
+            return Err(CompileError::new("class mixin"));
+        }
+        mixins.push(name.clone());
     }
     if !class.constraints.is_empty() {
         return Err(CompileError::new("class constraints"));
@@ -219,6 +229,7 @@ fn collect_class<'a>(
         class_methods,
         reopens: Vec::new(),
         contracts: conformances,
+        mixins,
         property_methods,
         class_variables,
         stored_properties,
@@ -294,19 +305,12 @@ fn validate_contracts(
             return Err(CompileError::new("contract implementation undeclared"));
         }
     }
-    for contract in conformances {
-        for requirement in &contracts[*contract].requirements {
-            let implemented = class.body.iter().any(|statement| {
-                matches!(statement, Statement::Method(method)
-                    if method.impl_contract.is_some()
-                        && method.selector == requirement.selector
-                        && method.parameters.len() == requirement.arity)
-            });
-            if !implemented {
-                return Err(CompileError::new("contract requirement absent"));
-            }
-        }
-    }
+    // A conformance is NOT enforced when the class is declared: the reference
+    // runs `class X for C { }` with `C`'s requirement unimplemented, and a
+    // plain method satisfies a requirement without an `impl` marker. Refusing
+    // the declaration declined programs that run, and demanding the marker
+    // refused the ordinary form as well.
+    let _ = conformances;
     Ok(())
 }
 
