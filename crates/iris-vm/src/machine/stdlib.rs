@@ -242,6 +242,40 @@ impl Machine {
                 }
                 _ => None,
             },
+            // `IRIS-V1-COLLECTIONS-C042` pins normalization and case folding to
+            // a fixed Unicode data version rather than a host locale, and
+            // `C044` exposes GRAPHEME CLUSTERS explicitly because `length`
+            // counts scalars and one cluster may span several of them.
+            Value::Text(_) | Value::MutableString(_)
+                if matches!(selector, "casefold" | "nfc" | "nfd" | "graphemes")
+                    && arguments.is_empty() =>
+            {
+                let text = match receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                };
+                Some(match selector {
+                    "casefold" => Value::Text(
+                        icu_casemap::CaseMapper::new()
+                            .fold_string(&text)
+                            .into_owned(),
+                    ),
+                    "nfc" => {
+                        use unicode_normalization::UnicodeNormalization;
+                        Value::Text(text.nfc().collect())
+                    }
+                    "nfd" => {
+                        use unicode_normalization::UnicodeNormalization;
+                        Value::Text(text.nfd().collect())
+                    }
+                    _ => Value::Array(iris_runtime::ArrayRef::new(
+                        unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true)
+                            .map(|cluster| Value::Text(cluster.to_owned()))
+                            .collect(),
+                    )),
+                })
+            }
             Value::Text(text) => hash_text::text_send(text, selector, arguments),
             Value::Integer(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.decimal_text()))

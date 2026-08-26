@@ -4915,3 +4915,41 @@ fn a_parse_refusal_is_reported_at_run_time() {
         &crate::backend::Observation::Value("[3, 3]".to_owned())
     );
 }
+
+/// The Unicode surface uses the PINNED data version, not a host locale.
+///
+/// `IRIS-V1-COLLECTIONS-C042` fixes the Unicode data version for case folding
+/// and normalization, and `C044` exposes grapheme CLUSTERS explicitly because
+/// `length` counts scalars and one cluster may span several of them.
+#[test]
+fn the_unicode_surface_uses_the_pinned_data_version() {
+    for (source, expected) in [
+        // `ß` folds to `ss`, which is a length change rather than a remap.
+        (r#""\u{00DF}".casefold()"#, "\"ss\""),
+        // `a` + combining diaeresis is ONE cluster but TWO scalars.
+        (r#""a\u{0308}".graphemes().length()"#, "1"),
+        (r#""a\u{0308}".length()"#, "2"),
+        // Composition and decomposition round-trip through the same tables.
+        (r#""e\u{301}".nfc()"#, "\"é\""),
+        (r#""é".nfd().length()"#, "2"),
+        // A Unicode property class works in a pattern, on the same version.
+        (
+            r#"[Unicode.version(), ("A" =~ /\p{Lu}/).text()]"#,
+            "[\"17.0.0\", \"A\"]",
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

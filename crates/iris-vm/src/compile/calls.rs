@@ -293,6 +293,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        // `IRIS-V1-COLLECTIONS-C042` pins the Unicode data version, so the
+        // version string is read from the same tables the operations use
+        // rather than being written down twice.
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Unicode")
+            && self.lookup("Unicode").is_none()
+            && selector == "version"
+            && arguments.is_empty()
+        {
+            let destination = self.allocate()?;
+            self.instructions
+                .push(Instruction::UnicodeVersion { destination });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "Gate")
             && self.lookup("Gate").is_none()
         {

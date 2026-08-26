@@ -1141,9 +1141,9 @@ M.r()"#;
         let bytecode = Bytecode;
 
         // A SERVICE receiver the VM lacks stays declined: the reference
-        // answers `Unicode.version()`, so raising NameError for one of these
-        // would be a wrong answer rather than an honest hold.
-        let Support::Unsupported(reason) = bytecode.execute("Unicode.version()") else {
+        // answers `IrisValue.decode(..)`, so raising NameError for one of
+        // these would be a wrong answer rather than an honest hold.
+        let Support::Unsupported(reason) = bytecode.execute("IrisValue.decode(%{})") else {
             unreachable!("an unimplemented service receiver must remain declined")
         };
         assert_eq!(reason, "call unbound receiver");
@@ -1166,7 +1166,7 @@ M.r()"#;
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         let Agreement::Insufficient { ran, declined } =
-            compare_backends("Unicode.version()", &backends)
+            compare_backends("IrisValue.decode(%{})", &backends)
         else {
             unreachable!("only one backend ran it")
         };

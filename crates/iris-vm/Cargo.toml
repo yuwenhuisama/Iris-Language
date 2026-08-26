@@ -13,3 +13,6 @@ iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }
 iris-syntax = { path = "../iris-syntax" }
 regex = "1"
+icu_casemap = "2"
+unicode-normalization = "0.1"
+unicode-segmentation = "1.13"

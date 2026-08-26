@@ -260,11 +260,14 @@ version = "0.1.0"
 name = "iris-vm"
 version = "0.1.0"
 dependencies = [
+ "icu_casemap",
  "iris-lexer",
  "iris-parser",
  "iris-runtime",
  "iris-syntax",
  "regex",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -258,6 +258,10 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::UnicodeVersion { .. } => {
+                    let (major, minor, patch) = unicode_normalization::UNICODE_VERSION;
+                    Value::Text(format!("{major}.{minor}.{patch}"))
+                }
                 Instruction::GateNew { .. } => {
                     let identity = iris_runtime::ObjectId::new(self.next_context);
                     self.next_context = self.next_context.saturating_add(1);

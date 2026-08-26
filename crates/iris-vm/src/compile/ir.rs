@@ -146,6 +146,10 @@ pub enum Instruction {
         pattern: String,
         flags: String,
     },
+    /// Answers the pinned Unicode data version, per `C042`.
+    UnicodeVersion {
+        destination: Register,
+    },
     /// Creates a fresh Gate, per `IRIS-V1-ASYNC-C014`.
     GateNew {
         destination: Register,
@@ -594,7 +598,9 @@ impl Instruction {
             }
             Self::MakeKeywordArgument { destination, .. } => Some(*destination),
             Self::LoadRegex { destination, .. } => Some(*destination),
-            Self::GateNew { destination } => Some(*destination),
+            Self::GateNew { destination } | Self::UnicodeVersion { destination } => {
+                Some(*destination)
+            }
             Self::GateComplete { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {

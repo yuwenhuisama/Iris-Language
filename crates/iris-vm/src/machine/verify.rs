@@ -551,6 +551,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadNil { .. }
         | Instruction::LoadRegex { .. }
         | Instruction::GateNew { .. }
+        | Instruction::UnicodeVersion { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadType { .. }
