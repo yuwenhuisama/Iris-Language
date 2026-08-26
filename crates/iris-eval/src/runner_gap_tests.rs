@@ -4651,3 +4651,71 @@ fn module_body_statements_run_in_source_position() {
         &crate::backend::Observation::Error("NameError".to_owned())
     );
 }
+
+/// Regex literals compile, canonicalize their flags, and MATCH.
+///
+/// `IRIS-V1-COLLECTIONS-C081` stores flags in `imsx` order with absent flags
+/// omitted, so `/a+/im` and `/a+/mi` are one value and hash alike. `C082`
+/// makes `=~` and `!~` ordinary sends on the subject, and `C083` exposes the
+/// match's SCALAR ranges alongside its byte ranges - they differ for any
+/// non-ASCII subject - while keeping capture absence distinct from an empty
+/// capture.
+#[test]
+fn regex_literals_compile_and_match() {
+    for (source, expected) in [
+        (r#"("abc" =~ /b/).text()"#, "\"b\""),
+        // A failed match answers nil, and `!~` is true exactly then.
+        (r#""abc" =~ /z/"#, "nil"),
+        (r#""abc" !~ /z/"#, "true"),
+        (r#""abc" !~ /b/"#, "false"),
+        // Flags CANONICALIZE, so two spellings hash alike.
+        (r#"/a+/im.hash() == /a+/mi.hash()"#, "true"),
+        // A scalar offset counts CHARACTERS, not bytes.
+        (r#"("a\u{00e9}b" =~ /b/).start()"#, "2"),
+        (r#"("a\u{00e9}b" =~ /b/).byte_start()"#, "3"),
+        // A numbered capture reads by 1-based index.
+        (r#"("2026-08" =~ /(\d+)-(\d+)/).capture(2)"#, "\"08\""),
+        // A case-insensitive flag actually applies, so the same subject
+        // matches with `i` and does not without it.
+        (r#"("ABC" =~ /b/i).text()"#, "\"B\""),
+        (r#""ABC" !~ /b/"#, "true"),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a pattern the engine cannot support is still REFUSED, so
+    // compiling literals did not start accepting every pattern. The reference
+    // names the construct, and the backend declines rather than guessing.
+    for (source, reason) in [
+        (
+            r"module M { public fun run() -> Object { /(a)\1/ } } M.run()",
+            "regex backreference",
+        ),
+        (
+            "module M { public fun run() -> Object { /a/ii } } M.run()",
+            "regex flags",
+        ),
+    ] {
+        let crate::backend::Support::Unsupported(declined) =
+            <crate::backend::Bytecode as crate::backend::Backend>::execute(
+                &crate::backend::Bytecode,
+                source,
+            )
+        else {
+            unreachable!("an unsupported pattern must be declined: {source}")
+        };
+        assert_eq!(declined, reason, "{source}");
+    }
+}

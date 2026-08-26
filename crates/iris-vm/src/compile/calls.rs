@@ -49,6 +49,52 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        if let Some((pattern, flags)) = regex_literal(text) {
+            // `IRIS-V1-COLLECTIONS-C081` canonicalizes flags into `imsx` order
+            // with absent flags omitted, so `/a+/im` and `/a+/mi` are the SAME
+            // value and hash alike. A repeated or unknown flag is a lexical
+            // refusal rather than a silently accepted duplicate.
+            let mut canonical = String::new();
+            for flag in "imsx".chars() {
+                if flags.contains(flag) {
+                    canonical.push(flag);
+                }
+            }
+            if flags.chars().count() != canonical.chars().count()
+                || !flags.chars().all(|flag| "imsx".contains(flag))
+            {
+                return Err(CompileError::new("regex flags"));
+            }
+            // The pattern is compiled here only to REJECT it: an unsupported
+            // construct names itself, and the reference reports which one, so
+            // the refusal is derived from the engine rather than guessed.
+            if let Err(error) = regex::RegexBuilder::new(&pattern)
+                .case_insensitive(canonical.contains('i'))
+                .multi_line(canonical.contains('m'))
+                .dot_matches_new_line(canonical.contains('s'))
+                .ignore_whitespace(canonical.contains('x'))
+                .unicode(true)
+                .build()
+            {
+                let reported = error.to_string();
+                return Err(CompileError::new(if reported.contains("backreference") {
+                    "regex backreference"
+                } else if reported.contains("look-around")
+                    || reported.contains("look-behind")
+                    || reported.contains("look-ahead")
+                {
+                    "regex lookaround"
+                } else {
+                    "regex syntax"
+                }));
+            }
+            self.instructions.push(Instruction::LoadRegex {
+                destination,
+                pattern,
+                flags: canonical,
+            });
+            return Ok(destination);
+        }
         let conversion = iris_lexer::convert_literals(text);
         if !conversion.diagnostics().is_empty() {
             return Err(CompileError::new("rejected literal"));
@@ -710,6 +756,20 @@ fn byte_literal(source: &str) -> Result<Option<(Vec<u8>, bool)>, CompileError> {
 }
 
 /// Returns equivalent String source so all String-family body rules stay shared.
+/// Splits a `/pattern/flags` literal, when the text is one.
+///
+/// An interpolating literal is NOT handled here: `${..}` has to be evaluated
+/// and escaped at run time, which a compile-time literal cannot do.
+fn regex_literal(source: &str) -> Option<(String, String)> {
+    let body = source.strip_prefix('/')?;
+    let end = body.rfind('/')?;
+    let (pattern, flags) = body.split_at(end);
+    if pattern.contains("${") {
+        return None;
+    }
+    Some((pattern.to_owned(), flags.get(1..)?.to_owned()))
+}
+
 fn mutable_string_literal(source: &str) -> Option<String> {
     let prefix_end = source.find(['"', '\''])?;
     let (prefix, body) = source.split_at(prefix_end);

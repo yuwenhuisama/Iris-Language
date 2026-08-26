@@ -103,6 +103,18 @@ impl Machine {
             }
             _ => {}
         }
+        // A Regex or Match has no dedicated builtin Class, so it dispatches as
+        // an `Object` whose registry entry has no `hash`. `C087` still fixes a
+        // public hash over the CANONICAL pattern and flags, which is what
+        // makes `/a+/im` and `/a+/mi` hash alike.
+        if selector == "hash"
+            && arguments.is_empty()
+            && matches!(receiver, Value::Regex(_) | Value::Match(_))
+        {
+            return iris_runtime::public_hash(&receiver)
+                .map(Value::Integer)
+                .map_err(|_| MachineError::Kernel(KernelError::Type));
+        }
         let Some(native) = NativeSelector::from_source(selector) else {
             return Err(MachineError::MessageNotFound {
                 receiver_class: value_class_name(&receiver).to_owned(),

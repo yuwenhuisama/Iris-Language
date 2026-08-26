@@ -189,6 +189,59 @@ impl Machine {
             Value::Hash(entries) => {
                 self.hash_send(entries, selector, arguments, program, classes)?
             }
+            // `IRIS-V1-COLLECTIONS-C082` makes `=~` and `!~` ordinary sends on
+            // the SUBJECT, so a Regex operand arrives as an argument here.
+            Value::Text(_) | Value::MutableString(_)
+                if matches!(selector, "=~" | "!~") && matches!(arguments, [Value::Regex(_)]) =>
+            {
+                let subject = match receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                };
+                let [Value::Regex(regex)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Some(regex_match(&subject, regex, selector)?)
+            }
+            // `IRIS-V1-COLLECTIONS-C083` exposes the full match, both range
+            // pairs, the Regex used, and the captures - with a group that did
+            // not participate staying nil rather than an empty string.
+            Value::Match(matched) => match (selector, arguments) {
+                ("text" | "to_string", []) => Some(Value::Text(matched.text.clone())),
+                ("regex", []) => Some(Value::Regex(Box::new(matched.regex.clone()))),
+                ("byte_start", []) => Some(Value::Integer(
+                    u64::try_from(matched.byte_start).unwrap_or_default().into(),
+                )),
+                ("byte_end", []) => Some(Value::Integer(
+                    u64::try_from(matched.byte_end).unwrap_or_default().into(),
+                )),
+                ("start", []) => Some(Value::Integer(
+                    u64::try_from(matched.scalar_start)
+                        .unwrap_or_default()
+                        .into(),
+                )),
+                ("end", []) => Some(Value::Integer(
+                    u64::try_from(matched.scalar_end).unwrap_or_default().into(),
+                )),
+                ("capture", [index]) => {
+                    let found = match index {
+                        Value::Integer(index) => index
+                            .to_usize()
+                            .and_then(|index| index.checked_sub(1))
+                            .and_then(|index| matched.captures.get(index).cloned())
+                            .flatten(),
+                        Value::Symbol(name) | Value::Text(name) => matched
+                            .named
+                            .iter()
+                            .find(|(known, _)| known == name)
+                            .and_then(|(_, value)| value.clone()),
+                        _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                    };
+                    Some(found.map_or(Value::Nil, Value::Text))
+                }
+                _ => None,
+            },
             Value::Text(text) => hash_text::text_send(text, selector, arguments),
             Value::Integer(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.decimal_text()))
@@ -497,4 +550,62 @@ fn float_text(value: f64) -> String {
     } else {
         format!("{rendered}.0")
     }
+}
+
+/// Runs `=~` or `!~`, per `IRIS-V1-COLLECTIONS-C082` and `C083`.
+///
+/// `!~` is true exactly when `=~` would answer nil, and a successful `=~`
+/// answers a Match carrying the full text, BOTH its byte and scalar ranges,
+/// and its captures - where a group that did not participate stays absent
+/// rather than becoming an empty string.
+fn regex_match(
+    subject: &str,
+    regex: &iris_runtime::RegexValue,
+    selector: &str,
+) -> Result<Value, MachineError> {
+    let compiled = regex::RegexBuilder::new(&regex.pattern)
+        .case_insensitive(regex.flags.contains('i'))
+        .multi_line(regex.flags.contains('m'))
+        .dot_matches_new_line(regex.flags.contains('s'))
+        .ignore_whitespace(regex.flags.contains('x'))
+        .unicode(true)
+        .build()
+        .map_err(|_| MachineError::Kernel(iris_runtime::KernelError::Type))?;
+    let found = compiled.captures(subject);
+    if selector == "!~" {
+        return Ok(Value::Bool(found.is_none()));
+    }
+    let Some(found) = found else {
+        return Ok(Value::Nil);
+    };
+    let Some(whole) = found.get(0) else {
+        return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+    };
+    // C083 exposes SCALAR ranges alongside byte ranges, so they are counted
+    // rather than assumed equal - they differ for any non-ASCII subject.
+    let scalar_start = subject[..whole.start()].chars().count();
+    let scalar_end = scalar_start + whole.as_str().chars().count();
+    let captures = (1..compiled.captures_len())
+        .map(|index| found.get(index).map(|group| group.as_str().to_owned()))
+        .collect();
+    let named = compiled
+        .capture_names()
+        .flatten()
+        .map(|name| {
+            (
+                name.to_owned(),
+                found.name(name).map(|group| group.as_str().to_owned()),
+            )
+        })
+        .collect();
+    Ok(Value::Match(Box::new(iris_runtime::MatchValue {
+        text: whole.as_str().to_owned(),
+        byte_start: whole.start(),
+        byte_end: whole.end(),
+        scalar_start,
+        scalar_end,
+        captures,
+        named,
+        regex: regex.clone(),
+    })))
 }

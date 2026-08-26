@@ -135,6 +135,17 @@ pub enum Instruction {
         destination: Register,
         value: Register,
     },
+    /// Loads a Regex literal, already canonicalized and validated.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C081` stores flags in `imsx` order with absent
+    /// flags omitted, so `/a+/im` and `/a+/mi` compare and hash equal. The
+    /// pattern is compiled at COMPILE time only to reject it - the engine is
+    /// not carried into the value, which stays the canonical text pair.
+    LoadRegex {
+        destination: Register,
+        pattern: String,
+        flags: String,
+    },
     /// Negates an already-tested truth value, for `!`.
     NegateTruth {
         destination: Register,
@@ -559,6 +570,7 @@ impl Instruction {
                 Some(*destination)
             }
             Self::MakeKeywordArgument { destination, .. } => Some(*destination),
+            Self::LoadRegex { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

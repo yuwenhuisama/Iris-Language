@@ -535,6 +535,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadSymbol { .. }
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
+        | Instruction::LoadRegex { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadType { .. }

@@ -264,6 +264,7 @@ dependencies = [
  "iris-parser",
  "iris-runtime",
  "iris-syntax",
+ "regex",
 ]
 
 [[package]]

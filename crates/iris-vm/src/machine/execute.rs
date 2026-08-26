@@ -233,6 +233,12 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::LoadRegex { pattern, flags, .. } => {
+                    Value::Regex(Box::new(iris_runtime::RegexValue {
+                        pattern: pattern.clone(),
+                        flags: flags.clone(),
+                    }))
+                }
                 Instruction::NegateTruth { value, .. } => {
                     Value::Bool(!truthy(&registers[*value as usize]))
                 }
