@@ -7,6 +7,7 @@ use iris_runtime::{
 use crate::compile::Program;
 
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
+use crate::VerifyError;
 
 impl Machine {
     pub(super) fn invoke_function(
@@ -468,13 +469,43 @@ impl Machine {
         let Some(index) = classes.iter().position(|known| *known == class) else {
             return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
         };
-        for property in &program.classes[index].stored_properties {
-            let selector = selector_id(program, &property.name)
-                .ok_or_else(|| MachineError::UnknownSelector(property.name.clone()))?;
-            let value = literal_runtime_value(&property.initializer)?;
-            self.runtime
-                .assign_raw_ivar(object, selector, value)
-                .map_err(MachineError::Construction)?;
+        // A SUPERCLASS initializes its own properties first, which is the
+        // order the reference produces: `[:base, :child]` rather than the
+        // reverse. Walking up and then initializing downwards is what gives a
+        // subclass initializer a fully built base to read.
+        let mut lineage = vec![index];
+        let mut current = index;
+        while let Some(parent) = program.classes[current].superclass {
+            lineage.push(parent);
+            current = parent;
+        }
+        for index in lineage.into_iter().rev() {
+            for property in &program.classes[index].stored_properties {
+                let selector = selector_id(program, &property.name)
+                    .ok_or_else(|| MachineError::UnknownSelector(property.name.clone()))?;
+                // An initializer that is not a literal RUNS, with the object
+                // bound as its receiver, so it can call the object's own
+                // methods and observe side effects in declaration order.
+                let value = match property.initializer_function {
+                    Some(function) => {
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        )?;
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    }
+                    None => literal_runtime_value(&property.initializer)?,
+                };
+                self.runtime
+                    .assign_raw_ivar(object, selector, value)
+                    .map_err(MachineError::Construction)?;
+            }
         }
         Ok(())
     }

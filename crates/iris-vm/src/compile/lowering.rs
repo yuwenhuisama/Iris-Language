@@ -51,6 +51,22 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value(parameter.name.clone(), register));
     }
+    // A synthesized stored-property initializer carries an EXPRESSION rather
+    // than a block, and answers it directly.
+    if let Some(expression) = signature.expression_body {
+        let value = lowering.expression(expression)?;
+        lowering.instructions.push(Instruction::Return { value });
+        return Ok(Function {
+            name: format!("{}.{}", signature.module, signature.selector),
+            parameters: usize::from(signature.receiver),
+            captures: 0,
+            parameter_types: Vec::new(),
+            return_type: String::new(),
+            is_async: false,
+            registers: lowering.next_register as usize,
+            instructions: lowering.instructions,
+        });
+    }
     // An EMPTY body answers nil rather than being refused: `fun f() { }` is a
     // method that returns nil, not a method the backend cannot express.
     let value = match signature.body.split_last() {

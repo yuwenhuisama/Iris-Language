@@ -125,6 +125,28 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
         if let Expression::Name(name) = callee {
             let callee = self.lookup(name);
+            // A bare call inside a method with a receiver is a send to SELF:
+            // `property tag: Symbol = arm()` calls the object's own `arm`.
+            // Only a name no binding claims is treated this way, so a local
+            // holding a closure still wins.
+            if callee.is_none()
+                && let Some(receiver) = self.lookup("self")
+                && self
+                    .signatures
+                    .iter()
+                    .any(|signature| signature.selector == name && signature.receiver)
+            {
+                let (first, count) = self.argument_window(arguments)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Send {
+                    destination,
+                    receiver,
+                    selector: name.clone(),
+                    first,
+                    count,
+                });
+                return Ok(destination);
+            }
             if callee.is_none() && !matches!(name.as_str(), "Integer" | "Float64") {
                 return Err(CompileError::new("call bare name"));
             }

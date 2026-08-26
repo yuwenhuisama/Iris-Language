@@ -671,6 +671,13 @@ pub(crate) struct Class {
 pub(crate) struct StoredProperty {
     pub(crate) name: String,
     pub(crate) initializer: LiteralValue,
+    /// A function computing the initializer, when it is not a literal.
+    ///
+    /// An initializer is an ordinary EXPRESSION evaluated at construction with
+    /// `self` bound, so `property tag: Symbol = arm()` calls the object's own
+    /// `arm`. Only a literal can be stored directly; anything else needs a
+    /// frame, and refusing those declined the form outright.
+    pub(crate) initializer_function: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

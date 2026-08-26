@@ -4548,3 +4548,50 @@ fn a_reopen_may_precede_its_target() {
         );
     }
 }
+
+/// A stored-property initializer is an EXPRESSION evaluated at construction.
+///
+/// Only a literal could be stored before, so `property tag: Symbol = arm()`
+/// was declined outright. It is lowered as a frame with `self` bound now,
+/// which is what lets it call the object's own methods, and a superclass
+/// initializes first so a subclass sees a fully built base.
+#[test]
+fn stored_property_initializers_run_at_construction() {
+    for (source, expected) in [
+        // The initializer CALLS the object's own method through implicit self.
+        (
+            "class A { property tag: Symbol = arm() public fun arm() -> Symbol { :armed } } \
+             A.new().tag",
+            ":armed",
+        ),
+        ("class C { property n: Integer = 1 + 2 } C.new().n", "3"),
+        // A side effect happens ONCE, when the object is built.
+        (
+            "mut log = []; class B { property b: Nil = log.append(:base) } let x = B.new(); log",
+            "[:base]",
+        ),
+        // The BASE class initializes first, and `initialize` runs after both.
+        (
+            "mut log = []; class Base { property b: Nil = log.append(:base) } \
+             class Child extends Base { property c: Nil = log.append(:child) \
+             fun initialize() { log.append(:initialize) } } let x = Child.new(); log",
+            "[:base, :child, :initialize]",
+        ),
+        // Control: a LITERAL initializer still works, so adding the frame did
+        // not replace the direct path.
+        ("class D { property n: Integer = 7 } D.new().n", "7"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

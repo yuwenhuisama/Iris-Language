@@ -21,6 +21,12 @@ pub(super) struct Signature<'a> {
     /// of `M` reads `K` directly. Binding it at frame entry is what gives it
     /// that visibility without making it a selector.
     pub(super) constants: Vec<(&'a str, &'a iris_syntax::Expression)>,
+    /// An EXPRESSION body, for a synthesized stored-property initializer.
+    ///
+    /// A stored property's initializer is an expression rather than a block,
+    /// but it needs a frame with `self` bound just as a method does, so it is
+    /// lowered as one instead of growing a second lowering path.
+    pub(super) expression_body: Option<&'a iris_syntax::Expression>,
 }
 
 type MethodTable = Vec<(String, usize)>;
@@ -231,22 +237,49 @@ fn collect_class<'a>(
             _ => None,
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let stored_properties = class
-        .body
-        .iter()
-        .filter_map(|statement| match statement {
-            Statement::StoredProperty {
-                class_level: false,
-                name,
-                initializer,
-                ..
-            } => Some(stored_property(name, initializer)),
-            Statement::StoredProperty { .. } => {
-                Some(Err(CompileError::new("class-level stored property")))
-            }
-            _ => None,
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    // A stored property whose initializer is not a literal gets a synthesized
+    // FRAME with `self` bound, appended after the class's own methods so its
+    // index is stable once every declaration has been collected.
+    let mut stored_properties = Vec::new();
+    for statement in &class.body {
+        let Statement::StoredProperty {
+            class_level,
+            name,
+            initializer,
+            ..
+        } = statement
+        else {
+            continue;
+        };
+        if *class_level {
+            return Err(CompileError::new("class-level stored property"));
+        }
+        if let Ok(literal) = literal_value(initializer, "stored property initializer") {
+            stored_properties.push(StoredProperty {
+                name: name.clone(),
+                initializer: literal,
+                initializer_function: None,
+            });
+            continue;
+        }
+        signatures.push(Signature {
+            module: &class.name,
+            selector: name,
+            parameters: Vec::new(),
+            return_type: None,
+            body: &[],
+            receiver: true,
+            class_method: false,
+            is_async: false,
+            constants: Vec::new(),
+            expression_body: Some(initializer),
+        });
+        stored_properties.push(StoredProperty {
+            name: name.clone(),
+            initializer: LiteralValue::Nil,
+            initializer_function: Some(signatures.len() - 1),
+        });
+    }
     classes.push(Class {
         name: class.name.clone(),
         generic: !class.parameters.is_empty(),
@@ -440,6 +473,7 @@ fn collect_methods<'a>(
             class_method: method.kind == iris_syntax::MethodKind::Class,
             is_async: method.is_async,
             constants: constants.clone(),
+            expression_body: None,
         });
     }
     Ok(())
@@ -455,16 +489,6 @@ fn class_variable(
         name: name.to_owned(),
         mutable,
         initializer,
-    })
-}
-
-fn stored_property(
-    name: &str,
-    value: &iris_syntax::Expression,
-) -> Result<StoredProperty, CompileError> {
-    Ok(StoredProperty {
-        name: name.to_owned(),
-        initializer: literal_value(value, "stored property initializer")?,
     })
 }
 
