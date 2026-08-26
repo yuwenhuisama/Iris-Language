@@ -8,6 +8,7 @@ use crate::compile::Program;
 
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 use crate::VerifyError;
+use crate::compile::Instruction;
 
 impl Machine {
     pub(super) fn invoke_function(
@@ -37,24 +38,122 @@ impl Machine {
             )?;
             return Ok(returned.into_iter().next().unwrap_or(Value::Nil));
         }
+        self.spawn_task(
+            function,
+            callee.registers,
+            &callee.instructions,
+            arguments,
+            program,
+            classes,
+        )
+    }
+
+    /// Runs an ASYNC body eagerly and answers its Task.
+    ///
+    /// The body runs at CALL time - `C012` makes creating the Task and
+    /// starting its first run one operation - so a body with no `await` is
+    /// already finished when the Task is answered. A body that parks on a
+    /// pending Gate is neither finished nor failed, and its outcome is
+    /// recorded only when the Gate completes.
+    pub(super) fn spawn_task(
+        &mut self,
+        function: usize,
+        registers: usize,
+        instructions: &[Instruction],
+        arguments: Vec<Value>,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
         self.async_depth += 1;
         let outcome = self
-            .run_body(
-                &callee.instructions,
-                callee.registers,
-                arguments,
-                program,
-                classes,
-            )
+            .run_body(instructions, registers, arguments, program, classes)
             .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil));
         self.async_depth -= 1;
         let identity = iris_runtime::ObjectId::new(self.next_context);
         self.next_context = self.next_context.saturating_add(1);
+        // A body that SUSPENDED is not finished and not failed: it is parked
+        // on a Gate. The Task is answered now, and the outcome is recorded
+        // only when the Gate completes and the frame runs to its end.
+        if let Err(MachineError::Suspended(_)) = outcome {
+            if let Some(frame) = self.pending_frame.take() {
+                self.suspended.push(super::SuspendedTask {
+                    identity,
+                    frame,
+                    function,
+                });
+            }
+            return Ok(Value::Task(identity));
+        }
         if outcome.is_err() {
             self.unobserved_failures.push(identity);
         }
         self.tasks.insert(identity, outcome.map_err(Box::new));
         Ok(Value::Task(identity))
+    }
+
+    /// Resumes every frame parked on `gate`, in SUSPENSION order.
+    ///
+    /// `IRIS-V1-ASYNC-C014` fixes that order, so two tasks awaiting one Gate
+    /// observe their effects in the order they paused rather than in whatever
+    /// order a map happened to hold them.
+    pub(super) fn resume_gate(
+        &mut self,
+        gate: iris_runtime::ObjectId,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        let posted = self
+            .gates
+            .get(&gate)
+            .cloned()
+            .flatten()
+            .unwrap_or(Value::Nil);
+        let mut ready = Vec::new();
+        let mut held = Vec::new();
+        for task in std::mem::take(&mut self.suspended) {
+            if task.frame.gate == gate {
+                ready.push(task);
+            } else {
+                held.push(task);
+            }
+        }
+        self.suspended = held;
+        for task in ready {
+            let Some(callee) = program.functions.get(task.function).cloned() else {
+                return Err(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                    function: task.function,
+                }));
+            };
+            self.async_depth += 1;
+            let outcome = self
+                .run_frame_from(
+                    &callee.instructions,
+                    callee.registers,
+                    Vec::new(),
+                    program,
+                    classes,
+                    Some((task.frame, posted.clone())),
+                )
+                .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil));
+            self.async_depth -= 1;
+            // A resumed frame may await AGAIN, on another Gate, so it parks
+            // once more under the same Task identity rather than completing.
+            if let Err(MachineError::Suspended(_)) = outcome {
+                if let Some(frame) = self.pending_frame.take() {
+                    self.suspended.push(super::SuspendedTask {
+                        identity: task.identity,
+                        frame,
+                        function: task.function,
+                    });
+                }
+                continue;
+            }
+            if outcome.is_err() {
+                self.unobserved_failures.push(task.identity);
+            }
+            self.tasks.insert(task.identity, outcome.map_err(Box::new));
+        }
+        Ok(())
     }
 
     pub(super) fn observe_task(&mut self, task: Value) -> Result<Value, MachineError> {

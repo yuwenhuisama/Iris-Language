@@ -24,6 +24,13 @@ pub enum MachineError {
     Construction(ConstructionError),
     NameError,
     ClosedGenericOpenForbidden,
+    /// An async frame PAUSED at an `await` on an incomplete Gate.
+    ///
+    /// This is a control signal rather than a failure: it unwinds to the async
+    /// call that started the frame, which records the paused state and answers
+    /// a Task. It must never reach a `catch`, because `await` on a pending
+    /// Gate is not an error the program can observe.
+    Suspended(iris_runtime::ObjectId),
     DefiniteAssignment,
     /// An Array changed while an iterator over it was active.
     ///
@@ -523,6 +530,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::ReadDeferred {
             value, assigned, ..
         } => vec![*value, *assigned],
+        Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }
         | Instruction::MakeKeywordArgument { value, .. } => vec![*value],
@@ -536,6 +544,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadBool { .. }
         | Instruction::LoadNil { .. }
         | Instruction::LoadRegex { .. }
+        | Instruction::GateNew { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadType { .. }

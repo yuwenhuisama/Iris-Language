@@ -7,7 +7,7 @@ use iris_runtime::{
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
 
-use super::{ClosureRecord, Machine, MachineError, VerifyError, selector_id, truthy};
+use super::{ClosureRecord, Machine, MachineError, PendingFrame, VerifyError, selector_id, truthy};
 
 impl Machine {
     /// Runs ONE frame to completion, answering its register file.
@@ -24,6 +24,23 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Vec<Value>, MachineError> {
+        self.run_frame_from(instructions, size, arguments, program, classes, None)
+    }
+
+    /// Runs a frame, optionally RESUMING one that suspended at an `await`.
+    ///
+    /// A resumed frame keeps the register file and handler stack it paused
+    /// with, and continues at the instruction after the `await`, with the
+    /// Gate's posted value written into that await's destination.
+    pub(super) fn run_frame_from(
+        &mut self,
+        instructions: &[Instruction],
+        size: usize,
+        arguments: Vec<Value>,
+        program: &Program,
+        classes: &[ClassId],
+        resume: Option<(PendingFrame, Value)>,
+    ) -> Result<Vec<Value>, MachineError> {
         // Verification proved every read is in range and written, so indexing
         // below cannot be out of bounds and no operand check is repeated.
         let mut registers = vec![Value::Nil; size];
@@ -34,6 +51,14 @@ impl Machine {
 
         let mut counter = 0;
         let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
+        if let Some((frame, posted)) = resume {
+            registers = frame.registers;
+            counter = frame.counter;
+            handlers = frame.handlers;
+            if let Some(destination) = frame.destination {
+                registers[destination as usize] = posted;
+            }
+        }
         // A NAMED runtime error is catchable, so it is handed to a handler as
         // a Symbol. If no handler answers it, the program must still fail with
         // the ORIGINAL error rather than with a raised Symbol: an uncaught
@@ -233,6 +258,21 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::GateNew { .. } => {
+                    let identity = iris_runtime::ObjectId::new(self.next_context);
+                    self.next_context = self.next_context.saturating_add(1);
+                    self.gates.insert(identity, None);
+                    Value::Gate(identity)
+                }
+                Instruction::GateComplete { gate, value, .. } => {
+                    let Value::Gate(identity) = registers[*gate as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let posted = registers[*value as usize].clone();
+                    self.gates.insert(identity, Some(posted));
+                    run_frame!('frame, self.resume_gate(identity, program, classes));
+                    Value::Nil
+                }
                 Instruction::LoadRegex { pattern, flags, .. } => {
                     Value::Regex(Box::new(iris_runtime::RegexValue {
                         pattern: pattern.clone(),
@@ -564,8 +604,32 @@ impl Machine {
                     }
                 }
                 Instruction::Await { task, .. } => {
-                    let task = registers[*task as usize].clone();
-                    dispatch!(self.observe_task(task)?)
+                    // Awaiting a PENDING Gate suspends this frame rather than
+                    // failing: `C014` lets the prefix keep its locals until the
+                    // Gate completes, so the register file and the instruction
+                    // pointer travel with the signal.
+                    if let Value::Gate(identity) = registers[*task as usize] {
+                        match self.gates.get(&identity).cloned() {
+                            Some(Some(posted)) => posted,
+                            Some(None) => {
+                                self.pending_frame = Some(PendingFrame {
+                                    gate: identity,
+                                    registers: registers.clone(),
+                                    // `counter` was already advanced past this
+                                    // instruction at the top of the loop, so
+                                    // it is the RESUME point as it stands.
+                                    counter,
+                                    destination: instruction.destination(),
+                                    handlers: handlers.clone(),
+                                });
+                                return Err(MachineError::Suspended(identity));
+                            }
+                            None => return Err(MachineError::Kernel(KernelError::Type)),
+                        }
+                    } else {
+                        let task = registers[*task as usize].clone();
+                        dispatch!(self.observe_task(task)?)
+                    }
                 }
                 Instruction::HostRun { task, .. } => {
                     if self.async_depth > 0 || self.closure_depth > 0 {
@@ -1328,14 +1392,29 @@ impl Machine {
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
-                        let returned = run_frame!('frame, self.run_body(
-                            &callee.instructions,
-                            callee.registers,
-                            arguments,
-                            program,
-                            classes,
-                        ));
-                        returned.into_iter().next().unwrap_or(Value::Nil)
+                        // An ASYNC method answers a Task rather than its body's
+                        // value, and running the body directly here skipped
+                        // that: an `await` inside it escaped as a suspend
+                        // signal with no async boundary to catch it.
+                        if callee.is_async {
+                            run_frame!('frame, self.spawn_task(
+                                function,
+                                callee.registers,
+                                &callee.instructions,
+                                arguments,
+                                program,
+                                classes,
+                            ))
+                        } else {
+                            let returned = run_frame!('frame, self.run_body(
+                                &callee.instructions,
+                                callee.registers,
+                                arguments,
+                                program,
+                                classes,
+                            ));
+                            returned.into_iter().next().unwrap_or(Value::Nil)
+                        }
                     }
                 }
                 Instruction::SendSuper {

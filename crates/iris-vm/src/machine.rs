@@ -2,7 +2,7 @@
 
 use iris_runtime::{Kernel, KernelError, NativeSelector, Runtime, Selector, Value};
 
-use crate::compile::{Instruction, Program};
+use crate::compile::{Instruction, Program, Register};
 
 mod composed_types;
 mod execute;
@@ -75,6 +75,40 @@ pub struct Machine {
     unobserved_failures: Vec<iris_runtime::ObjectId>,
     async_depth: usize,
     closure_depth: usize,
+    /// Gates by identity, holding the posted value once completed.
+    gates: std::collections::HashMap<iris_runtime::ObjectId, Option<Value>>,
+    /// Async frames PAUSED at an `await`, in the order they suspended.
+    ///
+    /// `IRIS-V1-ASYNC-C014` resumes them in that order, so this is a queue
+    /// rather than a map: two tasks awaiting one Gate must observe their
+    /// effects in the order they suspended, not in hash order.
+    suspended: Vec<SuspendedTask>,
+    /// The frame state a `Suspended` signal is carrying outward.
+    ///
+    /// The signal itself only names the Gate, because it travels through
+    /// `Result` returns that cannot carry a register file. The async call that
+    /// started the frame takes this and records it as a suspended task.
+    pending_frame: Option<PendingFrame>,
+}
+
+/// The register file and position an `await` paused at.
+pub(super) struct PendingFrame {
+    pub(super) gate: iris_runtime::ObjectId,
+    pub(super) registers: Vec<Value>,
+    pub(super) counter: usize,
+    pub(super) destination: Option<Register>,
+    pub(super) handlers: Vec<(usize, Register, Register)>,
+}
+
+/// An async frame paused at an `await`, and everything needed to resume it.
+///
+/// A suspended frame keeps its OWN register file and instruction pointer,
+/// because `await` pauses in the middle of a body: the prefix has already run
+/// and its locals must survive until the Gate completes.
+pub(super) struct SuspendedTask {
+    pub(super) identity: iris_runtime::ObjectId,
+    pub(super) frame: PendingFrame,
+    pub(super) function: usize,
 }
 
 impl Machine {
@@ -105,6 +139,9 @@ impl Machine {
             unobserved_failures: Vec::new(),
             async_depth: 0,
             closure_depth: 0,
+            gates: std::collections::HashMap::new(),
+            suspended: Vec::new(),
+            pending_frame: None,
         })
     }
 

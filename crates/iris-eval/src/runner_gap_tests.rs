@@ -4719,3 +4719,82 @@ fn regex_literals_compile_and_match() {
         assert_eq!(declined, reason, "{source}");
     }
 }
+
+/// A Gate SUSPENDS an async frame mid-body, and completing it resumes.
+///
+/// `IRIS-V1-ASYNC-C012` makes creating a Task and starting its first run one
+/// operation, so a body runs EAGERLY and only pauses when it awaits a pending
+/// Gate. `C014` then resumes the parked frames in the order they suspended.
+/// The frame keeps its own register file across the pause, which is what lets
+/// the prefix's locals survive to the other side of the `await`.
+#[test]
+fn a_gate_suspends_and_resumes_an_async_frame() {
+    for (source, expected) in [
+        // The body runs at CALL time, before anything observes the Task.
+        (
+            "mut log = []; module M { public async fun f() -> Symbol { log.append(:ran); :d } } \
+             let t = M.f(); log",
+            "[:ran]",
+        ),
+        // An `await` on a PENDING gate stops after the prefix.
+        (
+            "mut log = []; module M { public async fun f(g) -> Symbol { log.append(:before); \
+             await g; log.append(:after); :d } } let g = Gate.new(); let t = M.f(g); log",
+            "[:before]",
+        ),
+        // Completing the gate resumes it, and the POSTED value is the await's.
+        (
+            "module M { public async fun inner(g) -> Object { let v = await g; v } } \
+             let g = Gate.new(); let t = M.inner(g); let posted = Gate.complete(g, 7); Host.run(t)",
+            "7",
+        ),
+        (
+            "class A { public async fun f(gate: Object) -> Symbol { await gate; :done } } \
+             module M { public fun run() -> Symbol { let gate = Gate.new(); \
+             let task = A.new().f(gate); Gate.complete(gate, 1); Host.run(task) } } M.run()",
+            ":done",
+        ),
+        // Two frames on ONE gate resume in the order they suspended.
+        (
+            "mut log = []; class A { public async fun f(gate: Object, tag: Symbol) -> Symbol { \
+             await gate; log.append(tag); tag } } module M { public fun run() -> Array { \
+             let gate = Gate.new(); let first = A.new().f(gate, :a); \
+             let second = A.new().f(gate, :b); Gate.complete(gate, 1); Host.run(first); log } } \
+             M.run()",
+            "[:a, :b]",
+        ),
+        // Control: a body with NO await never parks, so it is already done.
+        (
+            "module M { public async fun f() -> Symbol { :d } } let t = M.f(); Host.run(t)",
+            ":d",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: observing a task whose gate was NEVER completed still fails,
+    // so resuming did not quietly complete every parked frame.
+    let agreement = crate::backend::compare_backends(
+        "module M { public async fun f(g) -> Symbol { await g; :d } } \
+         let g = Gate.new(); let t = M.f(g); Host.run(t)",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
+}

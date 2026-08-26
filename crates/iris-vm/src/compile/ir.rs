@@ -146,6 +146,20 @@ pub enum Instruction {
         pattern: String,
         flags: String,
     },
+    /// Creates a fresh Gate, per `IRIS-V1-ASYNC-C014`.
+    GateNew {
+        destination: Register,
+    },
+    /// Posts a Gate's completion, readying every frame awaiting it.
+    ///
+    /// `C014` readies them in the order they SUSPENDED, so a Gate carries a
+    /// queue rather than a set: two tasks awaiting one Gate must observe their
+    /// effects in suspension order.
+    GateComplete {
+        destination: Register,
+        gate: Register,
+        value: Register,
+    },
     /// Negates an already-tested truth value, for `!`.
     NegateTruth {
         destination: Register,
@@ -571,6 +585,8 @@ impl Instruction {
             }
             Self::MakeKeywordArgument { destination, .. } => Some(*destination),
             Self::LoadRegex { destination, .. } => Some(*destination),
+            Self::GateNew { destination } => Some(*destination),
+            Self::GateComplete { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

@@ -293,6 +293,38 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Gate")
+            && self.lookup("Gate").is_none()
+        {
+            match (selector.as_str(), arguments) {
+                ("new", []) => {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::GateNew { destination });
+                    return Ok(destination);
+                }
+                // A completion may post a value or none, and `C014` gives an
+                // absent one the same meaning as `nil`.
+                ("complete", [gate] | [gate, _]) => {
+                    let gate = self.expression(gate)?;
+                    let value = match arguments.get(1) {
+                        Some(value) => self.expression(value)?,
+                        None => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::LoadNil { destination });
+                            destination
+                        }
+                    };
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::GateComplete {
+                        destination,
+                        gate,
+                        value,
+                    });
+                    return Ok(destination);
+                }
+                _ => return Err(CompileError::new("call unbound receiver")),
+            }
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "Host")
             && selector == "run"
         {
