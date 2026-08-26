@@ -14,6 +14,13 @@ pub(super) struct Signature<'a> {
     pub(super) receiver: bool,
     pub(super) class_method: bool,
     pub(super) is_async: bool,
+    /// Constants declared in the OWNER's body, visible lexically in this one.
+    ///
+    /// `IRIS-V1-CONTROL-D-432` scopes a module `const` to the module rather
+    /// than exposing it as a member: `M.K` is a MessageNotFound, but a method
+    /// of `M` reads `K` directly. Binding it at frame entry is what gives it
+    /// that visibility without making it a selector.
+    pub(super) constants: Vec<(&'a str, &'a iris_syntax::Expression)>,
 }
 
 type MethodTable = Vec<(String, usize)>;
@@ -337,11 +344,31 @@ fn collect_methods<'a>(
     receiver: bool,
     signatures: &mut Vec<Signature<'a>>,
 ) -> Result<(), CompileError> {
+    // A module body may declare CONSTANTS alongside its methods, and they are
+    // visible lexically inside those methods rather than as members, so they
+    // are collected before any method is lowered.
+    let constants = body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Binding {
+                constant: true,
+                name,
+                value,
+                ..
+            } => Some((name.as_str(), value)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     for statement in body {
         if matches!(
             statement,
             Statement::SharedBinding { .. } | Statement::StoredProperty { .. }
         ) {
+            continue;
+        }
+        // A `const` is state rather than a callable, so it contributes no
+        // signature and is skipped here after being collected above.
+        if matches!(statement, Statement::Binding { constant: true, .. }) {
             continue;
         }
         let Statement::Method(method) = statement else {
@@ -351,14 +378,20 @@ fn collect_methods<'a>(
                 "module body"
             }));
         };
+        // A `module fun` is a MODULE-level callable, which is exactly how a
+        // module's ordinary `fun` is already reached: `M.f()`. On a class it
+        // is a different shape, so it stays declined there.
+        let module_level = !receiver && method.kind == iris_syntax::MethodKind::Module;
         if !method.decorators.is_empty()
             || !matches!(
                 method.kind,
                 iris_syntax::MethodKind::Instance
                     | iris_syntax::MethodKind::Class
                     | iris_syntax::MethodKind::Property
+                    | iris_syntax::MethodKind::Module
             )
-            || (!receiver && method.kind != iris_syntax::MethodKind::Instance)
+            || (!receiver && !module_level && method.kind != iris_syntax::MethodKind::Instance)
+            || (receiver && method.kind == iris_syntax::MethodKind::Module)
         {
             return Err(method_error(method));
         }
@@ -387,6 +420,7 @@ fn collect_methods<'a>(
             receiver,
             class_method: method.kind == iris_syntax::MethodKind::Class,
             is_async: method.is_async,
+            constants: constants.clone(),
         });
     }
     Ok(())

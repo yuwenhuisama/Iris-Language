@@ -33,6 +33,16 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value("self".to_owned(), receiver));
     }
+    // The owner's constants are bound BEFORE the parameters so a parameter of
+    // the same name shadows the constant, which is the lexical order the
+    // reference gives: `fun lexical() { let K = 9; K }` answers 9, not the
+    // module's `K`.
+    for (name, value) in &signature.constants {
+        let register = lowering.expression(value)?;
+        lowering
+            .names
+            .push(Binding::value((*name).to_owned(), register));
+    }
     // Parameters occupy the leading registers, so a call can copy arguments
     // into a fresh frame without the callee knowing where they came from.
     for parameter in &signature.parameters {

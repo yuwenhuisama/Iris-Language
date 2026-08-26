@@ -4456,3 +4456,59 @@ fn mixins_compose_and_conformance_is_not_enforced_at_declaration() {
         );
     }
 }
+
+/// A module `const` is LEXICALLY visible in its methods, not a member.
+///
+/// `IRIS-V1-CONTROL-D-432` puts a constant in the module's qualified
+/// namespace rather than its selector table, so `M.K` is a MessageNotFound
+/// while a method of `M` reads `K` directly. That missing selector also used
+/// to surface as `UnknownSelector`, a MACHINE DEFECT rather than a program
+/// error, which held the row instead of agreeing.
+#[test]
+fn a_module_constant_is_lexical_rather_than_a_member() {
+    for (source, expected) in [
+        (
+            "module M { const K = 1 public fun r() -> Object { K } } M.r()",
+            "1",
+        ),
+        // A local binding SHADOWS the constant, which is the lexical order.
+        (
+            "module M { const K = 1 public module fun lexical() -> Object { let K = 9; K } } \
+             M.lexical()",
+            "9",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: the constant is NOT reachable as a member, and the failure is
+    // a program error rather than a machine defect.
+    for source in [
+        "module M { const K = 1 public fun r() -> Object { K } } [M.r(), M.K]",
+        "module M { const K = 1 public fun r() -> Object { M.K } } M.r()",
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        let crate::backend::Observation::Error(error) = observation else {
+            unreachable!("reading a constant as a member must fail: {source}")
+        };
+        assert!(!error.contains("machine defect"), "{source}: {error}");
+        assert!(error.contains("MessageNotFound"), "{source}: {error}");
+    }
+}

@@ -447,11 +447,26 @@ impl Machine {
                     ) {
                         self.send(selector, registers[*receiver as usize].clone(), &[])?
                     } else {
+                        // A selector NO declaration mentions is a message the
+                        // receiver does not answer, which is a program error.
+                        // Reporting it as an unknown selector made it a
+                        // MACHINE DEFECT instead - a compiler bug wearing a
+                        // program error's clothes - and held the row.
                         let Value::Object(object) = registers[*receiver as usize] else {
-                            return Err(MachineError::UnknownSelector(selector.clone()));
+                            return Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(
+                                    &registers[*receiver as usize],
+                                )
+                                .to_owned(),
+                                selector: selector.clone(),
+                            });
                         };
-                        let bound_selector = selector_id(program, selector)
-                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        let bound_selector = selector_id(program, selector).ok_or_else(|| {
+                            MachineError::MessageNotFound {
+                                receiver_class: "Object".to_owned(),
+                                selector: selector.clone(),
+                            }
+                        })?;
                         let class = self
                             .runtime
                             .class_of(object)
