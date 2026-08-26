@@ -49,8 +49,20 @@ impl CompileError {
 /// Returns the uncovered construct, or a parse rejection.
 pub fn compile(source: &str) -> Result<Program, CompileError> {
     let parsed = iris_parser::parse(source);
+    // A source the PARSER refuses is a program error the reference raises when
+    // the program runs, so the backend answers a program that raises it rather
+    // than declining - both refuse it either way, but only one of those can
+    // agree with the reference.
     if !parsed.program_accepted {
-        return Err(CompileError::new("rejected source"));
+        return Ok(Program {
+            source: source.to_owned(),
+            instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
+            registers: 1,
+            result: 0,
+            functions: Vec::new(),
+            classes: Vec::new(),
+            contracts: Vec::new(),
+        });
     }
 
     // Name resolution happens HERE, before any instruction is emitted: a call

@@ -4865,3 +4865,53 @@ fn a_module_constant_does_not_displace_parameters() {
         );
     }
 }
+
+/// A source the PARSER refuses fails at run time, not at compile time.
+///
+/// The reference parses, refuses, and reports `ParseDiagnostic` when the
+/// program RUNS. Declining refused the same program while describing it
+/// differently, which holds the row rather than agreeing - the same mistake
+/// that hid behind `name unbound` and `call unbound receiver`. It was the
+/// second-largest bucket at 25 programs.
+#[test]
+fn a_parse_refusal_is_reported_at_run_time() {
+    for source in [
+        // An operator the grammar does not have.
+        "mut x = 1; x %= 2",
+        // Keywords the language deliberately does not define.
+        "repeat { nil }",
+        "switch value { when 1 { :one } }",
+        "defer { cleanup() }",
+        // A `try` with neither catch nor finally.
+        "module M { public fun run() -> Object { try { 1 } } } M.run()",
+        // A positional parameter after a rest parameter.
+        "class A { public fun f(*items, item) { item } }; A.new().f(1)",
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error("ParseDiagnostic".to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a program the parser ACCEPTS still runs, so raising the
+    // diagnostic did not start refusing ordinary source.
+    let agreement = crate::backend::compare_backends(
+        "mut x = 1; x += 2; x",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("an accepted program must run: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[3, 3]".to_owned())
+    );
+}

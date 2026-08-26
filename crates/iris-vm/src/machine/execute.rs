@@ -289,6 +289,9 @@ impl Machine {
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
                 }
+                Instruction::RaiseParseDiagnostic { .. } => {
+                    return Err(MachineError::ParseDiagnostic);
+                }
                 Instruction::RaiseNameError { .. } => {
                     dispatch!(Err(MachineError::NameError)?)
                 }

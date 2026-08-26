@@ -23,6 +23,12 @@ pub enum MachineError {
     Class(ClassError),
     Construction(ConstructionError),
     NameError,
+    /// The PARSER refused the source.
+    ///
+    /// The reference reports this when the program runs rather than refusing
+    /// to compile, so the backends agree on the refusal rather than merely
+    /// both refusing.
+    ParseDiagnostic,
     ClosedGenericOpenForbidden,
     /// An async frame PAUSED at an `await` on an incomplete Gate.
     ///
@@ -560,7 +566,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::DeclareDeferred { .. }
         | Instruction::MarkAssigned { .. }
         | Instruction::RaiseNoActiveException => Vec::new(),
-        Instruction::RaiseUnsupported { .. } | Instruction::RaiseNameError { .. } => Vec::new(),
+        Instruction::RaiseUnsupported { .. }
+        | Instruction::RaiseNameError { .. }
+        | Instruction::RaiseParseDiagnostic { .. } => Vec::new(),
     }
 }
 

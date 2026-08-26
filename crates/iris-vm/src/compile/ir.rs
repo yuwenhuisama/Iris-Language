@@ -178,6 +178,15 @@ pub enum Instruction {
     RaiseUnsupported {
         destination: Register,
     },
+    /// Refuses a program the PARSER rejected, the way the reference does.
+    ///
+    /// A source the parser refuses is a program error the reference raises
+    /// when the program RUNS, as `ParseDiagnostic`. Declining at compile time
+    /// refused the same program while describing it differently, which holds
+    /// the row instead of agreeing.
+    RaiseParseDiagnostic {
+        destination: Register,
+    },
     /// Refuses an unbound NAME the way the reference does, at run time.
     ///
     /// A name with no binding is a `NameError` the reference raises when the
@@ -587,6 +596,7 @@ impl Instruction {
             Self::LoadRegex { destination, .. } => Some(*destination),
             Self::GateNew { destination } => Some(*destination),
             Self::GateComplete { destination, .. } => Some(*destination),
+            Self::RaiseParseDiagnostic { destination } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

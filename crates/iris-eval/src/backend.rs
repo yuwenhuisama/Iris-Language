@@ -169,6 +169,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::DefiniteAssignment) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::DefiniteAssignment),
                 )),
+                Err(iris_vm::MachineError::ParseDiagnostic) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::ParseDiagnostic),
+                )),
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
                 }
