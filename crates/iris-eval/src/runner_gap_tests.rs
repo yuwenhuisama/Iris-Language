@@ -4512,3 +4512,39 @@ fn a_module_constant_is_lexical_rather_than_a_member() {
         assert!(error.contains("MessageNotFound"), "{source}: {error}");
     }
 }
+
+/// A reopen may PRECEDE the class it reopens.
+///
+/// Declarations were collected in source order, so `open class A { }` written
+/// ahead of `class A { }` found no target and was declined - an ordering the
+/// language does not impose. Origins are collected first now.
+#[test]
+fn a_reopen_may_precede_its_target() {
+    for (source, expected) in [
+        (
+            "open class A { public override fun marker() -> String { \"open\" } }; \
+             class A { public fun marker() -> String { \"origin\" } }; A.new().marker()",
+            "\"open\"",
+        ),
+        // Control: the ALREADY-working order still works, so reordering
+        // collection did not trade one direction for the other.
+        (
+            "class A { public fun m() -> Integer { 1 } } \
+             open class A { public fun n() -> Integer { 2 } } A.new().n()",
+            "2",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

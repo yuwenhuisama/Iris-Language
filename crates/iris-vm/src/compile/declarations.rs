@@ -37,7 +37,21 @@ pub(super) fn collect_signatures(
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
     let mut contracts = Vec::new();
-    for declaration in declarations {
+    // A REOPEN is collected after every origin declaration, because it names a
+    // class that may be declared later in the source: `open class A { }` ahead
+    // of `class A { }` is an ordinary program, and collecting in source order
+    // refused it for an ordering the language does not impose.
+    let ordered = declarations
+        .iter()
+        .filter(|declaration| {
+            !matches!(declaration,
+            iris_syntax::Declaration::Class(class) if class.reopen)
+        })
+        .chain(declarations.iter().filter(|declaration| {
+            matches!(declaration,
+            iris_syntax::Declaration::Class(class) if class.reopen)
+        }));
+    for declaration in ordered {
         if let iris_syntax::Declaration::Contract(contract) = declaration {
             collect_contract(contract, &mut contracts)?;
             continue;
@@ -63,6 +77,11 @@ pub(super) fn collect_signatures(
             )?;
             continue;
         };
+        // A module may itself mix in another module, and the runtime composes
+        // those edges - but only a CLASS declaration passes its modules to the
+        // registry today, so a module's own mixins would be silently dropped
+        // and `C mixin B` would not see `A`'s methods. Declining holds the row
+        // rather than answering a NameError the reference does not raise.
         if module.reopen
             || !module.mixins.is_empty()
             || !module.parameters.is_empty()

@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 534 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 566 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -709,6 +709,33 @@ a conformance record's own JSON rather than Iris. Reconstructing the file
 without that last rule inflated `rejected source` from 25 to 44 and the total
 to 755, counting 19 JSON records as programs the backend had failed to compile.
 
+Three more buckets were mislabelled refusals of the same kind. An empty method
+body answers nil, a deferred `let` answers nil and fails only when READ, and a
+selector no declaration mentions is a `MessageNotFound` - that last one was
+reported as `UnknownSelector`, a MACHINE DEFECT rather than a program error,
+which is the worst version of the mistake because it accuses the compiler.
+
+Two were rules the language does not have. A Contract conformance is NOT
+enforced at declaration: the reference runs `class X for C { }` with `C`'s
+requirement unimplemented, and a plain method satisfies a requirement without
+an `impl` marker, so demanding one refused the ordinary form. A reopen was
+required to FOLLOW its target because declarations were collected in source
+order, though `open class A { }` ahead of `class A { }` is an ordinary program;
+origins are collected first now.
+
+The `to_bool` protocol was a WRONG ANSWER rather than a gap. Truth was decided
+structurally, so `if p` took the then-branch for a `p` whose `to_bool` answers
+false, and the same defect reached `while`, `&&`, `||` and `!` alike. Truth is
+a send now, and the value's own shape only decides when no authored method
+answers.
+
+The reverse mistake is just as easy. Lowering a keyword argument made
+`M.f(a: 1)` answer `a: 1` by binding the wrapper into a positional slot, where
+the reference raises ArgumentError - so a keyword argument to a RESOLVED
+function is declined again while the wrapper itself lowers. A module mixing in
+another module is declined for the same reason: only a class declaration passes
+its modules to the registry, so accepting it would drop the edge silently.
+
 `assignment` was a coverage gap rather than a mislabelled refusal, and closing
 it moved 6 programs. A compound assignment reads its target once and sends the
 ordinary operator (`C036`), while `&&=` and `||=` truth-test the target and
@@ -735,7 +762,7 @@ than the category is what makes the measurement in §6 actionable: `statement`
 alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, non-name `try catch filter`,
-`call arity`, `name assignment unbound`,
+`call arity`, `name assignment unbound`, `break outside loop`,
 `member`, `hash key name`, `yield`, and the
 class forms `class decorator`, `class reopen target`, `class reopen header`,
 `class reopen class method`,
