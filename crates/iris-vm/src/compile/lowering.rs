@@ -220,6 +220,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
         self.names.iter().rev().find(|binding| binding.name == name)
     }
 
+    /// Answers a register holding the TRUTH of `value`, per `C022`.
+    ///
+    /// Branching on the value directly decides truth structurally, which is
+    /// wrong for a class that defines `to_bool`: `if p` would take the then
+    /// branch for a `p` whose `to_bool` answers false. Only a condition the
+    /// PROGRAM wrote goes through here - an internally produced Bool, like a
+    /// catch-class match, is already a Bool and re-testing it would send
+    /// `to_bool` the program never asked for.
+    pub(super) fn truth_test(&mut self, value: Register) -> Result<Register, CompileError> {
+        let destination = self.allocate()?;
+        self.instructions
+            .push(Instruction::TestTruth { destination, value });
+        Ok(destination)
+    }
+
     /// Answers a register holding the binding's CURRENT value.
     ///
     /// A `mut` binding is a shared cell rather than a plain register, so a

@@ -4273,3 +4273,70 @@ fn compound_assignment_reads_once_and_short_circuits() {
         );
     }
 }
+
+/// Truth runs the `to_bool` PROTOCOL, not a structural test of the value.
+///
+/// `IRIS-V1-CONTROL-C022` makes `false` and `nil` falsey by default, but a
+/// class may define `to_bool` and then its result decides. Testing the value's
+/// shape instead answered `:yes` for an object whose `to_bool` answers false -
+/// a wrong answer rather than a hold, and it reached every `if`, `while`,
+/// `&&`, `||` and `!` alike.
+#[test]
+fn truth_consults_an_authored_to_bool() {
+    const FALSEY: &str = "class P { public fun to_bool() -> Bool { false } } ";
+    for (source, expected) in [
+        // The authored `to_bool` decides, against the value's own shape.
+        (
+            format!("{FALSEY}module M {{ public fun r() -> Object {{ if P.new() {{ :yes }} else {{ :no }} }} }} M.r()"),
+            ":no",
+        ),
+        (
+            format!("{FALSEY}module M {{ public fun r() -> Object {{ !P.new() }} }} M.r()"),
+            "true",
+        ),
+        // `&&` and `||` short-circuit on the PROTOCOL's answer, while the
+        // result keeps the original VALUE rather than the Bool it produced.
+        (
+            format!("{FALSEY}module M {{ public fun r() -> Object {{ P.new() && :rhs }} }} M.r()"),
+            "<object>",
+        ),
+        (
+            format!("{FALSEY}module M {{ public fun r() -> Object {{ P.new() || :rhs }} }} M.r()"),
+            ":rhs",
+        ),
+        // ...and a `while` never runs its body.
+        (
+            format!("{FALSEY}module M {{ public fun r() -> Object {{ mut n = 0; while P.new() {{ n = n + 1 }}; n }} }} M.r()"),
+            "0",
+        ),
+        // Control: with NO authored `to_bool`, the default stands, so the
+        // change widened truth rather than replacing it.
+        (
+            "module M { public fun r() -> Object { if 0 { :yes } else { :no } } } M.r()".to_owned(),
+            ":yes",
+        ),
+        (
+            "module M { public fun r() -> Object { [!nil, !false, !1, !\"\"] } } M.r()".to_owned(),
+            "[true, true, false, false]",
+        ),
+        // An `if` in EXPRESSION position answers a value, and a missing else
+        // answers nil.
+        (
+            "module M { public fun r() -> Object { let a = if true { 1 }; let b = if false { 2 }; [a, b] } } M.r()".to_owned(),
+            "[1, nil]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            &source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

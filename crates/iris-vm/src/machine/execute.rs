@@ -222,6 +222,16 @@ impl Machine {
                     }
                     registers[*value as usize].clone()
                 }
+                Instruction::TestTruth { value, .. } => {
+                    let value = registers[*value as usize].clone();
+                    Value::Bool(run_frame!(
+                        'frame,
+                        self.test_truth(&value, program, classes)
+                    ))
+                }
+                Instruction::NegateTruth { value, .. } => {
+                    Value::Bool(!truthy(&registers[*value as usize]))
+                }
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
                 }

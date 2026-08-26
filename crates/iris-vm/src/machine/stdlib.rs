@@ -99,6 +99,69 @@ impl Machine {
         }
     }
 
+    /// Decides truth through `to_bool`, per `IRIS-V1-CONTROL-C022`.
+    ///
+    /// A class may DEFINE `to_bool`, and then its result is the answer, so
+    /// truth cannot be read off the value's shape: `if p` must take the else
+    /// branch for a `p` whose `to_bool` answers false. Only when no authored
+    /// method answers does the default apply, where exactly `false` and `nil`
+    /// are falsey. A non-Bool result is a `TypeContractError` rather than
+    /// being coerced, which is what stops `to_bool` answering `0` from
+    /// quietly meaning false.
+    pub(super) fn test_truth(
+        &mut self,
+        value: &Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<bool, MachineError> {
+        let method = match self.authored_to_bool(value, program, classes)? {
+            Some(result) => iris_runtime::TruthinessMethod::Returns(result),
+            None => iris_runtime::TruthinessMethod::Default,
+        };
+        iris_runtime::Truthiness::test(value, method).map_err(|error| match error {
+            iris_runtime::TruthinessError::TypeContract => MachineError::TypeContractError,
+            iris_runtime::TruthinessError::Raised(value) => {
+                MachineError::Raised(Box::new((value, Value::Nil)))
+            }
+        })
+    }
+
+    /// Runs an object's OWN `to_bool`, or answers None when it has none.
+    ///
+    /// Only an Object can carry an authored method, and a class that does not
+    /// define one must fall through to the default rather than failing: most
+    /// values have no `to_bool` at all.
+    fn authored_to_bool(
+        &mut self,
+        value: &Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Option<Value>, MachineError> {
+        let Value::Object(object) = value else {
+            return Ok(None);
+        };
+        let Some(selector) = selector_id(program, "to_bool") else {
+            return Ok(None);
+        };
+        let Ok(method) = self.runtime.dispatch_instance(*object, selector) else {
+            return Ok(None);
+        };
+        let Ok(function) = usize::try_from(method.body().raw()) else {
+            return Ok(None);
+        };
+        let Some(callee) = program.functions.get(function).cloned() else {
+            return Ok(None);
+        };
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            vec![Value::Object(*object)],
+            program,
+            classes,
+        )?;
+        Ok(Some(returned.into_iter().next().unwrap_or(Value::Nil)))
+    }
+
     pub(super) fn authored_send(
         &mut self,
         receiver: &Value,

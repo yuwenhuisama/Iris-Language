@@ -124,6 +124,22 @@ pub enum Instruction {
     /// answer. The reference raises UnsupportedConstruct when it runs, so
     /// declining at COMPILE time made the two backends describe the same
     /// refusal differently and held the row instead of agreeing.
+    /// Reduces a value to a Bool through the `to_bool` protocol.
+    ///
+    /// `IRIS-V1-CONTROL-C022` makes `false` and `nil` falsey by DEFAULT, but a
+    /// class may define `to_bool`, and the answer is that method's result.
+    /// Deciding truth structurally instead made `if p` take the then-branch
+    /// for a `p` whose `to_bool` answers false - a wrong answer rather than a
+    /// hold. A non-Bool result is a `TypeContractError`.
+    TestTruth {
+        destination: Register,
+        value: Register,
+    },
+    /// Negates an already-tested truth value, for `!`.
+    NegateTruth {
+        destination: Register,
+        value: Register,
+    },
     RaiseUnsupported {
         destination: Register,
     },
@@ -527,6 +543,9 @@ impl Instruction {
             | Self::HostRun { destination, .. } => Some(*destination),
             Self::UnobservedFailures { destination } => Some(*destination),
             Self::IteratorOpen { destination, .. } | Self::IteratorNext { destination, .. } => {
+                Some(*destination)
+            }
+            Self::TestTruth { destination, .. } | Self::NegateTruth { destination, .. } => {
                 Some(*destination)
             }
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {

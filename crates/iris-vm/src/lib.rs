@@ -932,26 +932,49 @@ mod coverage_probe {
 
     #[test]
     fn measure() {
-        let raw = std::fs::read_to_string("/tmp/srcs.tsv").unwrap();
-        let mut counts: std::collections::BTreeMap<String, usize> =
+        let Ok(raw) = std::fs::read_to_string(corpus_path()) else {
+            // The corpus is a generated projection of the frozen vectors, not
+            // a checked-in file, so a missing one means it has not been
+            // written yet - `python3 tools/vm-corpus.py` - rather than a
+            // failure of the backend this measures.
+            println!("COV unavailable: run `python3 tools/vm-corpus.py` first");
+            return;
+        };
+        let mut counts: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
         let mut ok = 0usize;
         let mut total = 0usize;
+        // Naming ONE vector per bucket is what makes a gap actionable: the
+        // count says how much a bucket is worth, the name says what to read.
+        let wanted = std::env::var("GAP_KIND").unwrap_or_default();
         for line in raw.lines() {
-            let Some((_, b)) = line.split_once('\t') else {
+            let Some((name, b)) = line.split_once('\t') else {
                 continue;
             };
             total += 1;
             match compile(&unb64(b)) {
                 Ok(_) => ok += 1,
-                Err(e) => *counts.entry(e.construct.clone()).or_default() += 1,
+                Err(e) => {
+                    counts
+                        .entry(e.construct.clone())
+                        .or_default()
+                        .push(name.to_owned());
+                    if !wanted.is_empty() && e.construct == wanted {
+                        println!("--- {name}\n{}\n", unb64(b));
+                    }
+                }
             }
         }
         println!("COV total={total} compiled={ok}");
         let mut v: Vec<_> = counts.into_iter().collect();
-        v.sort_by_key(|entry| std::cmp::Reverse(entry.1));
-        for (k, n) in v {
-            println!("GAP {n:5} {k}");
+        v.sort_by_key(|entry| std::cmp::Reverse(entry.1.len()));
+        for (k, names) in v {
+            let sample = names.first().map(String::as_str).unwrap_or_default();
+            println!("GAP {:5} {k} (e.g. {sample})", names.len());
         }
+    }
+
+    fn corpus_path() -> String {
+        std::env::var("IRIS_VM_CORPUS").unwrap_or_else(|_| "/tmp/srcs.tsv".to_owned())
     }
 }

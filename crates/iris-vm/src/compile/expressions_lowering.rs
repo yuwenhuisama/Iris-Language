@@ -174,9 +174,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination,
                         source: left,
                     });
+                    // The branch tests TRUTH but the result keeps the
+                    // original value: `a || :rhs` answers `a` itself when `a`
+                    // is truthy, not the Bool its `to_bool` produced.
+                    let truth = self.truth_test(left)?;
                     let branch = self.instructions.len();
                     self.instructions.push(Instruction::JumpUnless {
-                        condition: left,
+                        condition: truth,
                         target: 0,
                     });
                     if *operator == BinaryOperator::LogicalOr {
@@ -282,16 +286,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if *operator == UnaryOperator::Plus {
                     return Ok(operand);
                 }
+                // `!` is the TRUTH protocol negated rather than a send: it
+                // answers a Bool for any operand, including one whose class
+                // defines `to_bool`, so it goes through the same test `if`
+                // does rather than looking for a `!` method.
+                if *operator == UnaryOperator::Not {
+                    let truth = self.truth_test(operand)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::NegateTruth {
+                        destination,
+                        value: truth,
+                    });
+                    return Ok(destination);
+                }
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::Unary {
                     destination,
                     selector: match operator {
                         UnaryOperator::Negate => "negate",
                         UnaryOperator::BitwiseNot => "~",
-                        UnaryOperator::Not => {
-                            return Err(CompileError::new("unary Not"));
-                        }
-                        UnaryOperator::Plus => return Ok(operand),
+                        UnaryOperator::Not | UnaryOperator::Plus => return Ok(operand),
                     },
                     operand,
                 });
@@ -642,9 +656,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     source: current,
                 });
+                let truth = self.truth_test(current)?;
                 let branch = self.instructions.len();
                 self.instructions.push(Instruction::JumpUnless {
-                    condition: current,
+                    condition: truth,
                     target: 0,
                 });
                 // `&&=` writes on the TRUTHY path and `||=` on the falsey one,
@@ -702,6 +717,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.write_binding(&binding, combined)?;
                 Ok(combined)
             }
+            // An `if` is an EXPRESSION as well as a statement, so it lowers
+            // identically in either position: `let a = if c { 1 }` needs the
+            // same both-arms-write-one-destination shape the statement form
+            // already had.
+            Expression::If {
+                condition,
+                then_body,
+                else_body,
+            } => self.if_value(condition, then_body, else_body.as_deref()),
             Expression::Call {
                 callee, arguments, ..
             } => self.call(callee, arguments),

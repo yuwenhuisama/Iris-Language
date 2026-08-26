@@ -106,6 +106,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::LoadNil { destination });
                 let top = self.instructions.len();
                 let condition = self.expression(condition)?;
+                let condition = self.truth_test(condition)?;
                 let exit = self.instructions.len();
                 self.instructions.push(Instruction::JumpUnless {
                     condition,
@@ -130,41 +131,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 condition,
                 then_body,
                 else_body,
-            } => {
-                let destination = self.allocate()?;
-                let condition = self.expression(condition)?;
-                let branch = self.instructions.len();
-                self.instructions.push(Instruction::JumpUnless {
-                    condition,
-                    target: 0,
-                });
-                let taken = self.body(then_body)?;
-                self.instructions.push(Instruction::Move {
-                    destination,
-                    source: taken,
-                });
-                let skip = self.instructions.len();
-                self.instructions.push(Instruction::Jump { target: 0 });
-
-                let otherwise = self.instructions.len();
-                match else_body {
-                    Some(body) => {
-                        let value = self.body(body)?;
-                        self.instructions.push(Instruction::Move {
-                            destination,
-                            source: value,
-                        });
-                    }
-                    // A missing else answers nil, so the destination is
-                    // written on EVERY path and the verifier's
-                    // written-before-read rule holds however the branch goes.
-                    None => self.instructions.push(Instruction::LoadNil { destination }),
-                }
-                let after = self.instructions.len();
-                self.patch(branch, otherwise)?;
-                self.patch(skip, after)?;
-                Ok(destination)
-            }
+            } => self.if_value(condition, then_body, else_body.as_deref()),
             Statement::Return(value) => {
                 let value = match value {
                     Some(value) => self.expression(value)?,
@@ -551,6 +518,51 @@ impl<'a, 'b> Lowering<'a, 'b> {
             MatchBody::Expression(expression) => self.expression(expression),
             MatchBody::Block(statements) => self.body(statements),
         }
+    }
+
+    /// Lowers an `if`, in STATEMENT or expression position alike.
+    ///
+    /// Both arms write ONE destination register, and a missing `else` writes
+    /// nil, so the destination is written on every path - which is what keeps
+    /// the verifier's written-before-read rule satisfied however the branch
+    /// goes.
+    pub(super) fn if_value(
+        &mut self,
+        condition: &Expression,
+        then_body: &[Statement],
+        else_body: Option<&[Statement]>,
+    ) -> Result<Register, CompileError> {
+        let destination = self.allocate()?;
+        let condition = self.expression(condition)?;
+        let condition = self.truth_test(condition)?;
+        let branch = self.instructions.len();
+        self.instructions.push(Instruction::JumpUnless {
+            condition,
+            target: 0,
+        });
+        let taken = self.body(then_body)?;
+        self.instructions.push(Instruction::Move {
+            destination,
+            source: taken,
+        });
+        let skip = self.instructions.len();
+        self.instructions.push(Instruction::Jump { target: 0 });
+
+        let otherwise = self.instructions.len();
+        match else_body {
+            Some(body) => {
+                let value = self.body(body)?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source: value,
+                });
+            }
+            None => self.instructions.push(Instruction::LoadNil { destination }),
+        }
+        let after = self.instructions.len();
+        self.patch(branch, otherwise)?;
+        self.patch(skip, after)?;
+        Ok(destination)
     }
 
     /// Fills in a forward jump once its target is known.
