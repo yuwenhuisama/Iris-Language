@@ -5007,3 +5007,52 @@ fn a_class_level_property_is_class_state() {
     };
     assert!(!error.contains("machine defect"), "{error}");
 }
+
+/// A declaration ANNOTATION does not stop the program.
+///
+/// A decorator, a `where` constraint and a `meta deny` list annotate a
+/// declaration without changing what it declares, and the reference simply
+/// runs the program: `class A<T> where T: Object { } 1` answers `1`. Declining
+/// refused programs that run. They are not dropped semantics - each governs a
+/// surface the backend has no support for either, so a program that DEPENDS on
+/// one fails on that surface rather than at the declaration.
+#[test]
+fn a_declaration_annotation_does_not_stop_the_program() {
+    for (source, expected) in [
+        ("@sealed() class A { } 1", "1"),
+        ("class A<T> where T: Object { } 1", "1"),
+        ("class A meta deny instance_state { } 1", "1"),
+        ("contract C meta deny method_set { } 1", "1"),
+        // The declaration still WORKS rather than being skipped.
+        (
+            "@sealed() class A { public fun f() -> Integer { 7 } } A.new().f()",
+            "7",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a form that changes which REQUIREMENTS a contract carries is
+    // still declined, because accepting it would answer a wrong requirement
+    // set rather than an incomplete one.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "contract Child extends ParentA, ParentB {} 1",
+        )
+    else {
+        unreachable!("an inheriting contract must remain declined")
+    };
+    assert_eq!(reason, "contract declaration form");
+}

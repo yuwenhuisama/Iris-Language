@@ -549,8 +549,11 @@ mod tests {
 
     #[test]
     fn unsupported_class_shapes_are_declined_precisely() {
+        // A decorator, a `where` constraint and a `meta deny` list are
+        // ANNOTATIONS the reference runs straight through, so they are no
+        // longer here; the differential tests pin that they compile AND that
+        // the declaration still works.
         for (source, expected, old_generic_error) in [
-            ("@sealed() class A { } 1", "class decorator", "declaration"),
             ("open class A { } 1", "class reopen target", "declaration"),
             (
                 "class A for C { } 1",
@@ -563,16 +566,6 @@ mod tests {
             (
                 "module M { } class A mixin M private { } 1",
                 "class mixin",
-                "declaration",
-            ),
-            (
-                "class A<T> where T: Object { } 1",
-                "class constraints",
-                "declaration",
-            ),
-            (
-                "class A meta deny instance_state { } 1",
-                "class meta deny",
                 "declaration",
             ),
         ] {

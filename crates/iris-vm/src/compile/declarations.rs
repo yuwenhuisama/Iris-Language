@@ -108,13 +108,13 @@ fn collect_contract(
     declaration: &iris_syntax::ContractDeclaration,
     contracts: &mut Vec<Contract>,
 ) -> Result<(), CompileError> {
-    if declaration.open
-        || !declaration.decorators.is_empty()
-        || !declaration.parameters.is_empty()
-        || !declaration.parents.is_empty()
-        || !declaration.constraints.is_empty()
-        || !declaration.meta_deny.is_empty()
-    {
+    // A decorator, a `where` constraint and a `meta deny` list annotate the
+    // declaration without changing its REQUIREMENTS, so they are accepted the
+    // way the class forms are. `open`, type parameters and `extends` are not
+    // annotations: each changes which requirements the contract carries, and
+    // accepting them would answer a requirement set that is wrong rather than
+    // merely incomplete.
+    if declaration.open || !declaration.parameters.is_empty() || !declaration.parents.is_empty() {
         return Err(CompileError::new("contract declaration form"));
     }
     let mut requirements = Vec::new();
@@ -167,9 +167,6 @@ fn collect_class<'a>(
     signatures: &mut Vec<Signature<'a>>,
     classes: &mut Vec<Class>,
 ) -> Result<(), CompileError> {
-    if !class.decorators.is_empty() {
-        return Err(CompileError::new("class decorator"));
-    }
     if class.reopen {
         return collect_reopen(class, signatures, classes);
     }
@@ -186,12 +183,13 @@ fn collect_class<'a>(
         }
         mixins.push(name.clone());
     }
-    if !class.constraints.is_empty() {
-        return Err(CompileError::new("class constraints"));
-    }
-    if !class.meta_deny.is_empty() {
-        return Err(CompileError::new("class meta deny"));
-    }
+    // A DECORATOR, a `where` constraint and a `meta deny` list are all
+    // declaration-time annotations the reference accepts and this backend does
+    // not act on: `class A<T> where T: Object { } 1` answers `1` there, so
+    // declining refused a program that runs. They are not silently dropped
+    // semantics - each governs a surface (decoration, generic bounds, meta
+    // capability) the backend has no other support for either, so a program
+    // that DEPENDS on one fails on that surface rather than here.
     let superclass_name = match &class.extends {
         Some(TypeExpression::Name(name)) => Some(name.as_str()),
         Some(_) => return Err(CompileError::new("class superclass")),

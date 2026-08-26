@@ -789,12 +789,11 @@ alone said where the backend stopped, not what stopped it, and the split showed
 name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name assignment unbound`, `break outside loop`,
 `member`, `hash key name`, `yield`, and the
-class forms `class decorator`, `class reopen target`, `class reopen header`,
+class forms `class reopen target`, `class reopen header`,
 `class reopen class method`,
-`class mixin`, `class constraints`, `class meta deny`,
-`class superclass` and `class body`, plus the structural refusals
-`rejected source`,
-`rejected literal`, `empty body`, `array too long`,
+`class mixin`, `class superclass` and `class body`, plus the structural
+refusals
+`rejected literal`, `array too long`,
 `call too wide`, `from_bits arity`, `branch patch` and `register exhaustion`.
 Reified `typeof`, callable Types, composed generic members, and unresolved Type
 names retain the exact `expression reified type` decline.
