@@ -4953,3 +4953,57 @@ fn the_unicode_surface_uses_the_pinned_data_version() {
         );
     }
 }
+
+/// A CLASS-level property is class state, read and written off the Class.
+///
+/// It is not per-instance storage: `Cache.n` reads it and `Cache.n = 9`
+/// writes it through the `n=` setter selector, which is what a class variable
+/// already does. An absent initializer starts at nil, because the reference
+/// lets the slot be written before it is ever read.
+#[test]
+fn a_class_level_property_is_class_state() {
+    for (source, expected) in [
+        (
+            "class Cache { class property value: Integer } Cache.value = 1; Cache.value",
+            "[1, 1]",
+        ),
+        ("class Cache { class property n: Integer = 5 } Cache.n", "5"),
+        (
+            "class Cache { class property n: Integer = 5 } Cache.n = 9; Cache.n",
+            "[9, 9]",
+        ),
+        // A `shared` class property lives on the UNAPPLIED definition, so the
+        // bare Class name reaches it.
+        (
+            "class Cache<T> { shared class property count: Integer = 0 } Cache.count",
+            "0",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a selector the Class does NOT have still fails, so consulting
+    // the class variables did not make every name answer.
+    let agreement = crate::backend::compare_backends(
+        "class Cache { class property n: Integer = 5 } Cache.absent",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    let crate::backend::Observation::Error(error) = observation else {
+        unreachable!("an absent class property must fail")
+    };
+    assert!(!error.contains("machine defect"), "{error}");
+}

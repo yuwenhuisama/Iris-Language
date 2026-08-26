@@ -207,6 +207,33 @@ impl Machine {
             // `IRIS-V1-COLLECTIONS-C083` exposes the full match, both range
             // pairs, the Regex used, and the captures - with a group that did
             // not participate staying nil rather than an empty string.
+            // A CLASS-level property is written through its setter selector,
+            // `Cache.n = 9` being a send of `n=` to the Class. It is class
+            // state rather than a method, so the write lands in the class
+            // variable the declaration registered.
+            Value::Class(class)
+                if selector.ends_with('=')
+                    && arguments.len() == 1
+                    && selector_id(program, selector.trim_end_matches('=')).is_some_and(
+                        |slot| {
+                            self.runtime
+                                .class_var(*class, slot)
+                                .is_ok_and(|held| held.is_some())
+                        },
+                    ) =>
+            {
+                let name = selector.trim_end_matches('=');
+                let Some(slot) = selector_id(program, name) else {
+                    return Err(MachineError::UnknownSelector(name.to_owned()));
+                };
+                let [value] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                self.runtime
+                    .assign_class_var(*class, slot, value.clone())
+                    .map_err(MachineError::Construction)?;
+                Some(value.clone())
+            }
             Value::Match(matched) => match (selector, arguments) {
                 ("text" | "to_string", []) => Some(Value::Text(matched.text.clone())),
                 ("regex", []) => Some(Value::Regex(Box::new(matched.regex.clone()))),

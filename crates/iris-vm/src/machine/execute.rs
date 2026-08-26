@@ -496,7 +496,32 @@ impl Machine {
                                     .map_err(MachineError::Class)?;
                                 Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
                             }
-                            _ => return Err(MachineError::UnknownSelector(selector.clone())),
+                            // A CLASS-level property is class state read by
+                            // name off the Class itself, so a bare member read
+                            // consults the class variables before deciding the
+                            // selector is absent.
+                            _ => {
+                                let Some(slot) = selector_id(program, selector) else {
+                                    return Err(MachineError::MessageNotFound {
+                                        receiver_class: "Class".to_owned(),
+                                        selector: selector.clone(),
+                                    });
+                                };
+                                // A name the Class does not declare is a
+                                // message it does not answer, so the failure
+                                // names the class and selector rather than
+                                // surfacing the registry's own missing-variable
+                                // error, which no reference observation spells.
+                                match self.runtime.class_var(class, slot) {
+                                    Ok(Some(value)) => value,
+                                    Ok(None) | Err(_) => {
+                                        return Err(MachineError::MessageNotFound {
+                                            receiver_class: "Class".to_owned(),
+                                            selector: selector.clone(),
+                                        });
+                                    }
+                                }
+                            }
                         }
                     } else if matches!(
                         registers[*receiver as usize],

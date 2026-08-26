@@ -224,7 +224,7 @@ fn collect_class<'a>(
             _ => None,
         })
         .collect();
-    let class_variables = class
+    let mut class_variables = class
         .body
         .iter()
         .filter_map(|statement| match statement {
@@ -251,8 +251,20 @@ fn collect_class<'a>(
         else {
             continue;
         };
+        // A CLASS-level property is class state rather than per-instance
+        // storage: `Cache.n` reads it and `Cache.n = 9` writes it, which is
+        // exactly what a class variable already does. An absent initializer
+        // starts it at nil, since the reference lets `Cache.value` be written
+        // before it is ever read.
         if *class_level {
-            return Err(CompileError::new("class-level stored property"));
+            let initializer = literal_value(initializer, "class-level stored property")
+                .unwrap_or(LiteralValue::Nil);
+            class_variables.push(ClassVariable {
+                name: name.clone(),
+                mutable: true,
+                initializer,
+            });
+            continue;
         }
         if let Ok(literal) = literal_value(initializer, "stored property initializer") {
             stored_properties.push(StoredProperty {
