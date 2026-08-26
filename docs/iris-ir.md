@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 566 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 590 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -735,6 +735,31 @@ the reference raises ArgumentError - so a keyword argument to a RESOLVED
 function is declined again while the wrapper itself lowers. A module mixing in
 another module is declined for the same reason: only a class declaration passes
 its modules to the registry, so accepting it would drop the edge silently.
+
+Four SUBSYSTEMS were then built rather than buckets closed. A stored-property
+initializer is an ordinary expression evaluated at construction with `self`
+bound, so it is lowered as a frame; only a literal could be stored before. A
+superclass initializes first, which is what lets a subclass read a fully built
+base. A module body's ordinary statements run at the declaration's SOURCE
+POSITION rather than in a separate phase, so the top level walks `entries`
+instead of `statements` - lowering them ahead of every statement answered
+NameError for the ordinary case. A Regex literal canonicalizes its flags into
+`imsx` order at compile time and is validated by building it, so an
+unsupported construct is named rather than guessed; the value carries the
+canonical text pair rather than an engine. And an `await` on a pending Gate
+SUSPENDS its frame, carrying the register file and instruction pointer out on
+a control signal that no `catch` may see; completing the Gate readies the
+parked frames, and observing the Task runs them, in the order they suspended.
+
+The async work found the deepest defect of the round, and only through USE. A
+module constant was bound before the function's parameters, to make a
+same-named parameter shadow it - but a call copies arguments into the LEADING
+registers, so allocating anything first displaced every parameter and the
+verifier proved the argument registers unwritten. That is a machine defect,
+reachable by any module function taking both a constant and a parameter, and
+no single-feature test had both. Parameters are allocated first now, and a
+constant whose name a parameter already claims is skipped, which preserves the
+shadowing in both directions.
 
 `assignment` was a coverage gap rather than a mislabelled refusal, and closing
 it moved 6 programs. A compound assignment reads its target once and sends the

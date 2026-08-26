@@ -4783,6 +4783,23 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
         );
     }
 
+    // Completing a Gate makes a frame READY without running it: the
+    // continuation's effect appears only once something observes the Task.
+    // Resuming inside `Gate.complete` made `:after` visible too early.
+    let agreement = crate::backend::compare_backends(
+        "mut log = []; module M { public async fun f(g) -> Symbol { log.append(:before); \
+         await g; log.append(:after); :d } } let g = Gate.new(); let t = M.f(g); \
+         Gate.complete(g, 1); log",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[nil, [:before]]".to_owned())
+    );
+
     // Control: observing a task whose gate was NEVER completed still fails,
     // so resuming did not quietly complete every parked frame.
     let agreement = crate::backend::compare_backends(
@@ -4797,4 +4814,54 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
         observation,
         &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
     );
+}
+
+/// A module constant does not displace the function's PARAMETERS.
+///
+/// Constants were bound before the parameters, to make a same-named parameter
+/// shadow one. But a call copies arguments into the LEADING registers, so
+/// allocating anything first pushed every parameter out of them and the
+/// verifier proved the argument registers unwritten - a machine defect
+/// reaching any module function that took both a constant and a parameter.
+/// Manual use found it; no single-feature test had both.
+#[test]
+fn a_module_constant_does_not_displace_parameters() {
+    for (source, expected) in [
+        (
+            "module App { const TAG = :app public fun f(x) -> Object { [TAG, x] } } App.f(9)",
+            "[:app, 9]",
+        ),
+        // Two constants and two parameters, so a displacement of ANY leading
+        // register would show.
+        (
+            "module App { const A = 1 const B = 2 \
+             public fun f(x, y) -> Object { [A, B, x, y] } } App.f(8, 9)",
+            "[1, 2, 8, 9]",
+        ),
+        // A local still shadows the constant...
+        (
+            "module M { const K = 1 public module fun lexical() -> Object { let K = 9; K } } \
+             M.lexical()",
+            "9",
+        ),
+        // ...and so does a PARAMETER of the same name, which is what binding
+        // the constants last would otherwise have reversed.
+        (
+            "module M { const K = 1 public fun f(K) -> Object { K } } M.f(5)",
+            "5",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
 }

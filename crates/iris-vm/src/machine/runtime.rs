@@ -91,6 +91,24 @@ impl Machine {
         Ok(Value::Task(identity))
     }
 
+    /// Runs every parked frame whose Gate has COMPLETED, in suspension order.
+    pub(super) fn drive_ready(
+        &mut self,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        let ready: Vec<iris_runtime::ObjectId> = self
+            .suspended
+            .iter()
+            .filter(|task| matches!(self.gates.get(&task.frame.gate), Some(Some(_))))
+            .map(|task| task.frame.gate)
+            .collect();
+        for gate in ready {
+            self.resume_gate(gate, program, classes)?;
+        }
+        Ok(())
+    }
+
     /// Resumes every frame parked on `gate`, in SUSPENSION order.
     ///
     /// `IRIS-V1-ASYNC-C014` fixes that order, so two tasks awaiting one Gate
@@ -156,10 +174,19 @@ impl Machine {
         Ok(())
     }
 
-    pub(super) fn observe_task(&mut self, task: Value) -> Result<Value, MachineError> {
+    pub(super) fn observe_task(
+        &mut self,
+        task: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
         let Value::Task(identity) = task else {
             return Err(MachineError::Kernel(KernelError::Type));
         };
+        // Observing is what DRIVES a parked frame: `C014` readies a frame when
+        // its Gate completes, but the continuation runs here, so the effect
+        // becomes visible only once something observes the Task.
+        self.drive_ready(program, classes)?;
         let outcome = self
             .tasks
             .get(&identity)

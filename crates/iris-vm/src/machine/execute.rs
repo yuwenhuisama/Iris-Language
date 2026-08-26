@@ -269,8 +269,12 @@ impl Machine {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
                     let posted = registers[*value as usize].clone();
+                    // Completing a Gate makes its parked frames READY, it does
+                    // not run them: the reference resumes when a Task is
+                    // OBSERVED, so `Gate.complete(g, 1); log` still shows only
+                    // the prefix. Resuming here ran the continuation early and
+                    // made the effect visible before anything observed it.
                     self.gates.insert(identity, Some(posted));
-                    run_frame!('frame, self.resume_gate(identity, program, classes));
                     Value::Nil
                 }
                 Instruction::LoadRegex { pattern, flags, .. } => {
@@ -628,7 +632,7 @@ impl Machine {
                         }
                     } else {
                         let task = registers[*task as usize].clone();
-                        dispatch!(self.observe_task(task)?)
+                        dispatch!(self.observe_task(task, program, classes)?)
                     }
                 }
                 Instruction::HostRun { task, .. } => {
@@ -636,7 +640,7 @@ impl Machine {
                         dispatch!(Err(MachineError::HostDriveUnavailable)?)
                     } else {
                         let task = registers[*task as usize].clone();
-                        dispatch!(self.observe_task(task)?)
+                        dispatch!(self.observe_task(task, program, classes)?)
                     }
                 }
                 Instruction::UnobservedFailures { .. } => {

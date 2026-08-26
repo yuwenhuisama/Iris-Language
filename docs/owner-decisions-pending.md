@@ -98,3 +98,30 @@ Each outcome is recorded in `docs/spec-defects-v1.md`.
   it would also make a returned counter closure - an ordinary thing to write -
   fail on its own captured state, and no corpus vector exercises the escaping
   form. Recorded rather than guessed at.
+
+- **An async body's prefix RE-RUNS when a Gate resumes it.** The backend now
+  suspends an async frame at `await` and resumes it in place, keeping the
+  register file across the pause, so the statements before the `await` run
+  once. The reference is stackless for async bodies: it re-enters the body
+  from the top and replays the awaits below the delivered count, so the prefix
+  executes again on every resume. For
+
+      mut log = []
+      module M { public async fun f(g) -> Symbol {
+        log.append(:before); await g; log.append(:after); :d } }
+      let g = Gate.new(); let t = M.f(g)
+      Gate.complete(g, 1); Host.run(t); log
+
+  the reference answers `[:before, :before, :after]` and the backend answers
+  `[:before, :after]`.
+
+  `IRIS-V1-ASYNC-C013` says an incomplete await MUST register the current
+  continuation and suspend, which is what a resumable frame does; it does not
+  say the body is re-entered. Replaying is an artefact of the reference's
+  stackless strategy, and it duplicates every side effect in the prefix - a
+  logged line, an appended element, a counter increment. Reproducing it in the
+  backend would mean copying a behaviour the specification does not require
+  and that is observably surprising, so the difference is recorded rather than
+  matched. Every other measured async shape agrees: eager first run, pausing
+  after the prefix, resuming ONLY when the Task is observed, FIFO order across
+  two frames on one Gate, and an unobserved never-completed Task still failing.

@@ -33,23 +33,35 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value("self".to_owned(), receiver));
     }
-    // The owner's constants are bound BEFORE the parameters so a parameter of
-    // the same name shadows the constant, which is the lexical order the
-    // reference gives: `fun lexical() { let K = 9; K }` answers 9, not the
-    // module's `K`.
-    for (name, value) in &signature.constants {
-        let register = lowering.expression(value)?;
-        lowering
-            .names
-            .push(Binding::value((*name).to_owned(), register));
-    }
-    // Parameters occupy the leading registers, so a call can copy arguments
+    // Parameters occupy the LEADING registers, so a call can copy arguments
     // into a fresh frame without the callee knowing where they came from.
+    // Nothing may be allocated before them: binding the owner's constants
+    // first displaced every parameter, and the verifier then proved the
+    // argument registers unwritten - a compiler defect that reached any
+    // module function taking both a constant and a parameter.
     for parameter in &signature.parameters {
         let register = lowering.allocate()?;
         lowering
             .names
             .push(Binding::value(parameter.name.clone(), register));
+    }
+    // The owner's constants are bound after them, and `lookup` searches in
+    // REVERSE, so a parameter of the same name would lose to the constant.
+    // A constant whose name a parameter already claims is therefore skipped,
+    // which keeps `fun f(K) { K }` reading its parameter.
+    let constants = signature.constants.clone();
+    for (name, value) in &constants {
+        if signature
+            .parameters
+            .iter()
+            .any(|parameter| parameter.name == *name)
+        {
+            continue;
+        }
+        let register = lowering.expression(value)?;
+        lowering
+            .names
+            .push(Binding::value((*name).to_owned(), register));
     }
     // A synthesized stored-property initializer carries an EXPRESSION rather
     // than a block, and answers it directly.
