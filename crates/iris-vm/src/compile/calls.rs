@@ -731,3 +731,26 @@ pub(super) fn construct_name(expression: &Expression) -> String {
     };
     name.to_owned()
 }
+
+/// The ordinary operator a COMPOUND assignment sends, per `IRIS-V1-CONTROL-C036`.
+///
+/// `Assign` and the two logical forms answer None because they are not a send:
+/// a plain assign writes directly, and a logical assignment short-circuits.
+pub(super) const fn compound_selector(
+    operator: iris_syntax::AssignmentOperator,
+) -> Option<&'static str> {
+    use iris_syntax::AssignmentOperator as Operator;
+    match operator {
+        Operator::Add => Some("+"),
+        Operator::Subtract => Some("-"),
+        Operator::Multiply => Some("*"),
+        Operator::Divide => Some("/"),
+        Operator::Power => Some("**"),
+        Operator::BitwiseAnd => Some("&"),
+        Operator::BitwiseOr => Some("|"),
+        Operator::BitwiseXor => Some("^"),
+        Operator::ShiftLeft => Some("<<"),
+        Operator::ShiftRight => Some(">>"),
+        Operator::Assign | Operator::LogicalAnd | Operator::LogicalOr => None,
+    }
+}

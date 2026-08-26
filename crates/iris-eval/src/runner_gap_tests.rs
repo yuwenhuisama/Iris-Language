@@ -4224,3 +4224,52 @@ fn a_collection_inside_a_method_keeps_the_callers_locals() {
         ])))
     );
 }
+
+/// A compound assignment reads the target once and, when logical, SHORT-CIRCUITS.
+///
+/// `IRIS-V1-CONTROL-C036` sends the ordinary operator to the read value, and
+/// `C037` evaluates the right side only on the writing path. Lowering the
+/// logical forms as `x = x || v` would satisfy the value cases while still
+/// running the right side unconditionally, so the observable evidence is a
+/// side effect that must NOT happen.
+#[test]
+fn compound_assignment_reads_once_and_short_circuits() {
+    for (source, expected) in [
+        ("mut x = 1; x += 2; x", "3"),
+        ("mut x = 10; x -= 3; x", "7"),
+        ("mut x = 2; x **= 3; x", "8"),
+        ("mut x = 6; x &= 3; x", "2"),
+        ("mut x = nil; let r = x ||= 7; [r, x]", "[7, 7]"),
+        (
+            "mut y = :kept; let s = (y ||= :other); [s, y]",
+            "[:kept, :kept]",
+        ),
+        ("mut t = 1; let s = (t &&= 9); [s, t]", "[9, 9]"),
+        // The right side must NOT run: an appended `:ran` here is the wrong
+        // answer an unconditional desugaring produces.
+        (
+            "mut x = nil; mut log = []; let r = x &&= log.append(:ran); [r, log]",
+            "[nil, []]",
+        ),
+        // ...and the mirrored control: `||=` skips its right side when the
+        // target is already truthy.
+        (
+            "mut y = :kept; mut log = []; let r = y ||= log.append(:ran); [r, log]",
+            "[:kept, []]",
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun r() -> Object {{ {source} }} }} M.r()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

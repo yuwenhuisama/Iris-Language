@@ -219,4 +219,42 @@ impl<'a, 'b> Lowering<'a, 'b> {
     pub(super) fn lookup_binding(&self, name: &str) -> Option<&Binding> {
         self.names.iter().rev().find(|binding| binding.name == name)
     }
+
+    /// Answers a register holding the binding's CURRENT value.
+    ///
+    /// A `mut` binding is a shared cell rather than a plain register, so a
+    /// read has to go through the cell or it would see the value the cell
+    /// held when it was created.
+    pub(super) fn read_binding(&mut self, binding: &Binding) -> Result<Register, CompileError> {
+        if !binding.shared {
+            return Ok(binding.register);
+        }
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::LoadCell {
+            destination,
+            cell: binding.register,
+        });
+        Ok(destination)
+    }
+
+    /// Writes `source` to the binding, through its cell when it has one.
+    pub(super) fn write_binding(
+        &mut self,
+        binding: &Binding,
+        source: Register,
+    ) -> Result<(), CompileError> {
+        if binding.shared {
+            self.instructions.push(Instruction::StoreCell {
+                destination: source,
+                cell: binding.register,
+                source,
+            });
+        } else {
+            self.instructions.push(Instruction::Move {
+                destination: binding.register,
+                source,
+            });
+        }
+        Ok(())
+    }
 }

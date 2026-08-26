@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 419 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 534 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -698,6 +698,24 @@ The DENOMINATOR was measured too, and it was wrong at first. 47 corpus vectors
 are declared `malformed` and are SUPPOSED to be rejected, so counting them as
 gaps measured the backend against programs it is right to refuse. Excluding them
 took `rejected source` from 71 to 25 and the total from 783 to 736.
+
+That denominator is now REPRODUCIBLE. The probe reads a TSV the corpus is
+projected into, and that file used to be written by hand into `/tmp`, so once
+it aged out neither the count nor the rules behind it could be recovered -
+a reported gap could not be re-measured. `tools/vm-corpus.py` writes it from
+the frozen corpus instead, and states the three exclusions: `input.malformed`,
+`bucket:documentation`, and `bucket:record-validation`, whose `source_text` is
+a conformance record's own JSON rather than Iris. Reconstructing the file
+without that last rule inflated `rejected source` from 25 to 44 and the total
+to 755, counting 19 JSON records as programs the backend had failed to compile.
+
+`assignment` was a coverage gap rather than a mislabelled refusal, and closing
+it moved 6 programs. A compound assignment reads its target once and sends the
+ordinary operator (`C036`), while `&&=` and `||=` truth-test the target and
+evaluate the right side only on the WRITING path (`C037`) - so the logical
+forms cannot be desugared to `x = x || v`, which runs the right side either
+way. The target is also a shared CELL rather than a plain register, since every
+`mut` binding is one, so both the read and the write go through the cell.
 
 What the number does NOT measure is how much a compiled program can do. Adding
 the authored stdlib moved it by zero while making ordinary Iris - `[1, 2,

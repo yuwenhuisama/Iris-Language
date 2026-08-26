@@ -2,7 +2,7 @@
 
 use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 
-use super::calls::{binary_selector, construct_name};
+use super::calls::{binary_selector, compound_selector, construct_name};
 use super::lowering::Lowering;
 use super::{CompileError, Function, Instruction, Register};
 
@@ -612,6 +612,95 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         .push(Instruction::MarkAssigned { assigned });
                 }
                 Ok(if binding.shared { source } else { destination })
+            }
+            // `IRIS-V1-CONTROL-C037`: a LOGICAL assignment reads the target
+            // once, truth-tests it, and evaluates the right side only on the
+            // writing path. Lowering it as `x = x || v` would evaluate the
+            // right side unconditionally, so `x &&= log.append(:ran)` would
+            // append even when it must not.
+            Expression::Assignment {
+                left,
+                operator:
+                    operator @ (iris_syntax::AssignmentOperator::LogicalAnd
+                    | iris_syntax::AssignmentOperator::LogicalOr),
+                right,
+            } => {
+                let Expression::Name(name) = left.as_ref() else {
+                    return Err(CompileError::new("assignment target"));
+                };
+                let Some(binding) = self.lookup_binding(name).cloned() else {
+                    return Err(CompileError::new("name assignment unbound"));
+                };
+                if binding.assigned.is_some() {
+                    return Err(CompileError::new("assignment"));
+                }
+                // Every `mut` binding is a shared CELL, so the target is read
+                // and written through the cell rather than as a register.
+                let current = self.read_binding(&binding)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source: current,
+                });
+                let branch = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition: current,
+                    target: 0,
+                });
+                // `&&=` writes on the TRUTHY path and `||=` on the falsey one,
+                // so they differ only in which edge the write sits on.
+                let writes_when_truthy = *operator == iris_syntax::AssignmentOperator::LogicalAnd;
+                let skip = self.instructions.len();
+                self.instructions.push(Instruction::Jump { target: 0 });
+                let otherwise = self.instructions.len();
+                let value = self.expression(right)?;
+                self.write_binding(&binding, value)?;
+                self.instructions.push(Instruction::Move {
+                    destination,
+                    source: value,
+                });
+                let after = self.instructions.len();
+                if writes_when_truthy {
+                    self.patch(branch, after)?;
+                    self.patch(skip, otherwise)?;
+                } else {
+                    self.patch(branch, otherwise)?;
+                    self.patch(skip, after)?;
+                }
+                Ok(destination)
+            }
+            // `IRIS-V1-CONTROL-C036` reads the target ONCE and sends the
+            // ordinary operator to the read value, which is exactly what
+            // `x = x op v` does for a NAME target: the name is a register, so
+            // reading it twice evaluates nothing twice.
+            Expression::Assignment {
+                left,
+                operator,
+                right,
+            } if compound_selector(*operator).is_some() => {
+                let Some(selector) = compound_selector(*operator) else {
+                    return Err(CompileError::new("assignment"));
+                };
+                let Expression::Name(name) = left.as_ref() else {
+                    return Err(CompileError::new("assignment target"));
+                };
+                let Some(binding) = self.lookup_binding(name).cloned() else {
+                    return Err(CompileError::new("name assignment unbound"));
+                };
+                if binding.assigned.is_some() {
+                    return Err(CompileError::new("assignment"));
+                }
+                let right = self.expression(right)?;
+                let current = self.read_binding(&binding)?;
+                let combined = self.allocate()?;
+                self.instructions.push(Instruction::Binary {
+                    destination: combined,
+                    selector,
+                    left: current,
+                    right,
+                });
+                self.write_binding(&binding, combined)?;
+                Ok(combined)
             }
             Expression::Call {
                 callee, arguments, ..
