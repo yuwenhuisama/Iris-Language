@@ -163,7 +163,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let jump = self.instructions.len();
                 self.instructions.push(Instruction::Jump { target: 0 });
                 let Some(loop_context) = self.loops.last_mut() else {
-                    return Err(CompileError::new("break outside loop"));
+                    // A transfer with no target is a program error the
+                    // reference reports when it RUNS, so the jump just emitted
+                    // is replaced by the failure rather than declined.
+                    self.instructions.pop();
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseLoopTransfer { destination });
+                    return Ok(destination);
                 };
                 loop_context.breaks.push(jump);
                 let destination = self.allocate()?;
@@ -172,7 +179,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             Statement::Continue(None) => {
                 let Some(target) = self.loops.last().map(|context| context.continue_target) else {
-                    return Err(CompileError::new("continue outside loop"));
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseLoopTransfer { destination });
+                    return Ok(destination);
                 };
                 self.instructions.push(Instruction::Jump { target });
                 let destination = self.allocate()?;

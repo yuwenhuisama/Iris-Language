@@ -182,6 +182,21 @@ pub enum Instruction {
     RaiseUnsupported {
         destination: Register,
     },
+    /// Writes a parameter's DEFAULT when the caller supplied no argument.
+    ///
+    /// A frame is entered with unfilled parameters holding nil, and a call
+    /// site that resolves the callee can substitute defaults itself - but a
+    /// dynamic SEND cannot, because it does not know the signature until
+    /// dispatch. Filling them in the callee makes every path agree.
+    DefaultParameter {
+        destination: Register,
+        source: Register,
+        index: usize,
+    },
+    /// Refuses a `break` or `continue` that has no enclosing loop.
+    RaiseLoopTransfer {
+        destination: Register,
+    },
     /// Refuses a program the PARSER rejected, the way the reference does.
     ///
     /// A source the parser refuses is a program error the reference raises
@@ -602,7 +617,9 @@ impl Instruction {
                 Some(*destination)
             }
             Self::GateComplete { destination, .. } => Some(*destination),
-            Self::RaiseParseDiagnostic { destination } => Some(*destination),
+            Self::DefaultParameter { destination, .. } => Some(*destination),
+            Self::RaiseParseDiagnostic { destination }
+            | Self::RaiseLoopTransfer { destination } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

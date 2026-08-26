@@ -172,6 +172,14 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::ParseDiagnostic) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::ParseDiagnostic),
                 )),
+                // The reference reports a targetless transfer as the control
+                // signal itself escaping, which is what a program observes.
+                Err(iris_vm::MachineError::LoopTransferOutsideLoop) => {
+                    Support::Ran(Observation::Error(format!(
+                        "{:?}",
+                        EvaluationError::LoopBreak(None, iris_runtime::Value::Nil)
+                    )))
+                }
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
                 }
@@ -4120,24 +4128,25 @@ M.r()"#;
         };
         assert_eq!(observation, &Observation::Error("NameError".to_owned()));
 
-        let bytecode = Bytecode;
-        for (source, expected) in [
-            (
-                "module M { public fun r() -> Object { missing = 1 } } M.r()",
-                "name assignment unbound",
-            ),
-            (
-                "module M { public fun r() -> Object { @@missing } } M.r()",
-                "expression class variable",
-            ),
-        ] {
-            let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("the VM must decline the unsupported form: {source}")
-            };
-            assert_ne!(reason, "name", "{source}");
-            assert_ne!(reason, "expression", "{source}");
-            assert_eq!(reason, expected, "{source}");
-        }
+        // An assignment to an ABSENT name is a NameError too: `C009` makes a
+        // bare `name = expr` never create a binding, so it fails when the
+        // assignment runs rather than being a construct the backend lacks.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { missing = 1 } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
+
+        let source = "module M { public fun r() -> Object { @@missing } } M.r()";
+        let Support::Unsupported(reason) = Bytecode.execute(source) else {
+            unreachable!("the VM must decline the unsupported form: {source}")
+        };
+        assert_ne!(reason, "name", "{source}");
+        assert_ne!(reason, "expression", "{source}");
+        assert_eq!(reason, "expression class variable", "{source}");
     }
 
     #[test]

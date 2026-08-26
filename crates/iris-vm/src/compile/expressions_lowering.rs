@@ -593,7 +593,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         .rev()
                         .find(|binding| binding.name == *name)
                     else {
-                        return Err(CompileError::new("name assignment unbound"));
+                        // `C009` makes a bare `name = expr` never CREATE a
+                        // binding, so an absent target is the reference's own
+                        // NameError when the assignment runs rather than a
+                        // construct the backend lacks.
+                        let destination = self.allocate()?;
+                        self.instructions
+                            .push(Instruction::RaiseNameError { destination });
+                        return Ok(destination);
                     };
                     if !binding.shared {
                         return Err(CompileError::new("name assignment immutable"));

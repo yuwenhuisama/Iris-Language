@@ -5056,3 +5056,64 @@ fn a_declaration_annotation_does_not_stop_the_program() {
     };
     assert_eq!(reason, "contract declaration form");
 }
+
+/// A targetless transfer, an absent assignment target, and a DEFAULT argument.
+///
+/// The first two were declines of program errors: `IRIS-V1-CONTROL-C069`
+/// gives every transfer a target and `C009` makes a bare `name = expr` never
+/// create a binding, so both fail when they RUN. The third was a silent wrong
+/// answer - a default was substituted only where the call site could resolve
+/// the callee, so a dynamic send answered nil for an unfilled parameter.
+#[test]
+fn transfers_targets_and_defaults_behave_at_run_time() {
+    // A `break` with no enclosing loop escapes as the control signal itself.
+    let agreement = crate::backend::compare_backends(
+        "break",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("LoopBreak(None, Nil)".to_owned())
+    );
+
+    for (source, expected) in [
+        // Control: a `break` that HAS a loop still breaks it rather than
+        // failing, so the transfer was not broken to report the error.
+        (
+            "module M { public fun run() -> Object { for x in [1] { break }; :done } } M.run()",
+            ":done",
+        ),
+        // A default fills through a dynamic SEND, which is where it silently
+        // answered nil.
+        (
+            "class A { public fun f(a, b: Integer = 2) { [a, b] } }; A.new().f(1)",
+            "[1, 2]",
+        ),
+        // ...and a supplied argument still WINS over the default.
+        (
+            "class A { public fun f(a, b: Integer = 2) { [a, b] } }; A.new().f(1, 9)",
+            "[1, 9]",
+        ),
+        (
+            "module M { public fun f(a, b: Integer = 2) -> Object { [a, b] } \
+             public fun r() -> Object { M.f(1) } } M.r()",
+            "[1, 2]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

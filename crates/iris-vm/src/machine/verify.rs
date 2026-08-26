@@ -23,6 +23,12 @@ pub enum MachineError {
     Class(ClassError),
     Construction(ConstructionError),
     NameError,
+    /// A `break` or `continue` reached NO enclosing loop.
+    ///
+    /// `IRIS-V1-CONTROL-C069` requires every control transfer to have a
+    /// target; one that does not is a program error the reference reports
+    /// when the transfer runs, not a construct the backend lacks.
+    LoopTransferOutsideLoop,
     /// The PARSER refused the source.
     ///
     /// The reference reports this when the program runs rather than refusing
@@ -537,6 +543,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             value, assigned, ..
         } => vec![*value, *assigned],
         Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
+        Instruction::DefaultParameter { source, .. } => vec![*source],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }
         | Instruction::MakeKeywordArgument { value, .. } => vec![*value],
@@ -569,7 +576,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::RaiseNoActiveException => Vec::new(),
         Instruction::RaiseUnsupported { .. }
         | Instruction::RaiseNameError { .. }
-        | Instruction::RaiseParseDiagnostic { .. } => Vec::new(),
+        | Instruction::RaiseParseDiagnostic { .. }
+        | Instruction::RaiseLoopTransfer { .. } => Vec::new(),
     }
 }
 

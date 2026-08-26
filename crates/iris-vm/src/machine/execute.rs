@@ -44,11 +44,13 @@ impl Machine {
         // Verification proved every read is in range and written, so indexing
         // below cannot be out of bounds and no operand check is repeated.
         let mut registers = vec![Value::Nil; size];
+        let arity = arguments.len();
         // Parameters arrive pre-bound in the leading registers.
         for (slot, argument) in arguments.into_iter().enumerate() {
             registers[slot] = argument;
         }
 
+        let supplied = arity;
         let mut counter = 0;
         let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
         if let Some((frame, posted)) = resume {
@@ -292,6 +294,20 @@ impl Machine {
                 }
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
+                }
+                // A parameter the caller did not supply takes its default.
+                // The frame knows how many arguments ARRIVED, which a dynamic
+                // send cannot tell the call site.
+                Instruction::DefaultParameter { source, index, .. } => {
+                    if *index < supplied {
+                        continue;
+                    }
+                    let value = registers[*source as usize].clone();
+                    registers[*index] = value.clone();
+                    value
+                }
+                Instruction::RaiseLoopTransfer { .. } => {
+                    return Err(MachineError::LoopTransferOutsideLoop);
                 }
                 Instruction::RaiseParseDiagnostic { .. } => {
                     return Err(MachineError::ParseDiagnostic);
