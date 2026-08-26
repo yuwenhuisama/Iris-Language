@@ -104,11 +104,35 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // reference evaluator, and a backend that answered only the last statement
     // would disagree with it for a reason that is not semantic - which is
     // exactly what the differential harness exists to catch.
+    //
+    // `entries` is walked rather than `statements` because a MODULE body's
+    // ordinary statements run at its declaration's SOURCE POSITION, not in a
+    // separate phase: `module M { order.append(:body) }` after `order` is
+    // bound appends, and before it is a NameError. Their values are discarded,
+    // since a module body contributes nothing to the program's answer.
     let mut produced = Vec::new();
-    for statement in &parsed.program.statements {
-        let value = lowering.statement(statement)?;
-        if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
-            produced.push(value);
+    for entry in &parsed.program.entries {
+        match entry {
+            iris_syntax::ProgramEntry::Statement(statement) => {
+                let value = lowering.statement(statement)?;
+                if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
+                    produced.push(value);
+                }
+            }
+            iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
+                lowering.enclosing_module = Some(module.name.clone());
+                for statement in &module.body {
+                    if matches!(
+                        statement,
+                        Statement::Method(_) | Statement::Binding { constant: true, .. }
+                    ) {
+                        continue;
+                    }
+                    lowering.statement(statement)?;
+                }
+                lowering.enclosing_module = None;
+            }
+            iris_syntax::ProgramEntry::Declaration(_) => {}
         }
     }
     let result = match produced.as_slice() {

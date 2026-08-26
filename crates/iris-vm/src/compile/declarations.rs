@@ -423,6 +423,13 @@ fn collect_methods<'a>(
         if matches!(statement, Statement::Binding { constant: true, .. }) {
             continue;
         }
+        // A MODULE body may also hold ordinary statements, which run when the
+        // program loads rather than declaring anything. They are lowered by
+        // the caller into the top-level frame, so they are skipped here. A
+        // CLASS body has no such phase, so the same statement stays declined.
+        if !receiver && !matches!(statement, Statement::Method(_)) {
+            continue;
+        }
         let Statement::Method(method) = statement else {
             return Err(CompileError::new(if receiver {
                 "class body"

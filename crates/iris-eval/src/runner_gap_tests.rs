@@ -4595,3 +4595,59 @@ fn stored_property_initializers_run_at_construction() {
         );
     }
 }
+
+/// A module body's statements run at the declaration's SOURCE POSITION.
+///
+/// They are not a separate load phase: `module M { order.append(:body) }`
+/// appends when `order` is already bound above it, and is a NameError when it
+/// is not. Lowering them ahead of every top-level statement answered NameError
+/// for the ordinary case, so the top level walks `entries` rather than
+/// `statements` to keep declarations and statements interleaved.
+#[test]
+fn module_body_statements_run_in_source_position() {
+    for (source, expected) in [
+        (
+            "mut order = []; order.append(:top); module M { order.append(:body) } order",
+            "[nil, [:top, :body]]",
+        ),
+        ("mut r = 0; module M { let x = 5; r = x } r", "5"),
+        // Each body runs in DECLARATION order, so the second sees the first.
+        (
+            "mut r = 0; module A { r = 1 } module B { r = r + 1 } r",
+            "2",
+        ),
+        ("mut a = 1; module M { a = a + 1 } mut b = a; b", "2"),
+        // A bare call in a module body names that MODULE's own function.
+        (
+            "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } helper() } log",
+            "1",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a body running BEFORE the binding it reads still fails, so the
+    // statements really are positioned rather than merely reordered.
+    let agreement = crate::backend::compare_backends(
+        "module M { order.append(:body) } mut order = []; order",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("NameError".to_owned())
+    );
+}

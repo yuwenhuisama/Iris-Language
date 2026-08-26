@@ -129,6 +129,12 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) top_level: bool,
     pub(super) current_method: Option<(usize, String)>,
     pub(super) async_body: bool,
+    /// The MODULE whose body is being lowered, for a bare call inside it.
+    ///
+    /// `module M { fun helper() { .. } helper() }` calls `M.helper`, but the
+    /// statement is lowered into the top-level frame where no receiver is in
+    /// scope, so the owner has to be carried explicitly.
+    pub(super) enclosing_module: Option<String>,
 }
 
 #[derive(Clone)]
@@ -230,6 +236,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             top_level,
             current_method: None,
             async_body: false,
+            enclosing_module: None,
         }
     }
 

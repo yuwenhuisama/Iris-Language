@@ -147,6 +147,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 return Ok(destination);
             }
+            // A bare call in a MODULE body names that module's own function,
+            // which has no receiver, so it resolves by index like `M.f()`.
+            if callee.is_none()
+                && let Some(module) = self.enclosing_module.clone()
+                && let Some(function) = self.resolve(&module, name)
+            {
+                let (first, count) = self.argument_window(arguments)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Call {
+                    destination,
+                    function,
+                    first,
+                    count,
+                });
+                return Ok(destination);
+            }
             if callee.is_none() && !matches!(name.as_str(), "Integer" | "Float64") {
                 return Err(CompileError::new("call bare name"));
             }
