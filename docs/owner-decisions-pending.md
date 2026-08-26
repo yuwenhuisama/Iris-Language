@@ -125,3 +125,26 @@ Each outcome is recorded in `docs/spec-defects-v1.md`.
   matched. Every other measured async shape agrees: eager first run, pausing
   after the prefix, resuming ONLY when the Task is observed, FIFO order across
   two frames on one Gate, and an unobserved never-completed Task still failing.
+
+- **A module CONSTANT is unreadable after an `await` in the reference.** The
+  same stackless async strategy recorded above has a second consequence. A
+  module `const` is visible lexically inside that module's methods, and it is
+  visible inside an async body that never suspends - but once the body parks
+  on a Gate and is re-entered, the reference answers `NameError` for it:
+
+      module App { const N = :app
+        public async fun load(g) -> Object { await g; N } }
+      let g = Gate.new(); let t = App.load(g)
+      Gate.complete(g, 9); Host.run(t)
+
+  answers `NameError` there and `:app` in the backend. Without the `await` both
+  answer `:app`, so the constant is not absent from the module - it is lost by
+  the re-entry, which rebuilds the body's locals from the recorded await values
+  rather than from the declaration's lexical scope.
+
+  `IRIS-V1-CONTROL-D-432` scopes a constant to its module and says nothing
+  about suspension, and a name that is readable before an `await` and absent
+  after it is not a rule any clause states. The backend keeps its frame across
+  the pause, so the constant simply stays in scope. Recorded rather than
+  matched, for the same reason as the prefix replay: reproducing it would mean
+  copying an artefact of the reference's strategy.

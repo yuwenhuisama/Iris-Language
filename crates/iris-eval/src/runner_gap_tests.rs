@@ -4993,6 +4993,20 @@ fn a_class_level_property_is_class_state() {
         );
     }
 
+    // Control: on a GENERIC class a plain class property belongs to each
+    // closed construction rather than the definition, so the bare name does
+    // not reach it and the backend declines rather than answering a value the
+    // language does not have there.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "class C<T> { class property n: Integer = 0 } C.n",
+        )
+    else {
+        unreachable!("a per-construction class property must be declined")
+    };
+    assert_eq!(reason, "class-level stored property");
+
     // Control: a selector the Class does NOT have still fails, so consulting
     // the class variables did not make every name answer.
     let agreement = crate::backend::compare_backends(

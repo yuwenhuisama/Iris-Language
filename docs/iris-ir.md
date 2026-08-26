@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 590 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 638 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -735,6 +735,35 @@ the reference raises ArgumentError - so a keyword argument to a RESOLVED
 function is declined again while the wrapper itself lowers. A module mixing in
 another module is declined for the same reason: only a class declaration passes
 its modules to the registry, so accepting it would drop the edge silently.
+
+The decline-vs-raise mistake had one more, and it was the second-largest
+bucket left. A source the PARSER refuses is a program error the reference
+reports when the program RUNS, as `ParseDiagnostic`; declining it refused the
+same 25 programs while describing it differently. The same reading closed
+`break outside loop` and `name assignment unbound`: `C069` gives every
+transfer a target and `C009` makes a bare `name = expr` never create a
+binding, so both fail when they run.
+
+A DECLARATION ANNOTATION is not a gap either. A decorator, a `where`
+constraint and a `meta deny` list annotate a declaration without changing what
+it declares, and the reference runs the program: `class A<T> where T: Object
+{ } 1` answers `1`. They are not dropped semantics - each governs a surface the
+backend has no support for either, so a program that DEPENDS on one fails on
+that surface rather than at the declaration. `open`, type parameters and
+`extends` on a Contract are NOT annotations, because each changes the
+requirement set, and accepting them would answer a wrong one.
+
+Two silent wrong answers surfaced only from USING the backend on a combined
+program, not from any single-feature test. A parameter's DEFAULT was
+substituted at the call site, which works when the callee is resolved and
+cannot work for a dynamic send - which does not know the signature until
+dispatch - so `A.new().f(1)` answered nil for the unfilled parameter; defaults
+are filled in the callee now. And a CLASS-level property was stored as one
+class variable even on a generic class, where `IRIS-V1-TYPES-C064` puts a
+plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
+definition: the bare `C.n` answered a value the language does not have there.
+That one is declined again, which is why the count moved down by three when it
+was fixed.
 
 Four SUBSYSTEMS were then built rather than buckets closed. A stored-property
 initializer is an ordinary expression evaluated at construction with `self`

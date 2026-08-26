@@ -242,6 +242,7 @@ fn collect_class<'a>(
     for statement in &class.body {
         let Statement::StoredProperty {
             class_level,
+            shared,
             name,
             initializer,
             ..
@@ -255,6 +256,15 @@ fn collect_class<'a>(
         // starts it at nil, since the reference lets `Cache.value` be written
         // before it is ever read.
         if *class_level {
+            // `IRIS-V1-TYPES-C064` puts a `shared class property` on the
+            // UNAPPLIED generic definition, while a plain one belongs to each
+            // closed construction - so on a generic class the bare name does
+            // not reach it, and the reference answers MessageNotFound. Storing
+            // it as one class variable would answer a value where the language
+            // has none.
+            if !class.parameters.is_empty() && !shared {
+                return Err(CompileError::new("class-level stored property"));
+            }
             let initializer = literal_value(initializer, "class-level stored property")
                 .unwrap_or(LiteralValue::Nil);
             class_variables.push(ClassVariable {
