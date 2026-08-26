@@ -463,6 +463,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if let Expression::Name(module) = receiver.as_ref()
             && let Some(function) = self.resolve(module, selector)
         {
+            // A resolved function binds its arguments POSITIONALLY, and the
+            // backend has no keyword parameters, so a keyword argument here
+            // would silently fill a positional slot with the wrapper - a
+            // wrong answer where the reference raises ArgumentError.
+            if arguments
+                .iter()
+                .any(|argument| matches!(argument, Expression::KeywordArgument { .. }))
+            {
+                return Err(CompileError::new("expression keyword argument"));
+            }
             let parameters = &self.signatures[function].parameters;
             let required = parameters
                 .iter()

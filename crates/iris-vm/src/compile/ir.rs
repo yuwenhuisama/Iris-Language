@@ -140,6 +140,16 @@ pub enum Instruction {
         destination: Register,
         value: Register,
     },
+    /// Wraps a value as a NAMED argument.
+    ///
+    /// A keyword argument stays in the ordinary argument list rather than
+    /// forming a second channel, which is what keeps the left-to-right
+    /// evaluation order `IRIS-V1-CONTROL-C026` requires across both.
+    MakeKeywordArgument {
+        destination: Register,
+        name: String,
+        value: Register,
+    },
     RaiseUnsupported {
         destination: Register,
     },
@@ -548,6 +558,7 @@ impl Instruction {
             Self::TestTruth { destination, .. } | Self::NegateTruth { destination, .. } => {
                 Some(*destination)
             }
+            Self::MakeKeywordArgument { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

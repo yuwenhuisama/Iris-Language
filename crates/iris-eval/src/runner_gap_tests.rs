@@ -4340,3 +4340,59 @@ fn truth_consults_an_authored_to_bool() {
         );
     }
 }
+/// A declaration the backend cannot ELABORATE still runs to its own answer.
+///
+/// Three forms were declined as gaps while the reference simply runs them: an
+/// empty body is a method returning nil, a deferred `let` is a declaration
+/// that answers nil and fails only when READ, and a keyword argument is an
+/// ordinary argument value.
+#[test]
+fn accepted_declaration_forms_run_rather_than_decline() {
+    for (source, expected) in [
+        ("class A { public fun f() { } }; A.new().f()", "nil"),
+        ("let x: Integer", "nil"),
+        ("mut x", "nil"),
+        ("let y: Integer; 7", "[nil, 7]"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // A deferred binding that is READ still fails, so accepting the
+    // declaration widened the rule rather than removing the check.
+    let agreement = crate::backend::compare_backends(
+        "module M { public fun run() -> Object { let a; a } } M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("NameError".to_owned())
+    );
+
+    // A keyword argument to a RESOLVED function stays declined: the backend
+    // has no keyword parameters, so lowering it would bind the wrapper into a
+    // positional slot and answer `a: 1` where the reference raises.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "module M { public fun r() -> Object { M.f(a: 1) } \
+             public fun f(a: Integer) -> Integer { a } } M.r()",
+        )
+    else {
+        unreachable!("a keyword argument to a positional function must be declined")
+    };
+    assert_eq!(reason, "expression keyword argument");
+}

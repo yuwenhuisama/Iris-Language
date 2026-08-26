@@ -41,15 +41,26 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value(parameter.name.clone(), register));
     }
-    let Some((last, leading)) = signature.body.split_last() else {
-        return Err(CompileError::new("empty body"));
+    // An EMPTY body answers nil rather than being refused: `fun f() { }` is a
+    // method that returns nil, not a method the backend cannot express.
+    let value = match signature.body.split_last() {
+        Some((last, leading)) => {
+            for statement in leading {
+                lowering.statement(statement)?;
+            }
+            // A body's LAST expression is its value, which an explicit
+            // `Return` makes uniform: every path out of a frame goes through
+            // one instruction.
+            lowering.statement(last)?
+        }
+        None => {
+            let destination = lowering.allocate()?;
+            lowering
+                .instructions
+                .push(Instruction::LoadNil { destination });
+            destination
+        }
     };
-    for statement in leading {
-        lowering.statement(statement)?;
-    }
-    // A body's LAST expression is its value, which an explicit `Return`
-    // makes uniform: every path out of a frame goes through one instruction.
-    let value = lowering.statement(last)?;
     lowering.instructions.push(Instruction::Return { value });
     Ok(Function {
         name: format!("{}.{}", signature.module, signature.selector),

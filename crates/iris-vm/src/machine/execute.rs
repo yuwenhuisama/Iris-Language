@@ -229,6 +229,10 @@ impl Machine {
                         self.test_truth(&value, program, classes)
                     ))
                 }
+                Instruction::MakeKeywordArgument { name, value, .. } => Value::KeywordArgument(
+                    name.clone(),
+                    Box::new(registers[*value as usize].clone()),
+                ),
                 Instruction::NegateTruth { value, .. } => {
                     Value::Bool(!truthy(&registers[*value as usize]))
                 }

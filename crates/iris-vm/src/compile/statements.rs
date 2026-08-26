@@ -77,18 +77,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
-            Statement::DeferredBinding {
-                mutable: true,
-                annotated: true,
-                name,
-            } => {
+            // A deferred `let`, or an unannotated one, declares a name that is
+            // never assignable, so every read of it fails definite assignment.
+            // The reference still ACCEPTS the declaration - `let x: Integer`
+            // on its own answers nil - so refusing it declined a program that
+            // runs. Only `mut` with an annotation can later be written, which
+            // is why that form alone carries an assigned flag.
+            Statement::DeferredBinding { mutable, name, .. } => {
                 let register = self.allocate()?;
                 let assigned = self.allocate()?;
                 self.instructions
                     .push(Instruction::DeclareDeferred { register, assigned });
-                self.names
-                    .push(Binding::deferred(name.clone(), register, assigned));
-                Ok(register)
+                if *mutable {
+                    self.names
+                        .push(Binding::deferred(name.clone(), register, assigned));
+                }
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
             }
             // A loop is a BACKWARD jump, which is why the verifier had to
             // become a dataflow fixpoint: a body is entered before its own

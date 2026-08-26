@@ -726,6 +726,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 then_body,
                 else_body,
             } => self.if_value(condition, then_body, else_body.as_deref()),
+            Expression::KeywordArgument { name, value } => {
+                let value = self.expression(value)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::MakeKeywordArgument {
+                    destination,
+                    name: name.clone(),
+                    value,
+                });
+                Ok(destination)
+            }
             Expression::Call {
                 callee, arguments, ..
             } => self.call(callee, arguments),

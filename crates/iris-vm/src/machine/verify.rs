@@ -523,9 +523,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::ReadDeferred {
             value, assigned, ..
         } => vec![*value, *assigned],
-        Instruction::TestTruth { value, .. } | Instruction::NegateTruth { value, .. } => {
-            vec![*value]
-        }
+        Instruction::TestTruth { value, .. }
+        | Instruction::NegateTruth { value, .. }
+        | Instruction::MakeKeywordArgument { value, .. } => vec![*value],
         Instruction::LoadInteger { .. }
         | Instruction::LoadFloat64 { .. }
         | Instruction::LoadFloat32 { .. }
