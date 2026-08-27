@@ -3392,21 +3392,28 @@ M.r()"#;
             );
         }
 
-        let bytecode = Bytecode;
-        for source in [
+        // A bare-NAME Hash key is an ordinary expression rather than a
+        // shorthand for a symbol: it keys the hash by what the name HOLDS.
+        // That is what lets an exception context be used as a key.
+        let agreement = compare_backends(
+            "module M { public fun r() -> Object { let a = :k; %{ a: 1 } } } M.r()",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Value("{:k: 1}".to_owned()));
+
+        // Control: an UNBOUND name in key position is the ordinary NameError,
+        // so evaluating the key did not invent a symbol for it.
+        let agreement = compare_backends(
             "module M { public fun r() -> Object { %{ a: 1 } } } M.r()",
-            "module M { public fun r() -> Object { let h = %{ a: 1 }; h[:a] } } M.r()",
-        ] {
-            let Support::Unsupported(reason) = bytecode.execute(source) else {
-                unreachable!("the VM must decline a bare-name Hash key: {source}")
-            };
-            assert_ne!(reason, "name", "{source}");
-            assert_eq!(reason, "hash key name", "{source}");
-            assert!(
-                matches!(Interpreter.execute(source), Support::Ran(_)),
-                "{source}"
-            );
-        }
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("NameError".to_owned()));
     }
 
     #[test]

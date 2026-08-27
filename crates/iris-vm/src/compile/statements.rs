@@ -271,10 +271,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 arms,
                 fallback,
             } => self.match_statement(subject, arms, fallback.as_ref()),
-            // A top-level `fun` is a form the reference REFUSES when the
-            // program runs, as UnsupportedConstruct, so refusing it here
-            // described the same refusal differently and held the row.
-            Statement::Method(_) => {
+            // A top-level `fun`, and a `shared let` outside a class, are forms
+            // the reference REFUSES when the program runs, as
+            // UnsupportedConstruct - so refusing them here described the same
+            // refusal differently and held the row.
+            Statement::Method(_) | Statement::SharedBinding { .. } => {
                 let destination = self.allocate()?;
                 self.instructions
                     .push(Instruction::RaiseUnsupported { destination });

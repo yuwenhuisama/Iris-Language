@@ -5842,3 +5842,49 @@ fn a_rest_parameter_collects_only_what_was_passed() {
         );
     }
 }
+
+/// `as?` is a CHECKED cast, answering nil when the test does not hold.
+///
+/// It is the type test with a selection on top rather than a failing cast,
+/// which is what distinguishes it from `as`.
+#[test]
+fn a_checked_cast_answers_nil_on_mismatch() {
+    for (source, expected) in [
+        (
+            r#"let value: Object = "iris"; [value is String, value as? Integer]"#,
+            "[true, nil]",
+        ),
+        ("let v: Object = 1; v as? Integer", "1"),
+        // Control: the same value casts to its OWN type, so `as?` is not
+        // simply answering nil for everything.
+        (r#"let v: Object = "s"; v as? String"#, "\"s\""),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // A `shared let` outside a class is a form the reference REFUSES when the
+    // program runs, so both backends agree on the refusal.
+    let agreement = crate::backend::compare_backends(
+        "shared let @@count: Integer = 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
+}

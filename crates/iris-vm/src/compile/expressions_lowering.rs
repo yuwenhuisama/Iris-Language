@@ -230,6 +230,40 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
+                // `as?` is a CHECKED cast: it answers the value when the test
+                // holds and nil when it does not, rather than failing. It is
+                // the type test with a selection on top.
+                if *operator == BinaryOperator::AsOptional
+                    && !matches!(right.as_ref(),
+                        Expression::Name(name) if self.contract_index(name).is_some())
+                {
+                    let value = self.expression(left)?;
+                    let target = self.expression(right)?;
+                    let matches = self.allocate()?;
+                    self.instructions.push(Instruction::TypeTest {
+                        destination: matches,
+                        value,
+                        target,
+                    });
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source: value,
+                    });
+                    let branch = self.instructions.len();
+                    self.instructions.push(Instruction::JumpUnless {
+                        condition: matches,
+                        target: 0,
+                    });
+                    let skip = self.instructions.len();
+                    self.instructions.push(Instruction::Jump { target: 0 });
+                    let otherwise = self.instructions.len();
+                    self.instructions.push(Instruction::LoadNil { destination });
+                    let after = self.instructions.len();
+                    self.patch(branch, otherwise)?;
+                    self.patch(skip, after)?;
+                    return Ok(destination);
+                }
                 if *operator == BinaryOperator::Is {
                     if matches!(right.as_ref(), Expression::Name(name) if self.contract_index(name).is_some())
                     {
@@ -364,11 +398,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let count =
                     u16::try_from(entries.len()).map_err(|_| CompileError::new("hash too long"))?;
                 let mut lowered = Vec::with_capacity(entries.len() * 2);
+                // A NAME key is an ordinary expression, not a shorthand for a
+                // symbol: `%{ first: 1 }` keys the hash by what `first` HOLDS,
+                // which is what makes an exception context usable as a key.
                 for (key, value) in entries {
-                    match key {
-                        Expression::Name(_) => return Err(CompileError::new("hash key name")),
-                        key => lowered.push(self.expression(key)?),
-                    }
+                    lowered.push(self.expression(key)?);
                     lowered.push(self.expression(value)?);
                 }
                 let first = self.next_register;
