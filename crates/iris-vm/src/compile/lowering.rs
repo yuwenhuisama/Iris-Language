@@ -45,31 +45,6 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value(parameter.name.clone(), register));
     }
-    // A parameter's DEFAULT is filled in the callee, after the registers are
-    // reserved, because a dynamic send cannot substitute it at the call site:
-    // it does not know the signature until dispatch. Filling it here made
-    // `f(a, b: Integer = 2)` answer `2` for a method send as well as for a
-    // resolved call, where it had silently answered nil.
-    let defaults: Vec<(usize, &iris_syntax::Expression)> = signature
-        .parameters
-        .iter()
-        .enumerate()
-        .filter_map(|(index, parameter)| {
-            parameter
-                .default
-                .as_ref()
-                .map(|default| (index + usize::from(signature.receiver), default))
-        })
-        .collect();
-    for (index, default) in defaults {
-        let source = lowering.expression(default)?;
-        let destination = lowering.allocate()?;
-        lowering.instructions.push(Instruction::DefaultParameter {
-            destination,
-            source,
-            index,
-        });
-    }
     // A signature with a NON-positional category binds its own parameters, so
     // the frame reads the argument window itself. A purely positional one
     // needs no instruction at all: the caller already wrote the values into
@@ -106,6 +81,31 @@ pub(super) fn lower_function(
             receiver: signature.receiver,
             first,
             count,
+        });
+    }
+    // A parameter's DEFAULT is filled in the callee, after the registers are
+    // reserved, because a dynamic send cannot substitute it at the call site:
+    // it does not know the signature until dispatch. Filling it here made
+    // `f(a, b: Integer = 2)` answer `2` for a method send as well as for a
+    // resolved call, where it had silently answered nil.
+    let defaults: Vec<(usize, &iris_syntax::Expression)> = signature
+        .parameters
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parameter)| {
+            parameter
+                .default
+                .as_ref()
+                .map(|default| (index + usize::from(signature.receiver), default))
+        })
+        .collect();
+    for (index, default) in defaults {
+        let source = lowering.expression(default)?;
+        let destination = lowering.allocate()?;
+        lowering.instructions.push(Instruction::DefaultParameter {
+            destination,
+            source,
+            index,
         });
     }
     // The owner's constants are bound after them, and `lookup` searches in

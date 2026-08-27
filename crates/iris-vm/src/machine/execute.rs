@@ -54,7 +54,6 @@ impl Machine {
             registers[slot] = argument;
         }
 
-        let supplied = arity;
         let mut counter = 0;
         let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
         if let Some((frame, posted)) = resume {
@@ -361,14 +360,17 @@ impl Machine {
                     count,
                     ..
                 } => {
-                    // The window is sized by the SIGNATURE, but a caller may
-                    // pass more - two keywords for one `key` parameter, or
-                    // extra positionals for a `*rest`. The frame is entered
-                    // with every argument written, so the real arity is what
-                    // arrived rather than what the signature declares.
+                    // The window spans what the caller ACTUALLY passed, not the
+                    // signature's width. Sizing it by the signature padded the
+                    // arguments with the unset registers a wider frame carries,
+                    // so `*rest` collected `[nil, nil]` where it should have
+                    // collected nothing - a wrong answer rather than a gap.
+                    // A caller may also pass MORE than the signature declares:
+                    // two keywords for one `key` parameter, or extra
+                    // positionals for a `*rest`.
+                    let _ = count;
                     let start = *first as usize;
-                    let end = (start + usize::from(*count).max(arity.saturating_sub(start)))
-                        .min(registers.len());
+                    let end = arity.max(start).min(registers.len());
                     let supplied = registers[start..end].to_vec();
                     let bound = dispatch!(Self::bind_parameters(kinds, &supplied)?);
                     let Value::Tuple(bound) = bound else {
@@ -383,7 +385,12 @@ impl Machine {
                 // The frame knows how many arguments ARRIVED, which a dynamic
                 // send cannot tell the call site.
                 Instruction::DefaultParameter { source, index, .. } => {
-                    if *index < supplied {
+                    // A slot still holding nil after binding is one the caller
+                    // did not fill. Counting ARGUMENTS instead skipped the
+                    // default whenever a keyword or block argument padded the
+                    // count past the positional slot, so `m(1, k: 5)` left
+                    // `b = 2` unapplied.
+                    if !matches!(registers[*index], Value::Nil) {
                         continue;
                     }
                     let value = registers[*source as usize].clone();

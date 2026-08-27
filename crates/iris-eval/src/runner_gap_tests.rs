@@ -5771,3 +5771,46 @@ fn a_core_claim_is_rejected_and_discards_are_recorded() {
         );
     }
 }
+
+/// A `*rest` collects what the caller PASSED, not the frame's spare registers.
+///
+/// The argument window was sized by the SIGNATURE, so a wider frame's unset
+/// registers were read as arguments and `*rest` collected `[nil, nil]` where
+/// it should have collected nothing. Manual use found it; the single-feature
+/// tests all passed enough arguments to hide the padding.
+#[test]
+fn a_rest_parameter_collects_only_what_was_passed() {
+    for (source, expected) in [
+        ("class A { public fun m(*r) { r } } A.new().m()", "[]"),
+        ("class A { public fun m(a, *r) { r } } A.new().m(1)", "[]"),
+        (
+            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { r } } A.new().m(1, 9, k: 5)",
+            "[]",
+        ),
+        // Control: a rest that DOES receive arguments still collects them, so
+        // the fix did not empty the channel.
+        (
+            "class A { public fun m(a, *r) { r } } A.new().m(1, 2, 3)",
+            "[2, 3]",
+        ),
+        // Control: the other channels are unaffected by the narrower window.
+        (
+            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { [a, b, k, kw] } } \
+             A.new().m(1, k: 5, z: 6)",
+            "[1, 2, 5, {:z: 6}]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

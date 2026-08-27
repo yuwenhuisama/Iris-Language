@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 662 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 688 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,32 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+The parameter CHANNELS came next, and they had to be bound in the callee: a
+dynamic send does not know the signature until dispatch, so the categories
+cannot be resolved at the call site. `IRIS-V1-CONTROL-C023` fills positionals
+in order, gives `*rest` the remaining positionals as a fresh Array, binds a
+`key` parameter by NAME, and collects the unmatched keywords into `**kwargs`;
+`D-357` makes a duplicate keyword an ArgumentError rather than last-one-wins.
+
+Using it found two wrong answers no single-feature test had. The argument
+window was sized by the SIGNATURE, so a wider frame's unset registers were read
+as arguments and `*rest` collected `[nil, nil]` where it should have collected
+nothing - the window spans what the caller actually passed now. And a default
+was skipped whenever a keyword or block argument padded the argument count past
+its positional slot, because the check counted ARGUMENTS rather than asking
+whether the slot was filled; defaults are written after binding now, to a slot
+still holding nil.
+
+A loop answers the operand its `break` carried, in statement or expression
+position - `C023` gives a normal completion no value of its own, so exhausting
+the condition answers nil and only a `break` carries something out. A LABELLED
+break unwinds to the loop that name belongs to, which is the only way an inner
+loop can stop an outer one. An indexed compound assignment evaluates its
+receiver and index ONCE and reuses them for both the read and the write, since
+lowering `a[i] += v` as `a[i] = a[i] + v` would call a receiver expression
+twice. A match GUARD is tested after its pattern, and a false one falls through
+to the next arm rather than failing the match.
 
 Two composition subsystems came after those. A module was discovered only from
 the names of its FUNCTIONS, which misses one that declares no method of its
