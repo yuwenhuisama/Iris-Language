@@ -595,6 +595,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::LoadRegex { .. }
         | Instruction::GateNew { .. }
         | Instruction::UnicodeVersion { .. }
+        | Instruction::DiscardedContexts { .. }
+        | Instruction::PackageValidate { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
         | Instruction::LoadType { .. }

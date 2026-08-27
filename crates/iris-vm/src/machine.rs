@@ -77,6 +77,8 @@ pub struct Machine {
     closure_depth: usize,
     /// Gates by identity, holding the posted value once completed.
     gates: std::collections::HashMap<iris_runtime::ObjectId, Option<Value>>,
+    /// Propagations a `finally` transfer DISCARDED, per `IRIS-V1-ASYNC-C028`.
+    discarded_contexts: Vec<Value>,
     /// Async frames PAUSED at an `await`, in the order they suspended.
     ///
     /// `IRIS-V1-ASYNC-C014` resumes them in that order, so this is a queue
@@ -140,6 +142,7 @@ impl Machine {
             async_depth: 0,
             closure_depth: 0,
             gates: std::collections::HashMap::new(),
+            discarded_contexts: Vec::new(),
             suspended: Vec::new(),
             pending_frame: None,
         })

@@ -197,6 +197,23 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    /// Answers the contexts a `finally` transfer DISCARDED.
+    ///
+    /// `IRIS-V1-ASYNC-C028` forbids a discarded propagation from disappearing
+    /// silently, so a `finally` that returns out of a raising body records the
+    /// context it dropped rather than losing it.
+    DiscardedContexts {
+        destination: Register,
+    },
+    /// Validates a package claim, per `IRIS-V1-LIBRARY-C028`.
+    ///
+    /// A separately versioned package MUST NOT claim core ABI or replace core
+    /// literal semantics, so the claim is rejected at VALIDATION time and core
+    /// behaviour is left untouched.
+    PackageValidate {
+        destination: Register,
+        claims_core: bool,
+    },
     /// Answers the pinned Unicode data version, per `C042`.
     UnicodeVersion {
         destination: Register,
@@ -681,6 +698,9 @@ impl Instruction {
             Self::MakeKeywordArgument { destination, .. } => Some(*destination),
             Self::LoadRegex { destination, .. } => Some(*destination),
             Self::GateNew { destination } | Self::UnicodeVersion { destination } => {
+                Some(*destination)
+            }
+            Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {
                 Some(*destination)
             }
             Self::IrisValueEncode { destination, .. }

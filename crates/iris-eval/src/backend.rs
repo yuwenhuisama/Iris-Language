@@ -1164,9 +1164,9 @@ M.r()"#;
         let bytecode = Bytecode;
 
         // A SERVICE receiver the VM lacks stays declined: the reference
-        // answers `Package.validate(..)`, so raising NameError for one of
-        // these would be a wrong answer rather than an honest hold.
-        let Support::Unsupported(reason) = bytecode.execute("Package.validate(\"p\")") else {
+        // answers `Revision.flush()`, so raising NameError for one of these
+        // would be a wrong answer rather than an honest hold.
+        let Support::Unsupported(reason) = bytecode.execute("NativeFixture.compact_gc()") else {
             unreachable!("an unimplemented service receiver must remain declined")
         };
         assert_eq!(reason, "call unbound receiver");
@@ -1189,7 +1189,7 @@ M.r()"#;
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         let Agreement::Insufficient { ran, declined } =
-            compare_backends("Package.validate(\"p\")", &backends)
+            compare_backends("NativeFixture.compact_gc()", &backends)
         else {
             unreachable!("only one backend ran it")
         };

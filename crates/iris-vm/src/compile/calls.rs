@@ -348,6 +348,36 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 }
             }
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Diagnostics")
+            && self.lookup("Diagnostics").is_none()
+            && selector == "discarded_contexts"
+            && arguments.is_empty()
+        {
+            let destination = self.allocate()?;
+            self.instructions
+                .push(Instruction::DiscardedContexts { destination });
+            return Ok(destination);
+        }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "Package")
+            && self.lookup("Package").is_none()
+            && selector == "validate"
+            && !arguments.is_empty()
+        {
+            // `C028` fixes which surfaces are language core, so a claim to
+            // core ABI or to replacing core literal semantics is rejected at
+            // validation time rather than being honoured.
+            let claims_core = arguments.iter().any(|argument| {
+                matches!(argument, Expression::KeywordArgument { name, value }
+                    if matches!(name.as_str(), "core_abi" | "replaces_core_regex_literals")
+                        && matches!(value.as_ref(), Expression::Name(text) if text == "true"))
+            });
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::PackageValidate {
+                destination,
+                claims_core,
+            });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "FFI")
             && self.lookup("FFI").is_none()
             && selector == "open"

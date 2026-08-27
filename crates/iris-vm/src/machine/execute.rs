@@ -305,6 +305,15 @@ impl Machine {
                         self.irisvalue_decode(stream, &options, program, classes)
                     )
                 }
+                Instruction::DiscardedContexts { .. } => {
+                    Value::Array(iris_runtime::ArrayRef::new(self.discarded_contexts.clone()))
+                }
+                Instruction::PackageValidate { claims_core, .. } => {
+                    if *claims_core {
+                        return Err(MachineError::LexicalDiagnostic("PACKAGE_CORE_ABI_CLAIM"));
+                    }
+                    Value::Symbol("validated".to_owned())
+                }
                 Instruction::UnicodeVersion { .. } => {
                     let (major, minor, patch) = unicode_normalization::UNICODE_VERSION;
                     Value::Text(format!("{major}.{minor}.{patch}"))

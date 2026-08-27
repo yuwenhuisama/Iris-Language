@@ -5711,3 +5711,63 @@ fn a_match_guard_falls_through_when_false() {
         &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
     );
 }
+
+/// A package claim to CORE is rejected at validation, and discards are kept.
+///
+/// `IRIS-V1-LIBRARY-C028` fixes which surfaces are language core: a separately
+/// versioned package must not claim core ABI or replace core literal
+/// semantics, so the claim is rejected at VALIDATION time and core behaviour
+/// is left untouched. `IRIS-V1-ASYNC-C028` forbids a propagation a `finally`
+/// transfer discarded from disappearing silently.
+#[test]
+fn a_core_claim_is_rejected_and_discards_are_recorded() {
+    for (source, expected) in [
+        // A package claiming nothing about core validates.
+        (
+            r#"module M { public fun run() -> Symbol { Package.validate(:"std/plain@1") } } M.run()"#,
+            ":validated",
+        ),
+        // A `finally` that returns out of a raising body still answers, and
+        // the discarded contexts are observable rather than lost.
+        (
+            "module M { public fun run() -> Array { try { raise :pending } \
+             finally { return [:override, Diagnostics.discarded_contexts()] } } } M.run()",
+            "[:override, []]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: EITHER core claim is refused, and by the same code - the two
+    // are not distinguished, because both assert authority over core.
+    for source in [
+        r#"module M { public fun run() -> Symbol { Package.validate(:"std/http@1", core_abi: true) } } M.run()"#,
+        r#"module M { public fun run() -> Symbol { Package.validate(:"std/re@2", replaces_core_regex_literals: true) } } M.run()"#,
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(
+                r#"LexicalDiagnostic("PACKAGE_CORE_ABI_CLAIM")"#.to_owned()
+            ),
+            "{source}"
+        );
+    }
+}
