@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 657 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 662 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,23 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+Two composition subsystems came after those. A module was discovered only from
+the names of its FUNCTIONS, which misses one that declares no method of its
+own: `module B mixin A { }` exists solely to compose. Modules are declared
+explicitly now and defined in DEPENDENCY order, so a composing module names an
+identity that already exists - and a forward reference is declined rather than
+reordered into working, because the reference refuses one and accepting it
+would answer a value the language does not have.
+
+A reopen of a BUILT-IN class has no entry in the compiled class table to attach
+to, since the kernel creates those classes. It is recorded by name and
+published onto the kernel's own class at load, and the ordinary send path
+consults that class before calling a selector absent - otherwise the native
+surface answers first and the added method is never reachable. `<` and `>` are
+DERIVED from `<=>` rather than being separate methods, so a redefined `<=>` has
+to reach them; without that they kept answering from the native comparison the
+reopen had replaced, which is a wrong answer rather than a gap.
 
 Three SERVICE subsystems followed, each a surface the backend had no support
 for at all rather than a construct it lowered badly.
