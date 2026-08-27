@@ -260,6 +260,24 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::IrisValueEncode { value, .. } => {
+                    let value = registers[*value as usize].clone();
+                    run_frame!('frame, self.irisvalue_encode(value, program, classes))
+                }
+                Instruction::IrisValueDecode {
+                    stream,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let stream = registers[*stream as usize].clone();
+                    let start = *first as usize;
+                    let options = registers[start..start + *count as usize].to_vec();
+                    run_frame!(
+                        'frame,
+                        self.irisvalue_decode(stream, &options, program, classes)
+                    )
+                }
                 Instruction::UnicodeVersion { .. } => {
                     let (major, minor, patch) = unicode_normalization::UNICODE_VERSION;
                     Value::Text(format!("{major}.{minor}.{patch}"))

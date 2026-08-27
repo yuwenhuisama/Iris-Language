@@ -293,6 +293,34 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "IrisValue")
+            && self.lookup("IrisValue").is_none()
+        {
+            match (selector.as_str(), arguments) {
+                ("encode", [value, ..]) => {
+                    let value = self.expression(value)?;
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::IrisValueEncode { destination, value });
+                    return Ok(destination);
+                }
+                // The options carry `element_limit:`, which `C017` consults
+                // BEFORE any declared length is trusted.
+                ("decode", [stream, options @ ..]) => {
+                    let stream = self.expression(stream)?;
+                    let (first, count) = self.argument_window(options)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::IrisValueDecode {
+                        destination,
+                        stream,
+                        first,
+                        count,
+                    });
+                    return Ok(destination);
+                }
+                _ => return Err(CompileError::new("call unbound receiver")),
+            }
+        }
         // `IRIS-V1-COLLECTIONS-C042` pins the Unicode data version, so the
         // version string is read from the same tables the operations use
         // rather than being written down twice.

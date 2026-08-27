@@ -29,6 +29,12 @@ pub enum MachineError {
     /// target; one that does not is a program error the reference reports
     /// when the transfer runs, not a construct the backend lacks.
     LoopTransferOutsideLoop,
+    /// A NAMED diagnostic the reference reports by code.
+    ///
+    /// A serialization header or limit failure is reported as its own code
+    /// rather than a generic error, because a stream can fail for reasons a
+    /// program distinguishes: an incompatible header is not a limit breach.
+    LexicalDiagnostic(&'static str),
     /// The PARSER refused the source.
     ///
     /// The reference reports this when the program runs rather than refusing
@@ -544,6 +550,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => vec![*value, *assigned],
         Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
         Instruction::DefaultParameter { source, .. } => vec![*source],
+        Instruction::IrisValueEncode { value, .. } => vec![*value],
+        Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }
         | Instruction::MakeKeywordArgument { value, .. } => vec![*value],

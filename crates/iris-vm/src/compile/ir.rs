@@ -146,6 +146,27 @@ pub enum Instruction {
         pattern: String,
         flags: String,
     },
+    /// Encodes a value as `IrisValue` data, per `IRIS-V1-LIBRARY-C018`.
+    ///
+    /// An object is asked for its OWN representation through `serialize`, and
+    /// only a class declaring `Serializable` may answer one - `C003` keeps a
+    /// live resource out rather than emitting its identity.
+    IrisValueEncode {
+        destination: Register,
+        value: Register,
+    },
+    /// Decodes an `IrisValue` stream, validating the header FIRST.
+    ///
+    /// `C016` checks magic and format version before any payload that depends
+    /// on them, and `C017` forbids allocating from a DECLARED length before
+    /// that length is validated - so a limit breach is refused before the
+    /// payload is read at all.
+    IrisValueDecode {
+        destination: Register,
+        stream: Register,
+        first: Register,
+        count: u16,
+    },
     /// Answers the pinned Unicode data version, per `C042`.
     UnicodeVersion {
         destination: Register,
@@ -616,6 +637,8 @@ impl Instruction {
             Self::GateNew { destination } | Self::UnicodeVersion { destination } => {
                 Some(*destination)
             }
+            Self::IrisValueEncode { destination, .. }
+            | Self::IrisValueDecode { destination, .. } => Some(*destination),
             Self::GateComplete { destination, .. } => Some(*destination),
             Self::DefaultParameter { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }

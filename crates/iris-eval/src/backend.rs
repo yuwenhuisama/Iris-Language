@@ -160,6 +160,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::JsonSyntaxError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::JsonSyntaxError),
                 )),
+                Err(iris_vm::MachineError::LexicalDiagnostic(code)) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::LexicalDiagnostic(code))),
+                ),
                 Err(iris_vm::MachineError::SerializationError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::SerializationError),
                 )),
@@ -1149,9 +1152,9 @@ M.r()"#;
         let bytecode = Bytecode;
 
         // A SERVICE receiver the VM lacks stays declined: the reference
-        // answers `IrisValue.decode(..)`, so raising NameError for one of
-        // these would be a wrong answer rather than an honest hold.
-        let Support::Unsupported(reason) = bytecode.execute("IrisValue.decode(%{})") else {
+        // answers `FFI.open(..)`, so raising NameError for one of these would
+        // be a wrong answer rather than an honest hold.
+        let Support::Unsupported(reason) = bytecode.execute("FFI.open(\"libm.so\")") else {
             unreachable!("an unimplemented service receiver must remain declined")
         };
         assert_eq!(reason, "call unbound receiver");
@@ -1174,7 +1177,7 @@ M.r()"#;
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         let Agreement::Insufficient { ran, declined } =
-            compare_backends("IrisValue.decode(%{})", &backends)
+            compare_backends("FFI.open(\"libm.so\")", &backends)
         else {
             unreachable!("only one backend ran it")
         };

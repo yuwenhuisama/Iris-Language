@@ -670,3 +670,181 @@ fn regex_match(
         regex: regex.clone(),
     })))
 }
+
+impl Machine {
+    /// Encodes a value as `IrisValue` data, per `IRIS-V1-LIBRARY-C018`.
+    ///
+    /// An OBJECT is asked for its own representation through `serialize`, and
+    /// only a class declaring `Serializable` may answer one. `C003` keeps a
+    /// live resource out of the stream rather than emitting its identity, so
+    /// an unsupported family is refused instead of being rendered some other
+    /// way.
+    pub(super) fn irisvalue_encode(
+        &mut self,
+        value: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let representation = match &value {
+            Value::Object(_) => {
+                if !self.declares_serializable(&value, program, classes) {
+                    return Err(MachineError::SerializationError);
+                }
+                self.authored_send(&value, "serialize", &[], program, classes)?
+                    .ok_or(MachineError::SerializationError)?
+            }
+            _ => value,
+        };
+        Self::check_encodable(&representation)?;
+        Ok(representation)
+    }
+
+    /// Decodes an `IrisValue` stream, validating the header FIRST.
+    ///
+    /// `C016` checks magic and format version before decoding any payload that
+    /// depends on them, and `C017` forbids allocating from a DECLARED length
+    /// before that length is validated. `C020` routes a NOMINAL value through
+    /// the class's own factory, and a stream naming no nominal class stays
+    /// ordinary decoded data - `C010` refuses to instantiate classes from type
+    /// names by default.
+    pub(super) fn irisvalue_decode(
+        &mut self,
+        stream: Value,
+        options: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Value::Hash(stream) = stream else {
+            return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+        };
+        let field = |name: &str| stream.get(&Value::Text(name.to_owned()));
+        if field("magic") != Some(Value::Text("IRISVALUE".to_owned()))
+            || field("format_version") != Some(Value::Integer(1_u8.into()))
+        {
+            return Err(MachineError::LexicalDiagnostic(
+                "IRISVALUE_INCOMPATIBLE_HEADER",
+            ));
+        }
+        let limit = options
+            .iter()
+            .find_map(|option| match option {
+                Value::KeywordArgument(name, limit) if name == "element_limit" => match &**limit {
+                    Value::Integer(limit) => limit.to_usize(),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap_or(1024);
+        if let Some(Value::Integer(declared)) = field("element_count")
+            && declared.to_usize().is_none_or(|declared| declared > limit)
+        {
+            return Err(MachineError::LexicalDiagnostic(
+                "IRISVALUE_LIMIT_OR_STRUCTURE",
+            ));
+        }
+        let payload = field("payload").unwrap_or(Value::Nil);
+        let Some(Value::Symbol(nominal)) = field("nominal") else {
+            return Ok(payload);
+        };
+        self.decode_nominal(&nominal, field("schema_version"), payload, program, classes)
+    }
+
+    /// Rebuilds a NOMINAL value through the class's declared factory.
+    fn decode_nominal(
+        &mut self,
+        nominal: &str,
+        schema: Option<Value>,
+        payload: Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Some(index) = program
+            .classes
+            .iter()
+            .position(|declaration| declaration.name == nominal)
+        else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some(class) = classes.get(index).copied() else {
+            return Err(MachineError::SerializationError);
+        };
+        // `C006` validates conformance BEFORE publishing, so a class that does
+        // not declare `Serializable` is refused even though it has a factory:
+        // otherwise any class with a `deserialize` could be built from a stream.
+        if !program
+            .contracts
+            .iter()
+            .position(|contract| contract.name == "Serializable")
+            .is_some_and(|wanted| program.classes[index].contracts.contains(&wanted))
+        {
+            return Err(MachineError::SerializationError);
+        }
+        // Only schema version 1 is defined, so a stream declaring another is
+        // refused rather than guessed at.
+        let schema_ok = match schema {
+            None => true,
+            Some(Value::Integer(ref version)) => version.to_usize() == Some(1),
+            Some(_) => false,
+        };
+        if !schema_ok {
+            return Err(MachineError::LexicalDiagnostic(
+                "IRISVALUE_INCOMPATIBLE_HEADER",
+            ));
+        }
+        self.authored_send(
+            &Value::Class(class),
+            "deserialize",
+            &[payload],
+            program,
+            classes,
+        )?
+        .ok_or(MachineError::SerializationError)
+    }
+
+    fn declares_serializable(
+        &mut self,
+        value: &Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> bool {
+        let Value::Object(object) = value else {
+            return false;
+        };
+        let Ok(class) = self.runtime.class_of(*object) else {
+            return false;
+        };
+        let Some(index) = classes.iter().position(|known| *known == class) else {
+            return false;
+        };
+        program
+            .contracts
+            .iter()
+            .position(|contract| contract.name == "Serializable")
+            .is_some_and(|wanted| program.classes[index].contracts.contains(&wanted))
+    }
+
+    /// Refuses a family `C018` does not list.
+    ///
+    /// A live resource - an FFI handle, an open File, a native payload - is
+    /// rejected rather than having its identity emitted, which is what `C003`
+    /// requires and what makes the refusal a property of the VALUE rather than
+    /// of how it happens to render.
+    fn check_encodable(value: &Value) -> Result<(), MachineError> {
+        match value {
+            Value::Nil
+            | Value::Bool(_)
+            | Value::Integer(_)
+            | Value::Float32(_)
+            | Value::Float64(_)
+            | Value::Text(_)
+            | Value::Symbol(_)
+            | Value::Bytes(_) => Ok(()),
+            Value::Tuple(elements) => elements.iter().try_for_each(Self::check_encodable),
+            Value::Array(values) => values.elements().iter().try_for_each(Self::check_encodable),
+            Value::Hash(entries) => entries.entries().iter().try_for_each(|(key, held)| {
+                Self::check_encodable(key).and_then(|()| Self::check_encodable(held))
+            }),
+            _ => Err(MachineError::SerializationError),
+        }
+    }
+}

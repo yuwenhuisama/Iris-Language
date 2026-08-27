@@ -5131,3 +5131,99 @@ fn transfers_targets_and_defaults_behave_at_run_time() {
         );
     }
 }
+
+/// `IrisValue` validates a stream's HEADER and limits before its payload.
+///
+/// `IRIS-V1-LIBRARY-C016` checks magic and format version before decoding
+/// anything that depends on them, `C017` forbids allocating from a DECLARED
+/// length before that length is validated, and `C020` routes a nominal value
+/// through the class's own factory - but only for a class that declares
+/// `Serializable`, since `C010` refuses to instantiate classes from type names
+/// by default. `C003` keeps a live resource out of an encoded stream.
+#[test]
+fn irisvalue_validates_before_it_decodes() {
+    const HEADER: &str = r#"mut s = %{}; s["magic"] = "IRISVALUE"; "#;
+    const SERIALIZABLE: &str = "contract Serializable { fun serialize() -> Object } ";
+
+    for (source, expected) in [
+        // An ordinary value encodes as itself, across the listed families.
+        (
+            r#"[IrisValue.encode(1), IrisValue.encode("é"), IrisValue.encode(b"\x00\xff"), IrisValue.encode((1, "x"))]"#.to_owned(),
+            r#"[1, "é", bytes:00ff, [1, "x"]]"#.to_owned(),
+        ),
+        // A stream naming NO nominal class stays ordinary decoded data.
+        (
+            format!(r#"{HEADER}s["format_version"] = 1; s["payload"] = 7; IrisValue.decode(s)"#),
+            "7".to_owned(),
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected),
+            "{source}"
+        );
+    }
+
+    for (source, expected) in [
+        // A version the decoder does not define is refused BEFORE the payload.
+        (
+            format!(
+                "module M {{ public fun run() -> Object {{ {HEADER}s[\"format_version\"] = 2; IrisValue.decode(s) }} }} M.run()"
+            ),
+            r#"LexicalDiagnostic("IRISVALUE_INCOMPATIBLE_HEADER")"#,
+        ),
+        // A declared element count over the limit is refused before reading.
+        (
+            format!(
+                "module M {{ public fun run() -> Object {{ {HEADER}s[\"format_version\"] = 1; s[\"element_count\"] = 1025; IrisValue.decode(s) }} }} M.run()"
+            ),
+            r#"LexicalDiagnostic("IRISVALUE_LIMIT_OR_STRUCTURE")"#,
+        ),
+        // A SCHEMA version the decoder does not define is refused too, which
+        // is a different failure from a limit breach.
+        (
+            format!(
+                "{SERIALIZABLE}class User for Serializable {{ \
+                 public fun serialize() -> Object {{ 1 }} \
+                 public class fun deserialize(representation) -> Object {{ :rebuilt }} }} \
+                 module M {{ public fun run() -> Object {{ {HEADER}s[\"format_version\"] = 1; \
+                 s[\"nominal\"] = :User; s[\"schema_version\"] = 2; s[\"payload\"] = 7; \
+                 IrisValue.decode(s) }} }} M.run()"
+            ),
+            r#"LexicalDiagnostic("IRISVALUE_INCOMPATIBLE_HEADER")"#,
+        ),
+        // A class with a `deserialize` factory but NO declared conformance is
+        // refused: otherwise any class could be built from a crafted stream.
+        (
+            format!(
+                "{SERIALIZABLE}class Ghost {{ \
+                 public class fun deserialize(representation) -> Object {{ :leaked }} }} \
+                 module M {{ public fun run() -> Object {{ {HEADER}s[\"format_version\"] = 1; \
+                 s[\"nominal\"] = :Ghost; s[\"schema_version\"] = 1; s[\"payload\"] = 7; \
+                 IrisValue.decode(s) }} }} M.run()"
+            ),
+            "SerializationError",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            &source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
