@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 688 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 696 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,20 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+The regex refusals were the decline-vs-raise mistake once more: an unsupported
+construct NAMES itself - a backreference is distinguishable from a lookbehind -
+and the reference reports that code when the program runs. An INTERPOLATING
+pattern splices a value the compiler cannot know, so it is assembled and
+validated at run time, with each spliced value ESCAPED: `/${x}/` where `x`
+holds `a+b` matches those three characters rather than reinterpreting them as
+syntax.
+
+`as?` is a CHECKED cast - the type test with a selection on top, answering nil
+where `as` would fail - and a bare-NAME hash key is an ordinary expression
+rather than a shorthand for a symbol, so `%{ a: 1 }` keys the hash by what `a`
+HOLDS. That is what lets an exception context be used as a key, and an unbound
+name there is the ordinary NameError.
 
 The parameter CHANNELS came next, and they had to be bound in the callee: a
 dynamic send does not know the signature until dispatch, so the categories
