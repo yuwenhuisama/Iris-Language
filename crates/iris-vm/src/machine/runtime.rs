@@ -565,6 +565,42 @@ impl Machine {
             }
             classes.push(class);
         }
+        // A reopen of a BUILT-IN class publishes onto the kernel's own class,
+        // which has no entry in `classes`. That is what makes the added method
+        // reachable on every value of that class rather than on a new one.
+        for reopen in &program.builtin_reopens {
+            let kind = match reopen.target.as_str() {
+                "Object" => iris_runtime::BuiltinClass::Object,
+                "Nil" => iris_runtime::BuiltinClass::Nil,
+                "Bool" => iris_runtime::BuiltinClass::Bool,
+                "Integer" => iris_runtime::BuiltinClass::Integer,
+                "Float32" => iris_runtime::BuiltinClass::Float32,
+                "Float64" => iris_runtime::BuiltinClass::Float64,
+                _ => iris_runtime::BuiltinClass::String,
+            };
+            let class = self.kernel.class(kind).map_err(MachineError::Kernel)?;
+            self.runtime
+                .registry_mut()
+                .begin_transaction(class)
+                .map_err(MachineError::Class)?;
+            for (selector, function) in &reopen.methods {
+                let selector = selector_id(program, selector)
+                    .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                self.runtime
+                    .registry_mut()
+                    .publish_method(
+                        class,
+                        selector,
+                        MethodBody::new(*function as u64),
+                        Visibility::Public,
+                    )
+                    .map_err(MachineError::Class)?;
+            }
+            self.runtime
+                .registry_mut()
+                .commit_transaction(class)
+                .map_err(MachineError::Class)?;
+        }
         Ok(classes)
     }
 

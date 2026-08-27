@@ -35,6 +35,7 @@ pub(super) struct CollectedDeclarations<'a> {
     pub(super) signatures: Vec<Signature<'a>>,
     pub(super) classes: Vec<Class>,
     pub(super) modules: Vec<crate::compile::ir::ModuleDeclaration>,
+    pub(super) builtin_reopens: Vec<crate::compile::ir::BuiltinReopen>,
     pub(super) contracts: Vec<Contract>,
 }
 
@@ -45,6 +46,7 @@ pub(super) fn collect_signatures(
     let mut classes = Vec::new();
     let mut contracts = Vec::new();
     let mut modules = Vec::new();
+    let mut builtin_reopens = Vec::new();
     // A REOPEN is collected after every origin declaration, because it names a
     // class that may be declared later in the source: `open class A { }` ahead
     // of `class A { }` is an ordinary program, and collecting in source order
@@ -82,6 +84,7 @@ pub(super) fn collect_signatures(
                 &contracts,
                 &mut signatures,
                 &mut classes,
+                &mut builtin_reopens,
             )?;
             continue;
         };
@@ -117,6 +120,7 @@ pub(super) fn collect_signatures(
         classes,
         contracts,
         modules,
+        builtin_reopens,
     })
 }
 
@@ -182,9 +186,10 @@ fn collect_class<'a>(
     contracts: &[Contract],
     signatures: &mut Vec<Signature<'a>>,
     classes: &mut Vec<Class>,
+    builtin_reopens: &mut Vec<crate::compile::ir::BuiltinReopen>,
 ) -> Result<(), CompileError> {
     if class.reopen {
-        return collect_reopen(class, signatures, classes);
+        return collect_reopen(class, signatures, classes, builtin_reopens);
     }
     // A mixin names a MODULE, which the runtime composes into the class's MRO.
     // A generic or private-access mixin carries rules the backend does not
@@ -336,6 +341,7 @@ fn collect_reopen<'a>(
     class: &'a iris_syntax::ClassDeclaration,
     signatures: &mut Vec<Signature<'a>>,
     classes: &mut [Class],
+    builtin_reopens: &mut Vec<crate::compile::ir::BuiltinReopen>,
 ) -> Result<(), CompileError> {
     if class.extends.is_some()
         || !class.implements.is_empty()
@@ -345,6 +351,29 @@ fn collect_reopen<'a>(
         || !class.meta_deny.is_empty()
     {
         return Err(CompileError::new("class reopen header"));
+    }
+    // A BUILT-IN class is created by the kernel and has no entry here, so a
+    // reopen of one is recorded by NAME and published onto the kernel's class
+    // at load. Only the classes the kernel actually defines are accepted: a
+    // name that is neither declared nor built in has no target at all.
+    if !classes.iter().any(|known| known.name == class.name) {
+        if !matches!(
+            class.name.as_str(),
+            "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
+        ) {
+            return Err(CompileError::new("class reopen target"));
+        }
+        let first_function = signatures.len();
+        collect_methods(&class.name, &class.body, true, signatures)?;
+        let (methods, class_methods) = collected_method_tables(signatures, first_function);
+        if !class_methods.is_empty() {
+            return Err(CompileError::new("class reopen class method"));
+        }
+        builtin_reopens.push(crate::compile::ir::BuiltinReopen {
+            target: class.name.clone(),
+            methods,
+        });
+        return Ok(());
     }
     let Some(target) = classes.iter().position(|known| known.name == class.name) else {
         return Err(CompileError::new("class reopen target"));

@@ -757,6 +757,18 @@ pub struct Program {
     /// no method of its own, so nothing would register it and `C mixin B`
     /// would not reach `A`'s methods.
     pub(crate) modules: Vec<ModuleDeclaration>,
+    pub(crate) builtin_reopens: Vec<BuiltinReopen>,
+}
+
+/// A reopen of a BUILT-IN Class, which has no user declaration to attach to.
+///
+/// `open class Integer { .. }` adds methods reachable on every Integer value.
+/// The target is named rather than indexed, because the built-in classes are
+/// created by the kernel and have no entry in `classes`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BuiltinReopen {
+    pub(crate) target: String,
+    pub(crate) methods: Vec<(String, usize)>,
 }
 
 /// A declared module and the modules composed into it.

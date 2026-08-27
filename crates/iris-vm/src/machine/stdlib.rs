@@ -18,6 +18,43 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        // A REOPENED built-in class may redefine an operator, and `<` and `>`
+        // are derived from `<=>` rather than being separate methods - so a
+        // redefined `<=>` has to reach them, or `1 < 2` would keep answering
+        // from the native comparison the reopen replaced.
+        if !program.builtin_reopens.is_empty()
+            && matches!(selector, "<" | "<=" | ">" | ">=" | "<=>" | "==" | "!=")
+            && let Some(value) = self.reopened_builtin_send(
+                &receiver,
+                selector,
+                std::slice::from_ref(&argument),
+                program,
+                classes,
+            )?
+        {
+            return Ok(value);
+        }
+        if !program.builtin_reopens.is_empty()
+            && matches!(selector, "<" | "<=" | ">" | ">=")
+            && let Some(ordering) = self.reopened_builtin_send(
+                &receiver,
+                "<=>",
+                std::slice::from_ref(&argument),
+                program,
+                classes,
+            )?
+        {
+            let Value::Integer(ordering) = ordering else {
+                return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+            };
+            let ordering: i64 = ordering.decimal_text().parse().unwrap_or_default();
+            return Ok(Value::Bool(match selector {
+                "<" => ordering < 0,
+                "<=" => ordering <= 0,
+                ">" => ordering > 0,
+                _ => ordering >= 0,
+            }));
+        }
         if let Value::Bytes(mut bytes) = receiver {
             if selector != "+" {
                 return self.send(selector, Value::Bytes(bytes), &[argument]);
@@ -498,6 +535,18 @@ impl Machine {
         // authored name that answered nothing means the selector genuinely is
         // absent - that is what pins Array `size` as MessageNotFound rather
         // than letting it fall through to a generic dispatch error.
+        // A REOPENED built-in class answers a method the native surface never
+        // had, so the class's own dispatch is consulted before the selector is
+        // called absent: `open class String { fun shout() }` must reach every
+        // String value, not a new class.
+        if result.is_none()
+            && !program.builtin_reopens.is_empty()
+            && !matches!(receiver, Value::Object(_) | Value::Class(_))
+            && let Some(value) =
+                self.reopened_builtin_send(receiver, selector, arguments, program, classes)?
+        {
+            return Ok(Some(value));
+        }
         if result.is_none()
             && authored_selector(selector)
             && !matches!(receiver, Value::Object(_) | Value::Class(_))
@@ -867,6 +916,58 @@ impl Machine {
             classes,
         )?;
         Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+    }
+
+    /// Calls a method a REOPENED built-in class added, if it has one.
+    ///
+    /// The kernel's built-in classes carry no user methods until a reopen
+    /// publishes one, so this is consulted only when a reopen exists and the
+    /// native surface answered nothing.
+    fn reopened_builtin_send(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        arguments: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Option<Value>, MachineError> {
+        // Only a class the reopens actually NAMED can answer, so a value of
+        // any other family is left to the ordinary refusal.
+        let name = value_class_name(receiver);
+        if !program
+            .builtin_reopens
+            .iter()
+            .any(|reopen| reopen.target == name)
+        {
+            return Ok(None);
+        }
+        let Ok(class) = self.builtin_class(name) else {
+            return Ok(None);
+        };
+        let Some(slot) = selector_id(program, selector) else {
+            return Ok(None);
+        };
+        let Ok(iris_runtime::DispatchOutcome::Invoke(method)) =
+            self.runtime.registry().dispatch(class, slot)
+        else {
+            return Ok(None);
+        };
+        let Ok(function) = usize::try_from(method.body().raw()) else {
+            return Ok(None);
+        };
+        let Some(callee) = program.functions.get(function).cloned() else {
+            return Ok(None);
+        };
+        let mut passed = vec![receiver.clone()];
+        passed.extend_from_slice(arguments);
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            passed,
+            program,
+            classes,
+        )?;
+        Ok(Some(returned.into_iter().next().unwrap_or(Value::Nil)))
     }
 
     fn declares_serializable(

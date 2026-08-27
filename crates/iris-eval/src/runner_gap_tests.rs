@@ -5469,3 +5469,60 @@ fn a_module_composes_another_module() {
     };
     assert_eq!(reason, "module");
 }
+
+/// Reopening a BUILT-IN class adds methods to every value of that class.
+///
+/// The kernel creates the built-in classes, so a reopen of one has no entry in
+/// the compiled class table to attach to: it is recorded by NAME and published
+/// onto the kernel's own class at load. An added method must then be reachable
+/// through the ordinary send path, which otherwise answers from the native
+/// surface and never consults the class.
+#[test]
+fn reopening_a_builtin_class_adds_to_its_values() {
+    for (source, expected) in [
+        (
+            r#"open class String { public fun shout() -> String { "!" } } "a".shout()"#,
+            r#""!""#,
+        ),
+        // `<` and `>` are DERIVED from `<=>` rather than being separate
+        // methods, so a redefined `<=>` has to reach them - otherwise they
+        // keep answering from the native comparison the reopen replaced.
+        (
+            "open class Integer { override public fun <=>(o: Integer) -> Integer { 1 } }; \
+             [1 < 2, 1 > 2]",
+            "[false, true]",
+        ),
+        // Control: a reopen adding NOTHING leaves the class as it was.
+        ("open class Integer { } 1", "1"),
+        // Control: an unrelated built-in family is untouched by the reopen.
+        (
+            r#"open class String { public fun shout() -> String { "!" } } [1 + 1, "b".shout()]"#,
+            r#"[2, "!"]"#,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a name that is neither DECLARED nor built in has no target at
+    // all, so it is still declined rather than silently creating a class.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "open class Absent { public fun f() -> Integer { 1 } } 1",
+        )
+    else {
+        unreachable!("a reopen with no target must be declined")
+    };
+    assert_eq!(reason, "class reopen target");
+}
