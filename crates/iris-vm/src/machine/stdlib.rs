@@ -90,7 +90,7 @@ impl Machine {
         Ok(Value::Text(format!("{text}{addition}")))
     }
 
-    fn text_operand(
+    pub(super) fn text_operand(
         &mut self,
         value: Value,
         program: &Program,
@@ -1325,5 +1325,41 @@ impl Machine {
             bound.push(value.unwrap_or(Value::Nil));
         }
         Ok(Value::Tuple(bound))
+    }
+}
+
+impl Machine {
+    /// Builds and VALIDATES a Regex whose pattern was computed at run time.
+    ///
+    /// An interpolating literal cannot be checked when it compiles, so the
+    /// same refusals apply here: an unsupported construct names itself and the
+    /// engine reports which one.
+    pub(super) fn make_regex(pattern: &str, flags: &str) -> Result<Value, MachineError> {
+        if let Err(error) = regex::RegexBuilder::new(pattern)
+            .case_insensitive(flags.contains('i'))
+            .multi_line(flags.contains('m'))
+            .dot_matches_new_line(flags.contains('s'))
+            .ignore_whitespace(flags.contains('x'))
+            .unicode(true)
+            .build()
+        {
+            let reported = error.to_string();
+            return Err(MachineError::LexicalDiagnostic(
+                if reported.contains("backreference") {
+                    "REGEX_UNSUPPORTED_BACKREFERENCE"
+                } else if reported.contains("look-around")
+                    || reported.contains("look-behind")
+                    || reported.contains("look-ahead")
+                {
+                    "REGEX_UNSUPPORTED_LOOKBEHIND"
+                } else {
+                    "REGEX_SYNTAX"
+                },
+            ));
+        }
+        Ok(Value::Regex(Box::new(iris_runtime::RegexValue {
+            pattern: pattern.to_owned(),
+            flags: flags.to_owned(),
+        })))
     }
 }

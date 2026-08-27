@@ -304,6 +304,21 @@ impl Machine {
                         self.irisvalue_decode(stream, &options, program, classes)
                     )
                 }
+                Instruction::EscapeRegex { value, .. } => {
+                    let value = registers[*value as usize].clone();
+                    let text = dispatch!(Value::Text(self.text_operand(value, program, classes)?));
+                    let Value::Text(text) = text else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    Value::Text(regex::escape(&text))
+                }
+                Instruction::MakeRegex { pattern, flags, .. } => {
+                    let Value::Text(pattern) = &registers[*pattern as usize] else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    let pattern = pattern.clone();
+                    dispatch!(Self::make_regex(&pattern, flags)?)
+                }
                 Instruction::DiscardedContexts { .. } => {
                     Value::Array(iris_runtime::ArrayRef::new(self.discarded_contexts.clone()))
                 }

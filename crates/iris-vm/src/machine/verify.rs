@@ -579,6 +579,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::IrisValueEncode { value, .. } => vec![*value],
         Instruction::FfiOpen { path, .. } => vec![*path],
         Instruction::EncodingDecode { value, .. } => vec![*value],
+        Instruction::MakeRegex { pattern, .. } => vec![*pattern],
+        Instruction::EscapeRegex { value, .. } => vec![*value],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }

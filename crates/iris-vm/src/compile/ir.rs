@@ -197,6 +197,22 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    /// Escapes a value for LITERAL matching inside a pattern.
+    EscapeRegex {
+        destination: Register,
+        value: Register,
+    },
+    /// Builds a Regex from text computed at RUN time.
+    ///
+    /// An interpolating literal splices a value the compiler cannot know, so
+    /// the pattern is assembled and validated when it runs. Each spliced value
+    /// is ESCAPED before it reaches the pattern, so `/${x}/` matches the text
+    /// `x` holds rather than reinterpreting it as syntax.
+    MakeRegex {
+        destination: Register,
+        pattern: Register,
+        flags: String,
+    },
     /// Answers the contexts a `finally` transfer DISCARDED.
     ///
     /// `IRIS-V1-ASYNC-C028` forbids a discarded propagation from disappearing
@@ -698,6 +714,9 @@ impl Instruction {
             Self::MakeKeywordArgument { destination, .. } => Some(*destination),
             Self::LoadRegex { destination, .. } => Some(*destination),
             Self::GateNew { destination } | Self::UnicodeVersion { destination } => {
+                Some(*destination)
+            }
+            Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
             Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {

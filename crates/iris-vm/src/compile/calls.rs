@@ -49,6 +49,32 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        // An INTERPOLATING regex splices a value the compiler cannot know, so
+        // the pattern is assembled at run time with each spliced value
+        // escaped: `/${x}/` matches the text `x` holds rather than
+        // reinterpreting it as pattern syntax.
+        if let Some((pattern, flags)) = interpolating_regex_literal(text) {
+            let mut canonical = String::new();
+            for flag in "imsx".chars() {
+                if flags.contains(flag) {
+                    canonical.push(flag);
+                }
+            }
+            if flags.chars().count() != canonical.chars().count() {
+                self.instructions.push(Instruction::RaiseEncodingSelection {
+                    destination,
+                    code: "LEX_BAD_REGEX_FLAGS",
+                });
+                return Ok(destination);
+            }
+            let built = self.interpolated_regex(&pattern)?;
+            self.instructions.push(Instruction::MakeRegex {
+                destination,
+                pattern: built,
+                flags: canonical,
+            });
+            return Ok(destination);
+        }
         if let Some((pattern, flags)) = regex_literal(text) {
             // `IRIS-V1-COLLECTIONS-C081` canonicalizes flags into `imsx` order
             // with absent flags omitted, so `/a+/im` and `/a+/mi` are the SAME
@@ -63,7 +89,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
             if flags.chars().count() != canonical.chars().count()
                 || !flags.chars().all(|flag| "imsx".contains(flag))
             {
-                return Err(CompileError::new("regex flags"));
+                // A bad flag set is a LEXICAL diagnostic the reference reports
+                // when the program runs, so the backend raises the same code
+                // rather than declining - both refuse it either way, but only
+                // one of those agrees.
+                self.instructions.push(Instruction::RaiseEncodingSelection {
+                    destination,
+                    code: "LEX_BAD_REGEX_FLAGS",
+                });
+                return Ok(destination);
             }
             // The pattern is compiled here only to REJECT it: an unsupported
             // construct names itself, and the reference reports which one, so
@@ -76,17 +110,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .unicode(true)
                 .build()
             {
+                // An unsupported construct NAMES itself, and the reference
+                // reports which one when the program runs, so the refusal is
+                // derived from the engine and raised rather than declined.
                 let reported = error.to_string();
-                return Err(CompileError::new(if reported.contains("backreference") {
-                    "regex backreference"
-                } else if reported.contains("look-around")
-                    || reported.contains("look-behind")
-                    || reported.contains("look-ahead")
-                {
-                    "regex lookaround"
-                } else {
-                    "regex syntax"
-                }));
+                self.instructions.push(Instruction::RaiseEncodingSelection {
+                    destination,
+                    code: if reported.contains("backreference") {
+                        "REGEX_UNSUPPORTED_BACKREFERENCE"
+                    } else if reported.contains("look-around")
+                        || reported.contains("look-behind")
+                        || reported.contains("look-ahead")
+                    {
+                        "REGEX_UNSUPPORTED_LOOKBEHIND"
+                    } else {
+                        "REGEX_SYNTAX"
+                    },
+                });
+                return Ok(destination);
             }
             self.instructions.push(Instruction::LoadRegex {
                 destination,
@@ -939,6 +980,17 @@ fn regex_literal(source: &str) -> Option<(String, String)> {
     let end = body.rfind('/')?;
     let (pattern, flags) = body.split_at(end);
     if pattern.contains("${") {
+        return None;
+    }
+    Some((pattern.to_owned(), flags.get(1..)?.to_owned()))
+}
+
+/// Splits an INTERPOLATING `/pattern/flags` literal, when the text is one.
+fn interpolating_regex_literal(source: &str) -> Option<(String, String)> {
+    let body = source.strip_prefix('/')?;
+    let end = body.rfind('/')?;
+    let (pattern, flags) = body.split_at(end);
+    if !pattern.contains("${") {
         return None;
     }
     Some((pattern.to_owned(), flags.get(1..)?.to_owned()))

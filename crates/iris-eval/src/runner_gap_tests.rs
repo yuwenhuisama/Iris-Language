@@ -4695,28 +4695,56 @@ fn regex_literals_compile_and_match() {
         );
     }
 
-    // Control: a pattern the engine cannot support is still REFUSED, so
-    // compiling literals did not start accepting every pattern. The reference
-    // names the construct, and the backend declines rather than guessing.
-    for (source, reason) in [
+    // Control: a pattern the engine cannot support is still REFUSED, and by
+    // the code the reference reports - each unsupported construct names
+    // itself, so a backreference is distinguishable from a lookbehind.
+    for (source, code) in [
         (
             r"module M { public fun run() -> Object { /(a)\1/ } } M.run()",
-            "regex backreference",
+            r#"LexicalDiagnostic("REGEX_UNSUPPORTED_BACKREFERENCE")"#,
+        ),
+        (
+            "module M { public fun run() -> Object { /(?<=a)b/ } } M.run()",
+            r#"LexicalDiagnostic("REGEX_UNSUPPORTED_LOOKBEHIND")"#,
         ),
         (
             "module M { public fun run() -> Object { /a/ii } } M.run()",
-            "regex flags",
+            r#"LexicalDiagnostic("LEX_BAD_REGEX_FLAGS")"#,
         ),
     ] {
-        let crate::backend::Support::Unsupported(declined) =
-            <crate::backend::Bytecode as crate::backend::Backend>::execute(
-                &crate::backend::Bytecode,
-                source,
-            )
-        else {
-            unreachable!("an unsupported pattern must be declined: {source}")
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
         };
-        assert_eq!(declined, reason, "{source}");
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(code.to_owned()),
+            "{source}"
+        );
+    }
+
+    // An INTERPOLATING pattern splices a value the compiler cannot know, and
+    // the spliced text is matched LITERALLY rather than as pattern syntax.
+    for (source, expected) in [
+        (r#"let x = "a+b"; ("a+b" =~ /${x}/).text()"#, r#""a+b""#),
+        (r#"let x = "a+b"; ("aab" =~ /${x}/) == nil"#, "true"),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
     }
 }
 
