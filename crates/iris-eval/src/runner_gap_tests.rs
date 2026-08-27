@@ -5145,11 +5145,23 @@ fn irisvalue_validates_before_it_decodes() {
     const HEADER: &str = r#"mut s = %{}; s["magic"] = "IRISVALUE"; "#;
     const SERIALIZABLE: &str = "contract Serializable { fun serialize() -> Object } ";
 
+    const CONFORMING: &str = "contract Serializable { fun serialize() -> Object } \
+                              class C for Serializable { \
+                              public fun serialize() -> Object { [:c, 7] } } ";
+
     for (source, expected) in [
         // An ordinary value encodes as itself, across the listed families.
         (
             r#"[IrisValue.encode(1), IrisValue.encode("é"), IrisValue.encode(b"\x00\xff"), IrisValue.encode((1, "x"))]"#.to_owned(),
             r#"[1, "é", bytes:00ff, [1, "x"]]"#.to_owned(),
+        ),
+        // An object that DECLARES `Serializable` is asked for its own
+        // representation. Reaching only the built-in surface answered
+        // SerializationError for a class that plainly conforms, which manual
+        // use found and no single-feature test had.
+        (
+            "IrisValue.encode(C.new())".to_owned(),
+            "[:c, 7]".to_owned(),
         ),
         // A stream naming NO nominal class stays ordinary decoded data.
         (
@@ -5157,7 +5169,9 @@ fn irisvalue_validates_before_it_decodes() {
             "7".to_owned(),
         ),
     ] {
-        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let wrapped = format!(
+            "{CONFORMING}module M {{ public fun run() -> Object {{ {source} }} }} M.run()"
+        );
         let agreement = crate::backend::compare_backends(
             &wrapped,
             &[&crate::backend::Interpreter, &crate::backend::Bytecode],

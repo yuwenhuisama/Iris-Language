@@ -691,8 +691,7 @@ impl Machine {
                 if !self.declares_serializable(&value, program, classes) {
                     return Err(MachineError::SerializationError);
                 }
-                self.authored_send(&value, "serialize", &[], program, classes)?
-                    .ok_or(MachineError::SerializationError)?
+                self.instance_method_value(&value, "serialize", &[], program, classes)?
             }
             _ => value,
         };
@@ -792,14 +791,82 @@ impl Machine {
                 "IRISVALUE_INCOMPATIBLE_HEADER",
             ));
         }
-        self.authored_send(
-            &Value::Class(class),
-            "deserialize",
-            &[payload],
+        self.class_method_value(class, "deserialize", &[payload], program, classes)
+    }
+
+    /// Calls an authored INSTANCE method and answers its value.
+    ///
+    /// `authored_send` answers the BUILT-IN surface only, so a class's own
+    /// `serialize` is not reachable through it: `C005` makes the
+    /// representation ordinary Iris data the CLASS chooses, which means the
+    /// object has to be asked rather than inspected.
+    fn instance_method_value(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        arguments: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Value::Object(object) = receiver else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some(slot) = selector_id(program, selector) else {
+            return Err(MachineError::SerializationError);
+        };
+        let Ok(method) = self.runtime.dispatch_instance(*object, slot) else {
+            return Err(MachineError::SerializationError);
+        };
+        let Ok(function) = usize::try_from(method.body().raw()) else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some(callee) = program.functions.get(function).cloned() else {
+            return Err(MachineError::SerializationError);
+        };
+        let mut passed = vec![Value::Object(*object)];
+        passed.extend_from_slice(arguments);
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            passed,
             program,
             classes,
-        )?
-        .ok_or(MachineError::SerializationError)
+        )?;
+        Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+    }
+
+    /// Calls an authored CLASS method and answers its value.
+    fn class_method_value(
+        &mut self,
+        class: ClassId,
+        selector: &str,
+        arguments: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Some(index) = classes.iter().position(|known| *known == class) else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some((_, function)) = program.classes[index]
+            .class_methods
+            .iter()
+            .find(|(name, _)| name == selector)
+        else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some(callee) = program.functions.get(*function).cloned() else {
+            return Err(MachineError::SerializationError);
+        };
+        let mut passed = vec![Value::Class(class)];
+        passed.extend_from_slice(arguments);
+        let returned = self.run_body(
+            &callee.instructions,
+            callee.registers,
+            passed,
+            program,
+            classes,
+        )?;
+        Ok(returned.into_iter().next().unwrap_or(Value::Nil))
     }
 
     fn declares_serializable(

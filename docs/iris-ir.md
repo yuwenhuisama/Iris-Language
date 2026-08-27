@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 638 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 657 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,37 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+Three SERVICE subsystems followed, each a surface the backend had no support
+for at all rather than a construct it lowered badly.
+
+`IrisValue` validates a stream's HEADER before its payload: `C016` checks magic
+and format version before decoding anything that depends on them, and `C017`
+forbids allocating from a DECLARED length before that length is validated, so a
+limit breach is refused before the payload is read. `C020` routes a nominal
+value through the class's own factory, but only for a class that DECLARES
+`Serializable` - a class carrying a `deserialize` factory without the
+conformance is refused, which is what stops a crafted stream instantiating an
+arbitrary class.
+
+The FFI boundary refuses before it crosses. `C045` forbids invoking an unbound
+symbol and `C046` denies any signature-less escape hatch, so a `call` to an
+unbound name never reaches native code; `C047` lists what a signature must
+declare, with pointer nullability, ownership, text encoding and buffer length
+required only WHERE NEEDED - a scalar parameter owes none of them; and `C049`
+supports the stable C ABI only. `C043` makes each open identity-bearing, so two
+opens of one path are two objects and comparing them is false.
+
+Decoding is STRICT by default and an encoding must be named explicitly. `C022`
+makes a lossy result appear only because the caller asked for it by name, and
+`C025` refuses an implicit selection: a host default, an OS locale or a code
+page names no Encoding at all, and so does omitting the argument.
+
+Building them found one more defect, again only from USE. `authored_send`
+answers the BUILT-IN surface, so an object's own `serialize` was not reachable
+through it and `IrisValue.encode` answered SerializationError for a class that
+plainly conformed. Authored instance and class methods are dispatched directly
+now.
 
 Four SUBSYSTEMS were then built rather than buckets closed. A stored-property
 initializer is an ordinary expression evaluated at construction with `self`
