@@ -1038,3 +1038,54 @@ impl Machine {
         })
     }
 }
+
+impl Machine {
+    /// Decodes bytes in a NAMED Encoding, per `IRIS-V1-LIBRARY-C022`.
+    ///
+    /// Strict handling is the DEFAULT: an invalid sequence fails, and a lossy
+    /// result appears only because the caller asked for it by name. Latin-1
+    /// maps every byte to the scalar of that value, so it cannot fail at all
+    /// and needs no error option.
+    pub(super) fn encoding_decode(
+        encoding: &str,
+        value: &Value,
+        options: &[Value],
+    ) -> Result<Value, MachineError> {
+        let bytes = match value {
+            Value::Bytes(bytes) => bytes.clone(),
+            Value::ByteArray(bytes) => bytes.bytes(),
+            _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+        };
+        let replace = options.iter().any(|option| {
+            matches!(option, Value::KeywordArgument(name, mode)
+                if name == "errors" && **mode == Value::Symbol("replace".to_owned()))
+        });
+        let decoded = match encoding {
+            "Encoding::Latin_1" => Ok(bytes.iter().map(|byte| char::from(*byte)).collect()),
+            "Encoding::UTF_16LE" | "Encoding::UTF_16BE" => {
+                let big = encoding.ends_with("BE");
+                let units: Vec<u16> = bytes
+                    .chunks_exact(2)
+                    .map(|pair| {
+                        if big {
+                            u16::from_be_bytes([pair[0], pair[1]])
+                        } else {
+                            u16::from_le_bytes([pair[0], pair[1]])
+                        }
+                    })
+                    .collect();
+                if bytes.len() % 2 == 0 {
+                    String::from_utf16(&units).map_err(|_| ())
+                } else {
+                    Err(())
+                }
+            }
+            _ => String::from_utf8(bytes.clone()).map_err(|_| ()),
+        };
+        match decoded {
+            Ok(text) => Ok(Value::Text(text)),
+            Err(()) if replace => Ok(Value::Text(String::from_utf8_lossy(&bytes).into_owned())),
+            Err(()) => Err(MachineError::EncodingError),
+        }
+    }
+}

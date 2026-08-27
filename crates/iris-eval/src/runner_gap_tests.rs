@@ -5319,3 +5319,71 @@ fn the_ffi_boundary_refuses_before_it_crosses() {
         );
     }
 }
+
+/// Decoding is STRICT by default, and an encoding must be named EXPLICITLY.
+///
+/// `IRIS-V1-LIBRARY-C022` makes strict handling the default, so a lossy result
+/// appears only because the caller asked for it by name. `C025` forbids
+/// selecting an OS locale, code page or Host default implicitly: choosing one
+/// for decoding requires naming a real Encoding.
+#[test]
+fn decoding_is_strict_and_named_explicitly() {
+    for (source, expected) in [
+        (r#"Encoding::UTF_8.decode(b"hi")"#, r#""hi""#),
+        // An invalid sequence decodes lossily ONLY when asked by name.
+        (
+            r#"Encoding::UTF_8.decode(b"\xc3\x28", errors: :replace)"#,
+            "\"\u{fffd}(\"",
+        ),
+        // Latin-1 maps every byte, so it cannot fail and needs no option.
+        (r#"Encoding::Latin_1.decode(b"\xff")"#, "\"ÿ\""),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    for (source, expected) in [
+        // Strict is the DEFAULT: the same bytes fail without the option.
+        (r#"Encoding::UTF_8.decode(b"\xc3\x28")"#, "EncodingError"),
+        // Asking for "the default" names no Encoding at all.
+        (
+            "Encoding.default()",
+            r#"LexicalDiagnostic("EncodingSelectionError")"#,
+        ),
+        // A host default is exactly the implicit selection C025 refuses...
+        (
+            r#"File.read_text("input.txt", encoding: :host_default)"#,
+            r#"LexicalDiagnostic("ENCODING_EXPLICIT_REQUIRED")"#,
+        ),
+        // ...and so is omitting the encoding entirely.
+        (
+            r#"File.read_text("input.txt")"#,
+            r#"LexicalDiagnostic("ENCODING_EXPLICIT_REQUIRED")"#,
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

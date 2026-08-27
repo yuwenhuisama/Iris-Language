@@ -260,6 +260,21 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::RaiseEncodingSelection { code, .. } => {
+                    return Err(MachineError::LexicalDiagnostic(code));
+                }
+                Instruction::EncodingDecode {
+                    encoding,
+                    value,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let value = registers[*value as usize].clone();
+                    let start = *first as usize;
+                    let options = registers[start..start + *count as usize].to_vec();
+                    dispatch!(Self::encoding_decode(encoding, &value, &options)?)
+                }
                 Instruction::FfiOpen {
                     path, first, count, ..
                 } => {

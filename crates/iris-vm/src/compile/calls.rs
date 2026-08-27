@@ -293,6 +293,61 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        if let Expression::Name(namespace) = receiver.as_ref()
+            && self.lookup(namespace).is_none()
+        {
+            // `C022` names each Encoding explicitly, so a decode is routed by
+            // the namespace the source wrote rather than by a runtime lookup.
+            let encoding = match namespace.as_str() {
+                "Encoding::UTF_8" => Some("Encoding::UTF_8"),
+                "Encoding::UTF_16LE" => Some("Encoding::UTF_16LE"),
+                "Encoding::UTF_16BE" => Some("Encoding::UTF_16BE"),
+                "Encoding::Latin_1" => Some("Encoding::Latin_1"),
+                _ => None,
+            };
+            if let Some(encoding) = encoding
+                && selector == "decode"
+                && !arguments.is_empty()
+            {
+                let value = self.expression(&arguments[0])?;
+                let (first, count) = self.argument_window(&arguments[1..])?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::EncodingDecode {
+                    destination,
+                    encoding,
+                    value,
+                    first,
+                    count,
+                });
+                return Ok(destination);
+            }
+            // `C025` refuses an IMPLICIT selection: a host default names no
+            // Encoding, and so does omitting the argument entirely.
+            if namespace == "Encoding" && selector == "default" {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::RaiseEncodingSelection {
+                    destination,
+                    code: "EncodingSelectionError",
+                });
+                return Ok(destination);
+            }
+            if namespace == "File" && selector == "read_text" {
+                let names_encoding = arguments.iter().skip(1).any(|argument| {
+                    matches!(argument, Expression::KeywordArgument { name, value }
+                        if name == "encoding"
+                            && !matches!(value.as_ref(),
+                                Expression::Symbol(named) if named == "host_default"))
+                });
+                if !names_encoding {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::RaiseEncodingSelection {
+                        destination,
+                        code: "ENCODING_EXPLICIT_REQUIRED",
+                    });
+                    return Ok(destination);
+                }
+            }
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "FFI")
             && self.lookup("FFI").is_none()
             && selector == "open"

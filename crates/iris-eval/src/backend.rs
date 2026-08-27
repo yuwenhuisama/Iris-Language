@@ -160,6 +160,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::JsonSyntaxError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::JsonSyntaxError),
                 )),
+                Err(iris_vm::MachineError::EncodingError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::EncodingError),
+                )),
                 Err(iris_vm::MachineError::UnboundNativeSymbol) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::UnboundNativeSymbol)),
                 ),

@@ -29,6 +29,11 @@ pub enum MachineError {
     /// target; one that does not is a program error the reference reports
     /// when the transfer runs, not a construct the backend lacks.
     LoopTransferOutsideLoop,
+    /// A byte sequence was not valid in the selected Encoding.
+    ///
+    /// `IRIS-V1-LIBRARY-C022` makes STRICT handling the default, so a lossy
+    /// result appears only when the caller asks for it by name.
+    EncodingError,
     /// A native symbol was called without being BOUND.
     ///
     /// `IRIS-V1-FFI-C045` forbids invoking an unbound symbol and `C046` denies
@@ -564,6 +569,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::DefaultParameter { source, .. } => vec![*source],
         Instruction::IrisValueEncode { value, .. } => vec![*value],
         Instruction::FfiOpen { path, .. } => vec![*path],
+        Instruction::EncodingDecode { value, .. } => vec![*value],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }
@@ -598,7 +604,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::RaiseUnsupported { .. }
         | Instruction::RaiseNameError { .. }
         | Instruction::RaiseParseDiagnostic { .. }
-        | Instruction::RaiseLoopTransfer { .. } => Vec::new(),
+        | Instruction::RaiseLoopTransfer { .. }
+        | Instruction::RaiseEncodingSelection { .. } => Vec::new(),
     }
 }
 

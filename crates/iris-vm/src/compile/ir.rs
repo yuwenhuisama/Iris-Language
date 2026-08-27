@@ -146,6 +146,25 @@ pub enum Instruction {
         pattern: String,
         flags: String,
     },
+    /// Decodes bytes in a NAMED Encoding, per `IRIS-V1-LIBRARY-C022`.
+    ///
+    /// Strict handling is the DEFAULT, so an invalid sequence fails unless the
+    /// caller asked for `errors: :replace` by name.
+    EncodingDecode {
+        destination: Register,
+        encoding: &'static str,
+        value: Register,
+        first: Register,
+        count: u16,
+    },
+    /// Refuses an IMPLICIT encoding selection, per `IRIS-V1-LIBRARY-C025`.
+    ///
+    /// A host default, an OS locale or a code page names no Encoding at all,
+    /// and choosing one for decoding requires the caller to name a real one.
+    RaiseEncodingSelection {
+        destination: Register,
+        code: &'static str,
+    },
     /// Opens a native library, per `IRIS-V1-FFI-C043`.
     ///
     /// Each open takes a FRESH identity rather than being cached by path, so
@@ -650,7 +669,9 @@ impl Instruction {
             }
             Self::IrisValueEncode { destination, .. }
             | Self::IrisValueDecode { destination, .. }
-            | Self::FfiOpen { destination, .. } => Some(*destination),
+            | Self::FfiOpen { destination, .. }
+            | Self::EncodingDecode { destination, .. }
+            | Self::RaiseEncodingSelection { destination, .. } => Some(*destination),
             Self::GateComplete { destination, .. } => Some(*destination),
             Self::DefaultParameter { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }
