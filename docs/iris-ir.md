@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 696 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 703 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,29 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+Telling an ANNOTATION from a change of meaning kept recurring. Type parameters
+and a `where` constraint on a REOPEN restate the declaration's own header, and
+a generic contract declares no more requirements than a plain one, so both are
+accepted. A superclass, a conformance or a mixin on a reopen would change what
+the class IS, and `open` or `extends` on a contract would change its
+requirement set, so those stay declined. The sharpest case is a CONTRACT bound:
+the reference checks `class Box<T> where T: Comparable<T> {}` when the class is
+constructed, so accepting `Box<String>.new()` would answer an object where the
+language answers a TypeContractError - it is declined until that check exists,
+because a wrong answer is worse than a hold.
+
+A class body's `let` or `mut` declares no instance variable at all: the
+reference answers nil for `@done` after `mut done = false`, so the binding is
+accepted and ignored rather than refused.
+
+Reflection `invoke` calls a Method the program already SELECTED, so the
+dispatch that found it is not repeated, and `set_superclass` is refused by the
+target's own meta policy - a built-in class protects its superclass outright.
+An Object compares by IDENTITY unless its class defines `==`, and `!=` is that
+negated; neither reaches the kernel, because an Object dispatches through its
+own class. `fetch` differs from indexing exactly in refusing an absent key,
+which is what makes it an assertion that the key is present.
 
 The regex refusals were the decline-vs-raise mistake once more: an unsupported
 construct NAMES itself - a backreference is distinguishable from a lookbehind -
