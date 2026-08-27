@@ -5956,3 +5956,49 @@ fn a_restated_header_is_an_annotation() {
     };
     assert_eq!(reason, "class reopen header");
 }
+
+/// A class body's `let` or `mut` declares NO instance variable.
+///
+/// `mut done = false` in a class body is not an ivar initializer: the
+/// reference answers nil for `@done` afterwards, so the binding declares
+/// nothing the object carries. Declining it refused programs that run.
+#[test]
+fn a_class_body_binding_declares_no_ivar() {
+    for (source, expected) in [
+        // The ivar starts ABSENT, whatever the body's binding said.
+        (
+            "class R { mut done = false public fun read() -> Object { @done } } R.new().read()",
+            "nil",
+        ),
+        (
+            "class R { let tag = :t public fun read() -> Object { @tag } } R.new().read()",
+            "nil",
+        ),
+        // Assigning the ivar still works, so only the initializer is inert.
+        (
+            "class R { mut done = false public fun flip() -> Object { @done = true; @done } } \
+             R.new().flip()",
+            "true",
+        ),
+        // The realistic shape: a resource guarding double close.
+        (
+            "mut n = 0; class R { mut done = false \
+             public fun close() -> Nil { if @done { nil } else { @done = true; n = n + 1; nil } } } \
+             let r = R.new(); let v = using(r) { :body }; let again = r.close(); [v, n, again]",
+            "[:body, 1, nil]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
