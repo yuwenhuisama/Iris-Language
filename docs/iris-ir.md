@@ -891,7 +891,7 @@ alone said where the backend stopped, not what stopped it, and the split showed
 `try` at 38 against `for` at 8. Also `assignment target` (anything but a bound
 name), `nested closure`, non-name `try catch filter`,
 `call arity`, `name assignment unbound`, `break outside loop`,
-`member`, `hash key name`, `yield`, and the
+`member`, `yield`, and the
 class forms `class reopen target`, `class reopen header`,
 `class reopen class method`,
 `class mixin`, `class superclass` and `class body`, plus the structural
