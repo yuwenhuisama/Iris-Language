@@ -107,6 +107,13 @@ impl Machine {
         // an `Object` whose registry entry has no `hash`. `C087` still fixes a
         // public hash over the CANONICAL pattern and flags, which is what
         // makes `/a+/im` and `/a+/mi` hash alike.
+        // `C043` makes each open an IDENTITY-BEARING Library, so equality
+        // compares identity rather than the path two opens happen to share.
+        if selector == "=="
+            && let (Value::Library(left), [Value::Library(right)]) = (&receiver, arguments)
+        {
+            return Ok(Value::Bool(left.identity == right.identity));
+        }
         if selector == "hash"
             && arguments.is_empty()
             && matches!(receiver, Value::Regex(_) | Value::Match(_))

@@ -5227,3 +5227,95 @@ fn irisvalue_validates_before_it_decodes() {
         );
     }
 }
+
+/// The FFI boundary refuses BEFORE it crosses, per `IRIS-V1-FFI-C045..C049`.
+///
+/// `C045` forbids invoking an unbound symbol and `C046` denies any
+/// signature-less escape hatch, so a `call` to an unbound name never reaches
+/// native code. `C047` lists what a signature must declare and rejects a
+/// binding that omits it, and `C049` supports the stable C ABI only. `C043`
+/// makes each open an identity-bearing Library, so two opens of one path are
+/// two objects.
+#[test]
+fn the_ffi_boundary_refuses_before_it_crosses() {
+    const COMPLETE: &str = "mut sig = %{}; sig[:convention] = :c; sig[:parameters] = []; \
+                            sig[:result] = :f64; sig[:errors] = :none; ";
+
+    for (source, expected) in [
+        // A complete signature binds, and the binding is observable.
+        (
+            format!("{COMPLETE}FFI.open(\"libm.so\").bind(:sqrt, sig).bound?(:sqrt)"),
+            "true".to_owned(),
+        ),
+        // A symbol that was never bound records NO signature.
+        (
+            format!("{COMPLETE}FFI.open(\"libm.so\").bind(:sqrt, sig).signature(:absent)"),
+            "nil".to_owned(),
+        ),
+        // Each open is a distinct identity, even for one path.
+        (
+            r#"let a = FFI.open("lib"); let b = FFI.open("lib"); [a == b, a.class_name()]"#
+                .to_owned(),
+            r#"[false, "FFI::Library"]"#.to_owned(),
+        ),
+        // The refusal is an ordinary CATCHABLE error, not a lost frame.
+        (
+            "mut rust = %{}; rust[:convention] = :rust; rust[:parameters] = []; \
+             rust[:result] = :i32; rust[:errors] = :status; \
+             try { FFI.open(\"lib\").bind(:only, rust) } catch e { e }"
+                .to_owned(),
+            ":IncompleteNativeSignatureError".to_owned(),
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected),
+            "{source}"
+        );
+    }
+
+    for (source, expected) in [
+        // Calling an UNBOUND symbol never crosses the boundary.
+        (
+            r#"FFI.open("libm.so").call(:sqrt)"#.to_owned(),
+            "UnboundNativeSymbol",
+        ),
+        // A signature missing required data is rejected at BIND time.
+        (
+            "mut sig = %{}; sig[:convention] = :c; FFI.open(\"libm.so\").bind(:sqrt, sig)"
+                .to_owned(),
+            "IncompleteNativeSignature",
+        ),
+        // A POINTER parameter needs its nullability and ownership, which a
+        // scalar does not - so the obligation is conditional, not blanket.
+        (
+            "mut p = %{}; p[:type] = :pointer; mut sig = %{}; sig[:convention] = :c; \
+             sig[:parameters] = [p]; sig[:result] = :i32; sig[:errors] = :none; \
+             FFI.open(\"lib\").bind(:copy, sig)"
+                .to_owned(),
+            "IncompleteNativeSignature",
+        ),
+    ] {
+        let wrapped = format!("module M {{ public fun run() -> Object {{ {source} }} }} M.run()");
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

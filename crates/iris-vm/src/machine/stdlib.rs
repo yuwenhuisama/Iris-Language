@@ -234,6 +234,7 @@ impl Machine {
                     .map_err(MachineError::Construction)?;
                 Some(value.clone())
             }
+            Value::Library(library) => Self::library_send(library, selector, arguments)?,
             Value::Match(matched) => match (selector, arguments) {
                 ("text" | "to_string", []) => Some(Value::Text(matched.text.clone())),
                 ("regex", []) => Some(Value::Regex(Box::new(matched.regex.clone()))),
@@ -846,5 +847,194 @@ impl Machine {
             }),
             _ => Err(MachineError::SerializationError),
         }
+    }
+}
+
+impl Machine {
+    /// Opens a native library, per `IRIS-V1-FFI-C043`.
+    ///
+    /// Each open takes a FRESH identity rather than being cached by path, so
+    /// two opens of one path are two objects and `a == b` is false. `C045`
+    /// accepts sidecar declarations at open time, each validated exactly as a
+    /// programmatic bind would be, and `C043` spells that argument
+    /// `declarations:` - matching a bare Hash would silently ignore the
+    /// spelling and open a Library with nothing bound.
+    pub(super) fn ffi_open(
+        &mut self,
+        path: &Value,
+        options: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let path = self.text_operand(path.clone(), program, classes)?;
+        let mut bound = Vec::new();
+        // `C025` makes binding PRESERVE the recorded signature, so a validated
+        // signature is retained beside its symbol rather than discarded once
+        // it passed validation.
+        let mut signatures = Vec::new();
+        if let Some(Value::KeywordArgument(name, declarations)) = options.first()
+            && name == "declarations"
+            && let Value::Hash(declarations) = declarations.as_ref()
+        {
+            for (symbol, signature) in declarations.entries() {
+                let (Value::Symbol(symbol) | Value::Text(symbol)) = &symbol else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Self::validate_ffi_signature(&signature)?;
+                bound.push(symbol.clone());
+                signatures.push((symbol.clone(), signature.clone()));
+            }
+        }
+        let identity = self.next_context;
+        self.next_context = self.next_context.saturating_add(1);
+        Ok(Value::Library(Box::new(iris_runtime::LibraryValue {
+            identity,
+            path,
+            bound,
+            signatures,
+        })))
+    }
+
+    /// Checks a signature declares what `IRIS-V1-FFI-C047` requires.
+    ///
+    /// `C047` lists the data a signature MUST carry and requires missing data
+    /// to reject the binding BEFORE any call occurs, so this checks presence
+    /// rather than deferring to call time. `C046` denies any signature-less
+    /// path, which is why an absent signature is a rejection and not a default.
+    fn validate_ffi_signature(signature: &Value) -> Result<(), MachineError> {
+        let Value::Hash(fields) = signature else {
+            return Err(MachineError::IncompleteNativeSignature);
+        };
+        for required in ["convention", "parameters", "result", "errors"] {
+            if !fields.contains_key(&Value::Symbol(required.to_owned())) {
+                return Err(MachineError::IncompleteNativeSignature);
+            }
+        }
+        // `C049` supports the stable C ABI ONLY, so a signature naming another
+        // implementation language's convention is rejected here rather than
+        // bound and left to fail at the call.
+        if let Some(Value::Symbol(convention)) = fields.get(&Value::Symbol("convention".to_owned()))
+            && convention.as_str() != "c"
+        {
+            return Err(MachineError::IncompleteNativeSignature);
+        }
+        if let Some(Value::Array(parameters)) = fields.get(&Value::Symbol("parameters".to_owned()))
+        {
+            for parameter in parameters.elements() {
+                Self::validate_ffi_parameter(&parameter)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates one declared FFI parameter.
+    ///
+    /// The rest of `C047`'s list is CONDITIONAL: pointer nullability,
+    /// ownership, text encoding and buffer length are required "where needed".
+    /// A plain scalar needs none of them, so they are demanded only once a
+    /// parameter declares itself a pointer - and then before any call occurs.
+    fn validate_ffi_parameter(parameter: &Value) -> Result<(), MachineError> {
+        let Value::Hash(fields) = parameter else {
+            return Ok(());
+        };
+        let Some(Value::Symbol(kind)) = fields.get(&Value::Symbol("type".to_owned())) else {
+            return Err(MachineError::IncompleteNativeSignature);
+        };
+        if kind != "pointer" {
+            return Ok(());
+        }
+        for required in ["nullable", "ownership"] {
+            if !fields.contains_key(&Value::Symbol(required.to_owned())) {
+                return Err(MachineError::IncompleteNativeSignature);
+            }
+        }
+        // A TEXT pointer additionally needs its encoding and a BUFFER pointer
+        // its length, since neither can be inferred from the pointer alone.
+        if fields.get(&Value::Symbol("text".to_owned())) == Some(Value::Bool(true))
+            && !fields.contains_key(&Value::Symbol("encoding".to_owned()))
+        {
+            return Err(MachineError::IncompleteNativeSignature);
+        }
+        if fields.get(&Value::Symbol("buffer".to_owned())) == Some(Value::Bool(true))
+            && !fields.contains_key(&Value::Symbol("length".to_owned()))
+        {
+            return Err(MachineError::IncompleteNativeSignature);
+        }
+        Ok(())
+    }
+
+    /// Runs the `IRIS-V1-FFI` Library surface: bind, signature, bound?, call.
+    pub(super) fn library_send(
+        library: &iris_runtime::LibraryValue,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Option<Value>, MachineError> {
+        let symbol_of = |value: &Value| match value {
+            Value::Symbol(name) | Value::Text(name) => Some(name.clone()),
+            _ => None,
+        };
+        Ok(match (selector, arguments) {
+            // `C045` gives a programmatic bind the SAME validation a sidecar
+            // declaration gets, and `C025` preserves the recorded signature.
+            ("bind", [symbol, signature, ..]) => {
+                let Some(symbol) = symbol_of(symbol) else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Self::validate_ffi_signature(signature)?;
+                let mut bound = library.bound.clone();
+                bound.push(symbol.clone());
+                let mut signatures = library.signatures.clone();
+                signatures.push((symbol, signature.clone()));
+                Some(Value::Library(Box::new(iris_runtime::LibraryValue {
+                    identity: library.identity,
+                    path: library.path.clone(),
+                    bound,
+                    signatures,
+                })))
+            }
+            // `C025` makes the recorded signature OBSERVABLE, and a symbol
+            // that was never bound records none.
+            ("signature", [symbol]) => {
+                let Some(symbol) = symbol_of(symbol) else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Some(
+                    library
+                        .signatures
+                        .iter()
+                        .find_map(|(bound, signature)| {
+                            (*bound == symbol).then(|| signature.clone())
+                        })
+                        .unwrap_or(Value::Nil),
+                )
+            }
+            ("bound?", [symbol]) => {
+                let Some(symbol) = symbol_of(symbol) else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                Some(Value::Bool(library.bound.contains(&symbol)))
+            }
+            // `C045` forbids invoking an UNBOUND symbol and `C046` denies any
+            // signature-less escape hatch, so the refusal happens here and no
+            // native boundary is crossed.
+            ("call", [symbol, ..]) => {
+                let Some(symbol) = symbol_of(symbol) else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                if !library.bound.contains(&symbol) {
+                    return Err(MachineError::UnboundNativeSymbol);
+                }
+                return Err(MachineError::UnsupportedConstruct);
+            }
+            // `C043` makes each open an IDENTITY-BEARING Library, so two opens
+            // of one path are two objects: equality compares identity rather
+            // than the path they happen to share.
+            ("==", [Value::Library(other)]) => {
+                Some(Value::Bool(library.identity == other.identity))
+            }
+            ("==", [_]) => Some(Value::Bool(false)),
+            ("class_name", []) => Some(Value::Text("FFI::Library".to_owned())),
+            _ => None,
+        })
     }
 }

@@ -146,6 +146,17 @@ pub enum Instruction {
         pattern: String,
         flags: String,
     },
+    /// Opens a native library, per `IRIS-V1-FFI-C043`.
+    ///
+    /// Each open takes a FRESH identity rather than being cached by path, so
+    /// two opens of one path are two objects. A sidecar `declarations:` is
+    /// validated exactly as a programmatic bind would be, per `C045`.
+    FfiOpen {
+        destination: Register,
+        path: Register,
+        first: Register,
+        count: u16,
+    },
     /// Encodes a value as `IrisValue` data, per `IRIS-V1-LIBRARY-C018`.
     ///
     /// An object is asked for its OWN representation through `serialize`, and
@@ -638,7 +649,8 @@ impl Instruction {
                 Some(*destination)
             }
             Self::IrisValueEncode { destination, .. }
-            | Self::IrisValueDecode { destination, .. } => Some(*destination),
+            | Self::IrisValueDecode { destination, .. }
+            | Self::FfiOpen { destination, .. } => Some(*destination),
             Self::GateComplete { destination, .. } => Some(*destination),
             Self::DefaultParameter { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }

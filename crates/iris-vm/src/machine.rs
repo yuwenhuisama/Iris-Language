@@ -188,6 +188,11 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
         MachineError::SerializationError => Some("SerializationError"),
+        // `C047` rejects an incomplete signature as an ordinary catchable Iris
+        // error, so a program may `try { lib.bind(..) } catch e { e }` and
+        // observe the name rather than losing the frame.
+        MachineError::IncompleteNativeSignature => Some("IncompleteNativeSignatureError"),
+        MachineError::UnboundNativeSymbol => Some("UnboundNativeSymbolError"),
         MachineError::AuditHistoryUnavailable => Some("AuditHistoryUnavailableError"),
         MachineError::HostDriveUnavailable => Some("HostDriveUnavailableError"),
         // NOT catchable. A bare `raise` with nothing propagating is a

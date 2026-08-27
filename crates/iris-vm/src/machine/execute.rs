@@ -260,6 +260,14 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::FfiOpen {
+                    path, first, count, ..
+                } => {
+                    let path = registers[*path as usize].clone();
+                    let start = *first as usize;
+                    let options = registers[start..start + *count as usize].to_vec();
+                    run_frame!('frame, self.ffi_open(&path, &options, program, classes))
+                }
                 Instruction::IrisValueEncode { value, .. } => {
                     let value = registers[*value as usize].clone();
                     run_frame!('frame, self.irisvalue_encode(value, program, classes))

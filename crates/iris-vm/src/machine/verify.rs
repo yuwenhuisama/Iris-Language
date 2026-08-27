@@ -29,6 +29,18 @@ pub enum MachineError {
     /// target; one that does not is a program error the reference reports
     /// when the transfer runs, not a construct the backend lacks.
     LoopTransferOutsideLoop,
+    /// A native symbol was called without being BOUND.
+    ///
+    /// `IRIS-V1-FFI-C045` forbids invoking an unbound symbol and `C046` denies
+    /// any signature-less escape hatch, so the refusal happens before any call
+    /// rather than at the boundary.
+    UnboundNativeSymbol,
+    /// A native signature omitted data `IRIS-V1-FFI-C047` requires.
+    ///
+    /// `C047` lists what a signature MUST declare and requires missing data to
+    /// reject the binding BEFORE any call occurs, so this is a presence check
+    /// rather than a deferred one.
+    IncompleteNativeSignature,
     /// A NAMED diagnostic the reference reports by code.
     ///
     /// A serialization header or limit failure is reported as its own code
@@ -551,6 +563,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
         Instruction::DefaultParameter { source, .. } => vec![*source],
         Instruction::IrisValueEncode { value, .. } => vec![*value],
+        Instruction::FfiOpen { path, .. } => vec![*path],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }

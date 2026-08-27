@@ -293,6 +293,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
         {
             return Err(CompileError::new(format!("{namespace}.invoke")));
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "FFI")
+            && self.lookup("FFI").is_none()
+            && selector == "open"
+            && !arguments.is_empty()
+        {
+            let path = self.expression(&arguments[0])?;
+            let (first, count) = self.argument_window(&arguments[1..])?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::FfiOpen {
+                destination,
+                path,
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "IrisValue")
             && self.lookup("IrisValue").is_none()
         {
