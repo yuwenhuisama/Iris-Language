@@ -586,6 +586,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::FfiOpen { path, .. } => vec![*path],
         Instruction::EncodingDecode { value, .. } => vec![*value],
         Instruction::MakeRegex { pattern, .. } => vec![*pattern],
+        Instruction::NativeFixture { .. } => Vec::new(),
         Instruction::EscapeRegex { value, .. } => vec![*value],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }

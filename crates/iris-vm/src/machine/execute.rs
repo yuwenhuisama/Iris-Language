@@ -319,6 +319,16 @@ impl Machine {
                     let pattern = pattern.clone();
                     dispatch!(Self::make_regex(&pattern, flags)?)
                 }
+                Instruction::NativeFixture {
+                    selector,
+                    first,
+                    count,
+                    ..
+                } => {
+                    let start = *first as usize;
+                    let arguments = registers[start..start + *count as usize].to_vec();
+                    dispatch!(self.native_fixture(selector, &arguments)?)
+                }
                 Instruction::DiscardedContexts { .. } => {
                     Value::Array(iris_runtime::ArrayRef::new(self.discarded_contexts.clone()))
                 }
@@ -563,6 +573,21 @@ impl Machine {
                         )
                     ) {
                         value
+                    } else if let Value::NativeResource(_) = &registers[*receiver as usize] {
+                        // The release counter is read as a bare MEMBER, which
+                        // is how the fixture proves a second close did not
+                        // release again.
+                        match selector.as_str() {
+                            "releases" => Value::Integer(
+                                u64::from(iris_abi::iris_payload_release_count()).into(),
+                            ),
+                            _ => {
+                                return Err(MachineError::MessageNotFound {
+                                    receiver_class: "NativeResource".to_owned(),
+                                    selector: selector.clone(),
+                                });
+                            }
+                        }
                     } else if let Value::ExceptionContext(
                         _,
                         value,

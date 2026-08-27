@@ -271,6 +271,25 @@ impl Machine {
                     .map_err(MachineError::Construction)?;
                 Some(value.clone())
             }
+            // `C030` makes a second close a NO-OP rather than a second
+            // release, and the counter is how a caller proves that - so it is
+            // readable rather than internal.
+            Value::NativeResource(_) => match (selector, arguments) {
+                ("close", []) => {
+                    let status = iris_abi::iris_payload_close();
+                    if !matches!(
+                        status,
+                        iris_abi::IrisStatus::Success | iris_abi::IrisStatus::InvalidHandle
+                    ) {
+                        return Err(MachineError::UnsupportedConstruct);
+                    }
+                    Some(Value::Nil)
+                }
+                ("releases", []) => Some(Value::Integer(
+                    u64::from(iris_abi::iris_payload_release_count()).into(),
+                )),
+                _ => None,
+            },
             Value::Library(library) => Self::library_send(library, selector, arguments)?,
             Value::Match(matched) => match (selector, arguments) {
                 ("text" | "to_string", []) => Some(Value::Text(matched.text.clone())),
@@ -1361,5 +1380,79 @@ impl Machine {
             pattern: pattern.to_owned(),
             flags: flags.to_owned(),
         })))
+    }
+}
+
+impl Machine {
+    /// Crosses the native ABI, per `IRIS-V1-FFI-C017`, `C018` and `C027`.
+    ///
+    /// `C018` lets native code raise ONLY through an ABI operation that
+    /// creates an ExceptionContext, so this calls the real C ABI and converts
+    /// its status plus handle into the ordinary Iris exception a `catch`
+    /// observes. `C017` makes a status alone insufficient: the raised value is
+    /// read back THROUGH the handle rather than recomputed, so a boundary that
+    /// returned no usable context cannot still produce a correct-looking
+    /// exception.
+    pub(super) fn native_fixture(
+        &mut self,
+        selector: &str,
+        arguments: &[Value],
+    ) -> Result<Value, MachineError> {
+        match (selector, arguments) {
+            // `C027` validates a payload descriptor BEFORE the runtime owns any
+            // storage, so the resource reaches script only once registration
+            // succeeded. Its release counter stays behind the ABI, which is
+            // what makes `C030`'s idempotence observable rather than asserted.
+            ("resource", []) => {
+                iris_abi::iris_runtime_reset();
+                let mut diagnostic = 0_u32;
+                // SAFETY: `diagnostic` is a live local, so the pointer is valid.
+                let status =
+                    unsafe { iris_abi::iris_payload_register(8, 8, 0, 1, &raw mut diagnostic) };
+                if status != iris_abi::IrisStatus::Success {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                let identity = self.next_context;
+                self.next_context = self.next_context.saturating_add(1);
+                Ok(Value::NativeResource(identity))
+            }
+            ("raise", [Value::Integer(marker)]) => {
+                let Some(marker) = marker.decimal_text().parse::<i64>().ok() else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                iris_abi::iris_runtime_reset();
+                let mut context = iris_abi::IrisHandle::NULL;
+                // SAFETY: `context` is a live local, so the out pointer is valid.
+                let status = unsafe { iris_abi::iris_raise_marker(marker, &raw mut context) };
+                if status != iris_abi::IrisStatus::Raised || context.is_null() {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                let mut carried = 0_i64;
+                // SAFETY: `carried` is a live local, so the out pointer is valid.
+                let read = unsafe { iris_abi::iris_handle_get_int(context, &raw mut carried) };
+                if read != iris_abi::IrisStatus::Success {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                let Ok(recovered) = u64::try_from(carried) else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                // `C020` makes this a CONVERSION rather than a long jump across
+                // the native frame, so the raise carries a real
+                // ExceptionContext that a `catch` binds like any other.
+                let raised = Value::Integer(recovered.into());
+                let identity = iris_runtime::ObjectId::new(self.next_context);
+                self.next_context = self.next_context.saturating_add(1);
+                let context = Value::ExceptionContext(
+                    identity,
+                    Box::new(raised.clone()),
+                    Box::new(Value::Nil),
+                    Vec::new(),
+                    Vec::new(),
+                    Box::new(Value::Nil),
+                );
+                Err(MachineError::Raised(Box::new((raised, context))))
+            }
+            _ => Err(MachineError::UnsupportedConstruct),
+        }
     }
 }

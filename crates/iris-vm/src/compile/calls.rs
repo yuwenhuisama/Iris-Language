@@ -387,6 +387,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 }
             }
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if name == "NativeFixture")
+            && self.lookup("NativeFixture").is_none()
+            && matches!(selector.as_str(), "raise" | "resource")
+        {
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::NativeFixture {
+                destination,
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "Diagnostics")
             && self.lookup("Diagnostics").is_none()
             && selector == "discarded_contexts"

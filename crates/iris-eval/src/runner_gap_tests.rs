@@ -6154,3 +6154,45 @@ fn a_generic_module_is_annotated_and_super_fails_late() {
     };
     assert_eq!(reason, "module");
 }
+
+/// The native ABI raise is a CONVERSION, and a second close does not release.
+///
+/// `IRIS-V1-FFI-C018` lets native code raise only through an ABI operation
+/// that creates an ExceptionContext, and `C017` makes a status alone
+/// insufficient - the raised value is read back THROUGH the handle rather than
+/// recomputed, so a boundary returning no usable context cannot produce a
+/// correct-looking exception. `C020` makes it a conversion rather than a long
+/// jump, so a `catch` binds it like any other. `C030` makes a second close a
+/// no-op, and the release counter is how a caller proves that.
+#[test]
+fn the_native_boundary_converts_and_releases_once() {
+    for (source, expected) in [
+        // The raise crosses the REAL ABI and arrives as an ordinary exception,
+        // carrying a context whose value is the marker read back.
+        (
+            "module M { public fun run() -> Object { \
+             try { NativeFixture.raise(41); :unreachable } catch e: Integer, c { [e, c.value] } } } \
+             M.run()",
+            "[41, 41]",
+        ),
+        // Closing TWICE releases once, which the counter reports.
+        (
+            "module M { public fun run() -> Object { let r = NativeFixture.resource(); \
+             let first = r.close(); let second = r.close(); [first, second, r.releases] } } M.run()",
+            "[nil, nil, 1]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

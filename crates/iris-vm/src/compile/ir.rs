@@ -213,6 +213,20 @@ pub enum Instruction {
         pattern: Register,
         flags: String,
     },
+    /// Crosses the native ABI, per `IRIS-V1-FFI-C018` and `C027`.
+    ///
+    /// `raise` converts the ABI's status plus context handle into the ordinary
+    /// Iris exception a `catch` observes - `C017` makes a status alone
+    /// insufficient, so the raised value is read back THROUGH the handle
+    /// rather than recomputed. `resource` registers a payload whose release
+    /// counter stays behind the ABI, which is what makes `C030`'s idempotence
+    /// observable rather than asserted.
+    NativeFixture {
+        destination: Register,
+        selector: String,
+        first: Register,
+        count: u16,
+    },
     /// Answers the contexts a `finally` transfer DISCARDED.
     ///
     /// `IRIS-V1-ASYNC-C028` forbids a discarded propagation from disappearing
@@ -719,6 +733,7 @@ impl Instruction {
             Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
+            Self::NativeFixture { destination, .. } => Some(*destination),
             Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {
                 Some(*destination)
             }

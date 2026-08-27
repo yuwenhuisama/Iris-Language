@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 iris-lexer = { path = "../iris-lexer" }
 iris-parser = { path = "../iris-parser" }
+iris-abi = { path = "../iris-abi" }
 iris-runtime = { path = "../iris-runtime" }
 iris-syntax = { path = "../iris-syntax" }
 regex = "1"
