@@ -136,13 +136,14 @@ fn collect_contract(
     declaration: &iris_syntax::ContractDeclaration,
     contracts: &mut Vec<Contract>,
 ) -> Result<(), CompileError> {
-    // A decorator, a `where` constraint and a `meta deny` list annotate the
-    // declaration without changing its REQUIREMENTS, so they are accepted the
-    // way the class forms are. `open`, type parameters and `extends` are not
+    // A decorator, a `where` constraint, a `meta deny` list and type
+    // PARAMETERS annotate the declaration without changing its REQUIREMENTS -
+    // `contract Comparable<T> {}` declares none either way - so they are
+    // accepted the way the class forms are. `open` and `extends` are not
     // annotations: each changes which requirements the contract carries, and
     // accepting them would answer a requirement set that is wrong rather than
     // merely incomplete.
-    if declaration.open || !declaration.parameters.is_empty() || !declaration.parents.is_empty() {
+    if declaration.open || !declaration.parents.is_empty() {
         return Err(CompileError::new("contract declaration form"));
     }
     let mut requirements = Vec::new();
@@ -223,6 +224,22 @@ fn collect_class<'a>(
     // semantics - each governs a surface (decoration, generic bounds, meta
     // capability) the backend has no other support for either, so a program
     // that DEPENDS on one fails on that surface rather than here.
+    //
+    // A CONTRACT bound is the exception: the reference checks it when the
+    // class is CONSTRUCTED, so `class Box<T> where T: Comparable<T> {}` then
+    // `Box<String>.new()` is a TypeContractError. Accepting the construction
+    // would answer an object where the language answers a failure, so the
+    // bound is declined until that check exists.
+    if class.constraints.iter().any(|constraint| {
+        let named = match &constraint.bound {
+            TypeExpression::Name(name) => Some(name),
+            TypeExpression::Generic { name, .. } => Some(name),
+            _ => None,
+        };
+        named.is_some_and(|name| contracts.iter().any(|known| known.name == *name))
+    }) {
+        return Err(CompileError::new("class constraints"));
+    }
     let superclass_name = match &class.extends {
         Some(TypeExpression::Name(name)) => Some(name.as_str()),
         Some(_) => return Err(CompileError::new("class superclass")),
@@ -355,11 +372,14 @@ fn collect_reopen<'a>(
     classes: &mut [Class],
     builtin_reopens: &mut Vec<crate::compile::ir::BuiltinReopen>,
 ) -> Result<(), CompileError> {
+    // Type PARAMETERS and a `where` constraint on a reopen restate the
+    // declaration's own header rather than changing it - the reference runs
+    // `class Box<T> { }; open class Box<T> where T: Object { }; 1` and answers
+    // `1`. A superclass, a conformance or a MIXIN would change what the class
+    // is, so those stay declined.
     if class.extends.is_some()
         || !class.implements.is_empty()
         || !class.mixins.is_empty()
-        || !class.constraints.is_empty()
-        || !class.parameters.is_empty()
         || !class.meta_deny.is_empty()
     {
         return Err(CompileError::new("class reopen header"));

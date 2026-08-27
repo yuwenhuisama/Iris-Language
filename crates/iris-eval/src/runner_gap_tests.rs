@@ -5888,3 +5888,71 @@ fn a_checked_cast_answers_nil_on_mismatch() {
         &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
     );
 }
+
+/// Type PARAMETERS restate a header; a CONTRACT bound changes what runs.
+///
+/// A reopen carrying its declaration's own type parameters or a `where`
+/// constraint restates the header rather than changing it, and a generic
+/// contract declares no more requirements than a plain one - so both are
+/// annotations. A contract BOUND is not: the reference checks it when the
+/// class is constructed, so accepting the construction would answer an object
+/// where the language answers a failure.
+#[test]
+fn a_restated_header_is_an_annotation() {
+    for (source, expected) in [
+        (
+            "class Box<T> { }; open class Box<T> where T: Object { }; 1",
+            "1",
+        ),
+        ("contract Comparable<T> {} 1", "1"),
+        // A non-contract bound is satisfied by every construction.
+        (
+            "class Box<T> where T: Object { public fun tag() -> Symbol { :ok } } \
+             Box<String>.new().tag()",
+            ":ok",
+        ),
+        // A reopen restating the header still ADDS its methods.
+        (
+            "class Box<T> { }; open class Box<T> where T: Object { \
+             public fun tag() -> Symbol { :b } }; Box.new().tag()",
+            ":b",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a CONTRACT bound is declined rather than accepted, because the
+    // reference refuses the construction and answering an object would be a
+    // wrong answer rather than an incomplete one.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()",
+        )
+    else {
+        unreachable!("a contract bound must be declined")
+    };
+    assert_eq!(reason, "class constraints");
+
+    // Control: a reopen that CHANGES the header - a mixin - stays declined.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "module P { } class A { } open class A mixin P { } 1",
+        )
+    else {
+        unreachable!("a reopen adding a mixin must be declined")
+    };
+    assert_eq!(reason, "class reopen header");
+}
