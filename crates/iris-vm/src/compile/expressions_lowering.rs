@@ -703,6 +703,37 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let Some(selector) = compound_selector(*operator) else {
                     return Err(CompileError::new("assignment"));
                 };
+                // `IRIS-V1-CONTROL-C036` reads the target ONCE, which for an
+                // indexed target means the receiver and the index are each
+                // evaluated once and reused for both the read and the write:
+                // `p.factory()[p.idx()] += p.rhs()` calls each of them once,
+                // in that order.
+                if let Expression::Index { receiver, index } = left.as_ref() {
+                    let receiver = self.expression(receiver)?;
+                    let index = self.expression(index)?;
+                    let right = self.expression(right)?;
+                    let current = self.allocate()?;
+                    self.instructions.push(Instruction::Index {
+                        destination: current,
+                        receiver,
+                        index,
+                    });
+                    let combined = self.allocate()?;
+                    self.instructions.push(Instruction::Binary {
+                        destination: combined,
+                        selector,
+                        left: current,
+                        right,
+                    });
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::SetIndex {
+                        destination,
+                        receiver,
+                        index,
+                        value: combined,
+                    });
+                    return Ok(destination);
+                }
                 let Expression::Name(name) = left.as_ref() else {
                     return Err(CompileError::new("assignment target"));
                 };

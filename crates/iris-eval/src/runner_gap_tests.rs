@@ -5575,3 +5575,40 @@ fn a_loop_answers_what_break_carried() {
         );
     }
 }
+
+/// An INDEXED compound assignment evaluates its parts exactly once.
+///
+/// `IRIS-V1-CONTROL-C036` reads the target once, which for `a[i] += v` means
+/// the receiver and the index are each evaluated once and reused for both the
+/// read and the write. Lowering it as `a[i] = a[i] + v` would call a receiver
+/// expression twice, which is observable whenever it has an effect.
+#[test]
+fn an_indexed_compound_assignment_evaluates_once() {
+    for (source, expected) in [
+        ("mut a = [1, 2]; a[0] += 5; a", "[6, [6, 2]]"),
+        ("mut a = %{}; a[:k] = 1; a[:k] += 2; a[:k]", "[1, 3, 3]"),
+        // The receiver, the index and the right side each run ONCE, in that
+        // order - a duplicated read would show as a repeated `:factory`.
+        (
+            "mut evts = []; mut store = [1, 2]; \
+             class P { public fun factory() { evts.append(:factory); store } \
+             public fun idx() { evts.append(:index); 0 } \
+             public fun rhs() { evts.append(:rhs); 5 } } \
+             let p = P.new(); p.factory()[p.idx()] += p.rhs(); evts",
+            "[6, [:factory, :index, :rhs]]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
