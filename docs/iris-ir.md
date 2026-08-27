@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 703 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 707 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,24 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+The NATIVE boundary is the one subsystem that leaves the process. `C018` lets
+native code raise only through an ABI operation that creates an
+ExceptionContext, so the backend calls the real C ABI and converts its status
+plus handle into the ordinary Iris exception a `catch` observes - `C017` makes
+a status alone insufficient, so the raised value is read back THROUGH the
+handle rather than recomputed, and a boundary that returned no usable context
+cannot still produce a correct-looking exception. `C020` is what makes that a
+conversion rather than a long jump across the native frame. `C027` validates a
+payload descriptor before the runtime owns storage, and `C030` makes a second
+close a no-op: the release counter lives behind the ABI, which is what makes
+the idempotence observable rather than asserted.
+
+A module's type parameters annotate it the way a class's do, and a CLOSED
+generic mixin names the same module - `mixin Helpers<String>` composes
+`Helpers`, since neither backend specialises a module per argument. A `super()`
+with no owning class has no ancestor to reach, but the body carrying it may
+never be invoked, so it is raised when the call runs rather than refused.
 
 Telling an ANNOTATION from a change of meaning kept recurring. Type parameters
 and a `where` constraint on a REOPEN restate the declaration's own header, and
