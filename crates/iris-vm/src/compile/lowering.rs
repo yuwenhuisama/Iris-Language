@@ -1,7 +1,7 @@
 //! Function, statement, expression, call, and closure lowering.
 
 use super::declarations::Signature;
-use super::{Class, CompileError, Contract, Function, Instruction, Register};
+use super::{Class, CompileError, Contract, Function, Instruction, ParameterKind, Register};
 
 /// Lowers one function into its own frame.
 pub(super) fn lower_function(
@@ -68,6 +68,44 @@ pub(super) fn lower_function(
             destination,
             source,
             index,
+        });
+    }
+    // A signature with a NON-positional category binds its own parameters, so
+    // the frame reads the argument window itself. A purely positional one
+    // needs no instruction at all: the caller already wrote the values into
+    // the leading registers.
+    if signature
+        .parameters
+        .iter()
+        .any(|parameter| parameter.category != iris_syntax::ParameterCategory::Positional)
+    {
+        let kinds = signature
+            .parameters
+            .iter()
+            .map(|parameter| {
+                (
+                    match parameter.category {
+                        iris_syntax::ParameterCategory::Rest => ParameterKind::Rest,
+                        iris_syntax::ParameterCategory::Keyword => ParameterKind::Keyword,
+                        iris_syntax::ParameterCategory::KeywordRest => ParameterKind::KeywordRest,
+                        iris_syntax::ParameterCategory::Block => ParameterKind::Block,
+                        iris_syntax::ParameterCategory::Positional => ParameterKind::Positional,
+                    },
+                    parameter.name.clone(),
+                )
+            })
+            .collect();
+        let first = u16::try_from(usize::from(signature.receiver))
+            .map_err(|_| CompileError::new("call too wide"))?;
+        let count = u16::try_from(signature.parameters.len())
+            .map_err(|_| CompileError::new("call too wide"))?;
+        let destination = lowering.allocate()?;
+        lowering.instructions.push(Instruction::BindParameters {
+            destination,
+            kinds,
+            receiver: signature.receiver,
+            first,
+            count,
         });
     }
     // The owner's constants are bound after them, and `lookup` searches in

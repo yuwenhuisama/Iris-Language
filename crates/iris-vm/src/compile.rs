@@ -23,7 +23,7 @@ pub(crate) use ir::{
     Class, ClassReopen, ClassVariable, Contract, ContractRequirement, Function, LiteralValue,
     StoredProperty,
 };
-pub use ir::{FloatWidth, Instruction, Program, Register};
+pub use ir::{FloatWidth, Instruction, ParameterKind, Program, Register};
 
 /// Why a program could not be compiled.
 ///

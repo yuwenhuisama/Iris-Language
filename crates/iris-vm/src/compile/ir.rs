@@ -233,6 +233,22 @@ pub enum Instruction {
     RaiseUnsupported {
         destination: Register,
     },
+    /// Binds the frame's parameters, per `IRIS-V1-CONTROL-C023`.
+    ///
+    /// Positionals fill in order, `*rest` takes the remaining positionals as a
+    /// fresh Array, a `key` parameter binds by NAME rather than position, and
+    /// `**kwargs` collects the keywords no declared parameter matched. The
+    /// binding happens in the CALLEE because a dynamic send does not know the
+    /// signature until dispatch, and `C025` raises ArgumentError when a
+    /// required parameter is left unbound or a keyword is supplied twice.
+    BindParameters {
+        destination: Register,
+        kinds: Vec<(ParameterKind, String)>,
+        /// Whether the frame's leading register holds `self`.
+        receiver: bool,
+        first: Register,
+        count: u16,
+    },
     /// Writes a parameter's DEFAULT when the caller supplied no argument.
     ///
     /// A frame is entered with unfilled parameters holding nil, and a call
@@ -673,7 +689,8 @@ impl Instruction {
             | Self::EncodingDecode { destination, .. }
             | Self::RaiseEncodingSelection { destination, .. } => Some(*destination),
             Self::GateComplete { destination, .. } => Some(*destination),
-            Self::DefaultParameter { destination, .. } => Some(*destination),
+            Self::DefaultParameter { destination, .. }
+            | Self::BindParameters { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
@@ -769,6 +786,16 @@ pub struct Program {
 pub(crate) struct BuiltinReopen {
     pub(crate) target: String,
     pub(crate) methods: Vec<(String, usize)>,
+}
+
+/// One parameter's binding CATEGORY, per `IRIS-V1-CONTROL-C023`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParameterKind {
+    Positional,
+    Rest,
+    Keyword,
+    KeywordRest,
+    Block,
 }
 
 /// A declared module and the modules composed into it.

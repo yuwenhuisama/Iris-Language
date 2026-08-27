@@ -524,15 +524,6 @@ fn collect_methods<'a>(
         };
         let mut parameters = Vec::with_capacity(method.parameters.len());
         for parameter in &method.parameters {
-            if parameter.category != iris_syntax::ParameterCategory::Positional {
-                return Err(CompileError::new(match parameter.category {
-                    iris_syntax::ParameterCategory::Rest => "parameter rest",
-                    iris_syntax::ParameterCategory::Keyword => "parameter keyword",
-                    iris_syntax::ParameterCategory::KeywordRest => "parameter keyword rest",
-                    iris_syntax::ParameterCategory::Block => "parameter block",
-                    iris_syntax::ParameterCategory::Positional => "parameter positional",
-                }));
-            }
             parameters.push(parameter);
         }
         signatures.push(Signature {

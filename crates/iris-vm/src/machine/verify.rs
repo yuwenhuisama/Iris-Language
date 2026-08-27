@@ -29,6 +29,12 @@ pub enum MachineError {
     /// target; one that does not is a program error the reference reports
     /// when the transfer runs, not a construct the backend lacks.
     LoopTransferOutsideLoop,
+    /// An argument list did not satisfy the parameter list.
+    ///
+    /// `IRIS-V1-CONTROL-C025` raises this when a required parameter is left
+    /// unbound or a supplied argument matches nothing, and `D-357` makes a
+    /// DUPLICATE keyword an error rather than a silent last-one-wins.
+    ArgumentError,
     /// A byte sequence was not valid in the selected Encoding.
     ///
     /// `IRIS-V1-LIBRARY-C022` makes STRICT handling the default, so a lossy
@@ -567,6 +573,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => vec![*value, *assigned],
         Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
         Instruction::DefaultParameter { source, .. } => vec![*source],
+        // The frame binds its own parameters from the argument window, which
+        // the caller wrote before entry, so no register here is read.
+        Instruction::BindParameters { .. } => Vec::new(),
         Instruction::IrisValueEncode { value, .. } => vec![*value],
         Instruction::FfiOpen { path, .. } => vec![*path],
         Instruction::EncodingDecode { value, .. } => vec![*value],

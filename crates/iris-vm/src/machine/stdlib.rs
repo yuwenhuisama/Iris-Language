@@ -1257,3 +1257,73 @@ impl Machine {
         }
     }
 }
+
+impl Machine {
+    /// Binds arguments to the categories `IRIS-V1-CONTROL-C023` gives.
+    ///
+    /// Positionals fill in order, `*rest` takes the remaining positionals as a
+    /// fresh Array, a `key` parameter binds by NAME rather than position, and
+    /// `**kwargs` collects the keywords no declared parameter matched. `C025`
+    /// raises ArgumentError when a required parameter is left unbound, and
+    /// `D-357` makes a DUPLICATE keyword an error rather than last-one-wins.
+    ///
+    /// The answer is a Tuple because the caller writes it straight into the
+    /// frame's leading registers, one per declared parameter.
+    pub(super) fn bind_parameters(
+        kinds: &[(crate::compile::ParameterKind, String)],
+        arguments: &[Value],
+    ) -> Result<Value, MachineError> {
+        use crate::compile::ParameterKind;
+        let mut positional = Vec::new();
+        let mut keyword: Vec<(String, Value)> = Vec::new();
+        let mut block = Value::Nil;
+        for argument in arguments {
+            match argument {
+                Value::KeywordArgument(name, value) => {
+                    if keyword.iter().any(|(seen, _)| seen == name) {
+                        return Err(MachineError::ArgumentError);
+                    }
+                    keyword.push((name.clone(), value.as_ref().clone()));
+                }
+                // A trailing Closure is the BLOCK argument, which `C023` binds
+                // to `&name` rather than to a positional slot.
+                Value::Closure(_) if matches!(kinds.last(), Some((ParameterKind::Block, _))) => {
+                    block = argument.clone();
+                }
+                value => positional.push(value.clone()),
+            }
+        }
+        let mut bound = Vec::with_capacity(kinds.len());
+        let mut next = 0usize;
+        for (kind, name) in kinds {
+            let value = match kind {
+                ParameterKind::Positional => {
+                    let value = positional.get(next).cloned();
+                    next += usize::from(value.is_some());
+                    value
+                }
+                ParameterKind::Rest => {
+                    let rest = positional.split_off(next.min(positional.len()));
+                    Some(Value::Array(iris_runtime::ArrayRef::new(rest)))
+                }
+                ParameterKind::Keyword => keyword
+                    .iter()
+                    .position(|(seen, _)| seen == name)
+                    .map(|index| keyword.remove(index).1),
+                ParameterKind::KeywordRest => {
+                    let rest = std::mem::take(&mut keyword)
+                        .into_iter()
+                        .map(|(name, value)| (Value::Symbol(name), value))
+                        .collect();
+                    Some(Value::Hash(iris_runtime::HashRef::new(rest)))
+                }
+                ParameterKind::Block => Some(block.clone()),
+            };
+            // An unfilled parameter is left nil here; a DEFAULT is written by
+            // the `DefaultParameter` that follows, and `C025`'s ArgumentError
+            // for a genuinely required one is raised by the arity check.
+            bound.push(value.unwrap_or(Value::Nil));
+        }
+        Ok(Value::Tuple(bound))
+    }
+}

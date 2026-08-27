@@ -43,8 +43,12 @@ impl Machine {
     ) -> Result<Vec<Value>, MachineError> {
         // Verification proved every read is in range and written, so indexing
         // below cannot be out of bounds and no operand check is repeated.
-        let mut registers = vec![Value::Nil; size];
+        // A caller may pass MORE arguments than the signature declares - two
+        // keywords for one `key` parameter, or extra positionals for a
+        // `*rest` - and the frame is entered with all of them, so the file has
+        // to hold what arrived rather than only what was verified.
         let arity = arguments.len();
+        let mut registers = vec![Value::Nil; size.max(arity)];
         // Parameters arrive pre-bound in the leading registers.
         for (slot, argument) in arguments.into_iter().enumerate() {
             registers[slot] = argument;
@@ -335,6 +339,36 @@ impl Machine {
                 }
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
+                }
+                // `IRIS-V1-CONTROL-C023` binds the categories: positionals in
+                // order, `*rest` taking the remainder as a fresh Array, a
+                // `key` parameter by NAME, and `**kwargs` collecting the
+                // keywords nothing else matched. It happens HERE because a
+                // dynamic send does not know the signature until dispatch.
+                Instruction::BindParameters {
+                    kinds,
+                    receiver,
+                    first,
+                    count,
+                    ..
+                } => {
+                    // The window is sized by the SIGNATURE, but a caller may
+                    // pass more - two keywords for one `key` parameter, or
+                    // extra positionals for a `*rest`. The frame is entered
+                    // with every argument written, so the real arity is what
+                    // arrived rather than what the signature declares.
+                    let start = *first as usize;
+                    let end = (start + usize::from(*count).max(arity.saturating_sub(start)))
+                        .min(registers.len());
+                    let supplied = registers[start..end].to_vec();
+                    let bound = dispatch!(Self::bind_parameters(kinds, &supplied)?);
+                    let Value::Tuple(bound) = bound else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    for (slot, value) in bound.into_iter().enumerate() {
+                        registers[slot + usize::from(*receiver)] = value;
+                    }
+                    Value::Nil
                 }
                 // A parameter the caller did not supply takes its default.
                 // The frame knows how many arguments ARRIVED, which a dynamic

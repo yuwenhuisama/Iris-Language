@@ -160,6 +160,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::JsonSyntaxError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::JsonSyntaxError),
                 )),
+                Err(iris_vm::MachineError::ArgumentError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::ArgumentError),
+                )),
                 Err(iris_vm::MachineError::EncodingError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::EncodingError),
                 )),
@@ -4257,32 +4260,59 @@ M.r()"#;
         }
     }
 
+    /// Every parameter CHANNEL binds, per `IRIS-V1-CONTROL-C023`.
+    ///
+    /// These were declined one channel at a time. The frame binds its own
+    /// parameters now, because a dynamic send does not know the signature
+    /// until dispatch, so the categories cannot be resolved at the call site.
     #[test]
-    fn bytecode_declines_unimplemented_parameter_channels_precisely() {
-        let bytecode = Bytecode;
-        for (source, construct) in [
+    fn bytecode_binds_every_parameter_channel() {
+        for (source, expected) in [
             (
-                "module M { public fun f(*items) -> Object { items } } M.f(1)",
-                "parameter rest",
+                "class A { public fun f(*items) -> Object { items } } A.new().f(1, 2)",
+                "[1, 2]",
             ),
             (
-                "module M { public fun f(key item) -> Object { item } } M.f(item: 1)",
-                "parameter keyword",
+                "class A { public fun f(key item) -> Object { item } } A.new().f(item: 1)",
+                "1",
             ),
             (
-                "module M { public fun f(&block) -> Object { block } } M.f() { 1 }",
-                "parameter block",
+                "class A { public fun f(**options) -> Object { options } } A.new().f(a: 1)",
+                "{:a: 1}",
+            ),
+            // Every channel at once, in written order.
+            (
+                "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { [a, b, r, k, kw, blk] } } \
+                 A.new().m(1, 9, 8, 7, k: 5, z: 6)",
+                "[1, 9, [8, 7], 5, {:z: 6}, nil]",
+            ),
+            // A `key` parameter binds by NAME, so written order does not matter.
+            (
+                "class A { public fun f(key x, key y) { [x, y] } } A.new().f(y: 2, x: 1)",
+                "[1, 2]",
             ),
         ] {
+            let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+            let Agreement::Agreed { observation, .. } = &agreement else {
+                unreachable!("both backends must agree: {source}: {agreement:?}")
+            };
             assert_eq!(
-                bytecode.execute(source),
-                Support::Unsupported(construct.to_owned())
-            );
-            assert_ne!(
-                bytecode.execute(source),
-                Support::Ran(Observation::Value("nil".to_owned()))
+                observation,
+                &Observation::Value(expected.to_owned()),
+                "{source}"
             );
         }
+
+        // Control: a DUPLICATE keyword is an ArgumentError rather than a
+        // silent last-one-wins, which is what `D-357` requires.
+        let agreement = compare_backends(
+            "class A { public fun m(key n) { n } } A.new().m(n: 1, n: 2)",
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {agreement:?}")
+        };
+        assert_eq!(observation, &Observation::Error("ArgumentError".to_owned()));
     }
 
     #[test]
