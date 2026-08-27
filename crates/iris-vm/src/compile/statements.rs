@@ -271,6 +271,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 arms,
                 fallback,
             } => self.match_statement(subject, arms, fallback.as_ref()),
+            // A top-level `fun` is a form the reference REFUSES when the
+            // program runs, as UnsupportedConstruct, so refusing it here
+            // described the same refusal differently and held the row.
+            Statement::Method(_) => {
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseUnsupported { destination });
+                Ok(destination)
+            }
             other => Err(CompileError::new(format!(
                 "statement {}",
                 match other {
@@ -519,14 +528,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let mut exits = Vec::new();
         let mut previous_miss = None;
         for arm in arms {
-            if arm.guard.is_some() {
-                return Err(CompileError::new("match guard"));
-            }
             if let Some(miss) = previous_miss.take() {
                 self.patch(miss, self.instructions.len())?;
             }
             let is_fallback = matches!(&arm.pattern, Pattern::Name(name) if name == "_");
-            if !is_fallback {
+            // A NAME pattern binds the subject for the arm, which is what lets
+            // a guard test it: `match 5 { x if x > 3 => .. }`. It matches
+            // unconditionally, so only the guard can turn the arm down.
+            let bound = matches!(&arm.pattern, Pattern::Name(name) if name != "_");
+            let outer = self.names.len();
+            if bound {
+                let Pattern::Name(name) = &arm.pattern else {
+                    return Err(CompileError::new("match pattern"));
+                };
+                self.names.push(Binding::value(name.clone(), subject));
+            }
+            if !is_fallback && !bound {
                 let Pattern::Literal(literal) = &arm.pattern else {
                     return Err(CompileError::new("match pattern"));
                 };
@@ -545,7 +562,23 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 previous_miss = Some(miss);
             }
+            // A GUARD is tested after the pattern matched, and a false one
+            // falls through to the next arm rather than failing the match.
+            if let Some(guard) = &arm.guard {
+                if let Some(miss) = previous_miss.take() {
+                    self.patch(miss, self.instructions.len())?;
+                }
+                let condition = self.expression(guard)?;
+                let condition = self.truth_test(condition)?;
+                let miss = self.instructions.len();
+                self.instructions.push(Instruction::JumpUnless {
+                    condition,
+                    target: 0,
+                });
+                previous_miss = Some(miss);
+            }
             let value = self.match_body(&arm.body)?;
+            self.names.truncate(outer);
             self.instructions.push(Instruction::Move {
                 destination,
                 source: value,
@@ -553,7 +586,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             let exit = self.instructions.len();
             self.instructions.push(Instruction::Jump { target: 0 });
             exits.push(exit);
-            if is_fallback {
+            // An arm that matched UNCONDITIONALLY ends the match, but one
+            // whose guard may turn it down does not: the arms after it are
+            // still reachable.
+            if is_fallback && arm.guard.is_none() {
                 previous_miss = None;
                 break;
             }

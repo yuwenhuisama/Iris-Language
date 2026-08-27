@@ -5665,3 +5665,49 @@ fn a_labelled_break_unwinds_to_its_loop() {
         &crate::backend::Observation::Error("NameError".to_owned())
     );
 }
+
+/// A match GUARD is tested after the pattern, and a false one falls through.
+///
+/// A NAME pattern binds the subject for the arm, which is what lets a guard
+/// test it - it matches unconditionally, so only the guard can turn the arm
+/// down, and the arms after it stay reachable.
+#[test]
+fn a_match_guard_falls_through_when_false() {
+    for (source, expected) in [
+        ("match 1 { x if false => :bad; _ => :good }", ":good"),
+        ("match 1 { x if true => :good; _ => :bad }", ":good"),
+        // The bound name is READABLE in the guard.
+        ("match 5 { x if x > 3 => :big; _ => :small }", ":big"),
+        ("match 2 { x if x > 3 => :big; _ => :small }", ":small"),
+        // Control: an unguarded match still works, so guards did not change
+        // ordinary arm selection.
+        ("match 2 { 1 => :one; 2 => :two; _ => :other }", ":two"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // A top-level `fun` is a form the reference REFUSES when the program runs,
+    // so both backends agree on the refusal rather than merely both refusing.
+    let agreement = crate::backend::compare_backends(
+        "fun fail() -> Never { nil }",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
+}
