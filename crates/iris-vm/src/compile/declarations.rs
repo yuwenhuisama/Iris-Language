@@ -66,6 +66,14 @@ pub(super) fn collect_signatures(
             collect_contract(contract, &mut contracts)?;
             continue;
         }
+        // A TYPE ALIAS names an existing type and declares nothing the backend
+        // acts on: the reference runs `type Alias = Integer; 1` and answers
+        // `1`. It is not dropped semantics - the backend has no other support
+        // for the type surface either, so a program that DEPENDS on the alias
+        // fails on that surface rather than at the declaration.
+        if matches!(declaration, iris_syntax::Declaration::TypeAlias(_)) {
+            continue;
+        }
         let iris_syntax::Declaration::Module(module) = declaration else {
             let iris_syntax::Declaration::Class(class) = declaration else {
                 return Err(CompileError::new(match declaration {
@@ -145,8 +153,12 @@ fn collect_contract(
         if matches!(method.impl_contract, Some(Some(_))) {
             return Err(CompileError::new("qualified contract implementation"));
         }
-        if method.body.is_some()
-            || method.kind != iris_syntax::MethodKind::Instance
+        // A requirement may carry a DEFAULT BODY, which the contract offers to
+        // an implementor rather than declaring anything else: the reference
+        // runs `contract C { fun m() -> Nil { nil } } 1` and answers `1`. The
+        // body is not lowered, because a class satisfying the requirement
+        // supplies its own - only the requirement's SHAPE is recorded.
+        if method.kind != iris_syntax::MethodKind::Instance
             || method.impl_contract.is_some()
             || method.is_async
             || !method.decorators.is_empty()

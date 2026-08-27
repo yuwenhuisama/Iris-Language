@@ -257,6 +257,12 @@ impl Binding {
 }
 
 pub(super) struct LoopContext {
+    /// The label the source wrote, when it named this loop.
+    ///
+    /// `break outer: 7` unwinds to the loop that NAME belongs to rather than
+    /// the innermost one, which is the only way an inner loop can stop an
+    /// outer one and hand it a value.
+    pub(super) label: Option<String>,
     pub(super) continue_target: usize,
     pub(super) breaks: Vec<usize>,
     pub(super) iterator: Option<Register>,

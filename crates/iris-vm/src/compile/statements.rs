@@ -101,16 +101,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
             // writes have happened, so a linear scan cannot decide definite
             // assignment across the back edge.
             Statement::While {
-                label: None,
+                label,
                 condition,
                 body,
-            } => self.while_value(condition, body),
+            } => self.while_value(label.as_deref(), condition, body),
             Statement::For {
-                label: None,
+                label,
                 binding: iris_syntax::Pattern::Name(name),
                 iterable,
                 body,
-            } => self.for_iterable(name, iterable, body),
+            } => self.for_iterable(label.as_deref(), name, iterable, body),
             // An `if` yields a value, so both arms write the SAME destination
             // register. That is what lets the value be read afterwards without
             // knowing which arm ran.
@@ -136,6 +136,42 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 }
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
+            }
+            // A LABELLED break unwinds to the loop that name belongs to rather
+            // than the innermost one, which is the only way an inner loop can
+            // stop an outer one and hand it a value.
+            Statement::Break {
+                label: Some(label),
+                value,
+            } => {
+                let carried = match value {
+                    Some(value) => Some(self.expression(value)?),
+                    None => None,
+                };
+                let Some(index) = self
+                    .loops
+                    .iter()
+                    .rposition(|context| context.label.as_deref() == Some(label.as_str()))
+                else {
+                    // A name no enclosing loop carries is a NameError the
+                    // reference raises when the transfer runs.
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseNameError { destination });
+                    return Ok(destination);
+                };
+                if let (Some(carried), Some(target)) = (carried, self.loops[index].value) {
+                    self.instructions.push(Instruction::Move {
+                        destination: target,
+                        source: carried,
+                    });
+                }
+                let jump = self.instructions.len();
+                self.instructions.push(Instruction::Jump { target: 0 });
+                self.loops[index].breaks.push(jump);
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
             }
             // A `break` may carry an OPERAND, which becomes the loop's value:
             // `while true { break 7 }` answers 7 where a normal completion
@@ -275,6 +311,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
 
     pub(super) fn for_iterable(
         &mut self,
+        label: Option<&str>,
         name: &str,
         iterable: &Expression,
         body: &[Statement],
@@ -307,6 +344,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let outer = self.names.len();
         self.names.push(Binding::value(name.to_owned(), item));
         self.loops.push(LoopContext {
+            label: label.map(str::to_owned),
             continue_target: top,
             breaks: Vec::new(),
             iterator: Some(iterator),
@@ -553,6 +591,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
     /// operand writes it.
     pub(super) fn while_value(
         &mut self,
+        label: Option<&str>,
         condition: &Expression,
         body: &[Statement],
     ) -> Result<Register, CompileError> {
@@ -570,6 +609,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             target: 0,
         });
         self.loops.push(LoopContext {
+            label: label.map(str::to_owned),
             continue_target: top,
             breaks: Vec::new(),
             iterator: None,

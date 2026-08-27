@@ -5612,3 +5612,56 @@ fn an_indexed_compound_assignment_evaluates_once() {
         );
     }
 }
+
+/// A LABELLED break unwinds to the loop that name belongs to.
+///
+/// It is the only way an inner loop can stop an outer one, and it carries a
+/// value out the same way an unlabelled `break` does. A declaration ANNOTATION
+/// that names no enclosing loop is a NameError rather than a construct the
+/// backend lacks.
+#[test]
+fn a_labelled_break_unwinds_to_its_loop() {
+    for (source, expected) in [
+        ("outer: while true { while true { break outer: 7 } }", "7"),
+        (
+            "module M { public fun run() -> Object { \
+             outer: for x in [1, 2] { for y in [3, 4] { break outer: :stopped } } } } M.run()",
+            ":stopped",
+        ),
+        // Control: an UNLABELLED break still stops only the innermost loop,
+        // so labelling did not change ordinary unwinding.
+        (
+            "module M { public fun run() -> Object { mut seen = []; \
+             for x in [1, 2] { for y in [3, 4] { seen.append(y); break }; seen.append(x) }; seen } } \
+             M.run()",
+            "[3, 1, 3, 2]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a label NO enclosing loop carries is a program error rather
+    // than a silently ignored transfer.
+    let agreement = crate::backend::compare_backends(
+        "outer: while true { break outer }",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("NameError".to_owned())
+    );
+}

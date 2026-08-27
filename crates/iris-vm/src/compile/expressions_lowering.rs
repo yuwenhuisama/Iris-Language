@@ -767,10 +767,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             // A `while` is an EXPRESSION as well as a statement, and answers
             // the operand a `break` carried: `let b = while true { break 7 }`.
             Expression::While {
-                label: None,
+                label,
                 condition,
                 body,
-            } => self.while_value(condition, body),
+            } => self.while_value(label.as_deref(), condition, body),
             Expression::KeywordArgument { name, value } => {
                 let value = self.expression(value)?;
                 let destination = self.allocate()?;
