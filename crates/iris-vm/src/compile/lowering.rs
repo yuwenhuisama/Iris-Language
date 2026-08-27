@@ -260,6 +260,12 @@ pub(super) struct LoopContext {
     pub(super) continue_target: usize,
     pub(super) breaks: Vec<usize>,
     pub(super) iterator: Option<Register>,
+    /// The register holding the loop's VALUE.
+    ///
+    /// `IRIS-V1-CONTROL-C023` gives a normal loop completion no value of its
+    /// own, so this holds nil unless a `break` carries an operand - which is
+    /// the only way a loop answers anything.
+    pub(super) value: Option<Register>,
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {

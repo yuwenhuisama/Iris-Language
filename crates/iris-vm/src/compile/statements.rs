@@ -104,26 +104,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 label: None,
                 condition,
                 body,
-            } => {
-                // The loop answers nil: `IRIS-V1-CONTROL-C023` gives a normal
-                // loop completion no value of its own, and only a `break` with
-                // an operand carries one - which this subset declines.
-                let destination = self.allocate()?;
-                self.instructions.push(Instruction::LoadNil { destination });
-                let top = self.instructions.len();
-                let condition = self.expression(condition)?;
-                let condition = self.truth_test(condition)?;
-                let exit = self.instructions.len();
-                self.instructions.push(Instruction::JumpUnless {
-                    condition,
-                    target: 0,
-                });
-                self.body(body)?;
-                self.instructions.push(Instruction::Jump { target: top });
-                let after = self.instructions.len();
-                self.patch(exit, after)?;
-                Ok(destination)
-            }
+            } => self.while_value(condition, body),
             Statement::For {
                 label: None,
                 binding: iris_syntax::Pattern::Name(name),
@@ -155,6 +136,34 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 }
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
+            }
+            // A `break` may carry an OPERAND, which becomes the loop's value:
+            // `while true { break 7 }` answers 7 where a normal completion
+            // answers nil.
+            Statement::Break {
+                label: None,
+                value: Some(value),
+            } => {
+                let value = self.expression(value)?;
+                let Some(target) = self.loops.last().and_then(|context| context.value) else {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseLoopTransfer { destination });
+                    return Ok(destination);
+                };
+                self.instructions.push(Instruction::Move {
+                    destination: target,
+                    source: value,
+                });
+                let jump = self.instructions.len();
+                self.instructions.push(Instruction::Jump { target: 0 });
+                let Some(loop_context) = self.loops.last_mut() else {
+                    return Err(CompileError::new("loop context"));
+                };
+                loop_context.breaks.push(jump);
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadNil { destination });
+                Ok(destination)
             }
             Statement::Break {
                 label: None,
@@ -301,6 +310,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             continue_target: top,
             breaks: Vec::new(),
             iterator: Some(iterator),
+            value: Some(destination),
         });
         self.body(body)?;
         let Some(loop_context) = self.loops.pop() else {
@@ -534,6 +544,48 @@ impl<'a, 'b> Lowering<'a, 'b> {
             MatchBody::Expression(expression) => self.expression(expression),
             MatchBody::Block(statements) => self.body(statements),
         }
+    }
+
+    /// Lowers a `while`, in STATEMENT or expression position alike.
+    ///
+    /// `IRIS-V1-CONTROL-C023` gives a normal loop completion no value of its
+    /// own, so the destination starts at nil and only a `break` carrying an
+    /// operand writes it.
+    pub(super) fn while_value(
+        &mut self,
+        condition: &Expression,
+        body: &[Statement],
+    ) -> Result<Register, CompileError> {
+        // `IRIS-V1-CONTROL-C023` gives a normal loop completion no
+        // value of its own, so the destination starts at nil and only
+        // a `break` with an operand writes it.
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::LoadNil { destination });
+        let top = self.instructions.len();
+        let condition = self.expression(condition)?;
+        let condition = self.truth_test(condition)?;
+        let exit = self.instructions.len();
+        self.instructions.push(Instruction::JumpUnless {
+            condition,
+            target: 0,
+        });
+        self.loops.push(LoopContext {
+            continue_target: top,
+            breaks: Vec::new(),
+            iterator: None,
+            value: Some(destination),
+        });
+        self.body(body)?;
+        let Some(loop_context) = self.loops.pop() else {
+            return Err(CompileError::new("loop context"));
+        };
+        self.instructions.push(Instruction::Jump { target: top });
+        let after = self.instructions.len();
+        self.patch(exit, after)?;
+        for jump in loop_context.breaks {
+            self.patch(jump, after)?;
+        }
+        Ok(destination)
     }
 
     /// Lowers an `if`, in STATEMENT or expression position alike.

@@ -5526,3 +5526,52 @@ fn reopening_a_builtin_class_adds_to_its_values() {
     };
     assert_eq!(reason, "class reopen target");
 }
+
+/// A `while` answers the operand a `break` carried, in either position.
+///
+/// `IRIS-V1-CONTROL-C023` gives a normal loop completion no value of its own,
+/// so a loop that ends by exhausting its condition answers nil - only a
+/// `break` with an operand carries a value out.
+#[test]
+fn a_loop_answers_what_break_carried() {
+    for (source, expected) in [
+        (
+            "let a = while false { 1 }; let b = while true { break 7 }; [a, b]",
+            "[nil, 7]",
+        ),
+        (
+            "module M { public fun run() -> Array { let none = while false { 1 }; \
+             let stopped = while true { break :stopped }; [none, stopped] } } M.run()",
+            "[nil, :stopped]",
+        ),
+        // A `for` carries a value out the same way.
+        (
+            "module M { public fun run() -> Object { for x in [1, 2] { break :early } } } M.run()",
+            ":early",
+        ),
+        // Control: an ordinary loop still RUNS to completion and answers nil,
+        // so adding the value register did not change normal termination.
+        (
+            "module M { public fun run() -> Object { mut n = 0; while n < 3 { n = n + 1 }; n } } \
+             M.run()",
+            "3",
+        ),
+        (
+            "module M { public fun run() -> Object { while false { 1 } } } M.run()",
+            "nil",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
