@@ -109,6 +109,22 @@ impl Machine {
         // makes `/a+/im` and `/a+/mi` hash alike.
         // `C043` makes each open an IDENTITY-BEARING Library, so equality
         // compares identity rather than the path two opens happen to share.
+        // An OBJECT compares by identity unless its class defines `==`, and
+        // `!=` is that negated. Neither reaches the kernel, because an Object
+        // dispatches through its own class and the registry has no entry.
+        if matches!(selector, "==" | "!=")
+            && matches!(
+                receiver,
+                Value::Object(_) | Value::Class(_) | Value::Method(_)
+            )
+            && let [other] = arguments
+        {
+            let same = self.identity(&receiver, other)?;
+            let Value::Bool(same) = same else {
+                return Err(MachineError::Kernel(KernelError::Type));
+            };
+            return Ok(Value::Bool(if selector == "==" { same } else { !same }));
+        }
         if selector == "=="
             && let (Value::Library(left), [Value::Library(right)]) = (&receiver, arguments)
         {

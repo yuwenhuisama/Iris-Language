@@ -326,15 +326,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if let Expression::Name(namespace) = receiver.as_ref()
-            && matches!(
-                namespace.as_str(),
-                "Reflection::Class" | "Reflection::Module"
-            )
-            && selector == "invoke"
-        {
-            return Err(CompileError::new(format!("{namespace}.invoke")));
-        }
-        if let Expression::Name(namespace) = receiver.as_ref()
             && self.lookup(namespace).is_none()
         {
             // `C022` names each Encoding explicitly, so a decode is routed by
@@ -617,9 +608,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
             )
             && matches!(
                 (namespace.as_str(), selector.as_str()),
-                ("Reflection::Class" | "Reflection::Module", "method")
-                    | ("Reflection::Class", "properties" | "revision")
-                    | ("Reflection::Contract", "requirement")
+                (
+                    "Reflection::Class" | "Reflection::Module",
+                    "method" | "invoke"
+                ) | (
+                    "Reflection::Class",
+                    "properties" | "revision" | "set_superclass"
+                ) | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
             )
         {

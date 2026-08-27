@@ -35,6 +35,12 @@ pub enum MachineError {
     /// unbound or a supplied argument matches nothing, and `D-357` makes a
     /// DUPLICATE keyword an error rather than a silent last-one-wins.
     ArgumentError,
+    /// A Hash `fetch` named a key the Hash does not hold.
+    ///
+    /// `fetch` differs from indexing exactly here: indexing answers nil for an
+    /// absent key, and `fetch` refuses, which is what makes it usable as an
+    /// assertion that the key is present.
+    KeyError,
     /// A byte sequence was not valid in the selected Encoding.
     ///
     /// `IRIS-V1-LIBRARY-C022` makes STRICT handling the default, so a lossy

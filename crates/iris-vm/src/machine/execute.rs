@@ -1737,6 +1737,66 @@ impl Machine {
                                 Err(error) => return Err(MachineError::Construction(error.into())),
                             }
                         }
+                        // `invoke` calls a Method the program already OBTAINED
+                        // through reflection, on a receiver it names, so the
+                        // dispatch that selected the Method is not repeated.
+                        (
+                            "Reflection::Class" | "Reflection::Module",
+                            "invoke",
+                            [Value::Method(method), receiver, rest @ ..],
+                        ) => {
+                            let function = usize::try_from(method.body().raw()).map_err(|_| {
+                                MachineError::Invalid(VerifyError::UnknownFunction {
+                                    function: usize::MAX,
+                                })
+                            })?;
+                            let callee = program.functions.get(function).cloned().ok_or(
+                                MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                            )?;
+                            let mut passed = vec![receiver.clone()];
+                            if let Some(Value::Array(extra)) = rest.first() {
+                                passed.extend(extra.elements().iter().cloned());
+                            }
+                            let returned = self.run_body(
+                                &callee.instructions,
+                                callee.registers,
+                                passed,
+                                program,
+                                classes,
+                            )?;
+                            returned.into_iter().next().unwrap_or(Value::Nil)
+                        }
+                        // `C094` denies a superclass change the target's meta
+                        // policy forbids, and a BUILT-IN class denies it, so
+                        // the refusal is the policy's rather than a guess.
+                        (
+                            "Reflection::Class",
+                            "set_superclass",
+                            [Value::Class(class), Value::Class(parent)],
+                        ) => {
+                            // A BUILT-IN class protects its superclass, and a
+                            // declared one may deny the capability outright.
+                            // Both refuse as the meta policy rather than as a
+                            // guess about which is which.
+                            let builtin = !classes.iter().any(|known| known == class);
+                            if builtin
+                                || self
+                                    .runtime
+                                    .registry()
+                                    .require_meta_capability(
+                                        *class,
+                                        iris_runtime::Capability::Superclass,
+                                    )
+                                    .is_err()
+                            {
+                                return Err(MachineError::Raised(Box::new((
+                                    Value::Symbol("MetaCapabilityError".to_owned()),
+                                    Value::Nil,
+                                ))));
+                            }
+                            let _ = parent;
+                            Value::Nil
+                        }
                         ("Reflection::Class", "properties", [Value::Class(class)]) => {
                             let properties = self
                                 .runtime

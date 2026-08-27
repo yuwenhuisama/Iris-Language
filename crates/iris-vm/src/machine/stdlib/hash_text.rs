@@ -25,6 +25,15 @@ impl Machine {
                     .collect(),
             ),
             ("include?" | "has_key?", [key]) => Value::Bool(entries.contains_key(key)),
+            // `fetch` differs from indexing exactly here: indexing answers nil
+            // for an absent key and `fetch` REFUSES, which is what makes it an
+            // assertion that the key is present.
+            ("fetch", [key]) => entries
+                .entries()
+                .iter()
+                .position(|(held, _)| held == key)
+                .and_then(|position| entries.value_at(position))
+                .ok_or(MachineError::KeyError)?,
             ("delete", [key]) => entries
                 .entries()
                 .iter()

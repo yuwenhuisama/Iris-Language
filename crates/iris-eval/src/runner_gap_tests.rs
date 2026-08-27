@@ -6002,3 +6002,96 @@ fn a_class_body_binding_declares_no_ivar() {
         );
     }
 }
+
+/// Reflection INVOKES a Method it already selected, and the meta policy rules.
+///
+/// `invoke` calls a Method the program obtained through reflection on a
+/// receiver it names, so the dispatch that selected the Method is not
+/// repeated. A superclass change is refused by the TARGET's meta policy, and a
+/// built-in class protects its superclass outright.
+#[test]
+fn reflection_invokes_and_the_meta_policy_refuses() {
+    for (source, expected) in [
+        (
+            "class A { public fun m() -> Symbol { :a } } \
+             module M { public fun run() -> Object { let k = Reflection::Class.method(A, :m); \
+             Reflection::Class.invoke(k, A.new(), []) } } M.run()",
+            ":a",
+        ),
+        // An ordinary class ALLOWS the change.
+        (
+            "class A { } class B extends A { } class Other { } \
+             module M { public fun run() -> Object { \
+             try { Reflection::Class.set_superclass(B, Other) } catch e { e } } } M.run()",
+            "nil",
+        ),
+        // A BUILT-IN class protects its superclass, and the refusal is the
+        // meta policy's rather than a guess.
+        (
+            "open class Integer { } module M { public fun run() -> Object { \
+             try { Reflection::Class.set_superclass(Integer, Object) } catch e { e } } } M.run()",
+            ":MetaCapabilityError",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // An OBJECT compares by identity, and `!=` is that negated.
+    for (source, expected) in [
+        (
+            "class A { } module M { public fun run() -> Object { let a = A.new(); \
+             [a == a, a != a] } } M.run()",
+            "[true, false]",
+        ),
+        (
+            "class A { } module M { public fun run() -> Object { \
+             [A.new() == A.new(), A.new() != A.new()] } } M.run()",
+            "[false, true]",
+        ),
+        // `fetch` answers the value it holds...
+        (
+            "module M { public fun run() -> Object { let h = %{}; h[:a] = 1; \
+             h.fetch(:a) } } M.run()",
+            "1",
+        ),
+    ] {
+        let wrapped = source.to_owned();
+        let agreement = crate::backend::compare_backends(
+            &wrapped,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // ...and REFUSES an absent key, where indexing would answer nil. That
+    // difference is the whole point of `fetch`.
+    let agreement = crate::backend::compare_backends(
+        "module M { public fun run() -> Object { let h = %{}; h.fetch(:absent) } } M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must fail alike: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("KeyError".to_owned())
+    );
+}
