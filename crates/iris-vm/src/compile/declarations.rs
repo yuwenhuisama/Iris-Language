@@ -34,6 +34,7 @@ type MethodTable = Vec<(String, usize)>;
 pub(super) struct CollectedDeclarations<'a> {
     pub(super) signatures: Vec<Signature<'a>>,
     pub(super) classes: Vec<Class>,
+    pub(super) modules: Vec<crate::compile::ir::ModuleDeclaration>,
     pub(super) contracts: Vec<Contract>,
 }
 
@@ -43,6 +44,7 @@ pub(super) fn collect_signatures(
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
     let mut contracts = Vec::new();
+    let mut modules = Vec::new();
     // A REOPEN is collected after every origin declaration, because it names a
     // class that may be declared later in the source: `open class A { }` ahead
     // of `class A { }` is an ordinary program, and collecting in source order
@@ -83,24 +85,38 @@ pub(super) fn collect_signatures(
             )?;
             continue;
         };
-        // A module may itself mix in another module, and the runtime composes
-        // those edges - but only a CLASS declaration passes its modules to the
-        // registry today, so a module's own mixins would be silently dropped
-        // and `C mixin B` would not see `A`'s methods. Declining holds the row
-        // rather than answering a NameError the reference does not raise.
-        if module.reopen
-            || !module.mixins.is_empty()
-            || !module.parameters.is_empty()
-            || !module.decorators.is_empty()
-        {
+        if module.reopen || !module.parameters.is_empty() {
             return Err(CompileError::new("module"));
         }
+        // A module may itself mix in another module, and the runtime composes
+        // those edges the same way it does a class's. The composed module must
+        // already be DECLARED: the reference refuses a forward reference, so
+        // accepting one would answer a value where the language does not.
+        let mut mixins = Vec::with_capacity(module.mixins.len());
+        for mixin in &module.mixins {
+            let TypeExpression::Name(name) = &mixin.target else {
+                return Err(CompileError::new("module"));
+            };
+            if mixin.private_access
+                || !modules
+                    .iter()
+                    .any(|known: &crate::compile::ir::ModuleDeclaration| known.name == *name)
+            {
+                return Err(CompileError::new("module"));
+            }
+            mixins.push(name.clone());
+        }
+        modules.push(crate::compile::ir::ModuleDeclaration {
+            name: module.name.clone(),
+            mixins,
+        });
         collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
     Ok(CollectedDeclarations {
         signatures,
         classes,
         contracts,
+        modules,
     })
 }
 

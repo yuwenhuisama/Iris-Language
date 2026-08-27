@@ -553,6 +553,32 @@ impl Machine {
                                     .map_err(MachineError::Class)?;
                                 Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
                             }
+                            // `V358` observes that a class composes exactly the
+                            // modules it named, in MRO order, so an implicit
+                            // edge would be visible here as an extra entry.
+                            "modules" => {
+                                let composed = self
+                                    .runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?
+                                    .modules()
+                                    .to_vec();
+                                Value::Array(iris_runtime::ArrayRef::new(
+                                    composed
+                                        .into_iter()
+                                        .map(|module| {
+                                            self.modules
+                                                .iter()
+                                                .find_map(|(name, known)| {
+                                                    (*known == module)
+                                                        .then(|| Value::Symbol(name.clone()))
+                                                })
+                                                .unwrap_or(Value::Nil)
+                                        })
+                                        .collect(),
+                                ))
+                            }
                             // A CLASS-level property is class state read by
                             // name off the Class itself, so a bare member read
                             // consults the class variables before deciding the

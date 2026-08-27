@@ -367,7 +367,14 @@ impl Machine {
         program: &Program,
     ) -> Result<Vec<ClassId>, MachineError> {
         self.modules.clear();
-        let mut module_names = Vec::new();
+        // A module is DECLARED, and also discovered from the names of its
+        // functions - a module with methods but no declaration entry is still
+        // registered, and one that only composes others still exists.
+        let mut module_names: Vec<String> = program
+            .modules
+            .iter()
+            .map(|declaration| declaration.name.clone())
+            .collect();
         for declaration in &program.functions {
             let Some((module, _)) = declaration.name.split_once('.') else {
                 continue;
@@ -378,10 +385,64 @@ impl Machine {
                 continue;
             }
             module_names.push(module.to_owned());
+        }
+        // A module composing another must be defined AFTER it, so the edge
+        // names an identity that already exists. Ordering by dependency is
+        // what makes `module B mixin A { }` reachable through `C mixin B`.
+        let mut ordered: Vec<String> = Vec::with_capacity(module_names.len());
+        while ordered.len() < module_names.len() {
+            let mut progressed = false;
+            for name in &module_names {
+                if ordered.iter().any(|known| known == name) {
+                    continue;
+                }
+                let ready = program
+                    .modules
+                    .iter()
+                    .find(|declaration| declaration.name == *name)
+                    .is_none_or(|declaration| {
+                        declaration.mixins.iter().all(|needed| {
+                            ordered.iter().any(|known| known == needed)
+                                || !module_names.iter().any(|known| known == needed)
+                        })
+                    });
+                if ready {
+                    ordered.push(name.clone());
+                    progressed = true;
+                }
+            }
+            // A CYCLE cannot be ordered, and the registry refuses one anyway,
+            // so the remainder is defined without its edges rather than looping.
+            if !progressed {
+                for name in &module_names {
+                    if !ordered.iter().any(|known| known == name) {
+                        ordered.push(name.clone());
+                    }
+                }
+            }
+        }
+        for module in &ordered {
+            let module = module.as_str();
+            let components: Vec<iris_runtime::ModuleId> = program
+                .modules
+                .iter()
+                .find(|declaration| declaration.name == module)
+                .map(|declaration| {
+                    declaration
+                        .mixins
+                        .iter()
+                        .filter_map(|needed| {
+                            self.modules
+                                .iter()
+                                .find_map(|(name, id)| (name == needed).then_some(*id))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             let module_id = self
                 .runtime
                 .registry_mut()
-                .define_module(&[])
+                .define_module(&components)
                 .map_err(MachineError::Class)?;
             self.modules.push((module.to_owned(), module_id));
             for (function, method) in program.functions.iter().enumerate() {

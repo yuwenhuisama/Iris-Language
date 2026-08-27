@@ -750,6 +750,20 @@ pub struct Program {
     pub(crate) functions: Vec<Function>,
     pub(crate) classes: Vec<Class>,
     pub(crate) contracts: Vec<Contract>,
+    /// Declared modules and the modules they MIX IN, in declaration order.
+    ///
+    /// A module is otherwise discovered from the names of its functions, which
+    /// misses one that only composes others: `module B mixin A { }` declares
+    /// no method of its own, so nothing would register it and `C mixin B`
+    /// would not reach `A`'s methods.
+    pub(crate) modules: Vec<ModuleDeclaration>,
+}
+
+/// A declared module and the modules composed into it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ModuleDeclaration {
+    pub(crate) name: String,
+    pub(crate) mixins: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

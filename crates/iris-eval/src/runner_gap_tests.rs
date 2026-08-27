@@ -5401,3 +5401,71 @@ fn decoding_is_strict_and_named_explicitly() {
         );
     }
 }
+
+/// A module composes ANOTHER module, and a class reaches through it.
+///
+/// A module was previously discovered only from the names of its functions,
+/// which misses one that declares no method of its own: `module B mixin A { }`
+/// exists solely to compose. Modules are declared explicitly now and defined
+/// in DEPENDENCY order, so a composing module names an identity that already
+/// exists. `V358` observes that a class composes exactly the modules it named,
+/// so an implicit edge would show up as an extra entry.
+#[test]
+fn a_module_composes_another_module() {
+    for (source, expected) in [
+        // `C` names only `B`, and reaches `A`'s method through it.
+        (
+            "module A { public fun w() { :a } } module B mixin A { } class C mixin B { } \
+             C.new().w()",
+            ":a",
+        ),
+        // A module's OWN method still outranks the one it composed.
+        (
+            "module A { public fun trace() { :A } } \
+             module B mixin A { public fun trace() { :B } } class C mixin A, B { } \
+             C.new().trace()",
+            ":B",
+        ),
+        // The composed edges are observable, and there are exactly two.
+        (
+            "module A { public fun h() -> Integer { 1 } } module B mixin A { } \
+             class C mixin A, B { } \
+             module M { public fun run() -> Object { [C.modules.length(), C.new().h()] } } M.run()",
+            "[2, 1]",
+        ),
+        // Control: a module written WITHOUT `mixin` composes nothing, so no
+        // implicit edge appears.
+        (
+            "module A { public fun w() { :a } } class C mixin A { } \
+             module M { public fun run() -> Object { C.modules.length() } } M.run()",
+            "1",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a FORWARD reference is declined rather than resolved. The
+    // reference refuses it, so ordering the definitions to make it work would
+    // answer a value the language does not have.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "module B mixin A { } module A { public fun w() { :a } } class C mixin B { } \
+             C.new().w()",
+        )
+    else {
+        unreachable!("a forward module mixin must be declined")
+    };
+    assert_eq!(reason, "module");
+}

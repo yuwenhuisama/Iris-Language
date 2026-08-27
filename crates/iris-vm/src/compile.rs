@@ -62,6 +62,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             functions: Vec::new(),
             classes: Vec::new(),
             contracts: Vec::new(),
+            modules: Vec::new(),
         });
     }
 
@@ -74,6 +75,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         signatures,
         classes,
         contracts,
+        modules,
     } = collect_signatures(&parsed.program.declarations)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
@@ -192,5 +194,6 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         functions,
         classes,
         contracts,
+        modules,
     })
 }
