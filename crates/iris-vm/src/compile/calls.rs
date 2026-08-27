@@ -178,12 +178,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
         arguments: &[Expression],
     ) -> Result<Register, CompileError> {
         if matches!(callee, Expression::Name(name) if name == "super") {
-            let Some((owner, selector)) = self.current_method.clone() else {
-                return Err(CompileError::new("super outside method"));
+            // A `super()` with no owning CLASS - in a module method, say - has
+            // no lexical ancestor to reach. That is a program error when the
+            // call runs, and the body may never be invoked at all, so it is
+            // raised rather than refused: `module M { override fun m() {
+            // super() } } 1` answers `1` in the reference.
+            let (Some((owner, selector)), Some(receiver)) =
+                (self.current_method.clone(), self.lookup("self"))
+            else {
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseUnsupported { destination });
+                return Ok(destination);
             };
-            let receiver = self
-                .lookup("self")
-                .ok_or_else(|| CompileError::new("super outside method"))?;
             let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::SendSuper {

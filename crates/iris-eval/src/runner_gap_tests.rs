@@ -6095,3 +6095,62 @@ fn reflection_invokes_and_the_meta_policy_refuses() {
         &crate::backend::Observation::Error("KeyError".to_owned())
     );
 }
+
+/// A module's type parameters annotate it, and a bare `super()` fails at RUN.
+///
+/// `module Helpers<T> { fun h() { 7 } }` declares the same method either way,
+/// and a closed generic mixin names the same module - the backend specialises
+/// a module per argument no more than the reference publishes one. A `super()`
+/// with no owning class has no ancestor to reach, but the body may never be
+/// invoked, so it is raised rather than refused.
+#[test]
+fn a_generic_module_is_annotated_and_super_fails_late() {
+    for (source, expected) in [
+        (
+            "module Helpers<T> { public fun h() -> Integer { 7 } } \
+             class Host mixin Helpers<String> {} Host.new().h()",
+            "7",
+        ),
+        (
+            "module Helpers<T> { public fun h() -> Integer { 7 } } 1",
+            "1",
+        ),
+        // A body carrying `super()` COMPILES; only calling it would fail.
+        (
+            "module M { override public fun m() -> Symbol { super() } } 1",
+            "1",
+        ),
+        // Control: an ordinary mixin still composes, so accepting the closed
+        // form did not change the plain one.
+        (
+            "module Helpers { public fun h() -> Integer { 3 } } class Host mixin Helpers {} \
+             Host.new().h()",
+            "3",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a `where Self: T` constraint governs a surface the backend has
+    // no support for, so it stays declined rather than being ignored.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "module Helpers<T> where Self: T {} class Host mixin Helpers<_> {}",
+        )
+    else {
+        unreachable!("a self-constrained module must be declined")
+    };
+    assert_eq!(reason, "module");
+}

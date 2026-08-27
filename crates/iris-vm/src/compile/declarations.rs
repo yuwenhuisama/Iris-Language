@@ -96,7 +96,11 @@ pub(super) fn collect_signatures(
             )?;
             continue;
         };
-        if module.reopen || !module.parameters.is_empty() {
+        // Type PARAMETERS annotate a module the way they annotate a class or
+        // contract: `module Helpers<T> { fun h() { 7 } }` declares the same
+        // method either way, and a `where Self: T` constraint governs a
+        // surface the backend has no other support for.
+        if module.reopen || !module.constraints.is_empty() {
             return Err(CompileError::new("module"));
         }
         // A module may itself mix in another module, and the runtime composes
@@ -209,8 +213,19 @@ fn collect_class<'a>(
     // model yet, so only the plain form is lowered rather than approximated.
     let mut mixins = Vec::with_capacity(class.mixins.len());
     for mixin in &class.mixins {
-        let TypeExpression::Name(name) = &mixin.target else {
-            return Err(CompileError::new("class mixin"));
+        // A CLOSED generic module names the same module: `mixin Helpers<String>`
+        // composes `Helpers`, since the backend does not specialise a module
+        // per argument any more than the reference publishes one.
+        let name = match &mixin.target {
+            TypeExpression::Name(name) => name,
+            TypeExpression::Generic { name, arguments }
+                if arguments.iter().all(
+                    |argument| !matches!(argument, TypeExpression::Name(name) if name == "_"),
+                ) =>
+            {
+                name
+            }
+            _ => return Err(CompileError::new("class mixin")),
         };
         if mixin.private_access {
             return Err(CompileError::new("class mixin"));
