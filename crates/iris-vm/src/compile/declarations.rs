@@ -251,20 +251,31 @@ fn collect_class<'a>(
     // capability) the backend has no other support for either, so a program
     // that DEPENDS on one fails on that surface rather than here.
     //
-    // A CONTRACT bound is the exception: the reference checks it when the
-    // class is CONSTRUCTED, so `class Box<T> where T: Comparable<T> {}` then
-    // `Box<String>.new()` is a TypeContractError. Accepting the construction
-    // would answer an object where the language answers a failure, so the
-    // bound is declined until that check exists.
-    if class.constraints.iter().any(|constraint| {
+    // A CONTRACT bound is the exception: `C067` checks it when the class is
+    // MATERIALIZED, not where it is declared, so `class Box<T> where T:
+    // Comparable<T> {}` declares fine and `Box<String>.new()` is the failure.
+    // The bound is recorded by PARAMETER POSITION so a construction naming
+    // concrete arguments can decide it.
+    let mut contract_bounds = Vec::new();
+    for constraint in &class.constraints {
         let named = match &constraint.bound {
-            TypeExpression::Name(name) => Some(name),
-            TypeExpression::Generic { name, .. } => Some(name),
+            TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => Some(name),
             _ => None,
         };
-        named.is_some_and(|name| contracts.iter().any(|known| known.name == *name))
-    }) {
-        return Err(CompileError::new("class constraints"));
+        let Some(bound) = named else {
+            continue;
+        };
+        let Some(contract) = contracts.iter().position(|known| known.name == *bound) else {
+            continue;
+        };
+        let Some(position) = class
+            .parameters
+            .iter()
+            .position(|parameter| *parameter == constraint.parameter)
+        else {
+            continue;
+        };
+        contract_bounds.push((position, contract));
     }
     let superclass_name = match &class.extends {
         Some(TypeExpression::Name(name)) => Some(name.as_str()),
@@ -385,6 +396,7 @@ fn collect_class<'a>(
         reopens: Vec::new(),
         contracts: conformances,
         mixins,
+        contract_bounds,
         property_methods,
         class_variables,
         stored_properties,

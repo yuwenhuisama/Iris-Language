@@ -348,6 +348,15 @@ pub enum Instruction {
     RaiseNameError {
         destination: Register,
     },
+    /// Fails a generic MATERIALIZATION, per `IRIS-V1-TYPES-C067`.
+    ///
+    /// A `where T: SomeContract` bound is checked when the class is
+    /// CONSTRUCTED, not where it is declared: `class Box<T> where T:
+    /// Comparable<T> {}` declares fine and `Box<String>.new()` is the
+    /// TypeContractError, since String declares no such contract.
+    RaiseTypeContract {
+        destination: Register,
+    },
     StoreGlobal {
         destination: Register,
         name: String,
@@ -768,6 +777,7 @@ impl Instruction {
             | Self::BindParameters { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
+            Self::RaiseTypeContract { destination } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }
@@ -907,6 +917,12 @@ pub(crate) struct Class {
     /// A module is registered before any class, so the name resolves to a
     /// module identity at load time rather than at compile time.
     pub(crate) mixins: Vec<String>,
+    /// Contract bounds on the class's type PARAMETERS, by position.
+    ///
+    /// `IRIS-V1-TYPES-C067` checks these at MATERIALIZATION rather than where
+    /// the class is declared, so they are carried until a construction names
+    /// concrete arguments.
+    pub(crate) contract_bounds: Vec<(usize, usize)>,
     pub(crate) property_methods: Vec<String>,
     pub(crate) class_variables: Vec<ClassVariable>,
     pub(crate) stored_properties: Vec<StoredProperty>,

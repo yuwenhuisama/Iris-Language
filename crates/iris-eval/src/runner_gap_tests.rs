@@ -5932,18 +5932,20 @@ fn a_restated_header_is_an_annotation() {
         );
     }
 
-    // Control: a CONTRACT bound is declined rather than accepted, because the
-    // reference refuses the construction and answering an object would be a
-    // wrong answer rather than an incomplete one.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()",
-        )
-    else {
-        unreachable!("a contract bound must be declined")
+    // Control: a CONTRACT bound is now RAISED at the construction it governs
+    // rather than declined at the declaration, so the violating program fails
+    // where the reference fails instead of being refused outright.
+    let agreement = crate::backend::compare_backends(
+        "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "class constraints");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("TypeContractError".to_owned())
+    );
 
     // Control: a reopen that CHANGES the header - a mixin - stays declined.
     let crate::backend::Support::Unsupported(reason) =
@@ -6486,6 +6488,59 @@ fn a_declared_return_type_is_guarded() {
         (
             "class A { public fun m() -> Nil { :bad } } \
              module M { public fun run() -> Object { try { A.new().m() } catch e { e } } } M.run()",
+            Some(":TypeContractError"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("TypeContractError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}
+
+/// A contract BOUND is decided at the construction it governs.
+///
+/// `IRIS-V1-TYPES-C067` checks a `where T: SomeContract` bound at
+/// MATERIALIZATION, not where the class is declared - so the declaration
+/// alone runs, and `Box<String>.new()` is the failure because String declares
+/// no such contract. Declining the declaration refused a program the reference
+/// runs; accepting the construction would answer an object where the language
+/// answers a failure.
+#[test]
+fn a_contract_bound_is_decided_at_construction() {
+    for (source, expected) in [
+        // The DECLARATION alone changes nothing, so the program still answers.
+        (
+            "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} 1",
+            Some("1"),
+        ),
+        // A built-in argument declares no contract, so this is a violation.
+        (
+            "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()",
+            None,
+        ),
+        // Control: an argument that DOES declare the bound contract passes, so
+        // the check rejects a violation rather than every bounded construction.
+        (
+            "contract Comparable<T> {} class Key for Comparable {} \
+             class Box<T> where T: Comparable<T> {} Box<Key>.new()",
+            Some("<object>"),
+        ),
+        // Control: with NO bound the construction is untouched.
+        ("class Box<T> {} Box<String>.new()", Some("<object>")),
+        // The failure RAISES, so a caller catches it like any other error.
+        (
+            "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} \
+             module M { public fun run() -> Object { try { Box<String>.new() } catch e { e } } } \
+             M.run()",
             Some(":TypeContractError"),
         ),
     ] {

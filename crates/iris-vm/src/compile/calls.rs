@@ -608,10 +608,23 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
-        if let Expression::ClosedGeneric { name, .. } = receiver.as_ref()
+        if let Expression::ClosedGeneric {
+            name,
+            arguments: type_arguments,
+        } = receiver.as_ref()
             && selector == "new"
             && let Some(class) = self.class_index(name)
         {
+            // `C067` decides a `where T: SomeContract` bound HERE, where the
+            // type arguments are concrete: the argument's class must declare
+            // the bound contract, so `Box<String>` against `Comparable<T>`
+            // fails while a declaring class passes.
+            if self.violates_contract_bound(class, type_arguments) {
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseTypeContract { destination });
+                return Ok(destination);
+            }
             let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::New {
@@ -894,6 +907,38 @@ impl<'a, 'b> Lowering<'a, 'b> {
             count,
         });
         Ok(destination)
+    }
+
+    /// Reports whether a closed generic construction breaks a contract bound.
+    ///
+    /// An argument this backend cannot RESOLVE to a declared class decides
+    /// nothing, so it passes: the check exists to catch a definite violation
+    /// rather than to narrow which constructions are accepted.
+    fn violates_contract_bound(
+        &self,
+        class: usize,
+        type_arguments: &[iris_syntax::TypeExpression],
+    ) -> bool {
+        self.classes[class]
+            .contract_bounds
+            .iter()
+            .any(|(position, contract)| {
+                let Some(iris_syntax::TypeExpression::Name(argument)) =
+                    type_arguments.get(*position)
+                else {
+                    return false;
+                };
+                // A BUILT-IN class declares no contract, so naming one is a
+                // definite violation rather than an undecidable case: `String`
+                // against `Comparable<T>` is exactly `V244`.
+                let Some(argument) = self.class_index(argument) else {
+                    return matches!(
+                        argument.as_str(),
+                        "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
+                    );
+                };
+                !self.classes[argument].contracts.contains(contract)
+            })
     }
 
     pub(super) fn class_index(&self, name: &str) -> Option<usize> {

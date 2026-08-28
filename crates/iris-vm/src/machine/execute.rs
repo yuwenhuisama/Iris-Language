@@ -442,6 +442,9 @@ impl Machine {
                 Instruction::RaiseNameError { .. } => {
                     dispatch!(Err(MachineError::NameError)?)
                 }
+                Instruction::RaiseTypeContract { .. } => {
+                    dispatch!(Err(MachineError::TypeContractError)?)
+                }
                 Instruction::Binary {
                     selector,
                     left,
