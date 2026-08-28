@@ -213,6 +213,16 @@ pub enum Instruction {
         pattern: Register,
         flags: String,
     },
+    /// Guards the RETURN boundary, per `IRIS-V1-TYPES-C004`.
+    ///
+    /// A declared return Type is checked before the value is published to the
+    /// caller, whether the body fell off the end or returned explicitly.
+    /// Without this a method annotated `-> Nil` could answer a Symbol, so the
+    /// backend ran a program the reference refuses.
+    CheckReturn {
+        value: Register,
+        annotation: iris_syntax::TypeExpression,
+    },
     /// Applies a class REOPEN at the position it was written.
     ///
     /// A reopen takes effect where it appears in the source, not at load: a
@@ -743,7 +753,7 @@ impl Instruction {
             Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
-            Self::ApplyReopen { .. } => None,
+            Self::ApplyReopen { .. } | Self::CheckReturn { .. } => None,
             Self::NativeFixture { destination, .. } => Some(*destination),
             Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {
                 Some(*destination)

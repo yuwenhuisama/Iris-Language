@@ -175,3 +175,67 @@ impl Machine {
         build(atoms)
     }
 }
+
+impl Machine {
+    /// Reports whether a value satisfies an annotation.
+    ///
+    /// `IRIS-V1-TYPES-C004` guards the return boundary with this. An
+    /// annotation the backend cannot DECIDE admits every value, so an
+    /// unmodelled Type stays permissive rather than refusing a program the
+    /// reference runs - the check exists to catch a definite mismatch, not to
+    /// narrow the accepted surface.
+    pub(super) fn annotation_admits(
+        &self,
+        value: &Value,
+        annotation: &TypeExpression,
+        program: &crate::compile::Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<bool, MachineError> {
+        match annotation {
+            // `C011` admits every value EXCEPT nil, and `C023` makes `Never`
+            // uninhabited, so neither resolves through a declared class.
+            TypeExpression::Name(name) if name == "NonNil" => Ok(!matches!(value, Value::Nil)),
+            TypeExpression::Name(name) if name == "Never" => Ok(false),
+            TypeExpression::Name(name) => {
+                let class = match self.builtin_class(name) {
+                    Ok(class) => class,
+                    Err(_) => {
+                        let Some(index) = program
+                            .classes
+                            .iter()
+                            .position(|declaration| declaration.name == *name)
+                        else {
+                            return Ok(true);
+                        };
+                        let Some(class) = classes.get(index).copied() else {
+                            return Ok(true);
+                        };
+                        class
+                    }
+                };
+                Ok(self.type_test(value, &Value::Class(class))? == Value::Bool(true))
+            }
+            // `C020` admits a value satisfying ANY constituent, `C022` one
+            // satisfying EVERY constituent.
+            TypeExpression::Union(members) => {
+                for member in members {
+                    if self.annotation_admits(value, member, program, classes)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            TypeExpression::Intersection(members) => {
+                for member in members {
+                    if !self.annotation_admits(value, member, program, classes)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            TypeExpression::Typeof(_)
+            | TypeExpression::Generic { .. }
+            | TypeExpression::Function { .. } => Ok(true),
+        }
+    }
+}

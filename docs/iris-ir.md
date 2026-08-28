@@ -765,6 +765,15 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A declared RETURN Type is GUARDED before the value reaches the caller. `C004`
+guards that boundary whether the body fell off its end or returned explicitly,
+so a method annotated `-> Nil` cannot answer a Symbol - without the check the
+backend RAN a program the reference refuses, which is a wrong answer rather
+than a missing feature. The guard raises, so a caller catches it like any other
+error. An annotation the backend cannot decide admits every value, which keeps
+the check about catching a definite mismatch rather than narrowing the accepted
+surface.
+
 A contract INHERITS its parents' requirements. `open` is an annotation - it
 governs whether the contract may be reopened, a separate surface, and the
 requirement set is the same either way - but `extends` is not: a child carries

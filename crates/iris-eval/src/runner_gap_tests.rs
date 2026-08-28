@@ -6430,3 +6430,76 @@ fn a_contract_inherits_its_parents_requirements() {
     };
     assert_eq!(reason, "contract parent unbound");
 }
+
+/// A declared RETURN Type is guarded before the value reaches the caller.
+///
+/// `IRIS-V1-TYPES-C004` guards the return boundary whether the body fell off
+/// its end or returned explicitly, so a method annotated `-> Nil` cannot
+/// answer a Symbol. Without this the backend RAN a program the reference
+/// refuses, which is a wrong answer rather than a missing feature. An
+/// annotation the backend cannot decide stays permissive, so the check catches
+/// a definite mismatch instead of narrowing the accepted surface.
+#[test]
+fn a_declared_return_type_is_guarded() {
+    for (source, expected) in [
+        // Falling off the end with a value the annotation excludes.
+        (
+            "class A { public fun m() -> Nil { :done } } A.new().m()",
+            None,
+        ),
+        (
+            "class A { public fun m() -> Integer { :done } } A.new().m()",
+            None,
+        ),
+        // The EXPLICIT return path is guarded the same way.
+        (
+            "class A { public fun m() -> Integer { return :bad } } A.new().m()",
+            None,
+        ),
+        // A module function is not a special case.
+        (
+            "module M { public fun m() -> Integer { :bad } } M.m()",
+            None,
+        ),
+        // Controls: a body that SATISFIES its annotation still answers, so the
+        // guard rejects a mismatch rather than every annotated return.
+        (
+            "class A { public fun m() -> Nil { nil } } A.new().m()",
+            Some("nil"),
+        ),
+        (
+            "class A { public fun m() -> Integer { 7 } } A.new().m()",
+            Some("7"),
+        ),
+        // `Object` admits every value, so an annotation that decides nothing
+        // narrows nothing.
+        (
+            "class A { public fun m() -> Object { :ok } } A.new().m()",
+            Some(":ok"),
+        ),
+        // A UNION admits a value satisfying any constituent.
+        (
+            "class A { public fun m() -> Integer | Symbol { :ok } } A.new().m()",
+            Some(":ok"),
+        ),
+        // The guard RAISES, so a caller can catch it like any other error.
+        (
+            "class A { public fun m() -> Nil { :bad } } \
+             module M { public fun run() -> Object { try { A.new().m() } catch e { e } } } M.run()",
+            Some(":TypeContractError"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("TypeContractError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

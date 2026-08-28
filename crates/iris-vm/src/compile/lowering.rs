@@ -27,6 +27,7 @@ pub(super) fn lower_function(
         .position(|class| class.name == signature.module)
         .map(|owner| (owner, signature.selector.to_owned()));
     lowering.async_body = signature.is_async;
+    lowering.return_annotation = signature.return_type.cloned();
     // A module's own function is reachable BARE from its siblings: inside
     // `module M`, `natural()` names `M.natural`. The owner is recorded so that
     // resolution can find it, and only for a receiverless signature - an
@@ -170,6 +171,11 @@ pub(super) fn lower_function(
             destination
         }
     };
+    if let Some(annotation) = lowering.return_annotation.clone() {
+        lowering
+            .instructions
+            .push(Instruction::CheckReturn { value, annotation });
+    }
     lowering.instructions.push(Instruction::Return { value });
     Ok(Function {
         name: format!("{}.{}", signature.module, signature.selector),
@@ -218,6 +224,12 @@ pub(super) struct Lowering<'a, 'b> {
     /// statement is lowered into the top-level frame where no receiver is in
     /// scope, so the owner has to be carried explicitly.
     pub(super) enclosing_module: Option<String>,
+    /// The declared RETURN Type of the body being lowered, if it has one.
+    ///
+    /// `IRIS-V1-TYPES-C004` guards the return boundary, and a body leaves
+    /// through several paths - an explicit `return` as well as falling off the
+    /// end - so the annotation is carried here and checked at each of them.
+    pub(super) return_annotation: Option<iris_syntax::TypeExpression>,
 }
 
 #[derive(Clone)]
@@ -332,6 +344,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             current_method: None,
             async_body: false,
             enclosing_module: None,
+            return_annotation: None,
         }
     }
 

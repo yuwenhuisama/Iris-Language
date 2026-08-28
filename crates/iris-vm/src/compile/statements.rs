@@ -134,6 +134,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     self.instructions
                         .push(Instruction::IteratorClose { iterator });
                 }
+                // `C004` guards the return boundary on the EXPLICIT path too,
+                // not only where the body falls off its end.
+                if let Some(annotation) = self.return_annotation.clone() {
+                    self.instructions
+                        .push(Instruction::CheckReturn { value, annotation });
+                }
                 self.instructions.push(Instruction::Return { value });
                 Ok(value)
             }
