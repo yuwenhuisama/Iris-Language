@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 709 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 711 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,15 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A DECLARED contract cannot be dropped. `C119` makes the direct send and the
+reflective call ONE implementation, so `A.remove_contract(C)` and
+`Reflection::Class.remove_contract(A, C)` refuse identically, and the refusal
+leaves both `contracts` and the active revision untouched. Removing a contract
+the class never declared changes no static-spine fact, so that is a no-op
+rather than a refusal. `C060` makes a correctly synchronized observer SEE a
+concurrent write: the writer thread is joined before the read, so the observer
+reports the replacement rather than the text the value was built with.
 
 A class REOPEN takes effect where it was WRITTEN, not at load. A call made
 before `open class P { override fun m() }` still answers the original body, so

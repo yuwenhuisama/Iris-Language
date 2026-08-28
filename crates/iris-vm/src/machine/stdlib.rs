@@ -397,6 +397,12 @@ impl Machine {
             Value::Nil if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text("nil".to_owned()))
             }
+            // A MutableString answers its CURRENT content, so a read after a
+            // write sees the replacement rather than the text the value was
+            // built with.
+            Value::MutableString(text) if selector == "to_string" && arguments.is_empty() => {
+                Some(Value::Text(text.text()))
+            }
             // These families answer `length` in the reference, and a value the
             // backend can PRODUCE but not measure is the defect that has
             // recurred here: a suppressed list handed to a catch, or a byte
@@ -432,6 +438,30 @@ impl Machine {
                 Some(Value::Integer(iris_runtime::IntegerValue::from(
                     revision.number(),
                 )))
+            }
+            // `C119` makes the direct and the reflective entry points ONE
+            // implementation, so both arrive here. A contract the class
+            // DECLARED is part of its static spine and cannot be dropped;
+            // removing one it never declared changes no such fact, so that is
+            // a no-op rather than a refusal.
+            Value::Class(class) if selector == "remove_contract" => {
+                let [Value::Contract(contract)] = arguments else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                let declared =
+                    classes
+                        .iter()
+                        .position(|known| known == class)
+                        .is_some_and(|index| {
+                            program.classes[index]
+                                .contracts
+                                .iter()
+                                .any(|known| *known as u64 + 1 == contract.raw())
+                        });
+                if declared {
+                    return Err(MachineError::TypeContractError);
+                }
+                Some(Value::Nil)
             }
             Value::Class(class) if selector == "contracts" && arguments.is_empty() => {
                 let declared = classes
@@ -1470,6 +1500,22 @@ impl Machine {
                 let identity = self.next_context;
                 self.next_context = self.next_context.saturating_add(1);
                 Ok(Value::NativeResource(identity))
+            }
+            // `C060` makes a CORRECTLY SYNCHRONIZED observer see the write:
+            // the writer thread is JOINED before the read below, so the
+            // replacement is visible rather than racing. Doing the write on
+            // this thread would prove nothing about synchronisation.
+            ("concurrently_replace", [Value::MutableString(text), Value::Text(replacement)]) => {
+                let writer = text.clone();
+                let replacement = replacement.clone();
+                let joined = std::thread::spawn(move || writer.set(replacement)).join();
+                if joined.is_err() {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                Ok(Value::Nil)
+            }
+            ("concurrently_replace", _) => {
+                Err(MachineError::Kernel(iris_runtime::KernelError::Type))
             }
             ("raise", [Value::Integer(marker)]) => {
                 let Some(marker) = marker.decimal_text().parse::<i64>().ok() else {

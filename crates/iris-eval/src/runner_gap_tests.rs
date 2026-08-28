@@ -6282,3 +6282,85 @@ fn a_module_function_is_reachable_bare() {
         );
     }
 }
+
+/// A DECLARED contract cannot be dropped, through either entry point.
+///
+/// `C119` makes the direct send and the reflective call ONE implementation,
+/// so both refuse identically. A contract the class declared is part of its
+/// static spine: the refusal leaves `contracts` and the active revision
+/// untouched. Removing one it never declared changes no such fact, so that is
+/// a no-op rather than a refusal.
+#[test]
+fn a_declared_contract_cannot_be_removed() {
+    for (source, expected) in [
+        (
+            "contract C { fun m() -> Nil } class A for C { public impl fun m() -> Nil { nil } } \
+             let refused = try { A.remove_contract(C) } catch e { e }; \
+             [refused, A.contracts, A.active_revision]",
+            "[:TypeContractError, [<contract>], 1]",
+        ),
+        (
+            "contract C { fun m() -> Nil } class A for C { public impl fun m() -> Nil { nil } } \
+             try { Reflection::Class.remove_contract(A, C) } catch e { e }",
+            ":TypeContractError",
+        ),
+        // Control: an UNDECLARED contract is a no-op, so the refusal is about
+        // the spine rather than about the selector being rejected outright.
+        (
+            "contract C { fun m() -> Nil } contract D { fun n() -> Nil } \
+             class A for C { public impl fun m() -> Nil { nil } } A.remove_contract(D)",
+            "nil",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
+
+/// A correctly synchronized observer SEES a concurrent write.
+///
+/// `C060` makes the write visible because the writer thread is JOINED before
+/// the read: the observer reads the replacement, not the text the value was
+/// built with, and its length is the replacement's.
+#[test]
+fn a_joined_writer_is_observed() {
+    let source = "module M { public fun run() -> Object { let text = m\"ee\"; \
+                  NativeFixture.concurrently_replace(text, \"uoa\"); \
+                  [text.to_string(), text.length] } } M.run()";
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[\"uoa\", 3]".to_owned())
+    );
+
+    // Control: with NO replacement the original content stands, so the read
+    // reports the value's own text rather than always the last write.
+    let agreement = crate::backend::compare_backends(
+        "module M { public fun run() -> Object { let text = m\"ee\"; \
+         [text.to_string(), text.length] } } M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[\"ee\", 2]".to_owned())
+    );
+}

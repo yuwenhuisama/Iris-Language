@@ -389,7 +389,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
         if matches!(receiver.as_ref(), Expression::Name(name) if name == "NativeFixture")
             && self.lookup("NativeFixture").is_none()
-            && matches!(selector.as_str(), "raise" | "resource")
+            && matches!(
+                selector.as_str(),
+                "raise" | "resource" | "concurrently_replace"
+            )
         {
             let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
@@ -634,7 +637,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     "method" | "invoke"
                 ) | (
                     "Reflection::Class",
-                    "properties" | "revision" | "set_superclass"
+                    "properties" | "revision" | "set_superclass" | "remove_contract"
                 ) | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
             )

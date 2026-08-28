@@ -647,6 +647,26 @@ impl Machine {
                                     .map_err(MachineError::Class)?;
                                 Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
                             }
+                            // The declared contracts are read as a bare MEMBER
+                            // too, which is how a program observes that a
+                            // refused `remove_contract` left the spine intact.
+                            "contracts" => Value::Array(iris_runtime::ArrayRef::new(
+                                classes
+                                    .iter()
+                                    .position(|known| *known == class)
+                                    .map(|index| {
+                                        program.classes[index]
+                                            .contracts
+                                            .iter()
+                                            .map(|contract| {
+                                                Value::Contract(iris_runtime::ContractId::new(
+                                                    *contract as u64 + 1,
+                                                ))
+                                            })
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default(),
+                            )),
                             // `V358` observes that a class composes exactly the
                             // modules it named, in MRO order, so an implicit
                             // edge would be visible here as an extra entry.
@@ -1749,6 +1769,22 @@ impl Machine {
                     let start = *first as usize;
                     let arguments = &registers[start..start + *count as usize];
                     match (namespace.as_str(), selector.as_str(), arguments) {
+                        // `C119` makes the two entry points ONE implementation,
+                        // so this defers to the direct send rather than
+                        // repeating the rule and risking them drifting apart.
+                        (
+                            "Reflection::Class",
+                            "remove_contract",
+                            [Value::Class(class), contract],
+                        ) => self
+                            .authored_send(
+                                &Value::Class(*class),
+                                "remove_contract",
+                                std::slice::from_ref(contract),
+                                program,
+                                classes,
+                            )?
+                            .unwrap_or(Value::Nil),
                         (
                             "Reflection::Class",
                             "method",
