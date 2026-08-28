@@ -143,14 +143,25 @@ fn collect_contract(
     // A decorator, a `where` constraint, a `meta deny` list and type
     // PARAMETERS annotate the declaration without changing its REQUIREMENTS -
     // `contract Comparable<T> {}` declares none either way - so they are
-    // accepted the way the class forms are. `open` and `extends` are not
-    // annotations: each changes which requirements the contract carries, and
-    // accepting them would answer a requirement set that is wrong rather than
-    // merely incomplete.
-    if declaration.open || !declaration.parents.is_empty() {
-        return Err(CompileError::new("contract declaration form"));
-    }
+    // accepted the way the class forms are. `open` is such an annotation too:
+    // it governs whether the contract may be REOPENED, which is a separate
+    // surface, and the requirement set is the same either way.
+    //
+    // `extends` is NOT an annotation: a child carries its parents'
+    // requirements as well as its own, so they are inherited here rather than
+    // ignored. Ignoring them would answer a requirement set that is wrong
+    // rather than merely incomplete. A parent must already be declared, since
+    // its requirements have to exist to be inherited.
     let mut requirements = Vec::new();
+    for parent in &declaration.parents {
+        let TypeExpression::Name(name) = parent else {
+            return Err(CompileError::new("contract declaration form"));
+        };
+        let Some(parent) = contracts.iter().find(|known| known.name == *name) else {
+            return Err(CompileError::new("contract parent unbound"));
+        };
+        requirements.extend(parent.requirements.iter().cloned());
+    }
     for statement in &declaration.body {
         let Statement::Method(method) = statement else {
             return Err(CompileError::new("contract body"));

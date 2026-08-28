@@ -5085,18 +5085,18 @@ fn a_declaration_annotation_does_not_stop_the_program() {
         );
     }
 
-    // Control: a form that changes which REQUIREMENTS a contract carries is
-    // still declined, because accepting it would answer a wrong requirement
-    // set rather than an incomplete one.
+    // Control: a contract may only inherit from a parent that EXISTS, since
+    // its requirements have to be there to be inherited - so an unbound parent
+    // is still declined rather than silently contributing nothing.
     let crate::backend::Support::Unsupported(reason) =
         <crate::backend::Bytecode as crate::backend::Backend>::execute(
             &crate::backend::Bytecode,
             "contract Child extends ParentA, ParentB {} 1",
         )
     else {
-        unreachable!("an inheriting contract must remain declined")
+        unreachable!("an unbound contract parent must remain declined")
     };
-    assert_eq!(reason, "contract declaration form");
+    assert_eq!(reason, "contract parent unbound");
 }
 
 /// A targetless transfer, an absent assignment target, and a DEFAULT argument.
@@ -6363,4 +6363,70 @@ fn a_joined_writer_is_observed() {
         observation,
         &crate::backend::Observation::Value("[\"ee\", 2]".to_owned())
     );
+}
+
+/// A contract INHERITS its parents' requirements, and `open` only annotates.
+///
+/// `open` governs whether the contract may be reopened, which is a separate
+/// surface - the requirement set is the same either way. `extends` is not an
+/// annotation: a child carries its parents' requirements as well as its own,
+/// so a class implementing the child must satisfy what the parent required.
+#[test]
+fn a_contract_inherits_its_parents_requirements() {
+    for (source, expected) in [
+        // The parent's requirement is satisfied THROUGH the child.
+        (
+            "contract PA { fun a() -> Nil } contract Child extends PA {} \
+             class A for Child { public impl fun a() -> Nil { nil } } A.new().a()",
+            "nil",
+        ),
+        // `open` changes no requirement, so the same program still runs.
+        (
+            "open contract C { fun m() -> Nil } \
+             class A for C { public impl fun m() -> Nil { nil } } A.new().m()",
+            "nil",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // A child inherits from EVERY parent it names, so both requirements are
+    // carried rather than only the first.
+    let agreement = crate::backend::compare_backends(
+        "contract PA { fun a() -> Symbol } contract PB { fun b() -> Symbol } \
+         contract Child extends PA, PB {} \
+         class A for Child { public impl fun a() -> Symbol { :ay } \
+         public impl fun b() -> Symbol { :bee } } let x = A.new(); [x.a(), x.b()]",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[:ay, :bee]".to_owned())
+    );
+
+    // Control: a parent must EXIST for its requirements to be inherited, so an
+    // unbound one is declined rather than contributing nothing silently.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "contract Child extends Missing {} 1",
+        )
+    else {
+        unreachable!("an unbound contract parent must be declined")
+    };
+    assert_eq!(reason, "contract parent unbound");
 }
