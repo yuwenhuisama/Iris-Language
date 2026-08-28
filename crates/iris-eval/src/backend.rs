@@ -154,6 +154,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::TypeContractError),
                 )),
+                Err(iris_vm::MachineError::PatternMatchError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::PatternMatchError),
+                )),
                 Err(iris_vm::MachineError::ReflectionAccess) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::ReflectionAccess),
                 )),
@@ -1183,8 +1186,9 @@ M.r()"#;
         };
         assert_eq!(observation, &Observation::Error("NameError".to_owned()));
 
-        let Support::Unsupported(reason) = bytecode.execute("for [x] in [[1]] { x }") else {
-            unreachable!("this backend covers no destructuring iteration yet")
+        let Support::Unsupported(reason) = bytecode.execute("for [a, [b]] in [[1, [2]]] { a }")
+        else {
+            unreachable!("a NESTED destructuring sub-pattern must remain declined")
         };
         assert_eq!(reason, "statement for");
 
@@ -2233,7 +2237,7 @@ M.r()"#;
                  public fun f(a: Integer) -> Integer { a } } M.r()",
                 "expression keyword argument",
             ),
-            ("for [x] in [[1]] { x }", "statement for"),
+            ("for [a, [b]] in [[1, [2]]] { a }", "statement for"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
@@ -3348,7 +3352,7 @@ M.r()"#;
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
-        let source = "for [x] in [[1]] { x }";
+        let source = "for [a, [b]] in [[1, [2]]] { a }";
 
         let Support::Unsupported(reason) = bytecode.execute(source) else {
             unreachable!("the VM must not approximate the declined construct: {source}")

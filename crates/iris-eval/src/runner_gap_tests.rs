@@ -6558,3 +6558,63 @@ fn a_contract_bound_is_decided_at_construction() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A loop binding may DESTRUCTURE each item, and a mismatch raises.
+///
+/// `IRIS-V1-CONTROL-C045` binds `for [a, b] in source` from each yielded
+/// Array, and raises `PatternMatchError` when the item is not an Array of
+/// exactly that arity. The arity is carried into the binding rather than the
+/// element being read with a plain index, because an index would answer nil
+/// for a missing position instead of failing.
+#[test]
+fn a_loop_binding_destructures_each_item() {
+    for (source, expected) in [
+        // Exact arity binds both names.
+        ("for [a, b] in [[1, 2]] { a + b }", Some("nil")),
+        // Too FEW names for the item, and too MANY, both fail.
+        ("for [a, b] in [[1, 2, 3]] { a }", None),
+        ("for [a, b, c] in [[1, 2]] { a }", None),
+        // An item that is not an Array at all cannot be destructured.
+        ("for [a, b] in [7] { a }", None),
+        // Control: a plain NAME binding takes the item itself, so adding
+        // destructuring did not change the ordinary form.
+        ("for x in [[1, 2]] { x }", Some("nil")),
+        // Each iteration rebinds, so both names carry that item's elements.
+        (
+            "mut t = 0; for [a, b] in [[1, 2], [3, 4]] { t = t + a * b }; t",
+            Some("[nil, 14]"),
+        ),
+        // The failure RAISES, so an enclosing `try` catches it - returning it
+        // directly would escape the handler and make it uncatchable.
+        (
+            "module M { public fun run() -> Object { \
+             try { for [a, b] in [[1, 2, 3]] { a } } catch e { e } } } M.run()",
+            Some(":PatternMatchError"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("PatternMatchError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+
+    // Control: a NESTED sub-pattern decides more than an arity check can
+    // express, so it stays declined rather than being approximated.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "for [a, [b]] in [[1, [2]]] { a }",
+        )
+    else {
+        unreachable!("a nested destructuring sub-pattern must be declined")
+    };
+    assert_eq!(reason, "statement for");
+}

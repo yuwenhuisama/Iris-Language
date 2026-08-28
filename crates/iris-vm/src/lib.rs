@@ -733,7 +733,7 @@ mod ir_document_tests {
                  public fun f(a: Integer) -> Integer { a } } M.r()",
                 "expression keyword argument",
             ),
-            ("for [x] in [[1]] { x }", "statement for"),
+            ("for [a, [b]] in [[1, [2]]] { a }", "statement for"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")

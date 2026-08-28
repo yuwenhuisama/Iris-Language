@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 713 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 714 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,14 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A loop binding may DESTRUCTURE each item. `C045` binds `for [a, b] in source`
+from each yielded Array and raises `PatternMatchError` when the item is not an
+Array of exactly that arity - the arity travels into the binding rather than
+the element being read with a plain index, since an index would answer nil for
+a missing position instead of failing. The raise goes through the handler
+dispatch so an enclosing `try` catches it. A NESTED sub-pattern decides more
+than an arity check can express, so it stays declined.
 
 A contract BOUND is decided at the construction it governs. `C067` checks a
 `where T: SomeContract` bound at MATERIALIZATION rather than where the class is

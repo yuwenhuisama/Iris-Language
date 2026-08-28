@@ -348,6 +348,18 @@ pub enum Instruction {
     RaiseNameError {
         destination: Register,
     },
+    /// Binds one element of a DESTRUCTURING loop binding.
+    ///
+    /// `IRIS-V1-CONTROL-C045` raises `PatternMatchError` when the item is not
+    /// an Array of exactly the pattern's arity, so the arity is carried here
+    /// rather than the element being read with a plain index - an index would
+    /// answer nil for a missing position instead of failing.
+    DestructureElement {
+        destination: Register,
+        item: Register,
+        position: usize,
+        arity: usize,
+    },
     /// Fails a generic MATERIALIZATION, per `IRIS-V1-TYPES-C067`.
     ///
     /// A `where T: SomeContract` bound is checked when the class is
@@ -778,6 +790,7 @@ impl Instruction {
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
             Self::RaiseTypeContract { destination } => Some(*destination),
+            Self::DestructureElement { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
             }

@@ -442,6 +442,29 @@ impl Machine {
                 Instruction::RaiseNameError { .. } => {
                     dispatch!(Err(MachineError::NameError)?)
                 }
+                Instruction::DestructureElement {
+                    item,
+                    position,
+                    arity,
+                    ..
+                } => {
+                    // The failure goes through `dispatch!` so an enclosing
+                    // `try` CATCHES it: returning directly escaped the handler
+                    // and made the raise uncatchable.
+                    dispatch!({
+                        let Value::Array(elements) = &registers[*item as usize] else {
+                            Err(MachineError::PatternMatchError)?
+                        };
+                        let elements = elements.elements();
+                        if elements.len() != *arity {
+                            Err(MachineError::PatternMatchError)?;
+                        }
+                        let Some(element) = elements.get(*position) else {
+                            Err(MachineError::PatternMatchError)?
+                        };
+                        element.clone()
+                    })
+                }
                 Instruction::RaiseTypeContract { .. } => {
                     dispatch!(Err(MachineError::TypeContractError)?)
                 }

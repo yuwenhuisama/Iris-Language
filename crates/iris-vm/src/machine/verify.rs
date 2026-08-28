@@ -92,6 +92,11 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// A destructuring binding that the item does not MATCH.
+    ///
+    /// `IRIS-V1-CONTROL-C045` raises this when `for [a, b] in source` meets an
+    /// item that is not an Array of exactly that arity.
+    PatternMatchError,
     ReflectionAccess,
     JsonSyntaxError,
     SerializationError,
@@ -588,6 +593,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::MakeRegex { pattern, .. } => vec![*pattern],
         Instruction::NativeFixture { .. } | Instruction::ApplyReopen { .. } => Vec::new(),
         Instruction::CheckReturn { value, .. } => vec![*value],
+        Instruction::DestructureElement { item, .. } => vec![*item],
         Instruction::EscapeRegex { value, .. } => vec![*value],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }

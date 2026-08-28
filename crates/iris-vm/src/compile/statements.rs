@@ -110,7 +110,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 binding: iris_syntax::Pattern::Name(name),
                 iterable,
                 body,
-            } => self.for_iterable(label.as_deref(), name, iterable, body),
+            } => self.for_iterable(label.as_deref(), std::slice::from_ref(name), iterable, body),
+            // `C051` lets the loop binding DESTRUCTURE each item, so
+            // `for [a, b] in source` binds two names per iteration. Only a
+            // flat array of names is lowered: a nested or literal sub-pattern
+            // decides more than an index can express.
+            Statement::For {
+                label,
+                binding: iris_syntax::Pattern::Array(elements),
+                iterable,
+                body,
+            } => {
+                let mut names = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let iris_syntax::Pattern::Name(name) = element else {
+                        return Err(CompileError::new("statement for"));
+                    };
+                    names.push(name.clone());
+                }
+                self.for_iterable(label.as_deref(), &names, iterable, body)
+            }
             // An `if` yields a value, so both arms write the SAME destination
             // register. That is what lets the value be read afterwards without
             // knowing which arm ran.
@@ -328,7 +347,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
     pub(super) fn for_iterable(
         &mut self,
         label: Option<&str>,
-        name: &str,
+        names: &[String],
         iterable: &Expression,
         body: &[Statement],
     ) -> Result<Register, CompileError> {
@@ -358,7 +377,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
             exhausted: 0,
         });
         let outer = self.names.len();
-        self.names.push(Binding::value(name.to_owned(), item));
+        // A single name takes the item ITSELF; a destructuring binding takes
+        // its elements by index, which is what makes `for [a, b] in source`
+        // bind two names from one yielded array.
+        match names {
+            [name] => self.names.push(Binding::value(name.clone(), item)),
+            names => {
+                for (position, name) in names.iter().enumerate() {
+                    let element = self.allocate()?;
+                    self.instructions.push(Instruction::DestructureElement {
+                        destination: element,
+                        item,
+                        position,
+                        arity: names.len(),
+                    });
+                    self.names.push(Binding::value(name.clone(), element));
+                }
+            }
+        }
         self.loops.push(LoopContext {
             label: label.map(str::to_owned),
             continue_target: top,

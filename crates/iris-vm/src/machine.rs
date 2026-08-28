@@ -188,6 +188,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
+        MachineError::PatternMatchError => Some("PatternMatchError"),
         MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
         MachineError::SerializationError => Some("SerializationError"),
