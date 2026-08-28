@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 720 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 721 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,16 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A class reopen may COMPOSE a module: its mixin edge joins the declaration's own
+list, so the runtime composes it exactly as a declared one, while a superclass
+or a conformance would change what the class IS and stays declined. A member
+reached that way may not CONTRADICT a declared contract requirement - `D-173`
+puts the contract-visible signature in the static spine, so a parameter Type
+differing from the requirement is an incompatible replacement rather than a
+satisfying one. An unannotated position states nothing and is left alone. The
+check runs once every declaration is collected, because the module supplying
+the member may be declared after the class that mixes it in.
 
 A module REOPEN adds to the module it names rather than declaring a new one,
 and the LAST definition wins - searching forwards answered from the body the

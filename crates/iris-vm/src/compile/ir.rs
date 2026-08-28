@@ -914,6 +914,13 @@ pub(crate) struct ContractRequirement {
     pub(crate) selector: String,
     pub(crate) arity: usize,
     pub(crate) return_type: Option<String>,
+    /// The written Type of each parameter, by position.
+    ///
+    /// `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+    /// member whose parameter Type differs from the requirement is an
+    /// incompatible replacement even when the arities agree. An unannotated
+    /// position states nothing and is left alone.
+    pub(crate) parameter_types: Vec<Option<String>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

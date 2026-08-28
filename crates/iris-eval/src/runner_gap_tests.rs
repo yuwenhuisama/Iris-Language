@@ -5954,14 +5954,30 @@ fn a_restated_header_is_an_annotation() {
         &crate::backend::Observation::Error("TypeContractError".to_owned())
     );
 
-    // Control: a reopen that CHANGES the header - a mixin - stays declined.
+    // A reopen's MIXIN composes the module into the class the same way a
+    // declaration's does, so the program runs rather than being refused.
+    let agreement = crate::backend::compare_backends(
+        "module P { public fun h() -> Integer { 7 } } class A { } \
+         open class A mixin P { } A.new().h()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("7".to_owned())
+    );
+
+    // Control: a reopen that changes what the class IS - a SUPERCLASS - stays
+    // declined, so accepting a mixin did not open the whole header.
     let crate::backend::Support::Unsupported(reason) =
         <crate::backend::Bytecode as crate::backend::Backend>::execute(
             &crate::backend::Bytecode,
-            "module P { } class A { } open class A mixin P { } 1",
+            "class B { } class A { } open class A extends B { } 1",
         )
     else {
-        unreachable!("a reopen adding a mixin must be declined")
+        unreachable!("a reopen changing the superclass must be declined")
     };
     assert_eq!(reason, "class reopen header");
 }
@@ -6911,4 +6927,71 @@ fn a_wildcard_module_mixin_composes_the_module() {
         unreachable!("a private-access class mixin must be declined")
     };
     assert_eq!(reason, "class mixin");
+}
+
+/// A composed member may NOT contradict a declared contract requirement.
+///
+/// `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+/// method reached through a MIXIN whose parameter Type differs from the
+/// requirement is an incompatible replacement rather than a satisfying one.
+/// An unannotated position states nothing and is left alone.
+#[test]
+fn a_composed_member_may_not_contradict_a_requirement() {
+    for (source, expected) in [
+        // Reached through a REOPEN's mixin.
+        (
+            "contract C { fun draw(n: Integer) -> Nil } \
+             module P { public fun draw(s: String) -> Nil { nil } } \
+             class A for C { } open class A mixin P { } A",
+            None,
+        ),
+        // The same clash written at the DECLARATION.
+        (
+            "contract C { fun draw(n: Integer) -> Nil } \
+             module P { public fun draw(s: String) -> Nil { nil } } \
+             class A for C mixin P { } A",
+            None,
+        ),
+        // Control: a MATCHING signature satisfies the requirement.
+        (
+            "contract C { fun draw(n: Integer) -> Nil } \
+             module P { public fun draw(n: Integer) -> Nil { nil } } \
+             class A for C { } open class A mixin P { } A",
+            Some("<class>"),
+        ),
+        // Control: with no contract there is nothing to contradict.
+        (
+            "module P { public fun draw(s: String) -> Nil { nil } } \
+             class A { } open class A mixin P { } A",
+            Some("<class>"),
+        ),
+        // An UNANNOTATED position states nothing, so it is not a mismatch.
+        (
+            "contract C { fun draw(n: Integer) -> Nil } \
+             module P { public fun draw(x) -> Nil { nil } } \
+             class A for C { } open class A mixin P { } A.new().draw(1)",
+            Some("nil"),
+        ),
+        // A reopen may compose a module AND republish a method at once.
+        (
+            "module P { public fun h() -> Integer { 7 } } \
+             class A { public fun m() -> Symbol { :old } } \
+             open class A mixin P { override public fun m() -> Symbol { :new } } \
+             let a = A.new(); [a.h(), a.m()]",
+            Some("[7, :new]"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("TypeContractError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
 }

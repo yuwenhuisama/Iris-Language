@@ -76,12 +76,22 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     if let Err(error) = collect_signatures(&parsed.program.declarations)
         && matches!(
             error.construct.as_str(),
-            "class reopen target" | "contract parent unbound" | "module mixin unbound"
+            "class reopen target"
+                | "contract parent unbound"
+                | "module mixin unbound"
+                | "contract signature clash"
         )
     {
+        // A contract SIGNATURE clash is a type failure rather than a missing
+        // construct, so it raises the error the reference raises for it.
+        let raise = if error.construct == "contract signature clash" {
+            Instruction::RaiseTypeContract { destination: 0 }
+        } else {
+            Instruction::RaiseUnsupported { destination: 0 }
+        };
         return Ok(Program {
             source: source.to_owned(),
-            instructions: vec![Instruction::RaiseUnsupported { destination: 0 }],
+            instructions: vec![raise],
             registers: 1,
             result: 0,
             functions: Vec::new(),

@@ -184,6 +184,55 @@ pub(super) fn collect_signatures(
         }
         collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
+    // `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+    // member composed from a MIXIN whose parameter Type contradicts a declared
+    // requirement is an incompatible replacement. That is checked here rather
+    // than while a class is collected, because the module supplying the member
+    // may be declared after the class that mixes it in.
+    for class in &classes {
+        for contract in &class.contracts {
+            for requirement in &contracts[*contract].requirements {
+                let composed = class.mixins.iter().find_map(|mixin| {
+                    declarations
+                        .iter()
+                        .find_map(|declaration| match declaration {
+                            iris_syntax::Declaration::Module(module) if module.name == *mixin => {
+                                module.body.iter().find_map(|statement| match statement {
+                                    Statement::Method(method)
+                                        if method.selector == requirement.selector =>
+                                    {
+                                        Some(method)
+                                    }
+                                    _ => None,
+                                })
+                            }
+                            _ => None,
+                        })
+                });
+                let Some(method) = composed else {
+                    continue;
+                };
+                // An UNANNOTATED position states nothing, so it is left alone
+                // rather than treated as a mismatch.
+                let clashes = method.parameters.len() == requirement.arity
+                    && method
+                        .parameters
+                        .iter()
+                        .zip(&requirement.parameter_types)
+                        .any(
+                            |(actual, required)| match (actual.annotation.as_ref(), required) {
+                                (Some(TypeExpression::Name(actual)), Some(required)) => {
+                                    actual != required
+                                }
+                                _ => false,
+                            },
+                        );
+                if clashes {
+                    return Err(CompileError::new("contract signature clash"));
+                }
+            }
+        }
+    }
     Ok(CollectedDeclarations {
         signatures,
         classes,
@@ -249,6 +298,14 @@ fn collect_contract(
         requirements.push(ContractRequirement {
             selector: method.selector.clone(),
             arity: method.parameters.len(),
+            parameter_types: method
+                .parameters
+                .iter()
+                .map(|parameter| match parameter.annotation.as_ref() {
+                    Some(TypeExpression::Name(name)) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
             return_type: method
                 .return_type
                 .as_ref()
@@ -465,13 +522,10 @@ fn collect_reopen<'a>(
     // Type PARAMETERS and a `where` constraint on a reopen restate the
     // declaration's own header rather than changing it - the reference runs
     // `class Box<T> { }; open class Box<T> where T: Object { }; 1` and answers
-    // `1`. A superclass, a conformance or a MIXIN would change what the class
-    // is, so those stay declined.
-    if class.extends.is_some()
-        || !class.implements.is_empty()
-        || !class.mixins.is_empty()
-        || !class.meta_deny.is_empty()
-    {
+    // `1`. A superclass or a conformance would change what the class IS, so
+    // those stay declined; a MIXIN composes a module into the class the same
+    // way a declaration's does, and is applied below.
+    if class.extends.is_some() || !class.implements.is_empty() || !class.meta_deny.is_empty() {
         return Err(CompileError::new("class reopen header"));
     }
     // A BUILT-IN class is created by the kernel and has no entry here, so a
@@ -484,6 +538,11 @@ fn collect_reopen<'a>(
             "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
         ) {
             return Err(CompileError::new("class reopen target"));
+        }
+        // A BUILT-IN class is the kernel's, so it has no declaration entry a
+        // mixin edge could join.
+        if !class.mixins.is_empty() {
+            return Err(CompileError::new("class reopen header"));
         }
         let first_function = signatures.len();
         collect_methods(&class.name, &class.body, true, signatures)?;
@@ -502,6 +561,19 @@ fn collect_reopen<'a>(
     let Some(target) = classes.iter().position(|known| known.name == class.name) else {
         return Err(CompileError::new("class reopen target"));
     };
+    // A reopen's MIXIN composes into the class the runtime already registers,
+    // so the edge joins the declaration's own list rather than needing a
+    // second composition path.
+    for mixin in &class.mixins {
+        let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = &mixin.target
+        else {
+            return Err(CompileError::new("class reopen header"));
+        };
+        if mixin.private_access {
+            return Err(CompileError::new("class mixin"));
+        }
+        classes[target].mixins.push(name.clone());
+    }
     let first_function = signatures.len();
     collect_methods(&class.name, &class.body, true, signatures)?;
     let (methods, class_methods) = collected_method_tables(signatures, first_function);
