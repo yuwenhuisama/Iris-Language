@@ -76,7 +76,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     if let Err(error) = collect_signatures(&parsed.program.declarations)
         && matches!(
             error.construct.as_str(),
-            "class reopen target" | "contract parent unbound"
+            "class reopen target" | "contract parent unbound" | "module mixin unbound"
         )
     {
         return Ok(Program {

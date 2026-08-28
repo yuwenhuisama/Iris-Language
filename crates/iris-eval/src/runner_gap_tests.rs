@@ -5485,19 +5485,21 @@ fn a_module_composes_another_module() {
         );
     }
 
-    // Control: a FORWARD reference is declined rather than resolved. The
-    // reference refuses it, so ordering the definitions to make it work would
-    // answer a value the language does not have.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "module B mixin A { } module A { public fun w() { :a } } class C mixin B { } \
-             C.new().w()",
-        )
-    else {
-        unreachable!("a forward module mixin must be declined")
+    // Control: a FORWARD reference RAISES rather than resolving. The reference
+    // refuses it when the program runs, so ordering the definitions to make it
+    // work would answer a value the language does not have.
+    let agreement = crate::backend::compare_backends(
+        "module B mixin A { } module A { public fun w() { :a } } class C mixin B { } \
+         C.new().w()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "module");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
 }
 
 /// Reopening a BUILT-IN class adds methods to every value of that class.
@@ -6149,17 +6151,20 @@ fn a_generic_module_is_annotated_and_super_fails_late() {
         );
     }
 
-    // Control: a `where Self: T` constraint governs a surface the backend has
-    // no support for, so it stays declined rather than being ignored.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "module Helpers<T> where Self: T {} class Host mixin Helpers<_> {}",
-        )
-    else {
-        unreachable!("a self-constrained module must be declined")
+    // A `where Self: T` constraint ANNOTATES the module: the reference runs
+    // the declaration, so the program fails only on the surface that
+    // constraint governs - here, a program of declarations answering no value.
+    let agreement = crate::backend::compare_backends(
+        "module Helpers<T> where Self: T {} class Host mixin Helpers<_> {}",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "module");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
 }
 
 /// The native ABI raise is a CONVERSION, and a second close does not release.
@@ -6807,4 +6812,103 @@ fn an_unassignable_target_raises() {
         observation,
         &crate::backend::Observation::Value("[2, 2]".to_owned())
     );
+}
+
+/// A module REOPEN adds to the module it names, and the LAST definition wins.
+///
+/// `open module M { fun b() }` publishes into the same owner rather than
+/// declaring a new module, so `M.a()` and `M.b()` both resolve. A republished
+/// selector wins because resolution takes the last definition - searching
+/// forwards answered from the body the reopen replaced.
+#[test]
+fn a_module_reopen_adds_to_its_target() {
+    for (source, expected) in [
+        (
+            "module M { public fun a() -> Integer { 1 } } \
+             open module M { public fun b() -> Integer { 2 } } [M.a(), M.b()]",
+            "[1, 2]",
+        ),
+        (
+            "module M { public fun a() -> Integer { 1 } } \
+             open module M { override public fun a() -> Integer { 2 } } M.a()",
+            "2",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a reopen whose target does not EXIST adds to nothing, and the
+    // program still RUNS - so its methods are dropped rather than a new module
+    // being declared or the program refused.
+    let agreement = crate::backend::compare_backends(
+        "open module Absent { public fun b() -> Integer { 2 } } 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("1".to_owned())
+    );
+}
+
+/// A GENERIC module mixin names the same module whatever its argument.
+///
+/// `mixin Helpers<_>` composes `Helpers` exactly as `mixin Helpers<String>`
+/// does, since the backend specialises a module per argument no more than the
+/// reference publishes one - so a wildcard reaches the same methods. A
+/// `where Self: T` constraint annotates the module the same way.
+#[test]
+fn a_wildcard_module_mixin_composes_the_module() {
+    for (source, expected) in [
+        (
+            "module Helpers<T> { public fun h() -> Integer { 7 } } \
+             class Host mixin Helpers<_> {} Host.new().h()",
+            "7",
+        ),
+        (
+            "module Helpers<T> where Self: T { public fun h() -> Integer { 7 } } \
+             class Host mixin Helpers<_> {} Host.new().h()",
+            "7",
+        ),
+        ("module Helpers<T> where Self: T {} 1", "1"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a PRIVATE-access class mixin grants the module reach into the
+    // class's private methods, which the backend does not model - that is a
+    // change of meaning rather than an annotation, so it stays declined.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "module M { public fun h() -> Integer { 7 } } class A mixin M private {} A.new().h()",
+        )
+    else {
+        unreachable!("a private-access class mixin must be declined")
+    };
+    assert_eq!(reason, "class mixin");
 }

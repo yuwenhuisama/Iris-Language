@@ -349,10 +349,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
     }
 
     /// Resolves `Module.selector` to a function index.
+    /// Resolves a module function to its index, LAST definition winning.
+    ///
+    /// A module REOPEN republishes a method over the original, and its
+    /// signatures are collected after the origin's, so searching in reverse is
+    /// what makes `open module M { override fun a() }` answer from the
+    /// replacement rather than the body it replaced.
     pub(super) fn resolve(&self, module: &str, selector: &str) -> Option<usize> {
         self.signatures
             .iter()
-            .position(|signature| signature.module == module && signature.selector == selector)
+            .rposition(|signature| signature.module == module && signature.selector == selector)
     }
     /// Reserves a fresh register.
     pub(super) fn allocate(&mut self) -> Result<Register, CompileError> {

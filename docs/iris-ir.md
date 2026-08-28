@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 719 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 720 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,17 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A module REOPEN adds to the module it names rather than declaring a new one,
+and the LAST definition wins - searching forwards answered from the body the
+reopen replaced. A reopen whose target is not declared adds to nothing and the
+program still runs, so its methods are dropped rather than the program being
+refused. A GENERIC module mixin names the same module whatever its argument:
+`mixin Helpers<_>` composes `Helpers` exactly as `mixin Helpers<String>` does,
+since the backend specialises a module per argument no more than the reference
+publishes one. A `where Self: T` constraint annotates the module the same way,
+while a PRIVATE-access class mixin grants reach into the class's private
+methods - a change of meaning, so it stays declined.
 
 `from S import K` binds the module's CONSTANT under the imported name, at the
 import's own source position. Only a constant is bound - a module's methods are

@@ -107,10 +107,28 @@ pub(super) fn collect_signatures(
         };
         // Type PARAMETERS annotate a module the way they annotate a class or
         // contract: `module Helpers<T> { fun h() { 7 } }` declares the same
-        // method either way, and a `where Self: T` constraint governs a
-        // surface the backend has no other support for.
-        if module.reopen || !module.constraints.is_empty() {
-            return Err(CompileError::new("module"));
+        // method either way. A `where Self: T` constraint is such an
+        // annotation too - the reference RUNS
+        // `module Helpers<T> where Self: T {} 1` and answers `1`, so declining
+        // refused a program that runs. It governs a surface the backend has no
+        // other support for, so a program that DEPENDS on it fails there
+        // rather than here.
+        // A module REOPEN adds to the module it names rather than declaring a
+        // new one: its methods join the same owner, and a republished selector
+        // wins because resolution takes the LAST definition. The target must
+        // already be declared, since there is otherwise nothing to add to.
+        if module.reopen {
+            // A reopen whose target is not declared adds to nothing, and the
+            // reference still RUNS the program - `open module Absent {} 1`
+            // answers `1` - so its methods are dropped rather than the program
+            // being refused. A call to one then fails where it is made.
+            if modules
+                .iter()
+                .any(|known: &crate::compile::ir::ModuleDeclaration| known.name == module.name)
+            {
+                collect_methods(&module.name, &module.body, false, &mut signatures)?;
+            }
+            continue;
         }
         // A module may itself mix in another module, and the runtime composes
         // those edges the same way it does a class's. The composed module must
@@ -121,13 +139,19 @@ pub(super) fn collect_signatures(
             let TypeExpression::Name(name) = &mixin.target else {
                 return Err(CompileError::new("module"));
             };
-            if mixin.private_access
-                || !modules
-                    .iter()
-                    .any(|known: &crate::compile::ir::ModuleDeclaration| known.name == *name)
+            // A module composed from one that is not DECLARED has nothing to
+            // compose: the reference raises when the program runs, so the
+            // backend raises rather than declining.
+            if !modules
+                .iter()
+                .any(|known: &crate::compile::ir::ModuleDeclaration| known.name == *name)
             {
-                return Err(CompileError::new("module"));
+                return Err(CompileError::new("module mixin unbound"));
             }
+            // A PRIVATE-access mixin carries visibility rules the backend does
+            // not model, and the reference runs the declaration either way, so
+            // the edge is composed and the visibility surface is where a
+            // program depending on it fails.
             mixins.push(name.clone());
         }
         modules.push(crate::compile::ir::ModuleDeclaration {
@@ -257,18 +281,13 @@ fn collect_class<'a>(
     // model yet, so only the plain form is lowered rather than approximated.
     let mut mixins = Vec::with_capacity(class.mixins.len());
     for mixin in &class.mixins {
-        // A CLOSED generic module names the same module: `mixin Helpers<String>`
-        // composes `Helpers`, since the backend does not specialise a module
-        // per argument any more than the reference publishes one.
+        // A GENERIC module mixin names the same module whatever its argument:
+        // `mixin Helpers<String>` and `mixin Helpers<_>` both compose
+        // `Helpers`, since the backend does not specialise a module per
+        // argument any more than the reference publishes one - a wildcard
+        // argument therefore reaches the same methods a concrete one does.
         let name = match &mixin.target {
-            TypeExpression::Name(name) => name,
-            TypeExpression::Generic { name, arguments }
-                if arguments.iter().all(
-                    |argument| !matches!(argument, TypeExpression::Name(name) if name == "_"),
-                ) =>
-            {
-                name
-            }
+            TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => name,
             _ => return Err(CompileError::new("class mixin")),
         };
         if mixin.private_access {
