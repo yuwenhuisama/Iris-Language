@@ -67,6 +67,31 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         });
     }
 
+    // A declaration naming a target that does not EXIST - a reopen of an
+    // undeclared class, a contract inheriting an undeclared parent - is a
+    // program error the reference raises when the program runs, exactly as a
+    // parse rejection is. Declining made both backends refuse the same program
+    // while describing it differently, which holds the row rather than
+    // agreeing, so the backend answers a program that raises instead.
+    if let Err(error) = collect_signatures(&parsed.program.declarations)
+        && matches!(
+            error.construct.as_str(),
+            "class reopen target" | "contract parent unbound"
+        )
+    {
+        return Ok(Program {
+            source: source.to_owned(),
+            instructions: vec![Instruction::RaiseUnsupported { destination: 0 }],
+            registers: 1,
+            result: 0,
+            functions: Vec::new(),
+            classes: Vec::new(),
+            contracts: Vec::new(),
+            modules: Vec::new(),
+            builtin_reopens: Vec::new(),
+        });
+    }
+
     // Name resolution happens HERE, before any instruction is emitted: a call
     // is lowered to a function INDEX, never to a name looked up at run time.
     // The design review places this responsibility in a HIR layer between AST

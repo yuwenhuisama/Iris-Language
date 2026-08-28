@@ -5087,16 +5087,18 @@ fn a_declaration_annotation_does_not_stop_the_program() {
 
     // Control: a contract may only inherit from a parent that EXISTS, since
     // its requirements have to be there to be inherited - so an unbound parent
-    // is still declined rather than silently contributing nothing.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "contract Child extends ParentA, ParentB {} 1",
-        )
-    else {
-        unreachable!("an unbound contract parent must remain declined")
+    // RAISES rather than silently contributing nothing.
+    let agreement = crate::backend::compare_backends(
+        "contract Child extends ParentA, ParentB {} 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "contract parent unbound");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
 }
 
 /// A targetless transfer, an absent assignment target, and a DEFAULT argument.
@@ -5543,16 +5545,19 @@ fn reopening_a_builtin_class_adds_to_its_values() {
     }
 
     // Control: a name that is neither DECLARED nor built in has no target at
-    // all, so it is still declined rather than silently creating a class.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "open class Absent { public fun f() -> Integer { 1 } } 1",
-        )
-    else {
-        unreachable!("a reopen with no target must be declined")
+    // all, so the program RAISES rather than silently creating a class - the
+    // reference refuses it when it runs, so raising is what agrees with it.
+    let agreement = crate::backend::compare_backends(
+        "open class Absent { public fun f() -> Integer { 1 } } 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "class reopen target");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
 }
 
 /// A `while` answers the operand a `break` carried, in either position.
@@ -6421,16 +6426,19 @@ fn a_contract_inherits_its_parents_requirements() {
     );
 
     // Control: a parent must EXIST for its requirements to be inherited, so an
-    // unbound one is declined rather than contributing nothing silently.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "contract Child extends Missing {} 1",
-        )
-    else {
-        unreachable!("an unbound contract parent must be declined")
+    // unbound one RAISES rather than contributing nothing silently. The
+    // reference refuses it when the program runs, so raising is what agrees.
+    let agreement = crate::backend::compare_backends(
+        "contract Child extends Missing {} 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
     };
-    assert_eq!(reason, "contract parent unbound");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
 }
 
 /// A declared RETURN Type is guarded before the value reaches the caller.
@@ -6617,4 +6625,49 @@ fn a_loop_binding_destructures_each_item() {
         unreachable!("a nested destructuring sub-pattern must be declined")
     };
     assert_eq!(reason, "statement for");
+}
+
+/// A declaration naming a target that does not EXIST raises when it runs.
+///
+/// A reopen of an undeclared class and a contract inheriting an undeclared
+/// parent are program errors the reference raises at RUN time, exactly as a
+/// parse rejection is. Declining made both backends refuse the same program
+/// while describing it differently, which holds the row rather than agreeing.
+#[test]
+fn an_absent_declaration_target_raises() {
+    for source in [
+        "contract Child extends ParentA, ParentB {}",
+        "contract Child extends ParentA, ParentB {} 1",
+        "open class Box<String> { fun m() -> Nil {} }",
+        "class Present {} open class NotThere { public fun m() -> Nil { nil } } 1",
+        "class Present {} open class NotThere { public fun m() -> Nil { nil } } NotThere.new()",
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error("UnsupportedConstruct".to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a reopen whose target DOES exist still applies, so raising is
+    // about the missing target rather than about reopening at all.
+    let agreement = crate::backend::compare_backends(
+        "class P { public fun m() -> Symbol { :old } } \
+         open class P { override public fun m() -> Symbol { :new } } P.new().m()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value(":new".to_owned())
+    );
 }

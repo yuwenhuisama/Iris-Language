@@ -554,7 +554,9 @@ mod tests {
         // longer here; the differential tests pin that they compile AND that
         // the declaration still works.
         for (source, expected, old_generic_error) in [
-            ("open class A { } 1", "class reopen target", "declaration"),
+            // A reopen with NO target is no longer here: the reference refuses
+            // it when the program runs, so the backend raises instead of
+            // declining, which is what agrees with it.
             (
                 "class A for C { } 1",
                 "class contract unbound",
@@ -569,12 +571,26 @@ mod tests {
                 "declaration",
             ),
         ] {
+            // A reopen with no target RAISES rather than being declined, so it
+            // is verified separately below.
+
             let Err(error) = compile(source) else {
                 unreachable!("unsupported class shape must be declined: {source}")
             };
             assert_ne!(error.construct, old_generic_error, "{source}");
             assert_eq!(error.construct, expected, "{source}");
         }
+
+        // A reopen naming a class that does not exist COMPILES to a program
+        // that raises, because the reference refuses it at run time.
+        let Ok(program) = compile("open class A { } 1") else {
+            unreachable!("a targetless reopen compiles to a raising program")
+        };
+        assert_eq!(verify(&program), Ok(()));
+        assert!(matches!(
+            run(&program),
+            Err(MachineError::UnsupportedConstruct)
+        ));
     }
 }
 
