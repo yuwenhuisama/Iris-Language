@@ -319,6 +319,10 @@ impl Machine {
                     let pattern = pattern.clone();
                     dispatch!(Self::make_regex(&pattern, flags)?)
                 }
+                Instruction::ApplyReopen { class, reopen } => {
+                    self.apply_reopen(program, classes, *class, *reopen)?;
+                    continue;
+                }
                 Instruction::NativeFixture {
                     selector,
                     first,

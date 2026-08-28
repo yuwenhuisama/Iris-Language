@@ -413,6 +413,8 @@ fn collect_reopen<'a>(
         let first_function = signatures.len();
         collect_methods(&class.name, &class.body, true, signatures)?;
         let (methods, class_methods) = collected_method_tables(signatures, first_function);
+        // A BUILT-IN class's singleton side is the kernel's, not the
+        // program's, so a class method on one has no table to publish onto.
         if !class_methods.is_empty() {
             return Err(CompileError::new("class reopen class method"));
         }
@@ -428,10 +430,10 @@ fn collect_reopen<'a>(
     let first_function = signatures.len();
     collect_methods(&class.name, &class.body, true, signatures)?;
     let (methods, class_methods) = collected_method_tables(signatures, first_function);
-    if !class_methods.is_empty() {
-        return Err(CompileError::new("class reopen class method"));
-    }
-    classes[target].reopens.push(ClassReopen { methods });
+    classes[target].reopens.push(ClassReopen {
+        methods,
+        class_methods,
+    });
     Ok(())
 }
 

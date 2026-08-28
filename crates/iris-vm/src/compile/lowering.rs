@@ -27,6 +27,14 @@ pub(super) fn lower_function(
         .position(|class| class.name == signature.module)
         .map(|owner| (owner, signature.selector.to_owned()));
     lowering.async_body = signature.is_async;
+    // A module's own function is reachable BARE from its siblings: inside
+    // `module M`, `natural()` names `M.natural`. The owner is recorded so that
+    // resolution can find it, and only for a receiverless signature - an
+    // instance method's bare call is a send to self, which is decided ahead of
+    // this and must keep winning.
+    if !signature.receiver {
+        lowering.enclosing_module = Some(signature.module.to_owned());
+    }
     if signature.receiver {
         let receiver = lowering.allocate()?;
         lowering

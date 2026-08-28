@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 707 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 709 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,19 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A class REOPEN takes effect where it was WRITTEN, not at load. A call made
+before `open class P { override fun m() }` still answers the original body, so
+the reopen's transaction is driven from an `ApplyReopen` at that source
+position - publishing every reopen up front made the earlier call answer from
+the replacement. It follows that which body runs is the REGISTRY's answer at
+that moment rather than a static "last definition wins": a class method is
+reached the same way, including as an operator, so `P + P` finds the `class fun
++` that `P.+(P)` already found.
+
+A module's own function is reachable BARE from its siblings - inside `module
+M`, `natural()` names `M.natural`. It has no receiver, so it resolves by index
+rather than as a send to self, and a local binding of that name still wins.
 
 The NATIVE boundary is the one subsystem that leaves the process. `C018` lets
 native code raise only through an ABI operation that creates an

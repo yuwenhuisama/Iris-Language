@@ -55,6 +55,33 @@ impl Machine {
                 _ => ordering >= 0,
             }));
         }
+        // A CLASS may define an operator on its singleton side, and an
+        // operator arrives here rather than through `Send` - so authored
+        // dispatch has to be consulted, or `P + P` would miss a `class fun +`
+        // that `P.+(P)` finds. Only a class receiver takes this path: every
+        // other authored receiver is already reached below.
+        if let Value::Class(class) = &receiver
+            && classes.iter().any(|known| known == class)
+            && let Some(index) = classes.iter().position(|known| known == class)
+            && program.classes[index]
+                .class_methods
+                .iter()
+                .chain(
+                    program.classes[index]
+                        .reopens
+                        .iter()
+                        .flat_map(|reopen| &reopen.class_methods),
+                )
+                .any(|(name, _)| name == selector)
+        {
+            return self.class_method_value(
+                *class,
+                selector,
+                std::slice::from_ref(&argument),
+                program,
+                classes,
+            );
+        }
         if let Value::Bytes(mut bytes) = receiver {
             if selector != "+" {
                 return self.send(selector, Value::Bytes(bytes), &[argument]);
@@ -904,7 +931,7 @@ impl Machine {
     }
 
     /// Calls an authored CLASS method and answers its value.
-    fn class_method_value(
+    pub(super) fn class_method_value(
         &mut self,
         class: ClassId,
         selector: &str,
@@ -915,13 +942,41 @@ impl Machine {
         let Some(index) = classes.iter().position(|known| *known == class) else {
             return Err(MachineError::SerializationError);
         };
-        let Some((_, function)) = program.classes[index]
+        // Which BODY runs is the registry's answer, not this table's: a reopen
+        // takes effect at the position it was written, so a static "last
+        // definition wins" would run the replacement even for a call made
+        // before it. The declaration is consulted only to know the selector is
+        // a class method at all.
+        if !program.classes[index]
             .class_methods
             .iter()
-            .find(|(name, _)| name == selector)
+            .chain(
+                program.classes[index]
+                    .reopens
+                    .iter()
+                    .flat_map(|reopen| &reopen.class_methods),
+            )
+            .any(|(name, _)| name == selector)
+        {
+            return Err(MachineError::SerializationError);
+        }
+        let selector_id = selector_id(program, selector)
+            .ok_or_else(|| MachineError::UnknownSelector(selector.to_owned()))?;
+        let iris_runtime::DispatchOutcome::Invoke(method) = self
+            .runtime
+            .registry()
+            .dispatch_class_object(class, selector_id)
+            .map_err(iris_runtime::ConstructionError::from)
+            .map_err(MachineError::Construction)?
         else {
             return Err(MachineError::SerializationError);
         };
+        let function = usize::try_from(method.body().raw()).map_err(|_| {
+            MachineError::Invalid(VerifyError::UnknownFunction {
+                function: usize::MAX,
+            })
+        })?;
+        let function = &function;
         let Some(callee) = program.functions.get(*function).cloned() else {
             return Err(MachineError::SerializationError);
         };

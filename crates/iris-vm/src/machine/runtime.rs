@@ -317,7 +317,14 @@ impl Machine {
         program
             .classes
             .iter()
-            .flat_map(|class| class.methods.iter().chain(&class.class_methods))
+            .flat_map(|class| {
+                class.methods.iter().chain(&class.class_methods).chain(
+                    class
+                        .reopens
+                        .iter()
+                        .flat_map(|reopen| reopen.methods.iter().chain(&reopen.class_methods)),
+                )
+            })
             .map(|(name, _)| name.as_str())
             .chain(
                 program
@@ -540,29 +547,8 @@ impl Machine {
                 .registry_mut()
                 .commit_origin_transaction(class)
                 .map_err(MachineError::Class)?;
-            for reopen in &declaration.reopens {
-                self.runtime
-                    .registry_mut()
-                    .begin_transaction(class)
-                    .map_err(MachineError::Class)?;
-                for (selector, function) in &reopen.methods {
-                    let selector = selector_id(program, selector)
-                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                    self.runtime
-                        .registry_mut()
-                        .publish_method(
-                            class,
-                            selector,
-                            MethodBody::new(*function as u64),
-                            Visibility::Public,
-                        )
-                        .map_err(MachineError::Class)?;
-                }
-                self.runtime
-                    .registry_mut()
-                    .commit_transaction(class)
-                    .map_err(MachineError::Class)?;
-            }
+            // A reopen is NOT applied here: it takes effect where it was
+            // written, so `ApplyReopen` drives it from that position.
             classes.push(class);
         }
         // A reopen of a BUILT-IN class publishes onto the kernel's own class,
@@ -730,6 +716,63 @@ impl Machine {
                     .map_err(MachineError::Construction)?;
             }
         }
+        Ok(())
+    }
+}
+
+impl Machine {
+    /// Applies one class reopen, at the source position it was written.
+    pub(super) fn apply_reopen(
+        &mut self,
+        program: &Program,
+        classes: &[ClassId],
+        class_index: usize,
+        reopen_index: usize,
+    ) -> Result<(), MachineError> {
+        let Some(class) = classes.get(class_index).copied() else {
+            return Err(MachineError::SerializationError);
+        };
+        let Some(reopen) = program
+            .classes
+            .get(class_index)
+            .and_then(|declaration| declaration.reopens.get(reopen_index))
+        else {
+            return Err(MachineError::SerializationError);
+        };
+        self.runtime
+            .registry_mut()
+            .begin_transaction(class)
+            .map_err(MachineError::Class)?;
+        for (selector, function) in &reopen.methods {
+            let selector = selector_id(program, selector)
+                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+            self.runtime
+                .registry_mut()
+                .publish_method(
+                    class,
+                    selector,
+                    MethodBody::new(*function as u64),
+                    Visibility::Public,
+                )
+                .map_err(MachineError::Class)?;
+        }
+        for (selector, function) in &reopen.class_methods {
+            let selector = selector_id(program, selector)
+                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+            self.runtime
+                .registry_mut()
+                .publish_singleton_method(
+                    class,
+                    selector,
+                    MethodBody::new(*function as u64),
+                    Visibility::Public,
+                )
+                .map_err(MachineError::Class)?;
+        }
+        self.runtime
+            .registry_mut()
+            .commit_transaction(class)
+            .map_err(MachineError::Class)?;
         Ok(())
     }
 }

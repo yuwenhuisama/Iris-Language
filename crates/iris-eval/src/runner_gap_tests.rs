@@ -6196,3 +6196,89 @@ fn the_native_boundary_converts_and_releases_once() {
         );
     }
 }
+
+/// A REOPEN takes effect where it was WRITTEN, on either method side.
+///
+/// A call made before `open class P { override fun m() }` still answers the
+/// original body: publishing every reopen at load made that earlier call
+/// answer from the replacement instead. Which body runs is therefore the
+/// registry's answer at that moment, not a static "last definition wins".
+/// A class method is reached the same way, including as an OPERATOR - `P + P`
+/// must find a `class fun +` that `P.+(P)` already found.
+#[test]
+fn a_reopen_takes_effect_where_it_is_written() {
+    for (source, expected) in [
+        // The INSTANCE side, before and after the reopen.
+        (
+            "class P { public fun m() -> Symbol { :old } } let a = P.new().m(); \
+             open class P { override public fun m() -> Symbol { :new } } [a, P.new().m()]",
+            "[:old, :new]",
+        ),
+        // The CLASS side, which had no reopen path at all before.
+        (
+            "class P { class fun m() -> Symbol { :old } } let a = P.m(); \
+             open class P { override class fun m() -> Symbol { :new } } [a, P.m()]",
+            "[:old, :new]",
+        ),
+        // An OPERATOR reaches the same singleton method, and respects position.
+        (
+            "class P { class fun +(other) -> Symbol { :old } } let a = P + P; \
+             open class P { override class fun +(other) -> Symbol { :new } } [a, P + P]",
+            "[:old, :new]",
+        ),
+        // Control: with NO reopen the original stands, so position handling
+        // did not simply prefer whatever was defined last.
+        (
+            "class P { class fun +(other) -> Symbol { :only } } [P + P, P.+(P)]",
+            "[:only, :only]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
+
+/// A module's own function is reachable BARE from its siblings.
+///
+/// Inside `module M`, `natural()` names `M.natural` - it has no receiver, so
+/// it resolves by index like `M.natural()` rather than as a send to self.
+#[test]
+fn a_module_function_is_reachable_bare() {
+    for (source, expected) in [
+        (
+            "module M { public fun a() -> Integer { 1 } \
+             public fun run() -> Integer { a() + 1 } } M.run()",
+            "2",
+        ),
+        // Control: a LOCAL binding of the same name still wins, so a bare call
+        // did not start ignoring the enclosing scope.
+        (
+            "module M { public fun a() -> Integer { 1 } \
+             public fun run() -> Integer { let a = { || 9 }; a.call() } } M.run()",
+            "9",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

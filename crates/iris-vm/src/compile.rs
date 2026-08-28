@@ -127,6 +127,8 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // bound appends, and before it is a NameError. Their values are discarded,
     // since a module body contributes nothing to the program's answer.
     let mut produced = Vec::new();
+    let mut applied: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let lowering_classes = classes.clone();
     for entry in &parsed.program.entries {
         match entry {
             iris_syntax::ProgramEntry::Statement(statement) => {
@@ -147,6 +149,25 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
                     lowering.statement(statement)?;
                 }
                 lowering.enclosing_module = None;
+            }
+            // A class REOPEN takes effect where it was written, so it is
+            // applied from this position rather than at load. Reopens of one
+            // class are counted in source order, which is the order
+            // `collect_signatures` recorded them in.
+            iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Class(class))
+                if class.reopen =>
+            {
+                if let Some(target) = lowering_classes
+                    .iter()
+                    .position(|known: &crate::compile::ir::Class| known.name == class.name)
+                {
+                    let reopen = *applied.entry(target).or_insert(0);
+                    applied.insert(target, reopen + 1);
+                    lowering.instructions.push(Instruction::ApplyReopen {
+                        class: target,
+                        reopen,
+                    });
+                }
             }
             iris_syntax::ProgramEntry::Declaration(_) => {}
         }

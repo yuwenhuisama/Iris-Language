@@ -213,6 +213,16 @@ pub enum Instruction {
         pattern: Register,
         flags: String,
     },
+    /// Applies a class REOPEN at the position it was written.
+    ///
+    /// A reopen takes effect where it appears in the source, not at load: a
+    /// call made BEFORE `open class P { override fun m() }` still answers the
+    /// original body. Publishing every reopen up front made the earlier call
+    /// answer from the replacement, so the transaction is driven from here.
+    ApplyReopen {
+        class: usize,
+        reopen: usize,
+    },
     /// Crosses the native ABI, per `IRIS-V1-FFI-C018` and `C027`.
     ///
     /// `raise` converts the ABI's status plus context handle into the ordinary
@@ -733,6 +743,7 @@ impl Instruction {
             Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
+            Self::ApplyReopen { .. } => None,
             Self::NativeFixture { destination, .. } => Some(*destination),
             Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {
                 Some(*destination)
@@ -922,4 +933,8 @@ pub(crate) enum LiteralValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClassReopen {
     pub(crate) methods: Vec<(String, usize)>,
+    /// A reopen may also REPLACE a class method, which is published onto the
+    /// singleton rather than the instance side - the two are separate tables,
+    /// so an override of `class fun +` must not shadow an instance `+`.
+    pub(crate) class_methods: Vec<(String, usize)>,
 }
