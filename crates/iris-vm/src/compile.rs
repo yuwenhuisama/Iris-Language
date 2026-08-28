@@ -165,9 +165,15 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
                 lowering.enclosing_module = Some(module.name.clone());
                 for statement in &module.body {
+                    // A stored property DECLARES a member rather than being an
+                    // ordinary body statement, so it is skipped here the way a
+                    // method and a constant are: it was already synthesized
+                    // into a reader while the declarations were collected.
                     if matches!(
                         statement,
-                        Statement::Method(_) | Statement::Binding { constant: true, .. }
+                        Statement::Method(_)
+                            | Statement::Binding { constant: true, .. }
+                            | Statement::StoredProperty { .. }
                     ) {
                         continue;
                     }

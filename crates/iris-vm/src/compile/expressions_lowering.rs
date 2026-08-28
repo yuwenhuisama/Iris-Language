@@ -457,6 +457,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
                     return self.expression(receiver);
                 }
+                // A module's `shared class property` is read as a bare MEMBER,
+                // `M.first`, and was synthesized into a receiverless reader -
+                // so it resolves by index here rather than dispatching, which
+                // has no module receiver value to send to.
+                if let Expression::Name(module) = receiver.as_ref()
+                    && self.lookup(module).is_none()
+                    && let Some(function) = self.resolve(module, selector)
+                    && self.signatures[function].parameters.is_empty()
+                    && !self.signatures[function].receiver
+                {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Call {
+                        destination,
+                        function,
+                        first: destination,
+                        count: 0,
+                    });
+                    return Ok(destination);
+                }
                 let receiver = self.expression(receiver)?;
                 if self.method_values.contains(&receiver)
                     && matches!(selector.as_str(), "signature" | "package" | "call")

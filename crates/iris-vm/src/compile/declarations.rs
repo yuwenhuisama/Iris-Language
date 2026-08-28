@@ -125,6 +125,30 @@ pub(super) fn collect_signatures(
             name: module.name.clone(),
             mixins,
         });
+        // A module's `shared class property` is READ as a member - `M.first`
+        // answers it, unlike a `const`, which is visible only lexically. It is
+        // module state with no receiver, so it is synthesized as a
+        // receiverless reader whose body is the initializer expression.
+        for statement in &module.body {
+            let Statement::StoredProperty {
+                name, initializer, ..
+            } = statement
+            else {
+                continue;
+            };
+            signatures.push(Signature {
+                module: &module.name,
+                selector: name,
+                parameters: Vec::new(),
+                return_type: None,
+                body: &[],
+                receiver: false,
+                class_method: false,
+                is_async: false,
+                constants: Vec::new(),
+                expression_body: Some(initializer),
+            });
+        }
         collect_methods(&module.name, &module.body, false, &mut signatures)?;
     }
     Ok(CollectedDeclarations {

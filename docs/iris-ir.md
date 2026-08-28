@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 716 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 717 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,12 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A module's `shared class property` is READ as a member: `M.first` answers it,
+unlike a `const`, which is visible only lexically inside the module's own
+methods. It is module state with no receiver, so it is synthesized into a
+receiverless reader and resolved by index rather than dispatched - there is no
+module receiver value to send to.
 
 A declaration naming a target that does not EXIST raises when the program
 runs. A reopen of an undeclared class and a contract inheriting an undeclared

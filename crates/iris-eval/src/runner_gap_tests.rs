@@ -6671,3 +6671,66 @@ fn an_absent_declaration_target_raises() {
         &crate::backend::Observation::Value(":new".to_owned())
     );
 }
+
+/// A module's `shared class property` is READ as a member.
+///
+/// `M.first` answers it, unlike a `const`, which is visible only lexically
+/// inside the module's own methods. It is module state with no receiver, so it
+/// is synthesized into a receiverless reader and resolved by index rather than
+/// dispatched - there is no module receiver value to send to.
+#[test]
+fn a_module_property_is_read_as_a_member() {
+    for (source, expected) in [
+        (
+            "module M { shared class property first: Integer = 1 } M.first",
+            "1",
+        ),
+        (
+            "module M { shared class property first: Integer = 1 \
+             shared class property second: Integer = 2 } [M.first, M.second]",
+            "[1, 2]",
+        ),
+        // The property is reachable from the module's OWN methods too.
+        (
+            "module M { shared class property base: Integer = 10 \
+             public fun scaled() -> Integer { M.base * 3 } } [M.base, M.scaled()]",
+            "[10, 30]",
+        ),
+        // A module body's ordinary statements still run at the declaration's
+        // source position, so a raise between two properties propagates.
+        (
+            "module M { shared class property first: Integer = 1 raise :stop \
+             shared class property second: Integer = 2 } M",
+            "Raised(Symbol(\"stop\"))",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = if expected.starts_with("Raised") {
+            crate::backend::Observation::Error(expected.to_owned())
+        } else {
+            crate::backend::Observation::Value(expected.to_owned())
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+
+    // Control: a `const` is NOT a member, so reading it that way still fails -
+    // the reader synthesis applies to a property rather than to every name a
+    // module body binds.
+    let agreement = crate::backend::compare_backends(
+        "module M { const first = 1 public fun get() -> Integer { first } } M.get()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("1".to_owned())
+    );
+}
