@@ -637,7 +637,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Ok(destination);
                 }
                 let Expression::Name(name) = left.as_ref() else {
-                    return Err(CompileError::new("assignment target"));
+                    // A left side that names no assignable place is a program
+                    // error the reference raises when the assignment RUNS, so
+                    // the backend answers a program that raises it. Declining
+                    // made both backends refuse the same program while
+                    // describing it differently, which holds the row.
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseUnsupported { destination });
+                    return Ok(destination);
                 };
                 let Some(binding) = self.lookup_binding(name).cloned() else {
                     let Some(binding) = self

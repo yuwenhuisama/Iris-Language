@@ -162,6 +162,46 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
                     produced.push(value);
                 }
             }
+            // `from S import K` binds the module's CONSTANT under the
+            // imported name, at the import's own source position. Only a
+            // constant is bound: a module's methods are reached as `S.f()`
+            // rather than by name, so importing one would need a callable
+            // binding this backend has no other support for.
+            iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Import(import)) => {
+                for spec in &import.specs {
+                    let Some(value) =
+                        parsed.program.declarations.iter().find_map(
+                            |declaration| match declaration {
+                                iris_syntax::Declaration::Module(module)
+                                    if module.name == import.target =>
+                                {
+                                    module.body.iter().find_map(|statement| match statement {
+                                        Statement::Binding {
+                                            constant: true,
+                                            name,
+                                            value,
+                                            ..
+                                        } if *name == spec.name => Some(value),
+                                        _ => None,
+                                    })
+                                }
+                                _ => None,
+                            },
+                        )
+                    else {
+                        // A spec naming nothing the module declares binds no
+                        // name, and the reference still RUNS the program -
+                        // `from S import Missing; 1` answers `1` - so this is
+                        // a no-op rather than a refusal.
+                        continue;
+                    };
+                    let register = lowering.expression(value)?;
+                    let name = spec.alias.clone().unwrap_or_else(|| spec.name.clone());
+                    lowering
+                        .names
+                        .push(lowering::Binding::value(name, register));
+                }
+            }
             iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
                 lowering.enclosing_module = Some(module.name.clone());
                 for statement in &module.body {

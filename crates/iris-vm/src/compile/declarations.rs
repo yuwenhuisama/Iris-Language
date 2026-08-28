@@ -74,10 +74,19 @@ pub(super) fn collect_signatures(
         if matches!(declaration, iris_syntax::Declaration::TypeAlias(_)) {
             continue;
         }
+        // An IMPORT binds names rather than declaring a callable, so it
+        // contributes no signature. The binding happens where the program's
+        // statements are lowered, at the import's own source position.
+        if matches!(declaration, iris_syntax::Declaration::Import(_)) {
+            continue;
+        }
         let iris_syntax::Declaration::Module(module) = declaration else {
             let iris_syntax::Declaration::Class(class) = declaration else {
                 return Err(CompileError::new(match declaration {
                     iris_syntax::Declaration::Contract(_) => "declaration covered",
+                    // A `from S import K` binds names rather than declaring a
+                    // callable, so it contributes no signature and is handled
+                    // where the program's statements are lowered.
                     iris_syntax::Declaration::Import(_) => "declaration import",
                     iris_syntax::Declaration::Export(_) => "declaration export",
                     iris_syntax::Declaration::TypeAlias(_) => "declaration type alias",

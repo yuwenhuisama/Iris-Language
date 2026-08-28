@@ -6734,3 +6734,77 @@ fn a_module_property_is_read_as_a_member() {
         &crate::backend::Observation::Value("1".to_owned())
     );
 }
+
+/// `from S import K` binds the module's CONSTANT under the imported name.
+///
+/// The binding happens at the import's own source position, and only a
+/// constant is bound: a module's methods are reached as `S.f()` rather than by
+/// name. An imported name does not disturb the module's own lexical scope -
+/// `M.declared()` still reads `M`'s `K`, and a local `let K` still shadows it.
+#[test]
+fn an_import_binds_a_module_constant() {
+    for (source, expected) in [
+        ("module S { const K = 5 } from S import K; K", "5"),
+        // An ALIAS binds under the written name instead.
+        ("module S { const K = 5 } from S import K as J; J", "5"),
+        // Three scopes stay distinct: a local `let`, the importing module's
+        // own constant, and the imported one.
+        (
+            "module S { const K = 5 } \
+             module M { const K = 1 public module fun lexical() { let K = 9; K } \
+             public module fun declared() { K } } \
+             from S import K; [M.lexical(), M.declared(), K]",
+            "[9, 1, 5]",
+        ),
+        // A spec naming nothing the module declares binds no name, and the
+        // program still RUNS - so it is a no-op rather than a refusal.
+        ("module S { const K = 5 } from S import Missing; 1", "1"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
+
+/// A left side that names no assignable place RAISES when the assignment runs.
+///
+/// The reference refuses it at run time rather than statically, so declining
+/// made both backends refuse the same program while describing it differently
+/// - which holds the row rather than agreeing.
+#[test]
+fn an_unassignable_target_raises() {
+    let agreement = crate::backend::compare_backends(
+        "a.b(c)[d] ** -e * f + g << h & i ^ j | k ..< l < m == n named o && p || q = r",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
+
+    // Control: an ordinary NAME target still assigns, so raising is about the
+    // unassignable shape rather than about assignment itself.
+    let agreement = crate::backend::compare_backends(
+        "mut x = 1; x = 2; x",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[2, 2]".to_owned())
+    );
+}

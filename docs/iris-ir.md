@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 717 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 719 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,14 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+`from S import K` binds the module's CONSTANT under the imported name, at the
+import's own source position. Only a constant is bound - a module's methods are
+reached as `S.f()` rather than by name - and an imported name does not disturb
+the importing module's own lexical scope. A spec naming nothing the module
+declares binds no name and the program still runs, so it is a no-op rather than
+a refusal. A left side that names no assignable place raises when the
+assignment RUNS, which is where the reference refuses it.
 
 A module's `shared class property` is READ as a member: `M.first` answers it,
 unlike a `const`, which is visible only lexically inside the module's own
