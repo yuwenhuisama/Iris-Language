@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 722 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 723 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,14 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A subclass INHERITS its superclass's conformances: an `impl` marker on
+`class A extends B` names a requirement the ancestry declares even when `A`'s
+own header does not, and `A` is viewable through `B`'s contract, so the
+ancestry is walked to its root rather than only the class's own list. A
+CONTRACT is itself a value - `C.hash()` sends to the contract rather than
+resolving a class method - and it is interned once per definition, which is why
+two reads hash alike.
 
 A class reopen may also DECLARE a conformance, which is observable through
 `A.contracts` and so joins the class's own list. A BUILT-IN class is the

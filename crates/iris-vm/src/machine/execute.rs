@@ -2219,10 +2219,21 @@ impl Machine {
                         .runtime
                         .class_of(object)
                         .map_err(MachineError::Construction)?;
-                    let conforms = classes
-                        .iter()
-                        .position(|known| *known == class)
-                        .is_some_and(|index| program.classes[index].contracts.contains(contract));
+                    // A subclass INHERITS its superclass's conformances, so the
+                    // ancestry is walked rather than only the class's own list:
+                    // `class A extends B` is viewable through `B`'s contract.
+                    let mut conforms = false;
+                    let mut current = classes.iter().position(|known| *known == class);
+                    while let Some(index) = current {
+                        let Some(declaration) = program.classes.get(index) else {
+                            break;
+                        };
+                        if declaration.contracts.contains(contract) {
+                            conforms = true;
+                            break;
+                        }
+                        current = declaration.superclass;
+                    }
                     if !conforms {
                         return Err(MachineError::Kernel(KernelError::Type));
                     }

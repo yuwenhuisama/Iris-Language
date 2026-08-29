@@ -7057,3 +7057,78 @@ fn a_reopen_may_declare_a_conformance() {
         &crate::backend::Observation::Error("Runtime(Type)".to_owned())
     );
 }
+
+/// A subclass INHERITS its superclass's conformances.
+///
+/// An `impl` marker on `class A extends B` names a requirement the ancestry
+/// declares even when `A`'s own header does not, and `A` is viewable through
+/// `B`'s contract - so the ancestry is walked rather than only the class's own
+/// list. A CONTRACT is itself a value, so `C.hash()` sends to the contract,
+/// and it is interned once per definition, which is why two reads hash alike.
+#[test]
+fn a_subclass_inherits_its_conformances() {
+    for (source, expected) in [
+        (
+            "contract C { fun n() -> Symbol } \
+             class B for C { public impl fun n() -> Symbol { :base } } \
+             class A extends B {} (A.new() as C)..n()",
+            ":base",
+        ),
+        // An `impl` on the SUBCLASS names the inherited requirement, and
+        // `super()` still reaches the ancestor's body.
+        (
+            "contract C { fun n() -> Symbol } \
+             class B for C { public impl fun n() -> Symbol { :base } } \
+             class A extends B { public override impl fun n() -> Symbol { super() } } \
+             module M { public fun run() -> Object { let a = A.new(); \
+             [(a as C)..n(), a.n(), (a as C) == (a as C), C.hash() == C.hash()] } } M.run()",
+            "[:base, :base, true, true]",
+        ),
+        (
+            "contract C { fun n() -> Symbol } C.hash() == C.hash()",
+            "true",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: an `impl` naming a requirement NO ancestor declares is still
+    // undeclared, so walking the ancestry did not accept every marker.
+    let crate::backend::Support::Unsupported(reason) =
+        <crate::backend::Bytecode as crate::backend::Backend>::execute(
+            &crate::backend::Bytecode,
+            "contract C { fun n() -> Symbol } class B { } \
+             class A extends B { public impl fun n() -> Symbol { :x } } 1",
+        )
+    else {
+        unreachable!("an impl with no declared requirement must be declined")
+    };
+    assert_eq!(reason, "contract implementation undeclared");
+}
+
+#[test]
+fn probe_z5() {
+    for source in [
+        "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class Mid extends B {} class A extends Mid {} (A.new() as C)..n()",
+        "contract N { fun m() -> Integer } open class Integer for N { public impl fun m() -> Integer { 1 } } [(1 as N) == (1 as N), (1 as N) == (2 as N)]",
+    ] {
+        eprintln!(
+            "PROBE {source}\n  => {:?}",
+            crate::backend::compare_backends(
+                source,
+                &[&crate::backend::Interpreter, &crate::backend::Bytecode]
+            )
+        );
+    }
+}

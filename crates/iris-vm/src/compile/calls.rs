@@ -710,6 +710,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
             });
             return Ok(destination);
         }
+        // A CONTRACT is a value, so `C.hash()` sends to the contract itself
+        // rather than resolving a class method on a class named `C`.
+        if let Expression::Name(name) = receiver.as_ref()
+            && self.lookup(name).is_none()
+            && self.class_index(name).is_none()
+            && self.contract_index(name).is_some()
+        {
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Send {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
+            });
+            return Ok(destination);
+        }
         if let Expression::Name(class) = receiver.as_ref()
             && selector == "new"
             && let Some(class) = self.class_index(class)

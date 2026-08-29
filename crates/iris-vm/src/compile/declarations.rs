@@ -407,7 +407,19 @@ fn collect_class<'a>(
             .into(),
     };
     let (methods, class_methods) = collected_method_tables(signatures, first_function);
-    validate_contracts(class, contracts, &conformances)?;
+    // A subclass INHERITS its superclass's conformances, so an `impl` marker
+    // there names a requirement the ancestry declares even when the subclass's
+    // own header does not: `class A extends B` may implement `B`'s contract.
+    let mut inherited = conformances.clone();
+    let mut ancestor = superclass;
+    while let Some(index) = ancestor {
+        let Some(known) = classes.get(index) else {
+            break;
+        };
+        inherited.extend(known.contracts.iter().copied());
+        ancestor = known.superclass;
+    }
+    validate_contracts(class, contracts, &inherited)?;
     let property_methods = class
         .body
         .iter()

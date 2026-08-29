@@ -409,6 +409,12 @@ impl Machine {
             Value::Nil if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text("nil".to_owned()))
             }
+            // A CONTRACT is interned once per definition, so its hash is fixed
+            // by identity: `C.hash() == C.hash()` holds because both name the
+            // same contract.
+            Value::Contract(contract) if selector == "hash" && arguments.is_empty() => {
+                Some(Value::Integer(contract.raw().into()))
+            }
             // A MutableString answers its CURRENT content, so a read after a
             // write sees the replacement rather than the text the value was
             // built with.
