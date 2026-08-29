@@ -355,6 +355,46 @@ impl<'a, 'b> Lowering<'a, 'b> {
     /// signatures are collected after the origin's, so searching in reverse is
     /// what makes `open module M { override fun a() }` answer from the
     /// replacement rather than the body it replaced.
+    /// The class-variable selector a CLOSED generic construction writes.
+    ///
+    /// `IRIS-V1-TYPES-C064` gives a plain `class property` to each closed
+    /// construction rather than to the unapplied definition, so
+    /// `Cache<String>.value` and `Cache<Integer>.value` hold DIFFERENT values.
+    /// The runtime keys class state by `(ClassId, Selector)` and a generic
+    /// class has one ClassId, so the construction is folded into the selector
+    /// instead - one slot per construction, without a class per construction.
+    pub(super) fn construction_selector(
+        &self,
+        receiver: &iris_syntax::Expression,
+        selector: &str,
+    ) -> Option<String> {
+        let iris_syntax::Expression::ClosedGeneric { name, arguments } = receiver else {
+            return None;
+        };
+        let class = self.class_index(name)?;
+        if !self.classes[class].generic {
+            return None;
+        }
+        let mut mangled = format!("{selector}<");
+        for (position, argument) in arguments.iter().enumerate() {
+            if position > 0 {
+                mangled.push(',');
+            }
+            match argument {
+                iris_syntax::TypeExpression::Name(name) => mangled.push_str(name),
+                _ => return None,
+            }
+        }
+        mangled.push('>');
+        // Only a slot the declaration REGISTERED is addressed this way, so an
+        // ordinary member on a closed generic still dispatches normally.
+        self.classes[class]
+            .class_variables
+            .iter()
+            .any(|variable| variable.name == mangled)
+            .then_some(mangled)
+    }
+
     pub(super) fn resolve(&self, module: &str, selector: &str) -> Option<usize> {
         self.signatures
             .iter()

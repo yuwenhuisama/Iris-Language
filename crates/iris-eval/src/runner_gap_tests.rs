@@ -5021,19 +5021,52 @@ fn a_class_level_property_is_class_state() {
         );
     }
 
-    // Control: on a GENERIC class a plain class property belongs to each
-    // closed construction rather than the definition, so the bare name does
-    // not reach it and the backend declines rather than answering a value the
-    // language does not have there.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "class C<T> { class property n: Integer = 0 } C.n",
-        )
-    else {
-        unreachable!("a per-construction class property must be declined")
-    };
-    assert_eq!(reason, "class-level stored property");
+    // On a GENERIC class a plain class property belongs to each closed
+    // CONSTRUCTION rather than to the definition, so each holds its own value
+    // and the BARE name reaches no slot at all.
+    for (source, expected) in [
+        (
+            "class Cache<T> { class property value: T } Cache<String>.value = \"s\"; \
+             Cache<Integer>.value = 1; [Cache<String>.value, Cache<Integer>.value]",
+            Some("[\"s\", 1, [\"s\", 1]]"),
+        ),
+        // An unwritten construction starts at nil, since it may be read before
+        // it is ever written.
+        (
+            "class Cache<T> { class property value: T } Cache<String>.value",
+            Some("nil"),
+        ),
+        // THREE constructions stay independent, and one never written starts
+        // at the declared initializer.
+        (
+            "class C<T> { class property n: Integer = 0 } C<String>.n = 1; C<Integer>.n = 2; \
+             [C<String>.n, C<Integer>.n, C<Bool>.n]",
+            Some("[1, 2, [1, 2, 0]]"),
+        ),
+        // A SHARED class property is on the definition, so the bare name does
+        // reach that one.
+        (
+            "class C<T> { shared class property n: Integer = 7 } C.n",
+            Some("7"),
+        ),
+        // The bare name has no slot: the property is per construction.
+        ("class C<T> { class property n: Integer = 0 } C.n", None),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error(
+                "MessageNotFound { receiver_class: \"Class\", selector: \"n\" }".to_owned(),
+            ),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
 
     // Control: a selector the Class does NOT have still fails, so consulting
     // the class variables did not make every name answer.

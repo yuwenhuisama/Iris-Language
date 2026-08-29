@@ -39,9 +39,32 @@ pub(super) struct CollectedDeclarations<'a> {
     pub(super) contracts: Vec<Contract>,
 }
 
-pub(super) fn collect_signatures(
-    declarations: &[iris_syntax::Declaration],
-) -> Result<CollectedDeclarations<'_>, CompileError> {
+/// Every `Name<Args>` construction the SOURCE writes, as rendered arguments.
+///
+/// A plain `class property` belongs to each closed construction, so the set of
+/// constructions decides how many slots a generic class needs. They are read
+/// from the source text rather than from the AST because a construction may
+/// appear in any expression position, and only its spelling matters here.
+fn written_constructions(source: &str, class: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find(&format!("{class}<")) {
+        rest = &rest[at + class.len() + 1..];
+        let Some(end) = rest.find('>') else {
+            break;
+        };
+        let arguments = rest[..end].trim().to_owned();
+        if !arguments.is_empty() && !found.contains(&arguments) {
+            found.push(arguments);
+        }
+    }
+    found
+}
+
+pub(super) fn collect_signatures<'a>(
+    declarations: &'a [iris_syntax::Declaration],
+    source: &str,
+) -> Result<CollectedDeclarations<'a>, CompileError> {
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
     let mut contracts = Vec::new();
@@ -97,6 +120,7 @@ pub(super) fn collect_signatures(
             };
             collect_class(
                 declarations,
+                source,
                 class,
                 &contracts,
                 &mut signatures,
@@ -335,6 +359,7 @@ fn collect_contract(
 
 fn collect_class<'a>(
     declarations: &'a [iris_syntax::Declaration],
+    source: &str,
     class: &'a iris_syntax::ClassDeclaration,
     contracts: &[Contract],
     signatures: &mut Vec<Signature<'a>>,
@@ -481,16 +506,34 @@ fn collect_class<'a>(
             // not reach it, and the reference answers MessageNotFound. Storing
             // it as one class variable would answer a value where the language
             // has none.
-            if !class.parameters.is_empty() && !shared {
-                return Err(CompileError::new("class-level stored property"));
-            }
             let initializer = literal_value(initializer, "class-level stored property")
                 .unwrap_or(LiteralValue::Nil);
-            class_variables.push(ClassVariable {
-                name: name.clone(),
-                mutable: true,
-                initializer,
-            });
+            // `IRIS-V1-TYPES-C064` puts a `shared class property` on the
+            // UNAPPLIED generic definition, while a plain one belongs to each
+            // closed CONSTRUCTION. The runtime keys class state by
+            // `(ClassId, Selector)` and a generic class has one ClassId, so
+            // each construction gets its own SELECTOR instead - one slot per
+            // construction, without a class per construction. The bare name is
+            // registered too, which is what keeps a non-generic class working.
+            // On a GENERIC class the BARE name reaches no slot: the property
+            // belongs to each construction, so `C.n` is a MessageNotFound
+            // while `C<String>.n` answers. Registering the bare name too would
+            // answer a value the language does not have there.
+            if class.parameters.is_empty() || *shared {
+                class_variables.push(ClassVariable {
+                    name: name.clone(),
+                    mutable: true,
+                    initializer: initializer.clone(),
+                });
+            } else {
+                for construction in written_constructions(source, &class.name) {
+                    class_variables.push(ClassVariable {
+                        name: format!("{name}<{construction}>"),
+                        mutable: true,
+                        initializer: initializer.clone(),
+                    });
+                }
+            }
             continue;
         }
         if let Ok(literal) = literal_value(initializer, "stored property initializer") {

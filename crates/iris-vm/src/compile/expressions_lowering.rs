@@ -457,6 +457,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
                     return self.expression(receiver);
                 }
+                // A CLOSED generic construction reads its own class-variable
+                // slot, so `Cache<String>.value` and `Cache<Integer>.value` do
+                // not share one.
+                if let Some(selector) = self.construction_selector(receiver, selector) {
+                    let receiver = self.expression(receiver)?;
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BindMember {
+                        destination,
+                        receiver,
+                        selector,
+                    });
+                    return Ok(destination);
+                }
                 // A module's `shared class property` is read as a bare MEMBER,
                 // `M.first`, and was synthesized into a receiverless reader -
                 // so it resolves by index here rather than dispatching, which
@@ -624,6 +637,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // succeed where the reference refuses, and would bypass a
                 // property setter's body where one exists.
                 if let Expression::Member { receiver, selector } = left.as_ref() {
+                    let selector = self
+                        .construction_selector(receiver, selector)
+                        .unwrap_or_else(|| selector.clone());
                     let receiver = self.expression(receiver)?;
                     let (first, count) = self.argument_window(std::slice::from_ref(right))?;
                     let destination = self.allocate()?;

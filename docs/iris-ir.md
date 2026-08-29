@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 727 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 730 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,15 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+`C064` puts a plain `class property` on each closed CONSTRUCTION rather than on
+the unapplied definition, so `Cache<String>.value` and `Cache<Integer>.value`
+hold different values while the bare `Cache.value` reaches no slot at all. The
+runtime keys class state by `(ClassId, Selector)` and a generic class has one
+ClassId, so the construction is folded into the SELECTOR instead - one slot per
+construction written in the source, without a class per construction. A
+`shared` class property stays on the definition, which is what the bare name
+reaches.
 
 `Reflection::Class.define_method(K, :m) { .. }` names its TARGET as the first
 argument and publishes exactly as `self.define_method(:m) { .. }` does, so the

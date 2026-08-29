@@ -73,7 +73,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // parse rejection is. Declining made both backends refuse the same program
     // while describing it differently, which holds the row rather than
     // agreeing, so the backend answers a program that raises instead.
-    if let Err(error) = collect_signatures(&parsed.program.declarations)
+    if let Err(error) = collect_signatures(&parsed.program.declarations, source)
         && matches!(
             error.construct.as_str(),
             "class reopen target"
@@ -113,7 +113,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         contracts,
         modules,
         builtin_reopens,
-    } = collect_signatures(&parsed.program.declarations)?;
+    } = collect_signatures(&parsed.program.declarations, source)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
     let mut closures = Vec::new();
