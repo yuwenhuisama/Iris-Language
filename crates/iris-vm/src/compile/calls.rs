@@ -311,16 +311,27 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if selector == "define_method" {
+            // `Reflection::Class.define_method(K, :m) { .. }` names its target
+            // as the FIRST argument, while `self.define_method(:m) { .. }`
+            // takes the receiver as the target - both publish the same way, so
+            // the reflective form is rewritten to the direct one here rather
+            // than growing a second definition path.
+            let reflective =
+                matches!(receiver.as_ref(), Expression::Name(name) if name == "Reflection::Class");
+            let (target, rest) = match (reflective, arguments) {
+                (true, [target, rest @ ..]) => (target.clone(), rest),
+                _ => ((**receiver).clone(), arguments),
+            };
             let [
                 name,
                 Expression::Closure {
                     parameters, body, ..
                 },
-            ] = arguments
+            ] = rest
             else {
                 return Err(CompileError::new("define_method arity"));
             };
-            let receiver = self.expression(receiver)?;
+            let receiver = self.expression(&target)?;
             let name = self.expression(name)?;
             let function = self.dynamic_method(parameters, body)?;
             let destination = self.allocate()?;

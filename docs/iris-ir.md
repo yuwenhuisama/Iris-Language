@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 726 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 727 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,13 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+`Reflection::Class.define_method(K, :m) { .. }` names its TARGET as the first
+argument and publishes exactly as `self.define_method(:m) { .. }` does, so the
+reflective form is rewritten to the direct one rather than growing a second
+path. A dynamic method's parameters come from the block it was defined with, so
+a call supplying a different count has no binding for them and answers
+ArgumentError - which is catchable, like any other Iris error.
 
 A class body's ordinary STATEMENTS run with `self` bound to the class, at the
 declaration's own source position - that is what lets

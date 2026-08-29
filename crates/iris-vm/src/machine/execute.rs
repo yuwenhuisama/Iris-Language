@@ -1658,6 +1658,14 @@ impl Machine {
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
+                        // A DYNAMIC method's parameters come from the block it
+                        // was defined with, so a call that supplies a different
+                        // count has no binding for them - the reference answers
+                        // ArgumentError rather than filling nil.
+                        if callee.name == "<dynamic-method>" && arguments.len() != callee.parameters
+                        {
+                            dispatch!(Err(MachineError::ArgumentError)?);
+                        }
                         // An ASYNC method answers a Task rather than its body's
                         // value, and running the body directly here skipped
                         // that: an `await` inside it escaped as a suspend

@@ -7262,3 +7262,75 @@ fn a_contract_may_extend_a_generic_parent() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// `Reflection::Class.define_method` names its TARGET as the first argument.
+///
+/// `Reflection::Class.define_method(K, :m) { .. }` and
+/// `self.define_method(:m) { .. }` publish the same way, so the reflective
+/// form is rewritten to the direct one. A dynamic method's parameters come
+/// from the block it was defined with, so a call supplying a different count
+/// has no binding for them and answers ArgumentError rather than filling nil.
+#[test]
+fn a_reflective_define_method_names_its_target() {
+    for (source, expected) in [
+        (
+            "class K { } Reflection::Class.define_method(K, :m) { 7 }; K.new().m()",
+            Some("[nil, 7]"),
+        ),
+        // The published body REPLACES the class's own method.
+        (
+            "class K { public fun m(a) -> Symbol { :old } } \
+             Reflection::Class.define_method(K, :m) { |o| :new }; K.new().m(1)",
+            Some("[nil, :new]"),
+        ),
+        // A call whose arity does not match the block is an ArgumentError.
+        (
+            "class K { public fun m() -> Symbol { :old } } \
+             Reflection::Class.define_method(K, :m) { |o| :new }; K.new().m()",
+            None,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("ArgumentError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+
+    // The arity failure RAISES, so an enclosing `try` catches it by name.
+    let agreement = crate::backend::compare_backends(
+        "class K { public fun m() -> Symbol { :old } } \
+         module M { public fun run() -> Object { \
+         Reflection::Class.define_method(K, :m) { |o| :new }; \
+         try { K.new().m() } catch e { e } } } M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value(":ArgumentError".to_owned())
+    );
+
+    // Control: the DIRECT form still publishes, so rewriting the reflective
+    // one did not disturb it.
+    let agreement = crate::backend::compare_backends(
+        "class A { self.define_method(:x) { 7 } }; A.new().x()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("7".to_owned())
+    );
+}

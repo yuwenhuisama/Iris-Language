@@ -188,6 +188,9 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
+        // A call whose arity does not match its body is an ordinary catchable
+        // Iris error, so `try { .. } catch e { e }` binds it by name.
+        MachineError::ArgumentError => Some("ArgumentError"),
         MachineError::PatternMatchError => Some("PatternMatchError"),
         MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
