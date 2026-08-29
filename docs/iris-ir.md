@@ -773,6 +773,14 @@ CONTRACT is itself a value - `C.hash()` sends to the contract rather than
 resolving a class method - and it is interned once per definition, which is why
 two reads hash alike.
 
+A subclass INHERITS its superclass's conformances: an `impl` marker on
+`class A extends B` names a requirement the ancestry declares even when `A`'s
+own header does not, and `A` is viewable through `B`'s contract, so the
+ancestry is walked to its root rather than only the class's own list. A
+CONTRACT is itself a value - `C.hash()` sends to the contract rather than
+resolving a class method - and it is interned once per definition, which is why
+two reads hash alike.
+
 A class reopen may also DECLARE a conformance, which is observable through
 `A.contracts` and so joins the class's own list. A BUILT-IN class is the
 kernel's and has no entry to join, so its conformance is recorded on the reopen

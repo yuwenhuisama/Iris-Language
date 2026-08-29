@@ -7116,19 +7116,3 @@ fn a_subclass_inherits_its_conformances() {
     };
     assert_eq!(reason, "contract implementation undeclared");
 }
-
-#[test]
-fn probe_z5() {
-    for source in [
-        "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class Mid extends B {} class A extends Mid {} (A.new() as C)..n()",
-        "contract N { fun m() -> Integer } open class Integer for N { public impl fun m() -> Integer { 1 } } [(1 as N) == (1 as N), (1 as N) == (2 as N)]",
-    ] {
-        eprintln!(
-            "PROBE {source}\n  => {:?}",
-            crate::backend::compare_backends(
-                source,
-                &[&crate::backend::Interpreter, &crate::backend::Bytecode]
-            )
-        );
-    }
-}
