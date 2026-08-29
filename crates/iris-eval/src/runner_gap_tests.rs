@@ -7367,3 +7367,85 @@ fn a_reflective_define_method_names_its_target() {
         &crate::backend::Observation::Value("7".to_owned())
     );
 }
+
+/// A published spine is not REWOUND, and shutdown closes delivery.
+///
+/// `Reflection::Class.reactivate` names a revision that is no longer active,
+/// so it is refused rather than performed - the target is resolved first, so
+/// the refusal cannot be mistaken for an unknown class. `C050` names shutdown
+/// as the condition under which a flush reports INCOMPLETE with the
+/// accepted-but-undelivered count.
+#[test]
+fn a_revision_is_neither_rewound_nor_delivered_after_shutdown() {
+    for (source, expected) in [
+        (
+            "class A { } try { Reflection::Class.reactivate(A, 1) } catch e { e }",
+            ":MetaTransactionError",
+        ),
+        (
+            "class B { } module M { public fun run() -> Tuple { \
+             let subscriber = { |event| :seen }; Revision.subscribe(subscriber); \
+             B.open() { |t| 1 }; Revision.shutdown(); Revision.flush() } } M.run()",
+            "[:incomplete, [], 1, []]",
+        ),
+        // Control: WITHOUT a shutdown the same commit is delivered, so the
+        // incomplete report is about the closure rather than about flushing.
+        (
+            "class B { } module M { public fun run() -> Tuple { \
+             let subscriber = { |event| :seen }; Revision.subscribe(subscriber); \
+             B.open() { |t| 1 }; Revision.flush() } } M.run()",
+            "[:delivered, [[:RevisionEvent, 1, [:B]]], 0, []]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
+
+/// A configured audit SINK survives a prune, per `IRIS-V1-ASYNC-C055`.
+///
+/// The sink is a separate persistence layer, so `recover` answers what it
+/// holds independently of what retained history still has - the in-memory
+/// queue offers no zero-loss guarantee, which is C055's point. With no sink
+/// configured there is nothing to recover from.
+#[test]
+fn an_audit_sink_survives_a_prune() {
+    let agreement = crate::backend::compare_backends(
+        "class B {} module M { public fun run() -> Object { \
+         RevisionHistory.configure_sink(); B.open() { |t| 1 }; RevisionHistory.prune(1); \
+         [try { RevisionHistory.events(1, 1) } catch e { e }, RevisionHistory.recover(1, 1)] } } \
+         M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[:AuditHistoryUnavailableError, [1]]".to_owned())
+    );
+
+    // Control: with NO sink there is no zero-loss guarantee, so recovery
+    // fails rather than reading the retained queue.
+    let agreement = crate::backend::compare_backends(
+        "class B {} RevisionHistory.recover(1, 1)",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("AuditHistoryUnavailable".to_owned())
+    );
+}

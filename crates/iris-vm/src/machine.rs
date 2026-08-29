@@ -65,7 +65,21 @@ pub struct Machine {
     reflection_grants: Vec<(String, String)>,
     revision_subscribers: Vec<RevisionSubscriber>,
     revision_history: Vec<u64>,
+    /// Audit events a configured SINK persisted, per `IRIS-V1-ASYNC-C055`.
+    ///
+    /// The sink is a separate persistence layer that survives a `prune`, which
+    /// is C055's point: the in-memory queue offers no zero-loss guarantee, so
+    /// `recover` answers what the sink holds independently of what retained
+    /// history still has.
+    audit_sink: Option<Vec<u64>>,
     revision_event_errors: Vec<Value>,
+    /// Whether `Revision.shutdown` closed delivery.
+    ///
+    /// `IRIS-V1-ASYNC-C050` names shutdown as the condition under which a
+    /// flush must report INCOMPLETE delivery: nothing queued can reach a
+    /// terminal state afterwards, so the accepted-but-undelivered count is the
+    /// structured state a diagnostic needs.
+    revision_delivery_closed: bool,
     modules: Vec<(String, iris_runtime::ModuleId)>,
     next_commit: u64,
     next_closure: u64,
@@ -131,7 +145,9 @@ impl Machine {
             reflection_grants: Vec::new(),
             revision_subscribers: Vec::new(),
             revision_history: Vec::new(),
+            audit_sink: None,
             revision_event_errors: Vec::new(),
+            revision_delivery_closed: false,
             modules: Vec::new(),
             next_commit: 1,
             next_closure: 1,
@@ -188,6 +204,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
+        MachineError::MetaTransactionError => Some("MetaTransactionError"),
         // A call whose arity does not match its body is an ordinary catchable
         // Iris error, so `try { .. } catch e { e }` binds it by name.
         MachineError::ArgumentError => Some("ArgumentError"),

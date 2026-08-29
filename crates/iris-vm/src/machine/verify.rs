@@ -92,6 +92,12 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// A meta transaction the runtime refuses to REACTIVATE.
+    ///
+    /// `Reflection::Class.reactivate` names a revision that is no longer the
+    /// active one, and the runtime does not rewind a published spine, so the
+    /// request is refused rather than performed.
+    MetaTransactionError,
     /// A destructuring binding that the item does not MATCH.
     ///
     /// `IRIS-V1-CONTROL-C045` raises this when `for [a, b] in source` meets an

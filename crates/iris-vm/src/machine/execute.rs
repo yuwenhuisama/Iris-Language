@@ -1813,6 +1813,17 @@ impl Machine {
                         // `C119` makes the two entry points ONE implementation,
                         // so this defers to the direct send rather than
                         // repeating the rule and risking them drifting apart.
+                        // A published spine is not REWOUND, so naming an
+                        // earlier revision is refused rather than performed.
+                        // The target is resolved first, so the refusal cannot
+                        // be mistaken for an unknown class.
+                        ("Reflection::Class", "reactivate", [Value::Class(class), ..]) => {
+                            self.runtime
+                                .registry()
+                                .active(*class)
+                                .map_err(MachineError::Class)?;
+                            Err(MachineError::MetaTransactionError)?
+                        }
                         (
                             "Reflection::Class",
                             "remove_contract",
@@ -2038,6 +2049,29 @@ impl Machine {
                             });
                             Value::Nil
                         }
+                        // `C050` closes delivery, so a later flush reports
+                        // INCOMPLETE with the accepted-but-undelivered count.
+                        ("Revision", "shutdown", []) => {
+                            self.revision_delivery_closed = true;
+                            Value::Nil
+                        }
+                        ("Revision", "flush", []) if self.revision_delivery_closed => {
+                            let mut undelivered = 0_usize;
+                            for subscriber in &mut self.revision_subscribers {
+                                undelivered += subscriber.queued.len();
+                                subscriber.queued.clear();
+                            }
+                            Value::Tuple(vec![
+                                Value::Symbol("incomplete".to_owned()),
+                                Value::Array(iris_runtime::ArrayRef::new(Vec::new())),
+                                Value::Integer(
+                                    u64::try_from(undelivered).unwrap_or_default().into(),
+                                ),
+                                Value::Array(iris_runtime::ArrayRef::new(
+                                    self.revision_event_errors.clone(),
+                                )),
+                            ])
+                        }
                         ("Revision", "flush", []) => {
                             let mut delivered = Vec::new();
                             for index in 0..self.revision_subscribers.len() {
@@ -2100,6 +2134,37 @@ impl Machine {
                             }
                             Value::Array(iris_runtime::ArrayRef::new(found))
                         }
+                        // The sink starts from the history retained SO FAR: a
+                        // host configuring it mid-run is adopting the current
+                        // state rather than losing what already committed.
+                        ("RevisionHistory", "configure_sink", [] | [_]) => {
+                            self.audit_sink = Some(self.revision_history.clone());
+                            Value::Nil
+                        }
+                        // `C055`'s recovery path answers what the SINK
+                        // persisted, independently of what retained history
+                        // still holds. With no sink there is no zero-loss
+                        // guarantee to offer - the in-memory queue is not it.
+                        (
+                            "RevisionHistory",
+                            "recover",
+                            [Value::Integer(from), Value::Integer(to)],
+                        ) => {
+                            let (Some(from), Some(to)) = (from.to_u64(), to.to_u64()) else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            let Some(sink) = self.audit_sink.as_ref() else {
+                                Err(MachineError::AuditHistoryUnavailable)?
+                            };
+                            let mut found = Vec::new();
+                            for commit in from..=to {
+                                if !sink.contains(&commit) {
+                                    Err(MachineError::AuditHistoryUnavailable)?;
+                                }
+                                found.push(Value::Integer(commit.into()));
+                            }
+                            Value::Array(iris_runtime::ArrayRef::new(found))
+                        }
                         ("RevisionHistory", "prune", [Value::Integer(commit)]) => {
                             let Some(commit) = commit.to_u64() else {
                                 return Err(MachineError::Kernel(KernelError::Type));
@@ -2154,6 +2219,12 @@ impl Machine {
                     let commit = self.next_commit;
                     self.next_commit = self.next_commit.saturating_add(1);
                     self.revision_history.push(commit);
+                    // A configured SINK persists each commit as it happens,
+                    // which is what lets `recover` answer it after a `prune`
+                    // dropped it from retained history.
+                    if let Some(sink) = self.audit_sink.as_mut() {
+                        sink.push(commit);
+                    }
                     let target = program.classes[*class].name.clone();
                     for subscriber in &mut self.revision_subscribers {
                         subscriber.queued.push((commit, target.clone()));

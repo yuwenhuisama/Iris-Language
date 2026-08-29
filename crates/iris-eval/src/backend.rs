@@ -154,6 +154,12 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::TypeContractError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::TypeContractError),
                 )),
+                Err(iris_vm::MachineError::MetaTransactionError) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::MetaTransactionSuspension)),
+                ),
+                Err(iris_vm::MachineError::AuditHistoryUnavailable) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::AuditHistoryUnavailable)),
+                ),
                 Err(iris_vm::MachineError::PatternMatchError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::PatternMatchError),
                 )),

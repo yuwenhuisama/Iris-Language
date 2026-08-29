@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 730 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 734 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,15 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A published spine is not REWOUND: `Reflection::Class.reactivate` names a
+revision that is no longer active, so it is refused rather than performed, and
+the target is resolved first so the refusal cannot be mistaken for an unknown
+class. `C050` names shutdown as the condition under which a flush reports
+INCOMPLETE with the accepted-but-undelivered count. `C055` makes a configured
+audit SINK a separate persistence layer that survives a prune - `recover`
+answers what it holds independently of retained history, and with no sink there
+is no zero-loss guarantee to offer.
 
 `C064` puts a plain `class property` on each closed CONSTRUCTION rather than on
 the unapplied definition, so `Cache<String>.value` and `Cache<Integer>.value`

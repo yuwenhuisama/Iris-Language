@@ -572,8 +572,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
             && matches!(namespace.as_str(), "Revision" | "RevisionHistory")
             && matches!(
                 (namespace.as_str(), selector.as_str()),
-                ("Revision", "subscribe" | "flush" | "event_errors")
-                    | ("RevisionHistory", "events" | "prune")
+                (
+                    "Revision",
+                    "subscribe" | "flush" | "event_errors" | "shutdown"
+                ) | (
+                    "RevisionHistory",
+                    "events" | "prune" | "configure_sink" | "recover"
+                )
             )
         {
             let (first, count) = self.argument_window(arguments)?;
@@ -661,7 +666,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     "method" | "invoke"
                 ) | (
                     "Reflection::Class",
-                    "properties" | "revision" | "set_superclass" | "remove_contract"
+                    "properties" | "revision" | "set_superclass" | "remove_contract" | "reactivate"
                 ) | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
             )
