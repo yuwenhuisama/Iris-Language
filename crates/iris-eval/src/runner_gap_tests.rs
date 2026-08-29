@@ -7116,3 +7116,50 @@ fn a_subclass_inherits_its_conformances() {
     };
     assert_eq!(reason, "contract implementation undeclared");
 }
+
+/// A QUALIFIED `impl fun C::m()` is visible only through that contract's view.
+///
+/// `(a as C)..m()` answers it while `a.m()` answers the class's own method, so
+/// it is recorded per contract rather than published onto the class. It
+/// supplies the member itself, which is why the view answers it even when the
+/// contract declares no matching requirement.
+#[test]
+fn a_qualified_implementation_belongs_to_the_view() {
+    for (source, expected) in [
+        (
+            "contract C { } class A for C { impl fun C::m() { :qualified } \
+             public fun m() { :ordinary } } let a = A.new(); [(a as C)..m(), a.m()]",
+            "[:qualified, :ordinary]",
+        ),
+        // TWO contracts each get their OWN body, so a qualified impl is
+        // matched to its own method rather than to the first of that name.
+        (
+            "contract C { } contract D { } \
+             class A for C, D { impl fun C::m() { :cee } impl fun D::m() { :dee } \
+             public fun m() { :own } } \
+             let a = A.new(); [(a as C)..m(), (a as D)..m(), a.m()]",
+            "[:cee, :dee, :own]",
+        ),
+        // Control: an ORDINARY `impl` publishes onto the class, so both the
+        // view and the receiver answer the same body.
+        (
+            "contract C { fun m() -> Symbol } \
+             class A for C { public impl fun m() -> Symbol { :only } } \
+             let a = A.new(); [(a as C)..m(), a.m()]",
+            "[:only, :only]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 723 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 724 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,14 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A QUALIFIED `impl fun C::m()` belongs to that contract's VIEW rather than to
+the class: `(a as C)..m()` answers it while `a.m()` answers the class's own
+method, so it is recorded per contract instead of published. It supplies the
+member itself, which is why the view answers it even when the contract declares
+no matching requirement. Each is matched to its own body by BODY POSITION -
+matching by selector alone made `impl fun C::m()` and `impl fun D::m()` both
+resolve to the first.
 
 A subclass INHERITS its superclass's conformances: an `impl` marker on
 `class A extends B` names a requirement the ancestry declares even when `A`'s

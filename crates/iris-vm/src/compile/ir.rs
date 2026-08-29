@@ -949,6 +949,12 @@ pub(crate) struct Class {
     /// the class is declared, so they are carried until a construction names
     /// concrete arguments.
     pub(crate) contract_bounds: Vec<(usize, usize)>,
+    /// Methods written as `impl fun C::m()`, keyed by contract and selector.
+    ///
+    /// A QUALIFIED implementation is visible only through that contract's
+    /// view: `(a as C)..m()` answers it while `a.m()` answers the class's
+    /// ordinary method, so it cannot be published onto the class itself.
+    pub(crate) qualified_impls: Vec<(usize, String, usize)>,
     pub(crate) property_methods: Vec<String>,
     pub(crate) class_variables: Vec<ClassVariable>,
     pub(crate) stored_properties: Vec<StoredProperty>,

@@ -2268,23 +2268,50 @@ impl Machine {
                                     && requirement.arity == *count as usize
                             })
                         });
-                    if !required {
+                    // A QUALIFIED `impl fun C::m()` supplies the member itself,
+                    // so the view answers it even when the contract declares no
+                    // such requirement.
+                    let class = self
+                        .runtime
+                        .class_of(object)
+                        .map_err(MachineError::Construction)?;
+                    let qualified = classes
+                        .iter()
+                        .position(|known| *known == class)
+                        .and_then(|index| program.classes.get(index))
+                        .and_then(|declaration| {
+                            declaration.qualified_impls.iter().find_map(
+                                |(contract, name, function)| {
+                                    (*contract == contract_index && name == selector)
+                                        .then_some(*function)
+                                },
+                            )
+                        });
+                    if !required && qualified.is_none() {
                         return Err(MachineError::MessageNotFound {
                             receiver_class: "ContractView".to_owned(),
                             selector: selector.clone(),
                         });
                     }
-                    let selector_id = selector_id(program, selector)
-                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                    let method = self
-                        .runtime
-                        .dispatch_instance(object, selector_id)
-                        .map_err(MachineError::Construction)?;
-                    let function = usize::try_from(method.body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
+                    // The qualified implementation is visible only THROUGH this
+                    // view, so it wins over ordinary dispatch: `(a as C)..m()`
+                    // answers it while `a.m()` answers the class's own method.
+                    let function = match qualified {
+                        Some(function) => function,
+                        None => {
+                            let selector_id = selector_id(program, selector)
+                                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                            let method = self
+                                .runtime
+                                .dispatch_instance(object, selector_id)
+                                .map_err(MachineError::Construction)?;
+                            usize::try_from(method.body().raw()).map_err(|_| {
+                                MachineError::Invalid(VerifyError::UnknownFunction {
+                                    function: usize::MAX,
+                                })
+                            })?
+                        }
+                    };
                     let callee =
                         program
                             .functions

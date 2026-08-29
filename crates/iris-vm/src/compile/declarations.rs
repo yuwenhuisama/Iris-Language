@@ -508,6 +508,32 @@ fn collect_class<'a>(
             initializer_function: Some(signatures.len() - 1),
         });
     }
+    // A QUALIFIED `impl fun C::m()` belongs to the contract's VIEW rather than
+    // to the class, so it is recorded separately: publishing it as an ordinary
+    // method would make `a.m()` answer it too.
+    // Signatures are collected in BODY order, so each method is matched to its
+    // own by counting the methods before it. Matching by selector alone made
+    // two qualified impls of one selector - `impl fun C::m()` beside
+    // `impl fun D::m()` - both resolve to the first body.
+    let mut qualified_impls = Vec::new();
+    let mut position = 0usize;
+    for statement in &class.body {
+        let Statement::Method(method) = statement else {
+            continue;
+        };
+        if method.body.is_none() {
+            continue;
+        }
+        let function = first_function + position;
+        position += 1;
+        let Some(Some(qualifier)) = method.impl_contract.as_ref() else {
+            continue;
+        };
+        let Some(contract) = contracts.iter().position(|known| known.name == *qualifier) else {
+            return Err(CompileError::new("contract implementation undeclared"));
+        };
+        qualified_impls.push((contract, method.selector.clone(), function));
+    }
     classes.push(Class {
         name: class.name.clone(),
         generic: !class.parameters.is_empty(),
@@ -518,6 +544,7 @@ fn collect_class<'a>(
         contracts: conformances,
         mixins,
         contract_bounds,
+        qualified_impls,
         property_methods,
         class_variables,
         stored_properties,
@@ -638,7 +665,11 @@ fn validate_contracts(
         let Statement::Method(method) = statement else {
             continue;
         };
-        if method.impl_contract.is_none() {
+        // A QUALIFIED `impl fun C::m()` names its contract explicitly and is
+        // visible only through that view, so it needs no matching requirement:
+        // the reference runs `contract C { }` with `impl fun C::m()` and
+        // answers `:qualified` through the view.
+        if method.impl_contract.is_none() || matches!(method.impl_contract, Some(Some(_))) {
             continue;
         }
         let matches = conformances.iter().any(|contract| {
