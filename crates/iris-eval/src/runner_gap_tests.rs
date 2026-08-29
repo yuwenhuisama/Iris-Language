@@ -6948,18 +6948,53 @@ fn a_wildcard_module_mixin_composes_the_module() {
         );
     }
 
-    // Control: a PRIVATE-access class mixin grants the module reach into the
-    // class's private methods, which the backend does not model - that is a
-    // change of meaning rather than an annotation, so it stays declined.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
+    // A PRIVATE-access class mixin grants the module reach into the class's
+    // private methods, so the marker travels into the composition EDGE rather
+    // than being refused - the module's method reaches the composing object's
+    // own private one.
+    for (source, expected) in [
+        (
             "module M { public fun h() -> Integer { 7 } } class A mixin M private {} A.new().h()",
-        )
-    else {
-        unreachable!("a private-access class mixin must be declined")
-    };
-    assert_eq!(reason, "class mixin");
+            "7",
+        ),
+        (
+            "module M { public fun reach() -> Object { try { secret() } catch e { e } } } \
+             class G mixin M private { private fun secret() -> Symbol { :g } } G.new().reach()",
+            ":g",
+        ),
+        // A module method mixed into a class binds `self` to the COMPOSING
+        // object, so it reaches that object's own methods - and an argument
+        // lands in its own parameter rather than being displaced by the
+        // receiver.
+        (
+            "module M { public fun reach() -> Object { self.own() } } \
+             class G mixin M { public fun own() -> Symbol { :g } } G.new().reach()",
+            ":g",
+        ),
+        (
+            "module M { public fun reach(x) -> Object { x } } class G mixin M { } G.new().reach(9)",
+            "9",
+        ),
+        // Control: a module never composed keeps the receiverless form, where
+        // `M.f()` passes only its arguments.
+        (
+            "module M { public fun reach() -> Object { 7 } } [M.reach(), 1]",
+            "[7, 1]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
 }
 
 /// A composed member may NOT contradict a declared contract requirement.

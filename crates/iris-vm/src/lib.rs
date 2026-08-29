@@ -562,12 +562,12 @@ mod tests {
                 "class contract unbound",
                 "declaration",
             ),
-            // A PRIVATE-access mixin carries visibility rules the backend does
-            // not model, so it is still declined - while the plain `mixin M`
-            // form now compiles, which the differential tests cover.
+            // A reopen that changes what the class IS - a superclass - stays
+            // declined, while a mixin and a conformance now compose, which the
+            // differential tests cover.
             (
-                "module M { } class A mixin M private { } 1",
-                "class mixin",
+                "class B { } class A { } open class A extends B { } 1",
+                "class reopen header",
                 "declaration",
             ),
         ] {

@@ -932,17 +932,26 @@ pub(crate) struct ContractRequirement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Class {
     pub(crate) name: String,
+    /// Selectors the class declared `private`, per `IRIS-V1-RUNTIME-C077`.
+    ///
+    /// A private method is refused from every path but the declaring class -
+    /// or a module composed with `private` access - so the marker has to reach
+    /// the registry rather than being dropped at the declaration.
+    pub(crate) private_methods: Vec<String>,
     pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,
     pub(crate) class_methods: Vec<(String, usize)>,
     pub(crate) reopens: Vec<ClassReopen>,
     pub(crate) contracts: Vec<usize>,
-    /// Modules mixed into this class, by NAME.
+    /// Each mixin's module NAME and whether it was written `private`.
     ///
     /// A module is registered before any class, so the name resolves to a
-    /// module identity at load time rather than at compile time.
-    pub(crate) mixins: Vec<String>,
+    /// module identity at load time rather than at compile time. A
+    /// `mixin M private` grants `M` reach into the class's private methods,
+    /// which is a composition-edge fact rather than an annotation, so the
+    /// marker travels with the edge.
+    pub(crate) mixins: Vec<(String, bool)>,
     /// Contract bounds on the class's type PARAMETERS, by position.
     ///
     /// `IRIS-V1-TYPES-C067` checks these at MATERIALIZATION rather than where

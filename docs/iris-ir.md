@@ -765,6 +765,16 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A module method mixed into a class binds `self` to the COMPOSING object, so it
+reaches that object's own methods and an argument lands in its own parameter
+rather than being displaced by the receiver dispatch prepends. A module never
+composed keeps the receiverless form, where `M.f()` passes only its arguments.
+A `private` mixin marker travels into the composition EDGE, which is what the
+runtime consults to grant the module reach into the class's private methods.
+Method VISIBILITY itself stays unmodelled: a private method's refusal depends
+on the caller's lexical owner, which this machine does not track per frame, so
+publishing the marker without that context refused programs that run.
+
 A published spine is not REWOUND: `Reflection::Class.reactivate` names a
 revision that is no longer active, so it is refused rather than performed, and
 the target is resolved first so the refusal cannot be mistaken for an unknown

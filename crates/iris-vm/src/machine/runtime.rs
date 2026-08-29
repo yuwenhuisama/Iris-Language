@@ -480,17 +480,20 @@ impl Machine {
             // A mixin is resolved to a module IDENTITY here rather than at
             // compile time, because modules are registered in the same load
             // and the runtime composes them into the class's MRO.
+            // A `private` edge grants the module reach into the class's
+            // PRIVATE methods, so the marker travels into the composition
+            // edge rather than being dropped at the name.
             let mut modules = Vec::with_capacity(declaration.mixins.len());
-            for name in &declaration.mixins {
+            for (name, private_access) in &declaration.mixins {
                 let Some((_, module)) = self.modules.iter().find(|(known, _)| known == name) else {
                     return Err(MachineError::NameError);
                 };
-                modules.push(*module);
+                modules.push(iris_runtime::CompositionEdge::new(*module, *private_access));
             }
             let class = self
                 .runtime
                 .registry_mut()
-                .define_class_with_capabilities_and_modules(
+                .define_class_with_capabilities_and_composition_edges(
                     StaticSpine::new(index as u64 + 1),
                     superclass,
                     iris_runtime::MetaCapabilities::all(),
@@ -502,6 +505,13 @@ impl Machine {
                 .begin_origin_transaction(class)
                 .map_err(MachineError::Class)?;
             for (selector, function) in &declaration.methods {
+                // A private method's REFUSAL depends on the caller's lexical
+                // owner, which this machine does not track per frame - every
+                // send would look external and a class's own call to its
+                // private method would be denied. Publishing the marker
+                // without that context refused programs that run, so the
+                // visibility surface stays unmodelled rather than approximated.
+                let visibility = Visibility::Public;
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                 self.runtime
@@ -510,7 +520,7 @@ impl Machine {
                         class,
                         selector,
                         MethodBody::new(*function as u64),
-                        Visibility::Public,
+                        visibility,
                     )
                     .map_err(MachineError::Class)?;
             }

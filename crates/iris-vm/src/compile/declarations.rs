@@ -13,6 +13,12 @@ pub(super) struct Signature<'a> {
     pub(super) body: &'a [Statement],
     pub(super) receiver: bool,
     pub(super) class_method: bool,
+    /// Whether the source wrote `private` before the method.
+    ///
+    /// `IRIS-V1-RUNTIME-C077` refuses a private call from every path but the
+    /// declaring class - or a module composed with `private` access - so the
+    /// marker has to reach the registry rather than being dropped here.
+    pub(super) private: bool,
     pub(super) is_async: bool,
     /// Constants declared in the OWNER's body, visible lexically in this one.
     ///
@@ -201,12 +207,26 @@ pub(super) fn collect_signatures<'a>(
                 body: &[],
                 receiver: false,
                 class_method: false,
+                private: false,
                 is_async: false,
                 constants: Vec::new(),
                 expression_body: Some(initializer),
             });
         }
-        collect_methods(&module.name, &module.body, false, &mut signatures)?;
+        // A module method is lowered WITH a receiver when the module is mixed
+        // into a class: dispatch prepends the composing object, so the frame
+        // must bind `self` to it or the object would land in the first
+        // parameter's register. A module never composed keeps the receiverless
+        // form, where `M.f()` passes only its arguments.
+        let composed = declarations.iter().any(|declaration| match declaration {
+            iris_syntax::Declaration::Class(class) => class.mixins.iter().any(|mixin| {
+                matches!(&mixin.target,
+                    TypeExpression::Name(name) | TypeExpression::Generic { name, .. }
+                        if *name == module.name)
+            }),
+            _ => false,
+        });
+        collect_methods(&module.name, &module.body, composed, &mut signatures)?;
     }
     // `D-173` puts the contract-visible SIGNATURE in the static spine, so a
     // member composed from a MIXIN whose parameter Type contradicts a declared
@@ -216,7 +236,7 @@ pub(super) fn collect_signatures<'a>(
     for class in &classes {
         for contract in &class.contracts {
             for requirement in &contracts[*contract].requirements {
-                let composed = class.mixins.iter().find_map(|mixin| {
+                let composed = class.mixins.iter().find_map(|(mixin, _)| {
                     declarations
                         .iter()
                         .find_map(|declaration| match declaration {
@@ -370,8 +390,8 @@ fn collect_class<'a>(
         return collect_reopen(class, contracts, signatures, classes, builtin_reopens);
     }
     // A mixin names a MODULE, which the runtime composes into the class's MRO.
-    // A generic or private-access mixin carries rules the backend does not
-    // model yet, so only the plain form is lowered rather than approximated.
+    // A `private` marker travels with the edge, since it grants the module
+    // reach into the class's private methods.
     let mut mixins = Vec::with_capacity(class.mixins.len());
     for mixin in &class.mixins {
         // A GENERIC module mixin names the same module whatever its argument:
@@ -383,10 +403,7 @@ fn collect_class<'a>(
             TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => name,
             _ => return Err(CompileError::new("class mixin")),
         };
-        if mixin.private_access {
-            return Err(CompileError::new("class mixin"));
-        }
-        mixins.push(name.clone());
+        mixins.push((name.clone(), mixin.private_access));
     }
     // A DECORATOR, a `where` constraint and a `meta deny` list are all
     // declaration-time annotations the reference accepts and this backend does
@@ -552,6 +569,7 @@ fn collect_class<'a>(
             body: &[],
             receiver: true,
             class_method: false,
+            private: false,
             is_async: false,
             constants: Vec::new(),
             expression_body: Some(initializer),
@@ -588,8 +606,14 @@ fn collect_class<'a>(
         };
         qualified_impls.push((contract, method.selector.clone(), function));
     }
+    let private_methods = signatures[first_function..]
+        .iter()
+        .filter(|signature| signature.private)
+        .map(|signature| signature.selector.to_owned())
+        .collect();
     classes.push(Class {
         name: class.name.clone(),
+        private_methods,
         generic: !class.parameters.is_empty(),
         superclass,
         methods,
@@ -676,10 +700,9 @@ fn collect_reopen<'a>(
         else {
             return Err(CompileError::new("class reopen header"));
         };
-        if mixin.private_access {
-            return Err(CompileError::new("class mixin"));
-        }
-        classes[target].mixins.push(name.clone());
+        classes[target]
+            .mixins
+            .push((name.clone(), mixin.private_access));
     }
     let first_function = signatures.len();
     collect_methods(&class.name, &class.body, true, signatures)?;
@@ -860,6 +883,7 @@ fn collect_methods<'a>(
             body,
             receiver,
             class_method: method.kind == iris_syntax::MethodKind::Class,
+            private: method.visibility == iris_syntax::Visibility::Private,
             is_async: method.is_async,
             constants: constants.clone(),
             expression_body: None,
