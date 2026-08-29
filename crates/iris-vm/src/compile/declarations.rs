@@ -260,10 +260,21 @@ fn collect_contract(
     // its requirements have to exist to be inherited.
     let mut requirements = Vec::new();
     for parent in &declaration.parents {
-        let TypeExpression::Name(name) = parent else {
+        // A GENERIC parent names the same contract as a bare one: the backend
+        // interns one contract per definition rather than per construction, so
+        // `extends P<Integer>` inherits `P`'s requirements.
+        let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = parent else {
             return Err(CompileError::new("contract declaration form"));
         };
         let Some(parent) = contracts.iter().find(|known| known.name == *name) else {
+            // `Iterable` and `Iterator` are KERNEL contracts rather than
+            // program declarations, so a child extending one inherits nothing
+            // this backend records - the reference runs the declaration, and a
+            // program depending on those requirements fails on the collection
+            // surface rather than here.
+            if matches!(name.as_str(), "Iterable" | "Iterator" | "Comparable") {
+                continue;
+            }
             return Err(CompileError::new("contract parent unbound"));
         };
         requirements.extend(parent.requirements.iter().cloned());
@@ -752,6 +763,19 @@ fn collect_methods<'a>(
         // binding declares nothing the object carries. It is accepted and
         // ignored rather than declined, which is what the reference does.
         if receiver && matches!(statement, Statement::Binding { .. }) {
+            continue;
+        }
+        // A class body may hold ordinary STATEMENTS, which run with `self`
+        // bound to the class when the declaration is reached - that is how
+        // `class A { if true { self.define_method(:x) { .. } } }` publishes a
+        // method. They declare nothing, so they contribute no signature and
+        // are lowered by the caller.
+        if receiver
+            && matches!(
+                statement,
+                Statement::If { .. } | Statement::Expression(_) | Statement::Match { .. }
+            )
+        {
             continue;
         }
         let Statement::Method(method) = statement else {

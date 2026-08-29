@@ -250,6 +250,47 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
                     });
                 }
             }
+            // A class body's ordinary STATEMENTS run at the declaration's own
+            // source position with `self` bound to the class, which is what
+            // lets `class A { if true { self.define_method(:x) { .. } } }`
+            // publish a method. They declare nothing, so their values are
+            // discarded.
+            iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) => {
+                let Some(target) = lowering_classes
+                    .iter()
+                    .position(|known: &crate::compile::ir::Class| known.name == class.name)
+                else {
+                    continue;
+                };
+                let body: Vec<&Statement> = class
+                    .body
+                    .iter()
+                    .filter(|statement| {
+                        matches!(
+                            statement,
+                            Statement::If { .. }
+                                | Statement::Expression(_)
+                                | Statement::Match { .. }
+                        )
+                    })
+                    .collect();
+                if body.is_empty() {
+                    continue;
+                }
+                let receiver = lowering.allocate()?;
+                lowering.instructions.push(Instruction::LoadClass {
+                    destination: receiver,
+                    class: target,
+                });
+                let outer = lowering.names.len();
+                lowering
+                    .names
+                    .push(lowering::Binding::value("self".to_owned(), receiver));
+                for statement in body {
+                    lowering.statement(statement)?;
+                }
+                lowering.names.truncate(outer);
+            }
             iris_syntax::ProgramEntry::Declaration(_) => {}
         }
     }

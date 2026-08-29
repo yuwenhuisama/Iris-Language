@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 724 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 726 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,15 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A class body's ordinary STATEMENTS run with `self` bound to the class, at the
+declaration's own source position - that is what lets
+`class A { if true { self.define_method(:x) { .. } } }` publish a method, and
+why a name bound only after the declaration is unbound inside it. A contract
+may extend a GENERIC parent, which names the same contract as a bare one since
+the backend interns one per definition; `Iterable` and `Iterator` are the
+KERNEL's rather than program declarations, so a child extending one inherits
+nothing this backend records and the declaration still runs.
 
 A QUALIFIED `impl fun C::m()` belongs to that contract's VIEW rather than to
 the class: `(a as C)..m()` answers it while `a.m()` answers the class's own

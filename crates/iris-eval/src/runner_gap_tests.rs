@@ -7163,3 +7163,102 @@ fn a_qualified_implementation_belongs_to_the_view() {
         );
     }
 }
+
+/// A class body's ordinary STATEMENTS run with `self` bound to the class.
+///
+/// They run at the declaration's own source position, which is what lets
+/// `class A { if true { self.define_method(:x) { .. } } }` publish a method.
+/// They declare nothing, so they contribute no signature and their values are
+/// discarded.
+#[test]
+fn a_class_body_runs_its_statements() {
+    for (source, expected) in [
+        (
+            "class A { if true { self.define_method(:x) { 7 } } }; A.new().x()",
+            "7",
+        ),
+        ("class A { self.define_method(:x) { 7 } }; A.new().x()", "7"),
+        // The statement runs at the declaration's SOURCE POSITION, so a name
+        // bound before it is in scope.
+        (
+            "mut log = []; class A { log.append(:body) }; log",
+            "[:body]",
+        ),
+        // A guard that does NOT hold defines nothing, so the body really ran
+        // rather than being published unconditionally.
+        (
+            "class A { if false { self.define_method(:x) { 7 } } \
+             public fun y() -> Integer { 1 } }; A.new().y()",
+            "1",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: BEFORE that position the name is unbound, so the body is not
+    // hoisted to run ahead of the program's own statements.
+    let agreement = crate::backend::compare_backends(
+        "class A { log.append(:body) }; mut log = []; log",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("NameError".to_owned())
+    );
+}
+
+/// A contract may extend a GENERIC parent, or a kernel one.
+///
+/// A generic parent names the same contract as a bare one, since the backend
+/// interns one contract per definition rather than per construction. `Iterable`
+/// and `Iterator` are the KERNEL's rather than program declarations, so a child
+/// extending one inherits nothing this backend records and the declaration
+/// still runs.
+#[test]
+fn a_contract_may_extend_a_generic_parent() {
+    for (source, expected) in [
+        (
+            "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } 1",
+            Some("1"),
+        ),
+        (
+            "contract P<T> { fun p() -> Nil } contract Numbers extends P<Integer> { fun m() -> Nil } \
+             class A for Numbers { public impl fun m() -> Nil { nil } \
+             public impl fun p() -> Nil { nil } } A.new().m()",
+            Some("nil"),
+        ),
+        // Control: a parent that is neither declared NOR a kernel contract is
+        // still absent, so it raises rather than being waved through.
+        (
+            "contract Numbers extends Missing<Integer> { fun m() -> Nil } 1",
+            None,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("UnsupportedConstruct".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}
