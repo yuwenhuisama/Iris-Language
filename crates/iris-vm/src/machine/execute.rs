@@ -2195,8 +2195,25 @@ impl Machine {
                     receiver, contract, ..
                 } => {
                     let receiver = registers[*receiver as usize].clone();
+                    // A BUILT-IN value conforms when a reopen of its class
+                    // declared the contract: `open class Integer for N { .. }`
+                    // makes `1 as N` a legitimate view even though Integer is
+                    // the kernel's class and has no entry in `classes`.
                     let Value::Object(object) = receiver else {
-                        return Err(MachineError::Kernel(KernelError::Type));
+                        let builtin = crate::machine::value_class_name(&receiver);
+                        let conforms = program.builtin_reopens.iter().any(|reopen| {
+                            reopen.target == builtin && reopen.contracts.contains(contract)
+                        });
+                        if !conforms {
+                            return Err(MachineError::Kernel(KernelError::Type));
+                        }
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = Value::ContractView(
+                                Box::new(receiver),
+                                ContractId::new(*contract as u64 + 1),
+                            );
+                        }
+                        continue;
                     };
                     let class = self
                         .runtime

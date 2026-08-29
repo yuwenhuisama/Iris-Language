@@ -6995,3 +6995,65 @@ fn a_composed_member_may_not_contradict_a_requirement() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A reopen may DECLARE a conformance, on a declared or a built-in class.
+///
+/// The conformance is observable through `A.contracts`, so it joins the
+/// class's own list rather than being ignored. A BUILT-IN class is the
+/// kernel's and has no entry to join, so its conformance is recorded on the
+/// reopen - which is what makes `1 as N` a legitimate view. A contract view is
+/// the value seen THROUGH a contract, so an operator applies to that value.
+#[test]
+fn a_reopen_may_declare_a_conformance() {
+    for (source, expected) in [
+        (
+            "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
+             open class A for N { } A.new().m()",
+            "1",
+        ),
+        // The conformance is OBSERVABLE, so it was recorded rather than dropped.
+        (
+            "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
+             open class A for N { } A.contracts",
+            "[<contract>]",
+        ),
+        // A BUILT-IN class conforms through its reopen, and the view compares
+        // as the Integer it wraps.
+        (
+            "contract N { fun m() -> Integer } \
+             open class Integer for N { public impl fun m() -> Integer { 1 } } \
+             (1 as N) == (1 as N)",
+            "true",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a class that never declared the contract cannot be viewed
+    // through it, so recording a reopen's conformance did not make every cast
+    // succeed.
+    let agreement = crate::backend::compare_backends(
+        "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
+         module M { public fun run() -> Object { try { (A.new() as N)..m() } catch e { e } } } \
+         M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("Runtime(Type)".to_owned())
+    );
+}

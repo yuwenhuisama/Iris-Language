@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 721 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 722 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,13 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A class reopen may also DECLARE a conformance, which is observable through
+`A.contracts` and so joins the class's own list. A BUILT-IN class is the
+kernel's and has no entry to join, so its conformance is recorded on the reopen
+itself - that is what makes `1 as N` a legitimate view. A contract view is the
+value seen THROUGH a contract rather than a different value, so an operator
+applies to the value it wraps.
 
 A class reopen may COMPOSE a module: its mixin edge joins the declaration's own
 list, so the runtime composes it exactly as a declared one, while a superclass

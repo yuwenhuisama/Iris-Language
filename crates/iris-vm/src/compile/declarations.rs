@@ -331,7 +331,7 @@ fn collect_class<'a>(
     builtin_reopens: &mut Vec<crate::compile::ir::BuiltinReopen>,
 ) -> Result<(), CompileError> {
     if class.reopen {
-        return collect_reopen(class, signatures, classes, builtin_reopens);
+        return collect_reopen(class, contracts, signatures, classes, builtin_reopens);
     }
     // A mixin names a MODULE, which the runtime composes into the class's MRO.
     // A generic or private-access mixin carries rules the backend does not
@@ -515,6 +515,7 @@ fn collect_class<'a>(
 
 fn collect_reopen<'a>(
     class: &'a iris_syntax::ClassDeclaration,
+    contracts: &[Contract],
     signatures: &mut Vec<Signature<'a>>,
     classes: &mut [Class],
     builtin_reopens: &mut Vec<crate::compile::ir::BuiltinReopen>,
@@ -525,7 +526,12 @@ fn collect_reopen<'a>(
     // `1`. A superclass or a conformance would change what the class IS, so
     // those stay declined; a MIXIN composes a module into the class the same
     // way a declaration's does, and is applied below.
-    if class.extends.is_some() || !class.implements.is_empty() || !class.meta_deny.is_empty() {
+    // A CONFORMANCE names a contract the class satisfies, and is observable
+    // through `A.contracts`, so it joins the declaration's own list rather
+    // than being ignored. A superclass would change what the class IS, so it
+    // stays declined; a MIXIN composes a module the same way a declaration's
+    // does, and both are applied below.
+    if class.extends.is_some() || !class.meta_deny.is_empty() {
         return Err(CompileError::new("class reopen header"));
     }
     // A BUILT-IN class is created by the kernel and has no entry here, so a
@@ -540,10 +546,12 @@ fn collect_reopen<'a>(
             return Err(CompileError::new("class reopen target"));
         }
         // A BUILT-IN class is the kernel's, so it has no declaration entry a
-        // mixin edge could join.
+        // mixin edge could join. A CONFORMANCE needs no entry: it is recorded
+        // on the reopen itself, which is what makes `1 as N` a legitimate view.
         if !class.mixins.is_empty() {
             return Err(CompileError::new("class reopen header"));
         }
+        let conformances = contract_indices(class, contracts)?;
         let first_function = signatures.len();
         collect_methods(&class.name, &class.body, true, signatures)?;
         let (methods, class_methods) = collected_method_tables(signatures, first_function);
@@ -555,6 +563,7 @@ fn collect_reopen<'a>(
         builtin_reopens.push(crate::compile::ir::BuiltinReopen {
             target: class.name.clone(),
             methods,
+            contracts: conformances,
         });
         return Ok(());
     }
@@ -564,6 +573,11 @@ fn collect_reopen<'a>(
     // A reopen's MIXIN composes into the class the runtime already registers,
     // so the edge joins the declaration's own list rather than needing a
     // second composition path.
+    for contract in contract_indices(class, contracts)? {
+        if !classes[target].contracts.contains(&contract) {
+            classes[target].contracts.push(contract);
+        }
+    }
     for mixin in &class.mixins {
         let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = &mixin.target
         else {

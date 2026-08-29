@@ -18,6 +18,18 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        // A contract VIEW is the value it wraps seen THROUGH a contract, so an
+        // operator applies to that value: `(1 as N) == (1 as N)` is the Integer
+        // comparison. The view exists to select which methods are visible, not
+        // to change what the value is.
+        let receiver = match receiver {
+            Value::ContractView(inner, _) => *inner,
+            other => other,
+        };
+        let argument = match argument {
+            Value::ContractView(inner, _) => *inner,
+            other => other,
+        };
         // A REOPENED built-in class may redefine an operator, and `<` and `>`
         // are derived from `<=>` rather than being separate methods - so a
         // redefined `<=>` has to reach them, or `1 < 2` would keep answering

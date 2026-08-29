@@ -884,6 +884,12 @@ pub struct Program {
 pub(crate) struct BuiltinReopen {
     pub(crate) target: String,
     pub(crate) methods: Vec<(String, usize)>,
+    /// Contracts the reopen declares the built-in class satisfies.
+    ///
+    /// `open class Integer for N { .. }` makes `1 as N` a legitimate view, so
+    /// the conformance is recorded even though the class itself is the
+    /// kernel's and has no entry in `classes`.
+    pub(crate) contracts: Vec<usize>,
 }
 
 /// One parameter's binding CATEGORY, per `IRIS-V1-CONTROL-C023`.
