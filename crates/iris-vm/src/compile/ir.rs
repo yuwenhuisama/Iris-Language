@@ -213,6 +213,16 @@ pub enum Instruction {
         pattern: Register,
         flags: String,
     },
+    /// Writes its operands to standard output, separated by spaces.
+    ///
+    /// Rendering goes through `to_string`, so a class's own definition is
+    /// honoured rather than bypassed. `print` is a bare call no binding
+    /// claims, which is what distinguishes it from a local of that name.
+    Print {
+        destination: Register,
+        first: Register,
+        count: u16,
+    },
     /// Guards the RETURN boundary, per `IRIS-V1-TYPES-C004`.
     ///
     /// A declared return Type is checked before the value is published to the
@@ -802,7 +812,9 @@ impl Instruction {
                 Some(*destination)
             }
             Self::ApplyReopen { .. } | Self::CheckReturn { .. } => None,
-            Self::NativeFixture { destination, .. } => Some(*destination),
+            Self::NativeFixture { destination, .. } | Self::Print { destination, .. } => {
+                Some(*destination)
+            }
             Self::DiscardedContexts { destination } | Self::PackageValidate { destination, .. } => {
                 Some(*destination)
             }

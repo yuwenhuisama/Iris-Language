@@ -243,6 +243,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 return Ok(destination);
             }
+            // `print` is a BUILT-IN bare call, so it is lowered directly. The
+            // reference resolves it BEFORE a module's own function of that
+            // name, so a sibling `print` does not shadow it - only a local
+            // binding does, since a name a binding claims never reaches here.
+            if callee.is_none() && name == "print" {
+                let (first, count) = self.argument_window(arguments)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Print {
+                    destination,
+                    first,
+                    count,
+                });
+                return Ok(destination);
+            }
             // A bare call in a MODULE body names that module's own function,
             // which has no receiver, so it resolves by index like `M.f()`.
             if callee.is_none()

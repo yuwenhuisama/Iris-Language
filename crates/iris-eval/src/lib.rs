@@ -1982,6 +1982,9 @@ mod module_composition_tests;
 #[cfg(test)]
 mod builtin_protocol_tests;
 
+#[cfg(test)]
+mod whole_program_tests;
+
 /// Substitutes the `${expr}` segments a literal-only evaluator can compute.
 ///
 /// `IRIS-V1-COLLECTIONS-C048` evaluates every segment left to right, but this

@@ -16,3 +16,4 @@ iris-eval = { path = "../iris-eval" }
 iris-parser = { path = "../iris-parser" }
 iris-syntax = { path = "../iris-syntax" }
 iris-runtime = { path = "../iris-runtime" }
+iris-vm = { path = "../iris-vm" }

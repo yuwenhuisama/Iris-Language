@@ -765,6 +765,21 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+The machine has a user ENTRY POINT: `iris --vm <file>` runs a script on it,
+and a construct it does not cover is reported as refused rather than rerouted
+to the reference - falling back silently would report success for a program the
+machine never ran. `print` is a built-in bare call rendering through
+`to_string`, so a class's own definition is honoured.
+
+Correctness is measured by TWO suites. The conformance corpus is a microscope:
+its vectors have a median length near a hundred characters, each isolating one
+rule, which leaves defects that appear only when features INTERACT invisible -
+two such reached a fully covered backend, a property and its `@name` ivar
+addressing different slots and a property having no setter at all. The
+whole-program tests in `crates/iris-eval/src/whole_program_tests.rs` therefore
+compare programs written the way a user writes them, value-for-value against
+the reference.
+
 A stored PROPERTY and its `@name` ivar are ONE slot. The property declares its
 slot under the bare name while the source writes `@n` for it, so the sigil is
 stripped - otherwise `@n` reads a slot the property never filled and answers

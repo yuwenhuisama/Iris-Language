@@ -194,6 +194,7 @@ dependencies = [
  "iris-parser",
  "iris-runtime",
  "iris-syntax",
+ "iris-vm",
 ]
 
 [[package]]

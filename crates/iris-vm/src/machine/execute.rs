@@ -330,6 +330,23 @@ impl Machine {
                     self.apply_reopen(program, classes, *class, *reopen)?;
                     continue;
                 }
+                Instruction::Print { first, count, .. } => {
+                    let start = *first as usize;
+                    let operands = registers[start..start + *count as usize].to_vec();
+                    // Rendering goes through `to_string`, so a class's own
+                    // definition is honoured rather than bypassed.
+                    let mut rendered: Vec<String> = Vec::with_capacity(operands.len());
+                    for operand in operands {
+                        let text =
+                            dispatch!(Value::Text(self.text_operand(operand, program, classes)?));
+                        let Value::Text(text) = text else {
+                            return Err(MachineError::Kernel(KernelError::Type));
+                        };
+                        rendered.push(text);
+                    }
+                    println!("{}", rendered.join(" "));
+                    Value::Nil
+                }
                 Instruction::NativeFixture {
                     selector,
                     first,

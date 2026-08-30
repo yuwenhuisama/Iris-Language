@@ -7651,3 +7651,33 @@ fn a_property_and_its_ivar_are_one_slot() {
         );
     }
 }
+
+/// `print` is a BUILT-IN bare call that renders through `to_string`.
+///
+/// A class's own `to_string` is honoured rather than bypassed, and the
+/// reference resolves `print` BEFORE a module's own function of that name, so
+/// a sibling `print` does not shadow it.
+#[test]
+fn print_renders_through_to_string() {
+    for source in [
+        "print(\"hi\")",
+        "print(1, 2)",
+        "class A { public fun to_string() -> String { \"custom\" } } print(A.new())",
+        // A module's OWN `print` does not shadow the builtin.
+        "module M { public fun print(x) -> Symbol { :own } \
+         public fun run() -> Object { print(1) } } M.run()",
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value("nil".to_owned()),
+            "{source}"
+        );
+    }
+}
