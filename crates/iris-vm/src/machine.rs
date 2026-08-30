@@ -324,6 +324,27 @@ pub fn run(program: &Program) -> Result<Value, MachineError> {
     machine.execute(program)
 }
 
+/// The slot a `@name` ivar reference addresses.
+///
+/// A stored PROPERTY declares its slot under the bare name while the source
+/// writes `@n` for it, so the sigil is stripped when a property of that name
+/// exists. An ivar the class never declared keeps its written spelling, which
+/// is what lets `@z = 5` work in a class with no such property.
+pub(super) fn ivar_slot_name(program: &Program, name: &str) -> String {
+    let bare = name.trim_start_matches('@');
+    let declared = program.classes.iter().any(|class| {
+        class
+            .stored_properties
+            .iter()
+            .any(|property| property.name == bare)
+    });
+    if declared {
+        bare.to_owned()
+    } else {
+        name.to_owned()
+    }
+}
+
 fn selector_id(program: &Program, name: &str) -> Option<Selector> {
     if name == "initialize" {
         return Some(Selector::INITIALIZE);

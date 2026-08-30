@@ -7602,3 +7602,52 @@ fn a_private_method_answers_only_its_owner() {
         );
     }
 }
+
+/// A stored PROPERTY and its `@name` ivar are ONE slot.
+///
+/// A property declares its slot under the bare name while the source writes
+/// `@n` for it, so the sigil is stripped - otherwise `@n` reads a slot the
+/// property never filled and answers nil where the value is. The property is
+/// written through its setter selector too: `a.n = 5` is a send of `n=` to the
+/// object, landing in that same slot.
+#[test]
+fn a_property_and_its_ivar_are_one_slot() {
+    for (source, expected) in [
+        // Read through the member, and through `@n` inside a method.
+        (
+            "class A { property n: Integer = 7 public fun get() -> Object { @n } } \
+             let a = A.new(); [a.n, a.get()]",
+            "[7, 7]",
+        ),
+        // WRITE through the setter, then read it back.
+        (
+            "class A { property n: Integer = 0 } let a = A.new(); a.n = 5; a.n",
+            "[5, 5]",
+        ),
+        // Write through `@n`, observed through the member.
+        (
+            "class A { property n: Integer = 0 public fun bump() -> Integer { @n = @n + 1; @n } } \
+             let a = A.new(); [a.bump(), a.n]",
+            "[1, 1]",
+        ),
+        // Control: an ivar the class never DECLARED keeps its own spelling, so
+        // stripping the sigil did not merge unrelated slots.
+        (
+            "class A { public fun run() -> Object { @z = 5; @z } } A.new().run()",
+            "5",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

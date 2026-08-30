@@ -2481,6 +2481,11 @@ impl Machine {
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
+                    // A stored PROPERTY declares the slot under its bare name,
+                    // while the source writes `@n` for it - so the sigil is
+                    // stripped or `@n` would read a slot the property never
+                    // filled, answering nil where the value is.
+                    let name = &super::ivar_slot_name(program, name);
                     let selector = selector_id(program, name)
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
                     self.runtime
@@ -2496,6 +2501,7 @@ impl Machine {
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
+                    let name = &super::ivar_slot_name(program, name);
                     let selector = selector_id(program, name)
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
                     self.runtime

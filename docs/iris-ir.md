@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A stored PROPERTY and its `@name` ivar are ONE slot. The property declares its
+slot under the bare name while the source writes `@n` for it, so the sigil is
+stripped - otherwise `@n` reads a slot the property never filled and answers
+nil where the value is. The property is written through its setter selector
+too: `a.n = 5` is a send of `n=` to the object, landing in that same slot. An
+ivar the class never declared keeps its written spelling, which is what leaves
+`@z = 5` working in a class with no such property.
+
 A PRIVATE method answers only its declaring class. A send carries the class
 whose body wrote it, which is the authority that decides the call - without one
 the send is external and the method is refused. A module composed with

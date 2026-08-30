@@ -283,6 +283,40 @@ impl Machine {
             // `IRIS-V1-COLLECTIONS-C083` exposes the full match, both range
             // pairs, the Regex used, and the captures - with a group that did
             // not participate staying nil rather than an empty string.
+            // A stored PROPERTY is written through its setter selector, `a.n = 5`
+            // being a send of `n=` to the object. It is instance state rather
+            // than a method, so the write lands in the slot the declaration
+            // registered.
+            Value::Object(object)
+                if selector.ends_with('=')
+                    && arguments.len() == 1
+                    && classes
+                        .iter()
+                        .position(|known| {
+                            self.runtime
+                                .class_of(*object)
+                                .is_ok_and(|held| held == *known)
+                        })
+                        .and_then(|index| program.classes.get(index))
+                        .is_some_and(|declaration| {
+                            declaration
+                                .stored_properties
+                                .iter()
+                                .any(|property| property.name == selector.trim_end_matches('='))
+                        }) =>
+            {
+                let name = selector.trim_end_matches('=');
+                let Some(slot) = selector_id(program, name) else {
+                    return Err(MachineError::UnknownSelector(name.to_owned()));
+                };
+                let [value] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                self.runtime
+                    .assign_raw_ivar(*object, slot, value.clone())
+                    .map_err(MachineError::Construction)?;
+                Some(value.clone())
+            }
             // A CLASS-level property is written through its setter selector,
             // `Cache.n = 9` being a send of `n=` to the Class. It is class
             // state rather than a method, so the write lands in the class
