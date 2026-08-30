@@ -246,6 +246,13 @@ pub enum Instruction {
         selector: String,
         first: Register,
         count: u16,
+        /// Registers a NAME claims where this call appears.
+        ///
+        /// A frame's register file lives on the Rust stack, where a collector
+        /// cannot walk it, and a temporary the source never bound is already
+        /// unreachable - so the bound registers travel with the instruction
+        /// rather than the whole file being treated as live.
+        roots: Vec<Register>,
     },
     /// Answers the contexts a `finally` transfer DISCARDED.
     ///
@@ -696,6 +703,14 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    /// Registers a NAME claims at this instruction, for the collector.
+    pub(crate) fn roots(&self) -> &[Register] {
+        match self {
+            Self::NativeFixture { roots, .. } => roots,
+            _ => &[],
+        }
+    }
+
     /// The register this instruction writes, when it writes one.
     pub(crate) const fn destination(&self) -> Option<Register> {
         match self {

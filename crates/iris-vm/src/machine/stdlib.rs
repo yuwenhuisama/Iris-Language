@@ -409,6 +409,16 @@ impl Machine {
             Value::Nil if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text("nil".to_owned()))
             }
+            // An OBJECT hashes by IDENTITY, which survives a relocation: that
+            // is what makes a retained object's hash stable across a
+            // collection while two distinct objects differ.
+            Value::Object(object) if selector == "hash" && arguments.is_empty() => {
+                let hash = self
+                    .runtime
+                    .identity_hash(*object)
+                    .map_err(|_| MachineError::SerializationError)?;
+                Some(Value::Integer(hash.into()))
+            }
             // A CONTRACT is interned once per definition, so its hash is fixed
             // by identity: `C.hash() == C.hash()` holds because both name the
             // same contract.
@@ -1534,6 +1544,32 @@ impl Machine {
             }
             ("concurrently_replace", _) => {
                 Err(MachineError::Kernel(iris_runtime::KernelError::Type))
+            }
+            // `C031` collects unreachable objects and answers how many were
+            // freed. The live FRAMES are the root set, together with the
+            // bindings and other state the machine holds, so a value reachable
+            // from any of them survives - which is what makes the identity of
+            // a retained object stable across a collection.
+            ("compact_gc", []) => {
+                let mut roots: Vec<Value> = Vec::new();
+                for frame in &self.frame_roots {
+                    roots.extend(frame.iter().cloned());
+                }
+                roots.extend(self.globals.values().cloned());
+                roots.extend(self.bindings.values().cloned());
+                roots.extend(self.discarded_contexts.iter().cloned());
+                roots.extend(self.revision_event_errors.iter().cloned());
+                roots.extend(self.gates.values().flatten().cloned());
+                for record in self.closures.values() {
+                    roots.extend(record.captures.iter().cloned());
+                }
+                for task in self.suspended.iter() {
+                    roots.extend(task.frame.registers.iter().cloned());
+                }
+                let (freed, _) = self.runtime.collect_garbage(roots.iter());
+                Ok(Value::Integer(
+                    u64::try_from(freed).unwrap_or(u64::MAX).into(),
+                ))
             }
             ("raise", [Value::Integer(marker)]) => {
                 let Some(marker) = marker.decimal_text().parse::<i64>().ok() else {

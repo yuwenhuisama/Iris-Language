@@ -7484,3 +7484,58 @@ fn an_audit_sink_survives_a_prune() {
         &crate::backend::Observation::Error("AuditHistoryUnavailable".to_owned())
     );
 }
+
+/// A collection frees the UNREACHABLE and leaves a retained identity intact.
+///
+/// The live frames are the root set, and a frame's register file lives on the
+/// Rust stack where a collector cannot walk it - so each frame publishes the
+/// registers a NAME claims before a call that may collect. A temporary the
+/// source never bound is already unreachable, which is why rooting the whole
+/// file would free nothing. An object hashes by IDENTITY, which survives the
+/// relocation a compaction performs.
+#[test]
+fn a_collection_frees_only_what_is_unreachable() {
+    for (source, expected) in [
+        (
+            "class A { } let keep = A.new(); let before = keep.hash(); \
+             let discarded = A.new().hash(); let freed = NativeFixture.compact_gc(); \
+             [freed, before == keep.hash()]",
+            "[1, true]",
+        ),
+        // With every object still BOUND there is nothing to free.
+        (
+            "class A { } let keep = A.new(); let freed = NativeFixture.compact_gc(); freed",
+            "0",
+        ),
+        // TWO discarded objects are both freed, so the count is a real
+        // measure rather than a fixed one.
+        (
+            "class A { } let keep = A.new(); let x = A.new().hash(); \
+             let y = A.new().hash(); NativeFixture.compact_gc()",
+            "2",
+        ),
+        // Control: a VALUE hash is unaffected - equal Integers hash alike,
+        // which identity hashing must not disturb.
+        (
+            "let a = 1; let b = 1; let c = 2; [a.hash() == b.hash(), a.hash() == c.hash()]",
+            "[true, false]",
+        ),
+        // An object's hash is its identity: stable for one object, distinct
+        // between two.
+        ("class A { } let a = A.new(); a.hash() == a.hash()", "true"),
+        ("class A { } A.new().hash() == A.new().hash()", "false"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

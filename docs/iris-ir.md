@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 734 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles 735 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,14 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A collection frees what is UNREACHABLE. The live frames are the root set, and a
+frame's register file lives on the Rust stack where a collector cannot walk it,
+so each frame publishes the registers a NAME claims before a call that may
+collect - a temporary the source never bound is already unreachable, and
+rooting the whole file would free nothing. An object hashes by IDENTITY, which
+survives the relocation a compaction performs: that is what keeps a retained
+object's hash stable across a collection while two distinct objects differ.
 
 A module method mixed into a class binds `self` to the COMPOSING object, so it
 reaches that object's own methods and an argument lands in its own parameter

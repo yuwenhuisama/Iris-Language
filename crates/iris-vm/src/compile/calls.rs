@@ -402,16 +402,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
             && self.lookup("NativeFixture").is_none()
             && matches!(
                 selector.as_str(),
-                "raise" | "resource" | "concurrently_replace"
+                "raise" | "resource" | "concurrently_replace" | "compact_gc"
             )
         {
             let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
+            let roots = self.names.iter().map(|binding| binding.register).collect();
             self.instructions.push(Instruction::NativeFixture {
                 destination,
                 selector: selector.clone(),
                 first,
                 count,
+                roots,
             });
             return Ok(destination);
         }

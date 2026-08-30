@@ -338,7 +338,22 @@ impl Machine {
                 } => {
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
-                    dispatch!(self.native_fixture(selector, &arguments)?)
+                    // A frame's NAMED bindings are its roots, not its whole
+                    // register file: a temporary that the source never bound -
+                    // `A.new().hash()` - is unreachable once its expression
+                    // finished, and rooting every register would keep it alive
+                    // forever. The compiler knows which registers a name
+                    // claims, so only those are published.
+                    self.frame_roots.push(
+                        instruction
+                            .roots()
+                            .iter()
+                            .map(|register| registers[*register as usize].clone())
+                            .collect(),
+                    );
+                    let answered = self.native_fixture(selector, &arguments);
+                    self.frame_roots.pop();
+                    dispatch!(answered?)
                 }
                 Instruction::DiscardedContexts { .. } => {
                     Value::Array(iris_runtime::ArrayRef::new(self.discarded_contexts.clone()))
@@ -485,6 +500,18 @@ impl Machine {
                     selector, operand, ..
                 } => {
                     let operand = registers[*operand as usize].clone();
+                    // An AUTHORED receiver answers from its own surface, which
+                    // the kernel's native selectors do not cover - an object's
+                    // `hash` is its identity rather than a value hash.
+                    if let Some(value) = run_frame!(
+                        'frame,
+                        self.authored_send(&operand, selector, &[], program, classes)
+                    ) {
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = value;
+                        }
+                        continue;
+                    }
                     self.send(selector, operand, &[])?
                 }
                 Instruction::BuildArray { first, count, .. } => {

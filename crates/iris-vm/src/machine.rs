@@ -72,6 +72,13 @@ pub struct Machine {
     /// `recover` answers what the sink holds independently of what retained
     /// history still has.
     audit_sink: Option<Vec<u64>>,
+    /// A snapshot of each ACTIVE frame's registers, for the collector.
+    ///
+    /// The live frames ARE the root set, and a frame's register file lives on
+    /// the Rust stack where a collector cannot walk it. Each frame therefore
+    /// publishes its registers here while it runs, which is what makes a
+    /// collection inside a body safe rather than unsound.
+    frame_roots: Vec<Vec<Value>>,
     revision_event_errors: Vec<Value>,
     /// Whether `Revision.shutdown` closed delivery.
     ///
@@ -146,6 +153,7 @@ impl Machine {
             revision_subscribers: Vec::new(),
             revision_history: Vec::new(),
             audit_sink: None,
+            frame_roots: Vec::new(),
             revision_event_errors: Vec::new(),
             revision_delivery_closed: false,
             modules: Vec::new(),
