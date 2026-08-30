@@ -238,6 +238,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     selector: name.clone(),
                     first,
                     count,
+                    caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                    caller_module: self.enclosing_module.clone(),
                 });
                 return Ok(destination);
             }
@@ -668,7 +670,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     "method" | "invoke"
                 ) | (
                     "Reflection::Class",
-                    "properties" | "revision" | "set_superclass" | "remove_contract" | "reactivate"
+                    "properties"
+                        | "revision"
+                        | "set_superclass"
+                        | "remove_contract"
+                        | "reactivate"
+                        | "remove_module"
                 ) | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
             )
@@ -744,6 +751,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 selector: selector.clone(),
                 first,
                 count,
+                caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                caller_module: self.enclosing_module.clone(),
             });
             return Ok(destination);
         }
@@ -804,6 +813,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 selector: selector.clone(),
                 first,
                 count,
+                caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                caller_module: self.enclosing_module.clone(),
             });
             return Ok(destination);
         }
@@ -914,6 +925,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 selector: selector.clone(),
                 first,
                 count,
+                caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                caller_module: self.enclosing_module.clone(),
             });
             return Ok(destination);
         }
@@ -942,6 +955,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             selector: selector.clone(),
             first,
             count,
+            caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+            caller_module: self.enclosing_module.clone(),
         });
         Ok(destination)
     }

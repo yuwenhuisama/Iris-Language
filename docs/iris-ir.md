@@ -668,7 +668,7 @@ the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
-Measured against the 736 RUNNABLE source vectors, this compiles 735 of them, up
+Measured against the 736 RUNNABLE source vectors, this compiles all 736 of them, up
 from 51 when the measurement started. The number is reported rather than
 estimated because the first estimate of what blocked the backend was WRONG: the
 assumed blockers were loops and calls, while the measurement showed a single
@@ -764,6 +764,16 @@ plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
+
+A PRIVATE method answers only its declaring class. A send carries the class
+whose body wrote it, which is the authority that decides the call - without one
+the send is external and the method is refused. A module composed with
+`private` access is that authority too, which a class owner cannot express, so
+the module travels with the send as well. `initialize` is the exception:
+construction calls it on the object's behalf rather than from a caller's frame,
+so a class declaring it without `public` stays constructible. A qualified
+`impl fun C::m()` governs nothing here either, since the contract's view
+consults it directly.
 
 A collection frees what is UNREACHABLE. The live frames are the root set, and a
 frame's register file lives on the Rust stack where a collector cannot walk it,

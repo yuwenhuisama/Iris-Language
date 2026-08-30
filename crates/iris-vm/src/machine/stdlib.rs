@@ -467,6 +467,26 @@ impl Machine {
                     revision.number(),
                 )))
             }
+            // A class RECOMPOSES its module edges: `add_module` includes one
+            // and `remove_module` drops it, both against the transaction
+            // candidate rather than the published revision.
+            Value::Class(class)
+                if matches!(selector, "add_module" | "remove_module")
+                    && matches!(arguments, [Value::Symbol(_)]) =>
+            {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                let Some((_, module)) = self.modules.iter().find(|(known, _)| known == name) else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                let module = *module;
+                self.runtime
+                    .registry_mut()
+                    .recompose_candidate(*class, module, selector == "add_module")
+                    .map_err(MachineError::Class)?;
+                Some(Value::Nil)
+            }
             // `C119` makes the direct and the reflective entry points ONE
             // implementation, so both arrive here. A contract the class
             // DECLARED is part of its static spine and cannot be dropped;

@@ -615,6 +615,18 @@ pub enum Instruction {
         selector: String,
         first: Register,
         count: u16,
+        /// The CLASS whose body wrote this send, when one did.
+        ///
+        /// `IRIS-V1-RUNTIME-C077` refuses a private method from every path but
+        /// the declaring class, so dispatch needs the caller's lexical owner.
+        /// A send written outside any class has none and is external.
+        caller: Option<usize>,
+        /// The MODULE whose body wrote this send, when one did.
+        ///
+        /// A module composed with `private` access reaches the composing
+        /// class's private methods, so the module is the authority there -
+        /// a class owner cannot express it.
+        caller_module: Option<String>,
     },
     SendSuper {
         destination: Register,

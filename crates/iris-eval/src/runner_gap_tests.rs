@@ -7539,3 +7539,66 @@ fn a_collection_frees_only_what_is_unreachable() {
         );
     }
 }
+
+/// A PRIVATE method answers only its declaring class, per `IRIS-V1-RUNTIME-C077`.
+///
+/// A send carries the class whose body wrote it, which is the authority that
+/// decides the call - without one the send is external and a private method is
+/// refused. A module composed with `private` access is that authority too,
+/// which a class owner cannot express. `initialize` is the exception:
+/// construction calls it on the object's behalf, so a class declaring it
+/// without `public` must still be constructible.
+#[test]
+fn a_private_method_answers_only_its_owner() {
+    for (source, expected) in [
+        // The declaring class reaches its own private method.
+        (
+            "class A { private fun s() -> Symbol { :s } public fun own() -> Object { s() } } \
+             A.new().own()",
+            ":s",
+        ),
+        // Any other path is refused, catchably.
+        (
+            "class A { private fun s() -> Symbol { :s } } \
+             module M { public fun run() -> Object { try { A.new().s() } catch e { e } } } M.run()",
+            ":MethodVisibilityError",
+        ),
+        // A module composed with `private` access reaches it; one composed
+        // plainly does not.
+        (
+            "module M { public fun reach() -> Object { try { secret() } catch e { e } } } \
+             class G mixin M private { private fun secret() -> Symbol { :g } } G.new().reach()",
+            ":g",
+        ),
+        (
+            "module M { public fun reach() -> Object { try { secret() } catch e { e } } } \
+             class O mixin M { private fun secret() -> Symbol { :o } } O.new().reach()",
+            ":MethodVisibilityError",
+        ),
+        // `initialize` is called by CONSTRUCTION, so a bare `fun initialize`
+        // still runs.
+        (
+            "mut log = []; class A { fun initialize() { log.append(:init) } } let x = A.new(); log",
+            "[:init]",
+        ),
+        // A class RECOMPOSES its module edges.
+        (
+            "module M { } class R mixin M private { } \
+             [Reflection::Class.remove_module(R, :M), R.add_module(:M)]",
+            "[nil, nil]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

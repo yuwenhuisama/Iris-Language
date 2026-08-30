@@ -300,6 +300,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         selector,
                         first,
                         count,
+                        caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                        caller_module: self.enclosing_module.clone(),
                     });
                     return Ok(destination);
                 }
@@ -649,6 +651,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         selector: format!("{selector}="),
                         first,
                         count,
+                        caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                        caller_module: self.enclosing_module.clone(),
                     });
                     return Ok(destination);
                 }

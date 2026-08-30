@@ -33,7 +33,10 @@ pub(super) fn lower_function(
     // resolution can find it, and only for a receiverless signature - an
     // instance method's bare call is a send to self, which is decided ahead of
     // this and must keep winning.
-    if !signature.receiver {
+    // A composed module method has a RECEIVER, but the module is still its
+    // lexical owner: a `private` composition edge grants it reach into the
+    // class's private methods, which only the module can claim.
+    if !signature.receiver || lowering.current_method.is_none() {
         lowering.enclosing_module = Some(signature.module.to_owned());
     }
     if signature.receiver {

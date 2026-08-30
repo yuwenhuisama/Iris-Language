@@ -213,6 +213,11 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
         MachineError::MetaTransactionError => Some("MetaTransactionError"),
+        // `C077` names the visibility failure, and `V434` observes a private
+        // call being refused from every path but the declaring class.
+        MachineError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::VisibilityDenied { .. },
+        )) => Some("MethodVisibilityError"),
         // A call whose arity does not match its body is an ordinary catchable
         // Iris error, so `try { .. } catch e { e }` binds it by name.
         MachineError::ArgumentError => Some("ArgumentError"),

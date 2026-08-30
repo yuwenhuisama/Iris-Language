@@ -883,7 +883,12 @@ fn collect_methods<'a>(
             body,
             receiver,
             class_method: method.kind == iris_syntax::MethodKind::Class,
-            private: method.visibility == iris_syntax::Visibility::Private,
+            // A QUALIFIED `impl fun C::m()` is reached only through the
+            // contract's view, which consults it directly, so its visibility
+            // governs nothing - marking it private would deny the class's own
+            // method of that name.
+            private: method.visibility == iris_syntax::Visibility::Private
+                && !matches!(method.impl_contract, Some(Some(_))),
             is_async: method.is_async,
             constants: constants.clone(),
             expression_body: None,

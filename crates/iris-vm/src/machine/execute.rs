@@ -1452,6 +1452,8 @@ impl Machine {
                     selector,
                     first,
                     count,
+                    caller,
+                    caller_module,
                     ..
                 } => {
                     let receiver = registers[*receiver as usize].clone();
@@ -1648,7 +1650,17 @@ impl Machine {
                         let selector_name = selector.clone();
                         let selector = selector_id(program, selector)
                             .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                        let method = match self.runtime.dispatch_instance(object, selector) {
+                        // `C077` refuses a private method from every path but
+                        // the DECLARING class, so the send carries the class
+                        // whose body wrote it. A send written outside any class
+                        // has no such authority and is external.
+                        let method = match self.dispatch_from(
+                            object,
+                            selector,
+                            *caller,
+                            caller_module.as_deref(),
+                            classes,
+                        ) {
                             Ok(method) => method,
                             Err(error) => {
                                 // The reference names the CLASS and the
@@ -1671,7 +1683,22 @@ impl Machine {
                                         selector: selector_name,
                                     });
                                 }
-                                return Err(MachineError::Construction(error));
+                                // A VISIBILITY refusal is an ordinary catchable
+                                // Iris error, so it goes through the handler
+                                // dispatch rather than escaping the frame.
+                                let error = MachineError::Construction(error);
+                                let Some(name) = super::catchable_name(&error) else {
+                                    return Err(error);
+                                };
+                                let Some((handler, exception, context_register)) = handlers.pop()
+                                else {
+                                    return Err(error);
+                                };
+                                registers[exception as usize] = Value::Symbol(name.to_owned());
+                                registers[context_register as usize] = Value::Nil;
+                                converted = Some(error);
+                                counter = handler;
+                                continue 'frame;
                             }
                         };
                         let function = usize::try_from(method.body().raw()).map_err(|_| {
@@ -1851,6 +1878,17 @@ impl Machine {
                                 .map_err(MachineError::Class)?;
                             Err(MachineError::MetaTransactionError)?
                         }
+                        // `C119` makes the reflective entry point the same
+                        // implementation as the direct send.
+                        ("Reflection::Class", "remove_module", [Value::Class(class), name]) => self
+                            .authored_send(
+                                &Value::Class(*class),
+                                "remove_module",
+                                std::slice::from_ref(name),
+                                program,
+                                classes,
+                            )?
+                            .unwrap_or(Value::Nil),
                         (
                             "Reflection::Class",
                             "remove_contract",

@@ -505,13 +505,21 @@ impl Machine {
                 .begin_origin_transaction(class)
                 .map_err(MachineError::Class)?;
             for (selector, function) in &declaration.methods {
-                // A private method's REFUSAL depends on the caller's lexical
-                // owner, which this machine does not track per frame - every
-                // send would look external and a class's own call to its
-                // private method would be denied. Publishing the marker
-                // without that context refused programs that run, so the
-                // visibility surface stays unmodelled rather than approximated.
-                let visibility = Visibility::Public;
+                // `C077` refuses a private method from every path but the
+                // declaring class, so the declared visibility is published -
+                // a send carries the class whose body wrote it, which is the
+                // authority that decides the call.
+                //
+                // `initialize` is the exception: construction calls it on the
+                // object's behalf rather than from any caller's frame, so a
+                // class declaring it without `public` must still be
+                // constructible.
+                let visibility =
+                    if declaration.private_methods.contains(selector) && selector != "initialize" {
+                        Visibility::Private
+                    } else {
+                        Visibility::Public
+                    };
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                 self.runtime
@@ -784,5 +792,50 @@ impl Machine {
             .commit_transaction(class)
             .map_err(MachineError::Class)?;
         Ok(())
+    }
+}
+
+impl Machine {
+    /// Dispatches with the CALLER's lexical authority, per `C077`.
+    ///
+    /// A private method answers only its declaring class - or a module
+    /// composed with `private` access - so the class whose body wrote the send
+    /// decides whether the call is authorized. Without a caller the send is
+    /// external, which is what refuses a private method from outside.
+    pub(super) fn dispatch_from(
+        &self,
+        object: iris_runtime::ObjectId,
+        selector: iris_runtime::Selector,
+        caller: Option<usize>,
+        caller_module: Option<&str>,
+        classes: &[ClassId],
+    ) -> Result<iris_runtime::Method, iris_runtime::ConstructionError> {
+        let class = self.runtime.class_of(object)?;
+        let module = caller_module.and_then(|name| {
+            self.modules
+                .iter()
+                .find_map(|(known, id)| (known == name).then_some(*id))
+        });
+        let context = match (caller.and_then(|index| classes.get(index).copied()), module) {
+            (Some(owner), _) => {
+                iris_runtime::DispatchContext::implementation(owner, owner == class)
+            }
+            // A MODULE composed with `private` access is the authority for the
+            // class's private methods, which a class owner cannot express.
+            (None, Some(module)) => {
+                iris_runtime::DispatchContext::module_implementation(module, true)
+            }
+            (None, None) => iris_runtime::DispatchContext::external(),
+        };
+        match self
+            .runtime
+            .registry()
+            .dispatch_with_context(class, selector, context)?
+        {
+            iris_runtime::DispatchOutcome::Invoke(method) => Ok(method),
+            iris_runtime::DispatchOutcome::WouldInvokeMethodMissing { selector } => {
+                Err(iris_runtime::DispatchError::MissingMethod { selector }.into())
+            }
+        }
     }
 }
