@@ -149,8 +149,21 @@ impl Machine {
             return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         if selector == "hash" && arguments.is_empty() {
+            // An IDENTITY-bearing value hashes by its identity, which is
+            // stable across the value's life rather than derived from content.
+            if let Some(identity) = identity_hash(&receiver) {
+                return Ok(Value::Integer(identity.into()));
+            }
             match iris_runtime::public_hash(&receiver) {
                 Ok(hash) => return Ok(Value::Integer(hash)),
+                // A NaN has no valid hash for a reason of its OWN, which the
+                // kernel names - so that failure is reported as the kernel
+                // spells it rather than flattened into a key failure.
+                Err(iris_runtime::StableHashError::InvalidNumericKey) => {
+                    return Err(MachineError::Kernel(KernelError::StableHash(
+                        iris_runtime::StableHashError::InvalidNumericKey,
+                    )));
+                }
                 // A family with no stable hash still HAS the selector, so
                 // asking for one is a key failure rather than an absent
                 // method. An Object never reaches here: it hashes by identity
@@ -297,9 +310,8 @@ impl Machine {
                 }
             }
             Value::Hash(entries) => {
-                iris_runtime::public_hash(&index)
-                    .map_err(KernelError::StableHash)
-                    .map_err(MachineError::Kernel)?;
+                // The key was validated by the caller, which can reach an
+                // object's own `hash`; this path only stores.
                 entries.insert(index, value.clone());
                 Ok(value)
             }
@@ -362,6 +374,25 @@ fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
             Some(left.pattern == right.pattern && left.flags == right.flags)
         }
         (Value::Contract(left), Value::Contract(right)) => Some(left == right),
+        _ => None,
+    }
+}
+
+/// The identity a value hashes by, when its family bears one.
+///
+/// An iterator, a closure, a task and the other identity-bearing families have
+/// no content hash - they hash by WHICH value they are, which stays stable as
+/// the value advances. `C087` fixes a hash per family, and for these that is
+/// the identity rather than a derivation.
+fn identity_hash(value: &Value) -> Option<u64> {
+    match value {
+        Value::ArrayIterator(identity)
+        | Value::HashIterator(identity)
+        | Value::ByteIterator(identity)
+        | Value::Generator(identity)
+        | Value::Task(identity)
+        | Value::Gate(identity)
+        | Value::Closure(identity) => Some(identity.raw()),
         _ => None,
     }
 }

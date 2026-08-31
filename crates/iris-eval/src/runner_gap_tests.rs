@@ -8014,3 +8014,85 @@ fn an_annotated_boundary_is_guarded() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A HASH KEY goes through the value's own `hash`.
+///
+/// `C087` fixes a specification-stable hash per family, but an OBJECT supplies
+/// its own: a class defining `hash` is a legitimate key even though no family
+/// hash covers it. Consulting only the stable table refused those keys, and it
+/// also spelled the refusal `StableHash(..)` where the language says
+/// `InvalidKeyError`. An identity-bearing value hashes by WHICH value it is,
+/// which stays stable as it advances, while a NaN has no valid hash for a
+/// reason the kernel names for itself.
+#[test]
+fn a_hash_key_goes_through_its_own_hash() {
+    for (source, expected) in [
+        // A class defining `hash` is a usable key.
+        (
+            "class K { public fun hash() -> Integer { 7 } } \
+             module M { public fun run() -> Integer { mut h = %{}; h[K.new()] = 1; h.length() } } \
+             M.run()",
+            Some("1"),
+        ),
+        // A family with NO hash at all is a key failure.
+        (
+            "module M { public fun run() -> Nil { mut h = %{}; h[m\"a\"] = 1 } } M.run()",
+            None,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("InvalidKeyError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+
+    // An IDENTITY-bearing value hashes by which value it is: stable as it
+    // advances, and distinct between two.
+    for (source, expected) in [
+        (
+            "module M { public fun run() -> Bool { let it = [1].iterator(); \
+             let before = it.hash(); it.next(); before == it.hash() } } M.run()",
+            "true",
+        ),
+        (
+            "module M { public fun run() -> Bool { let a = [1].iterator(); \
+             let b = [1].iterator(); a.hash() == b.hash() } } M.run()",
+            "false",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a NaN names its OWN reason rather than the generic key
+    // failure, so the two are not flattened together.
+    let agreement = crate::backend::compare_backends(
+        "(0.0/0.0).hash() >= 0",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("Runtime(StableHash(InvalidNumericKey))".to_owned())
+    );
+}

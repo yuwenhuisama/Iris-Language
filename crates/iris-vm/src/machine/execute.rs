@@ -600,10 +600,15 @@ impl Machine {
                 Instruction::BuildHash { first, count, .. } => {
                     let start = *first as usize;
                     let mut entries = Vec::with_capacity(*count as usize);
-                    for pair in registers[start..start + *count as usize * 2].chunks_exact(2) {
-                        iris_runtime::public_hash(&pair[0])
-                            .map_err(KernelError::StableHash)
-                            .map_err(MachineError::Kernel)?;
+                    let pairs = registers[start..start + *count as usize * 2].to_vec();
+                    for pair in pairs.chunks_exact(2) {
+                        // A key must have a HASH, and an object supplies its
+                        // own - so the check goes through the value's `hash`
+                        // rather than only the specification-stable table.
+                        dispatch!({
+                            self.validate_key(&pair[0], program, classes)?;
+                            Value::Nil
+                        });
                         if let Some((_, value)) =
                             entries.iter_mut().find(|(key, _)| *key == pair[0])
                         {
@@ -643,11 +648,20 @@ impl Machine {
                     index,
                     value,
                     ..
-                } => dispatch!(self.set_index(
-                    registers[*receiver as usize].clone(),
-                    registers[*index as usize].clone(),
-                    registers[*value as usize].clone(),
-                )?),
+                } => {
+                    let target = registers[*receiver as usize].clone();
+                    let key = registers[*index as usize].clone();
+                    let stored = registers[*value as usize].clone();
+                    dispatch!({
+                        // A HASH key must have a hash, and an object supplies
+                        // its own - the array path indexes by position and has
+                        // no key to validate.
+                        if matches!(target, Value::Hash(_)) {
+                            self.validate_key(&key, program, classes)?;
+                        }
+                        self.set_index(target, key, stored)?
+                    })
+                }
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {

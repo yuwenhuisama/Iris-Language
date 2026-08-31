@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A HASH KEY goes through the value's OWN `hash`. `C087` fixes a
+specification-stable hash per family, but an object supplies its own - a class
+defining `hash` is a legitimate key even though no family hash covers it, and
+consulting only the stable table refused those keys while spelling the refusal
+`StableHash(..)` where the language says `InvalidKeyError`. An identity-bearing
+value hashes by WHICH value it is, which stays stable as it advances, and a NaN
+names its own reason rather than the generic key failure.
+
 An ANNOTATED binding or parameter is a guarded boundary. `C004` makes
 `let s: String = 1` a type failure raised when the binding runs, so the
 annotation is a runtime guarantee rather than discarded metadata - treating it
@@ -809,8 +817,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 550 agreed,
-168 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 557 agreed,
+161 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

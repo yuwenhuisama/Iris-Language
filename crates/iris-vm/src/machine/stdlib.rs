@@ -1774,3 +1774,31 @@ impl Machine {
         Ok(None)
     }
 }
+
+impl Machine {
+    /// Validates a value used as a HASH KEY, per `IRIS-V1-COLLECTIONS-C087`.
+    ///
+    /// A key must have a hash, and an OBJECT supplies its own: a class
+    /// defining `hash` is a legitimate key even though no specification-stable
+    /// hash covers its family. Calling `public_hash` directly refused those,
+    /// and it also spells a refusal `StableHash(..)` where the language says
+    /// `InvalidKeyError` - one failure with two names.
+    pub(super) fn validate_key(
+        &mut self,
+        key: &Value,
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        if matches!(key, Value::Object(_)) {
+            // A class defining `hash` decides its own key; one that does not
+            // has no hash to offer, which is the key failure.
+            return match self.authored_send(key, "hash", &[], program, classes)? {
+                Some(_) => Ok(()),
+                None => Err(MachineError::InvalidKeyError),
+            };
+        }
+        iris_runtime::public_hash(key)
+            .map(|_| ())
+            .map_err(|_| MachineError::InvalidKeyError)
+    }
+}
