@@ -88,10 +88,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
-                if self
+                // A MODULE name is a value: `A.remove_module(Mo)` names the
+                // module itself. A module COMPOSED into a class has its
+                // methods lowered with a receiver, so requiring a
+                // receiverless signature stopped recognising exactly the
+                // modules a mixin names - which is every module such a call
+                // is about.
+                if (self
                     .signatures
                     .iter()
-                    .any(|signature| signature.module == name && !signature.receiver)
+                    .any(|signature| signature.module == name)
+                    || self.modules.iter().any(|module| module.name == *name))
+                    && self.class_index(name).is_none()
                 {
                     self.instructions.push(Instruction::LoadSymbol {
                         destination,
@@ -884,10 +892,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
     ) -> Result<Register, CompileError> {
         let captures = self.names.clone();
         let mut closure_functions = Vec::new();
+        let declarations = self.declarations();
         let mut lowering = Lowering::new(
-            self.signatures,
-            self.classes,
-            self.contracts,
+            declarations,
             self.declared_functions + self.closures.len(),
             &mut closure_functions,
             self.program_bindings,
@@ -955,10 +962,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
         body: &[Statement],
     ) -> Result<usize, CompileError> {
         let mut nested = Vec::new();
+        let declarations = self.declarations();
         let mut lowering = Lowering::new(
-            self.signatures,
-            self.classes,
-            self.contracts,
+            declarations,
             self.declared_functions + self.closures.len(),
             &mut nested,
             self.program_bindings,

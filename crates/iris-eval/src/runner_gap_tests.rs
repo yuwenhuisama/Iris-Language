@@ -8692,3 +8692,47 @@ fn a_class_answers_its_instance_methods() {
         );
     }
 }
+
+/// A bare MODULE NAME is a value, whatever the module declares.
+///
+/// `A.remove_module(Mo)` names the module itself. A module COMPOSED into a
+/// class has its methods lowered with a receiver, so recognising a module only
+/// by a receiverless signature missed exactly the modules a mixin names - and
+/// a module with no methods contributes no signature at all, which is why the
+/// declaration table is consulted rather than the signatures alone.
+#[test]
+fn a_bare_module_name_is_a_value() {
+    for (source, expected) in [
+        // A composed module is NAMED, and removing it drops the edge.
+        (
+            "module Mo { public fun h() -> Integer { 1 } } class A mixin Mo { } \
+             module M { public fun run() -> Object { let before = A.new().h(); \
+             A.remove_module(Mo); [before, A.modules.length()] } } M.run()",
+            "[1, 0]",
+        ),
+        // A module with NO methods is still a name.
+        (
+            "module Mo { } class A mixin Mo { } A.remove_module(Mo)",
+            "nil",
+        ),
+        // Control: the composed edge is there to begin with.
+        (
+            "module Mo { public fun h() -> Integer { 1 } } class A mixin Mo { } \
+             A.modules.length()",
+            "1",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

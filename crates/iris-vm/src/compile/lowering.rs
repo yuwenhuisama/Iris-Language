@@ -3,20 +3,31 @@
 use super::declarations::Signature;
 use super::{Class, CompileError, Contract, Function, Instruction, ParameterKind, Register};
 
+/// The tables a frame resolves NAMES against.
+///
+/// These travel together everywhere: a bare name may be a class, a contract, a
+/// module or a function of one, and deciding which needs all four. Passing them
+/// as one parameter keeps each lowering entry point to its own arguments rather
+/// than a list that grows with every table.
+#[derive(Clone, Copy)]
+pub(super) struct Declarations<'a, 'b> {
+    pub(super) signatures: &'a [Signature<'b>],
+    pub(super) classes: &'a [Class],
+    pub(super) contracts: &'a [Contract],
+    pub(super) modules: &'a [crate::compile::ir::ModuleDeclaration],
+}
+
 /// Lowers one function into its own frame.
 pub(super) fn lower_function(
     signature: &Signature<'_>,
-    signatures: &[Signature<'_>],
-    classes: &[Class],
-    contracts: &[Contract],
+    declarations: Declarations<'_, '_>,
     declared_functions: usize,
     closures: &mut Vec<Function>,
     program_bindings: &[ProgramBinding],
 ) -> Result<Function, CompileError> {
+    let classes = declarations.classes;
     let mut lowering = Lowering::new(
-        signatures,
-        classes,
-        contracts,
+        declarations,
         declared_functions,
         closures,
         program_bindings,
@@ -245,6 +256,12 @@ pub(super) struct Lowering<'a, 'b> {
     pub(super) signatures: &'a [Signature<'b>],
     pub(super) classes: &'a [Class],
     pub(super) contracts: &'a [Contract],
+    /// Modules the program DECLARES, for resolving a bare module name.
+    ///
+    /// A module with no methods contributes no signature, so it could not be
+    /// recognised from those alone - and `A.remove_module(Mo)` names exactly
+    /// such a module.
+    pub(super) modules: &'a [crate::compile::ir::ModuleDeclaration],
     pub(super) declared_functions: usize,
     pub(super) closures: &'a mut Vec<Function>,
     pub(super) loops: Vec<LoopContext>,
@@ -355,14 +372,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
     }
     pub(super) fn new(
-        signatures: &'a [Signature<'b>],
-        classes: &'a [Class],
-        contracts: &'a [Contract],
+        declarations: Declarations<'a, 'b>,
         declared_functions: usize,
         closures: &'a mut Vec<Function>,
         program_bindings: &'a [ProgramBinding],
         top_level: bool,
     ) -> Self {
+        let Declarations {
+            signatures,
+            classes,
+            contracts,
+            modules,
+        } = declarations;
         Self {
             instructions: Vec::new(),
             next_register: 0,
@@ -370,6 +391,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             signatures,
             classes,
             contracts,
+            modules,
             declared_functions,
             closures,
             loops: Vec::new(),
@@ -443,6 +465,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 && !signature.receiver
         })
     }
+    /// The tables this frame resolves names against.
+    pub(super) const fn declarations(&self) -> Declarations<'a, 'b> {
+        Declarations {
+            signatures: self.signatures,
+            classes: self.classes,
+            contracts: self.contracts,
+            modules: self.modules,
+        }
+    }
+
     /// Reserves a fresh register.
     pub(super) fn allocate(&mut self) -> Result<Register, CompileError> {
         let register = self.next_register;

@@ -132,19 +132,26 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     for signature in &signatures {
         functions.push(lower_function(
             signature,
-            &signatures,
-            &classes,
-            &contracts,
+            lowering::Declarations {
+                signatures: &signatures,
+                classes: &classes,
+                contracts: &contracts,
+                modules: &modules,
+            },
             signatures.len(),
             &mut closures,
             &program_bindings,
         )?);
     }
 
+    let declarations = lowering::Declarations {
+        signatures: &signatures,
+        classes: &classes,
+        contracts: &contracts,
+        modules: &modules,
+    };
     let mut lowering = lowering::Lowering::new(
-        &signatures,
-        &classes,
-        &contracts,
+        declarations,
         signatures.len(),
         &mut closures,
         &program_bindings,
