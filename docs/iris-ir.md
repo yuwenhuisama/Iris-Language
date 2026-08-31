@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CLASS method's `super()` walks the SINGLETON side. The receiver is the Class
+itself, and a class method lives in a table separate from the instance one, so
+the ancestor is found by walking the declared superclass chain - instance
+dispatch refused a Class receiver outright.
+
 `A.method(:f)` and the reflective call are ONE surface, per `C119`: the direct
 form answers the same Method value rather than reporting the selector absent.
 
@@ -859,8 +864,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 575 agreed,
-143 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 576 agreed,
+142 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -875,3 +875,49 @@ impl Machine {
         }
     }
 }
+
+impl Machine {
+    /// Runs the ANCESTOR's class method for a `super()` on the singleton side.
+    ///
+    /// A class method's `super()` has the Class itself as its receiver, so the
+    /// ancestor is found by walking the declared superclass chain rather than
+    /// through instance dispatch - the two sides hold separate tables.
+    pub(super) fn class_super_value(
+        &mut self,
+        class: ClassId,
+        selector: &str,
+        arguments: &[Value],
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let Some(index) = classes.iter().position(|known| *known == class) else {
+            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+        };
+        let mut ancestor = program.classes[index].superclass;
+        while let Some(current) = ancestor {
+            let Some(declaration) = program.classes.get(current) else {
+                break;
+            };
+            if let Some((_, function)) = declaration
+                .class_methods
+                .iter()
+                .find(|(name, _)| name == selector)
+            {
+                let Some(owner) = classes.get(current).copied() else {
+                    break;
+                };
+                let mut passed = Vec::with_capacity(arguments.len() + 1);
+                passed.push(Value::Class(owner));
+                passed.extend_from_slice(arguments);
+                return self.invoke_function(*function, passed, program, classes);
+            }
+            ancestor = declaration.superclass;
+        }
+        Err(MachineError::Kernel(KernelError::Dispatch(
+            iris_runtime::DispatchError::NoSuperMethod {
+                selector: selector_id(program, selector)
+                    .unwrap_or(iris_runtime::Selector::INITIALIZE),
+            },
+        )))
+    }
+}

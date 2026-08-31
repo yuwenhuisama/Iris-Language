@@ -1898,6 +1898,22 @@ impl Machine {
                     count,
                     ..
                 } => {
+                    // A CLASS method's `super()` has the Class itself as the
+                    // receiver, and its ancestor is found on the singleton side
+                    // - so the two receivers are separated here rather than the
+                    // instance path refusing a Class outright.
+                    if let Value::Class(class) = registers[*receiver as usize] {
+                        let start = *first as usize;
+                        let arguments = registers[start..start + *count as usize].to_vec();
+                        let value = run_frame!(
+                            'frame,
+                            self.class_super_value(class, selector, &arguments, program, classes)
+                        );
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = value;
+                        }
+                        continue;
+                    }
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };

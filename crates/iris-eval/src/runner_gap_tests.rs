@@ -8478,3 +8478,47 @@ fn a_class_answers_method_directly() {
         );
     }
 }
+
+/// A CLASS method's `super()` walks the singleton side.
+///
+/// The receiver is the Class itself, and a class method lives in a table
+/// separate from the instance one - so the ancestor is found by walking the
+/// declared superclass chain rather than through instance dispatch, which
+/// refused a Class receiver outright.
+#[test]
+fn a_class_method_reaches_its_ancestor() {
+    for (source, expected) in [
+        (
+            "class A { class fun marker() { :A } }; \
+             class B extends A { class fun marker() { super() } }; B.marker()",
+            ":A",
+        ),
+        // The ancestor is reached THROUGH an intermediate that declares none,
+        // so the walk continues rather than stopping at the first parent.
+        (
+            "class A { class fun marker() { :A } }; class Mid extends A { }; \
+             class B extends Mid { class fun marker() { super() } }; B.marker()",
+            ":A",
+        ),
+        // Control: an INSTANCE `super()` still reaches the instance side, so
+        // separating the receivers did not disturb it.
+        (
+            "class A { public fun m() -> Symbol { :base } }; \
+             class B extends A { public override fun m() -> Symbol { super() } }; B.new().m()",
+            ":base",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
