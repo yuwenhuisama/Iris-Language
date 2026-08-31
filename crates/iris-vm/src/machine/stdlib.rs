@@ -67,6 +67,45 @@ impl Machine {
                 _ => ordering >= 0,
             }));
         }
+        // A class may define an OPERATOR for its own instances, and an operator
+        // arrives here rather than through `Send` - so authored dispatch has to
+        // run, or `V.new() + 1` answers MessageNotFound for a method the class
+        // plainly declares.
+        if let Some(value) =
+            self.authored_operator(&receiver, selector, &argument, program, classes)?
+        {
+            return Ok(value);
+        }
+        // `<` and `>` are DERIVED from `<=>` rather than being methods of their
+        // own, so a class defining `<=>` gets them without writing them. The
+        // derivation is here rather than at the class, because the ordering
+        // has to be turned into a Bool after the authored body answers.
+        if matches!(selector, "<" | "<=" | ">" | ">=")
+            && let Some(ordering) =
+                self.authored_operator(&receiver, "<=>", &argument, program, classes)?
+        {
+            let Value::Integer(ordering) = ordering else {
+                // `C092` requires an ordering to be an Integer, so a body
+                // answering anything else is a type failure rather than a
+                // silently false comparison.
+                return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+            };
+            let ordering: i64 = ordering.decimal_text().parse().unwrap_or_default();
+            return Ok(Value::Bool(match selector {
+                "<" => ordering < 0,
+                "<=" => ordering <= 0,
+                ">" => ordering > 0,
+                _ => ordering >= 0,
+            }));
+        }
+        // `C092` gives every value a `<=>`: two values with no order answer
+        // nil rather than refusing, and an OBJECT with no `<=>` of its own is
+        // exactly that case. An iteration signal orders against its own kind.
+        if selector == "<=>"
+            && let Some(ordering) = self.default_ordering(&receiver, &argument, program, classes)?
+        {
+            return Ok(ordering);
+        }
         // A CLASS may define an operator on its singleton side, and an
         // operator arrives here rather than through `Send` - so authored
         // dispatch has to be consulted, or `P + P` would miss a `class fun +`
@@ -1663,5 +1702,75 @@ impl Machine {
             }
             _ => Err(MachineError::UnsupportedConstruct),
         }
+    }
+}
+
+impl Machine {
+    /// Runs an AUTHORED operator the receiver's class defines.
+    ///
+    /// An operator reaches `binary_send` rather than `Send`, and that path
+    /// consulted only the kernel - so `V.new() + 1` answered MessageNotFound
+    /// for a method the class plainly declares. A class that defines none is
+    /// left to the kernel, which is what keeps `1 + 2` native.
+    fn authored_operator(
+        &mut self,
+        receiver: &Value,
+        selector: &str,
+        argument: &Value,
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<Option<Value>, MachineError> {
+        let Value::Object(object) = receiver else {
+            return Ok(None);
+        };
+        let Some(slot) = selector_id(program, selector) else {
+            return Ok(None);
+        };
+        if self.runtime.dispatch_instance(*object, slot).is_err() {
+            return Ok(None);
+        }
+        self.instance_method_value(
+            receiver,
+            selector,
+            std::slice::from_ref(argument),
+            program,
+            classes,
+        )
+        .map(Some)
+    }
+
+    /// The ordering two values have when neither DEFINES one.
+    ///
+    /// `IRIS-V1-RUNTIME-C092` gives every value a `<=>`, so a pair with no
+    /// order answers nil rather than refusing the message. An object that
+    /// defines its own `<=>` is not decided here - authored dispatch runs
+    /// first and this only covers what it left.
+    fn default_ordering(
+        &mut self,
+        receiver: &Value,
+        argument: &Value,
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<Option<Value>, MachineError> {
+        // An ITERATION signal orders against its own kind: two `done` signals
+        // are equal, and a `done` against a `yield` has no order at all.
+        if matches!(receiver, Value::IterationDone | Value::IterationYield(_)) {
+            return Ok(Some(match (receiver, argument) {
+                (Value::IterationDone, Value::IterationDone) => Value::Integer(0_u8.into()),
+                (Value::IterationYield(left), Value::IterationYield(right)) => {
+                    return self
+                        .binary_send("<=>", (**left).clone(), (**right).clone(), program, classes)
+                        .map(Some);
+                }
+                _ => Value::Nil,
+            }));
+        }
+        // An OBJECT with no `<=>` of its own has no order, which is nil rather
+        // than a refusal. Authored dispatch already ran, so reaching here
+        // means the class defines none.
+        if matches!(receiver, Value::Object(_)) {
+            return Ok(Some(Value::Nil));
+        }
+        Ok(None)
     }
 }

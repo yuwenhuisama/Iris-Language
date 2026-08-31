@@ -92,6 +92,11 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// A value with no specification-stable hash, per `IRIS-V1-COLLECTIONS-C087`.
+    ///
+    /// An Array or a Hash has no such hash, so asking for one is a KEY failure
+    /// rather than an absent method - the selector exists on every value.
+    InvalidKeyError,
     /// A run that consumed its STEP budget without terminating.
     ///
     /// A program may loop forever - `while true { }` with no reachable exit -

@@ -130,13 +130,33 @@ impl Machine {
         {
             return Ok(Value::Bool(left.identity == right.identity));
         }
-        if selector == "hash"
-            && arguments.is_empty()
-            && matches!(receiver, Value::Regex(_) | Value::Match(_))
+        // `C087` fixes a SPECIFICATION-STABLE hash per value family, and
+        // `public_hash` decides every family that has one - a Symbol, a Range,
+        // a Tuple, an iteration signal and the rest. Installing the selector
+        // only on the kernel's own classes left each of those answering
+        // MessageNotFound for a hash the language plainly defines. A family it
+        // does NOT decide falls through, so an Object still hashes by identity
+        // and an Array still refuses.
+        // `C091` gives each value family its own EQUALITY, and the kernel
+        // installs `==` only on String, Nil and Bool - so a Symbol, a Range, a
+        // Tuple, a byte string, a mutable string and an iteration signal all
+        // answered MessageNotFound for a comparison the language plainly
+        // defines. A family this cannot decide falls through to the kernel.
+        if matches!(selector, "==" | "!=")
+            && let [other] = arguments
+            && let Some(equal) = structural_equality(&receiver, other)
         {
-            return iris_runtime::public_hash(&receiver)
-                .map(Value::Integer)
-                .map_err(|_| MachineError::Kernel(KernelError::Type));
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
+        if selector == "hash" && arguments.is_empty() {
+            match iris_runtime::public_hash(&receiver) {
+                Ok(hash) => return Ok(Value::Integer(hash)),
+                // A family with no stable hash still HAS the selector, so
+                // asking for one is a key failure rather than an absent
+                // method. An Object never reaches here: it hashes by identity
+                // through authored dispatch, which runs first.
+                Err(_) => return Err(MachineError::InvalidKeyError),
+            }
         }
         let Some(native) = NativeSelector::from_source(selector) else {
             return Err(MachineError::MessageNotFound {
@@ -171,6 +191,15 @@ impl Machine {
             (Value::Hash(left), Value::Hash(right)) => left.same(right),
             (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {
                 left == right
+            }
+            // `same?` asks whether two references name ONE value, which these
+            // families answer for themselves rather than by content.
+            (Value::MutableString(left), Value::MutableString(right)) => left.same(right),
+            (Value::Symbol(left), Value::Symbol(right)) => left == right,
+            (Value::Text(left), Value::Text(right)) => left == right,
+            (Value::Integer(left), Value::Integer(right)) => left == right,
+            (Value::Regex(left), Value::Regex(right)) => {
+                left.pattern == right.pattern && left.flags == right.flags
             }
             _ => return Err(MachineError::Kernel(KernelError::Identity)),
         };
@@ -268,5 +297,63 @@ impl Machine {
             }
             _ => Err(MachineError::UnknownSelector("[]=".to_owned())),
         }
+    }
+}
+
+/// Reports whether two values are EQUAL, when this decides their family.
+///
+/// `IRIS-V1-RUNTIME-C091` gives each family its own equality: a Symbol
+/// compares by name, a byte string by its bytes whatever its mutability, a
+/// mutable string by its current text, and an iteration signal by its payload.
+/// A pair this cannot decide answers `None` so the kernel still rules.
+fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
+    match (left, right) {
+        // The PRIMITIVES are decided here too, because a composite's elements
+        // are compared through this same function: a Tuple of Texts answered
+        // nothing at all while its own arm existed but its elements' did not.
+        (Value::Text(left), Value::Text(right)) => Some(left == right),
+        (Value::Integer(left), Value::Integer(right)) => Some(left == right),
+        (Value::Float32(left), Value::Float32(right)) => Some(left == right),
+        (Value::Float64(left), Value::Float64(right)) => Some(left == right),
+        (Value::Nil, Value::Nil) => Some(true),
+        (Value::Bool(left), Value::Bool(right)) => Some(left == right),
+        (Value::Symbol(left), Value::Symbol(right)) => Some(left == right),
+        // A Bytes and a ByteArray hold the same content differently, so the
+        // comparison is over BYTES rather than over the representation.
+        (Value::Bytes(left), Value::Bytes(right)) => Some(left == right),
+        (Value::Bytes(left), Value::ByteArray(right)) => Some(*left == right.bytes()),
+        (Value::ByteArray(left), Value::Bytes(right)) => Some(left.bytes() == *right),
+        (Value::ByteArray(left), Value::ByteArray(right)) => Some(left.bytes() == right.bytes()),
+        // A MutableString compares by its CURRENT text, so a write before the
+        // comparison is seen.
+        (Value::MutableString(left), Value::MutableString(right)) => {
+            Some(left.text() == right.text())
+        }
+        (Value::MutableString(left), Value::Text(right)) => Some(left.text() == *right),
+        (Value::Text(left), Value::MutableString(right)) => Some(*left == right.text()),
+        (Value::Range(left), Value::Range(right)) => Some(left == right),
+        (Value::Tuple(left), Value::Tuple(right)) => {
+            if left.len() != right.len() {
+                return Some(false);
+            }
+            let mut equal = true;
+            for (left, right) in left.iter().zip(right) {
+                equal = equal && structural_equality(left, right)?;
+            }
+            Some(equal)
+        }
+        (Value::IterationDone, Value::IterationDone) => Some(true),
+        (Value::IterationYield(left), Value::IterationYield(right)) => {
+            structural_equality(left, right)
+        }
+        (Value::IterationDone, Value::IterationYield(_))
+        | (Value::IterationYield(_), Value::IterationDone) => Some(false),
+        // `C087` makes `/a+/im` and `/a+/mi` the same Regex, so the CANONICAL
+        // pattern and flags decide rather than the written order.
+        (Value::Regex(left), Value::Regex(right)) => {
+            Some(left.pattern == right.pattern && left.flags == right.flags)
+        }
+        (Value::Contract(left), Value::Contract(right)) => Some(left == right),
+        _ => None,
     }
 }

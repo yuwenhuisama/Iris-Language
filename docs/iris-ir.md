@@ -765,13 +765,25 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+Every value family answers the UNIVERSAL selectors. `C087` fixes a
+specification-stable hash per family and `C091` gives each its own equality,
+but the kernel installs those selectors only on its own classes - so a Symbol,
+a Range, a Tuple, a byte string and an iteration signal all answered
+MessageNotFound for messages the language plainly defines. A family with no
+stable hash raises a KEY failure rather than reporting the method absent, since
+the selector exists on every value. `C092` gives every value a `<=>`: a pair
+with no order answers nil rather than refusing, and `<` derives from `<=>`
+rather than being a method of its own. An authored operator reaches its class
+at all, because an operator arrives through the binary path rather than
+through `Send`.
+
 COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 493 agreed,
-226 disagreed, 17 held - so roughly a third of the vectors the machine ACCEPTS
-still answer something the language does not say. Coverage was never a
+and reports how many answer alike. At the time of writing that is 521 agreed,
+197 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
 A run that never terminates FAILS rather than hanging: each instruction charges

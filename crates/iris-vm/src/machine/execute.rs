@@ -535,7 +535,10 @@ impl Machine {
                         }
                         continue;
                     }
-                    self.send(selector, operand, &[])?
+                    // A refusal here is an ordinary catchable Iris error - an
+                    // unhashable key, say - so it goes through the handler
+                    // dispatch rather than escaping the frame.
+                    dispatch!(self.send(selector, operand, &[])?)
                 }
                 Instruction::BuildArray { first, count, .. } => {
                     let start = *first as usize;

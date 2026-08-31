@@ -7732,3 +7732,92 @@ fn a_non_terminating_program_fails() {
         &crate::backend::Observation::Value("[nil, 1000]".to_owned())
     );
 }
+
+/// Every value family answers `hash`, `==` and `<=>` the language defines.
+///
+/// `C087` fixes a specification-stable hash per family and `C091` gives each
+/// its own equality, but the kernel installs those selectors only on its own
+/// classes - so a Symbol, a Range, a Tuple, a byte string and an iteration
+/// signal all answered MessageNotFound for messages the language plainly
+/// defines. `C092` gives every value a `<=>`, so a pair with no order answers
+/// nil rather than refusing, and `<` derives from `<=>` rather than being a
+/// method of its own.
+#[test]
+fn every_value_family_answers_the_universal_selectors() {
+    for (source, expected) in [
+        // HASH, across the families the specification fixes.
+        ("class Z { } :name.hash() >= 0", "true"),
+        ("class Z { } (1 ..= 3).hash() >= 0", "true"),
+        (
+            "module M { public fun run() -> Bool { (nil, true).hash() >= 0 } } M.run()",
+            "true",
+        ),
+        // A family with NO stable hash is a key failure, not an absent method.
+        (
+            "class Z { } try { [1].hash() } catch e { e }",
+            ":InvalidKeyError",
+        ),
+        // EQUALITY, by each family's own rule.
+        (
+            "let a = :tag; let b = :tag; [a == b, a == :other]",
+            "[true, false]",
+        ),
+        (
+            "module M { public fun run() -> Bool { let a = b\"\\x00\"; \
+             let b = mb\"\\x00\"; a == b } } M.run()",
+            "true",
+        ),
+        (
+            "module M { public fun run() -> Array { let m = m\"x\"; \
+             [m == \"x\", m.same?(m)] } } M.run()",
+            "[true, true]",
+        ),
+        (
+            "module M { public fun run() -> Bool { \
+             Iteration.yield(\"x\") == Iteration.yield(\"x\") } } M.run()",
+            "true",
+        ),
+        // ORDERING: an object with no `<=>` has none, which is nil.
+        (
+            "class Z {} module M { public fun run() -> Array { let a = Z.new(); \
+             [a <=> a, a <=> Z.new()] } } M.run()",
+            "[nil, nil]",
+        ),
+        (
+            "module M { public fun run() -> Array { \
+             [Iteration.done <=> Iteration.done, \
+             Iteration.done <=> Iteration.yield(1)] } } M.run()",
+            "[0, nil]",
+        ),
+        // `<` DERIVES from an authored `<=>`.
+        (
+            "class C { public fun <=>(o) { -1 } } \
+             module M { public fun run() -> Object { C.new() < C.new() } } M.run()",
+            "true",
+        ),
+        // An authored OPERATOR reaches its class at all.
+        (
+            "class V { public fun +(o: Object) -> Object { :added } } \
+             module M { public fun run() -> Object { V.new() + 1 } } M.run()",
+            ":added",
+        ),
+        // Control: a native comparison is untouched by any of this.
+        (
+            "[1 == 1, 1 < 2, \"a\" == \"a\", 1 + 2]",
+            "[true, true, true, 3]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
