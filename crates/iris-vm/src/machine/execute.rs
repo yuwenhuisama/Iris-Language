@@ -506,6 +506,9 @@ impl Machine {
                 Instruction::RaiseTypeContract { .. } => {
                     dispatch!(Err(MachineError::TypeContractError)?)
                 }
+                Instruction::RaiseArgumentError { .. } => {
+                    dispatch!(Err(MachineError::ArgumentError)?)
+                }
                 Instruction::Binary {
                     selector,
                     left,
@@ -1781,12 +1784,18 @@ impl Machine {
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
-                        // A DYNAMIC method's parameters come from the block it
-                        // was defined with, so a call that supplies a different
-                        // count has no binding for them - the reference answers
-                        // ArgumentError rather than filling nil.
-                        if callee.name == "<dynamic-method>" && arguments.len() != callee.parameters
-                        {
+                        // A signature that fixes an argument COUNT has no
+                        // binding for a call supplying a different one, so that
+                        // is an ArgumentError rather than a nil quietly filled
+                        // in - `a.m(1, 2)` for `fun m(x)` answered `1`. A
+                        // dynamic method takes its parameters from the block it
+                        // was defined with, which fixes a count the same way.
+                        // `arguments` carries the receiver at slot 0, so the
+                        // comparison is against what the CALLER supplied.
+                        let supplied = arguments.len().saturating_sub(1);
+                        let fixed = callee.fixed_arity.or((callee.name == "<dynamic-method>")
+                            .then(|| callee.parameters.saturating_sub(1)));
+                        if fixed.is_some_and(|arity| supplied != arity) {
                             dispatch!(Err(MachineError::ArgumentError)?);
                         }
                         // An ASYNC method answers a Task rather than its body's

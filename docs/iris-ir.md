@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A call must supply a count the signature can BIND. `C023` binds each parameter
+from the arguments, so a count with no binding is an ArgumentError rather than
+a nil quietly filled in - `a.m(1, 2)` for `fun m(x)` answered `1`. Only a
+purely positional signature with no defaults fixes a count, since a default, a
+`*rest` or a block parameter accepts a range. A COMPOSED module method is
+lowered with a receiver it did not write, so the count is compared against what
+the source declared rather than against the frame's parameters.
+
 `same?` asks whether two references name ONE value. `C029` accepts only
 identity-BEARING operands, so a Text, a Symbol, a Tuple or a numeric raises
 rather than being compared by content - the question has no answer for a value
@@ -794,8 +802,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 540 agreed,
-178 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 546 agreed,
+172 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

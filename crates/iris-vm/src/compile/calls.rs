@@ -871,8 +871,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .iter()
                 .take_while(|parameter| parameter.default.is_none())
                 .count();
+            // A call supplying a count the signature cannot bind is an
+            // ArgumentError the reference raises when the call RUNS, so the
+            // backend answers a program that raises it. Declining made both
+            // backends refuse the same program while describing it
+            // differently, which holds the row rather than agreeing.
             if arguments.len() < required || arguments.len() > parameters.len() {
-                return Err(CompileError::new("call arity"));
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseArgumentError { destination });
+                return Ok(destination);
             }
             let count =
                 u16::try_from(parameters.len()).map_err(|_| CompileError::new("call too wide"))?;

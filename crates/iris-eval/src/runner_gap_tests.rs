@@ -7917,3 +7917,55 @@ fn same_asks_identity_rather_than_content() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A call must supply a count the signature can BIND.
+///
+/// `IRIS-V1-CONTROL-C023` binds each parameter from the arguments, so a count
+/// with no binding is an ArgumentError rather than a nil quietly filled in -
+/// `a.m(1, 2)` for `fun m(x)` answered `1`. Only a purely positional signature
+/// with no defaults fixes a count: a default, a `*rest` or a block parameter
+/// accepts a range.
+#[test]
+fn a_call_supplies_a_count_the_signature_binds() {
+    for (source, expected) in [
+        // Too MANY and too FEW both refuse.
+        ("class A { public fun m(x) { x } } A.new().m(1, 2)", None),
+        ("class A { public fun m(x) { x } } A.new().m()", None),
+        ("module M { public fun m(x) { x } } M.m(1, 2)", None),
+        // Control: the exact count still binds.
+        ("class A { public fun m(x) { x } } A.new().m(1)", Some("1")),
+        // A DEFAULT, a `*rest` and a block parameter leave the count open.
+        (
+            "class A { public fun m(x, y: Integer = 2) { [x, y] } } A.new().m(1)",
+            Some("[1, 2]"),
+        ),
+        (
+            "class A { public fun m(*rest) { rest } } A.new().m(1, 2, 3)",
+            Some("[1, 2, 3]"),
+        ),
+        (
+            "class A { public fun m(&blk) { 1 } } A.new().m({ 2 })",
+            Some("1"),
+        ),
+        // A COMPOSED module method is lowered with a receiver it did not
+        // write, so the count is compared against what the source declared.
+        (
+            "module A { public fun w() { :a } } module B mixin A { } class C mixin B { } \
+             C.new().w()",
+            Some(":a"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("ArgumentError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

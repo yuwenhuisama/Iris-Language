@@ -657,6 +657,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::RaiseUnsupported { .. }
         | Instruction::RaiseNameError { .. }
         | Instruction::RaiseTypeContract { .. }
+        | Instruction::RaiseArgumentError { .. }
         | Instruction::RaiseParseDiagnostic { .. }
         | Instruction::RaiseLoopTransfer { .. }
         | Instruction::RaiseEncodingSelection { .. } => Vec::new(),

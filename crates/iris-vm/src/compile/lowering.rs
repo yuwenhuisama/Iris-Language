@@ -147,6 +147,7 @@ pub(super) fn lower_function(
             name: format!("{}.{}", signature.module, signature.selector),
             parameters: usize::from(signature.receiver),
             captures: 0,
+            fixed_arity: None,
             parameter_types: Vec::new(),
             return_type: String::new(),
             is_async: false,
@@ -184,6 +185,22 @@ pub(super) fn lower_function(
         name: format!("{}.{}", signature.module, signature.selector),
         parameters: signature.parameters.len() + usize::from(signature.receiver),
         captures: 0,
+        // Only a purely POSITIONAL signature with no defaults fixes a count:
+        // `C023` lets a default, a `*rest`, a keyword or a block parameter
+        // accept a range, so those leave the arity open.
+        // A COMPOSED module method is lowered with a receiver it did not
+        // write, and dispatch prepends the composing object - so counting the
+        // receiver here rejected a call that supplied exactly what the source
+        // declared. Only the written parameters fix the count, and the check
+        // compares against the arguments alone.
+        fixed_arity: signature
+            .parameters
+            .iter()
+            .all(|parameter| {
+                parameter.default.is_none()
+                    && parameter.category == iris_syntax::ParameterCategory::Positional
+            })
+            .then_some(signature.parameters.len()),
         parameter_types: signature
             .parameters
             .iter()

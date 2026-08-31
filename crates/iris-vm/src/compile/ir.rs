@@ -377,6 +377,14 @@ pub enum Instruction {
         position: usize,
         arity: usize,
     },
+    /// Fails a call whose argument COUNT the signature cannot bind.
+    ///
+    /// `IRIS-V1-CONTROL-C023` binds each parameter from the arguments, so a
+    /// count with no binding is an ArgumentError raised when the call runs -
+    /// the reference refuses it there rather than statically.
+    RaiseArgumentError {
+        destination: Register,
+    },
     /// Fails a generic MATERIALIZATION, per `IRIS-V1-TYPES-C067`.
     ///
     /// A `where T: SomeContract` bound is checked when the class is
@@ -828,7 +836,9 @@ impl Instruction {
             | Self::BindParameters { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
-            Self::RaiseTypeContract { destination } => Some(*destination),
+            Self::RaiseTypeContract { destination } | Self::RaiseArgumentError { destination } => {
+                Some(*destination)
+            }
             Self::DestructureElement { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)
@@ -883,6 +893,14 @@ pub struct Function {
     /// How many leading registers hold parameters.
     pub(crate) parameters: usize,
     pub(crate) captures: usize,
+    /// The exact argument count this function ACCEPTS, when it fixes one.
+    ///
+    /// `IRIS-V1-CONTROL-C023` lets a default, a `*rest`, a keyword or a block
+    /// parameter accept a range of counts, so only a purely positional
+    /// signature with no defaults fixes one. A call that supplies a different
+    /// count then has no binding for a parameter, which is an ArgumentError
+    /// rather than a nil quietly filled in.
+    pub(crate) fixed_arity: Option<usize>,
     pub(crate) parameter_types: Vec<String>,
     pub(crate) return_type: String,
     pub(crate) is_async: bool,
