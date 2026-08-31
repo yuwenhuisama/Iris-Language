@@ -629,6 +629,52 @@ impl Machine {
                 }
                 Some(Value::Nil)
             }
+            // `C023` lets a class RESHAPE its own method set: an alias binds a
+            // second selector to one method, `remove_method` drops the class's
+            // own, and `undef_method` blocks the selector outright so an
+            // inherited one no longer answers either. Each names the class it
+            // acts on, so they reach the registry directly.
+            Value::Class(class)
+                if matches!(selector, "alias_method")
+                    && matches!(arguments, [Value::Symbol(_), Value::Symbol(_)]) =>
+            {
+                let [Value::Symbol(alias), Value::Symbol(original)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                let (Some(alias), Some(original)) =
+                    (selector_id(program, alias), selector_id(program, original))
+                else {
+                    return Err(MachineError::UnknownSelector(alias.clone()));
+                };
+                self.runtime
+                    .registry_mut()
+                    .alias_method(*class, alias, original)
+                    .map_err(MachineError::Class)?;
+                Some(Value::Nil)
+            }
+            Value::Class(class)
+                if matches!(selector, "remove_method" | "undef_method")
+                    && matches!(arguments, [Value::Symbol(_)]) =>
+            {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                let Some(slot) = selector_id(program, name) else {
+                    return Err(MachineError::UnknownSelector(name.clone()));
+                };
+                if selector == "remove_method" {
+                    self.runtime
+                        .registry_mut()
+                        .remove_method(*class, slot)
+                        .map_err(MachineError::Class)?;
+                } else {
+                    self.runtime
+                        .registry_mut()
+                        .undef_method(*class, slot)
+                        .map_err(MachineError::Class)?;
+                }
+                Some(Value::Nil)
+            }
             // `C119` makes `A.method(:f)` and the reflective call ONE surface,
             // so the direct form answers the same Method value rather than
             // reporting the selector absent.

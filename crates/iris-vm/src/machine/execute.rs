@@ -1841,11 +1841,17 @@ impl Machine {
                                         }
                                         continue;
                                     }
-                                    return Err(MachineError::MessageNotFound {
+                                    // An absent selector is an ordinary
+                                    // catchable Iris error, so it goes through
+                                    // the handler dispatch rather than escaping
+                                    // the frame - a `try` around a call to an
+                                    // undefined method must catch it.
+                                    dispatch!(Err(MachineError::MessageNotFound {
                                         receiver_class: self
                                             .dispatch_class_name(program, classes, class),
                                         selector: selector_name,
-                                    });
+                                    })?);
+                                    continue;
                                 }
                                 // A VISIBILITY refusal is an ordinary catchable
                                 // Iris error, so it goes through the handler

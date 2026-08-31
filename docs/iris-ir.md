@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A class RESHAPES its own method set. `C023` binds a second selector to one
+method with an alias, drops the class's own with `remove_method`, and blocks a
+selector outright with `undef_method` so an inherited one no longer answers
+either. An absent selector is an ordinary CATCHABLE error - a `try` around a
+call to an undefined method must catch it rather than watching it escape the
+frame.
+
 A module's bare `fun` is PRIVATE to that module. `C077` refuses a private
 method from every path but its owner, so `M.hidden()` written outside names a
 method the caller cannot reach - while a call from inside resolves as a bare
@@ -923,8 +930,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 601 agreed,
-123 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 602 agreed,
+122 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -8912,3 +8912,46 @@ fn a_modules_bare_fun_is_private_to_it() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A class RESHAPES its own method set, per `IRIS-V1-RUNTIME-C023`.
+///
+/// An alias binds a SECOND selector to one method, `remove_method` drops the
+/// class's own, and `undef_method` blocks the selector outright so an
+/// inherited one no longer answers either. An absent selector is an ordinary
+/// catchable error: a `try` around a call to an undefined method must catch
+/// it rather than watching it escape the frame.
+#[test]
+fn a_class_reshapes_its_method_set() {
+    for (source, expected) in [
+        // An ALIAS reaches the same body under a second name.
+        (
+            "class A { public fun g() -> Symbol { :base } }; A.alias_method(:f, :g); A.new().f()",
+            "[nil, :base]",
+        ),
+        // `undef_method` blocks the selector, and the refusal is CATCHABLE.
+        (
+            "class A { public fun g() -> Symbol { :base } }; A.undef_method(:g); \
+             try { A.new().g() } catch e { e }",
+            "[nil, :MessageNotFound]",
+        ),
+        // Control: the class's OWN method still answers when nothing reshaped
+        // it, so the operations act rather than blanket-refusing.
+        (
+            "class A { public fun g() -> Symbol { :base } }; A.new().g()",
+            ":base",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
