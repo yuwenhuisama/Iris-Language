@@ -528,7 +528,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
             let exceptional_cleanup = self.instructions.len();
             self.patch(catch_enter, exceptional_cleanup)?;
             if let Some(finally) = finally {
+                // `C067` makes a cleanup that RAISES chain the exception it
+                // interrupted as the new one's cause, so the propagating
+                // context travels with the cleanup body.
+                self.instructions.push(Instruction::EnterCleanup {
+                    context: Some(context),
+                });
                 self.body(finally)?;
+                self.instructions
+                    .push(Instruction::EnterCleanup { context: None });
             }
             self.instructions.push(Instruction::Propagate {
                 value: exception,
@@ -543,7 +551,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }
         if catches.last().is_none_or(|catch| catch.filter.is_some()) {
             if let Some(finally) = finally {
+                self.instructions.push(Instruction::EnterCleanup {
+                    context: Some(context),
+                });
                 self.body(finally)?;
+                self.instructions
+                    .push(Instruction::EnterCleanup { context: None });
             }
             self.instructions.push(Instruction::Propagate {
                 value: exception,

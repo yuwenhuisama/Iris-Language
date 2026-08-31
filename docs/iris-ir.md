@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CLEANUP that raises chains the exception it interrupted. `C067` makes a
+`finally` raising while another exception propagates report the interrupted one
+as its `cause`, so the propagating context travels with the cleanup body -
+without it the new exception reported no cause at all.
+
 A class has a LAST SAY through `method_missing`, reached only once ordinary
 dispatch found nothing - so a declared method still wins and the handler is a
 fallback rather than an interception. `C099` passes the trailing block as the
@@ -845,8 +850,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 567 agreed,
-151 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 570 agreed,
+148 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

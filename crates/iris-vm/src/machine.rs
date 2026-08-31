@@ -86,6 +86,12 @@ pub struct Machine {
     /// one. The reference charges a step per operation and fails the run when
     /// the budget is gone, so this matches that guarantee.
     remaining_steps: u64,
+    /// The context a running CLEANUP body would chain as a cause.
+    ///
+    /// `IRIS-V1-CONTROL-C067` makes a `finally` that raises while another
+    /// exception propagates report the interrupted one as its `cause`, so the
+    /// propagating context is held for the duration of the cleanup.
+    pending_cleanup_cause: Option<Value>,
     revision_event_errors: Vec<Value>,
     /// Whether `Revision.shutdown` closed delivery.
     ///
@@ -162,6 +168,7 @@ impl Machine {
             audit_sink: None,
             frame_roots: Vec::new(),
             remaining_steps: STEP_BUDGET,
+            pending_cleanup_cause: None,
             revision_event_errors: Vec::new(),
             revision_delivery_closed: false,
             modules: Vec::new(),

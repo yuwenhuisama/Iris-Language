@@ -223,6 +223,15 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    /// Marks the context a CLEANUP body runs under, per `C067`.
+    ///
+    /// A `finally` that raises while another exception is propagating chains
+    /// the old one as its `cause`, so the propagating context is recorded for
+    /// the duration of the cleanup and cleared afterwards. Without it the new
+    /// exception reported no cause and `c.cause.value` read nil.
+    EnterCleanup {
+        context: Option<Register>,
+    },
     /// Guards an ANNOTATED binding or parameter, per `IRIS-V1-TYPES-C004`.
     ///
     /// `let s: String = 1` is a type failure the reference raises when the
@@ -829,9 +838,10 @@ impl Instruction {
             Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
-            Self::ApplyReopen { .. } | Self::CheckReturn { .. } | Self::CheckAnnotation { .. } => {
-                None
-            }
+            Self::ApplyReopen { .. }
+            | Self::CheckReturn { .. }
+            | Self::EnterCleanup { .. }
+            | Self::CheckAnnotation { .. } => None,
             Self::NativeFixture { destination, .. } | Self::Print { destination, .. } => {
                 Some(*destination)
             }

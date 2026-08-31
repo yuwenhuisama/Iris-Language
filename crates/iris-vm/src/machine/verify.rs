@@ -630,6 +630,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             vec![*value]
         }
         Instruction::Print { .. } => Vec::new(),
+        Instruction::EnterCleanup { context } => context.iter().copied().collect(),
         Instruction::DestructureElement { item, .. } => vec![*item],
         Instruction::EscapeRegex { value, .. } => vec![*value],
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],

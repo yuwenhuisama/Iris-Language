@@ -1304,6 +1304,15 @@ impl Machine {
                     program,
                     classes,
                 )?),
+                Instruction::EnterCleanup { context } => {
+                    // A cleanup that RAISES chains the exception it interrupted
+                    // as the new one's cause, so the propagating context is
+                    // recorded while the cleanup runs.
+                    self.pending_cleanup_cause = context
+                        .map(|register| registers[register as usize].clone())
+                        .filter(|value| matches!(value, Value::ExceptionContext(..)));
+                    continue;
+                }
                 Instruction::LeaveTry => {
                     handlers.pop();
                     continue;
@@ -1316,6 +1325,9 @@ impl Machine {
                     let value = registers[*value as usize].clone();
                     let cause = cause
                         .map(|register| registers[register as usize].clone())
+                        // A raise inside a CLEANUP inherits the exception it
+                        // interrupted, which `C067` makes its cause.
+                        .or_else(|| self.pending_cleanup_cause.take())
                         .unwrap_or(Value::Nil);
                     if !matches!(cause, Value::Nil | Value::ExceptionContext(..)) {
                         return Err(MachineError::Kernel(KernelError::Type));

@@ -8343,3 +8343,45 @@ fn a_class_has_a_last_say_through_method_missing() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A CLEANUP that raises chains the exception it interrupted.
+///
+/// `IRIS-V1-CONTROL-C067` makes a `finally` raising while another exception
+/// propagates report the interrupted one as its `cause`, so the propagating
+/// context travels with the cleanup body - without it the new exception
+/// reported no cause and `c.cause.value` read nil.
+#[test]
+fn a_cleanup_that_raises_chains_its_cause() {
+    for (source, expected) in [
+        (
+            "try { try { raise :old } finally { raise :new } } \
+             catch v, c { [v, c.value, c.cause.value] }",
+            "[:new, :new, :old]",
+        ),
+        // Control: an ordinary raise has NO cause, so the chain is about the
+        // interruption rather than being attached to every exception.
+        (
+            "try { raise :only } catch v, c { [v, c.value, c.cause] }",
+            "[:only, :only, nil]",
+        ),
+        // Control: a cleanup that does NOT raise leaves the original alone.
+        (
+            "mut ran = false; \
+             try { try { raise :old } finally { ran = true } } catch v, c { [v, c.cause, ran] }",
+            "[:old, nil, true]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
