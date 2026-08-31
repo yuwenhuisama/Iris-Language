@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A BOUNDED subscriber queue coalesces what it DROPPED into one GapEvent. `C051`
+bounds the queue at a capacity the subscriber names, so one that falls behind
+loses its oldest events rather than growing without limit, and the dropped
+range is delivered ahead of what it still holds. `C052` makes that range
+inclusive and forbids pretending no change occurred, so a successive drop
+extends the existing gap rather than reporting its own.
+
 A CLASS method's `super()` walks the SINGLETON side. The receiver is the Class
 itself, and a class method lives in a table separate from the instance one, so
 the ancestor is found by walking the declared superclass chain - instance
@@ -864,8 +871,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 576 agreed,
-142 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 580 agreed,
+138 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

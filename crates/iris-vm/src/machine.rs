@@ -20,6 +20,18 @@ struct ClosureRecord {
 struct RevisionSubscriber {
     callback: iris_runtime::ObjectId,
     queued: Vec<(u64, String)>,
+    /// Commits the queue holds before older ones are DROPPED.
+    ///
+    /// `IRIS-V1-ASYNC-C051` bounds the queue at a capacity the subscriber
+    /// names, so a subscriber that falls behind loses the oldest events rather
+    /// than growing without limit. An unnamed capacity is unbounded.
+    capacity: usize,
+    /// The inclusive commit range dropped for capacity, if any.
+    ///
+    /// `C052` makes the range INCLUSIVE and forbids pretending no change
+    /// occurred, so successive drops extend one range rather than each
+    /// reporting separately.
+    gap: Option<(u64, u64)>,
 }
 
 #[derive(Clone, Debug)]

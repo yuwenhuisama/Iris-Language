@@ -8522,3 +8522,42 @@ fn a_class_method_reaches_its_ancestor() {
         );
     }
 }
+
+/// A BOUNDED subscriber queue coalesces what it dropped into one GapEvent.
+///
+/// `IRIS-V1-ASYNC-C051` bounds the queue at a capacity the subscriber names,
+/// so one that falls behind loses its OLDEST events rather than growing
+/// without limit, and the dropped range is delivered ahead of what it still
+/// holds. `C052` makes that range inclusive and forbids pretending no change
+/// occurred, so a successive drop extends the existing gap.
+#[test]
+fn a_bounded_subscriber_reports_its_gap() {
+    for (source, expected) in [
+        // THREE commits into a queue of one: two are dropped and coalesced.
+        (
+            "class B {} module M { public fun run() -> Object { \
+             Revision.subscribe({ |event| :seen }, 1); B.open() { |t| 1 }; \
+             B.open() { |t| 2 }; B.open() { |t| 3 }; Revision.flush() } } M.run()",
+            "[:delivered, [[:GapEvent, 1, 2], [:RevisionEvent, 3, [:B]]], 0, []]",
+        ),
+        // Control: an UNBOUNDED subscriber drops nothing, so no gap appears.
+        (
+            "class B { } module M { public fun run() -> Tuple { let s = { |event| :seen }; \
+             Revision.subscribe(s); B.open() { |t| 1 }; Revision.flush() } } M.run()",
+            "[:delivered, [[:RevisionEvent, 1, [:B]]], 0, []]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

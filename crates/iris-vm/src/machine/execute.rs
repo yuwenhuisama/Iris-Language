@@ -2293,10 +2293,27 @@ impl Machine {
                     let start = *first as usize;
                     let arguments = &registers[start..start + *count as usize];
                     match (namespace.as_str(), selector.as_str(), arguments) {
-                        ("Revision", "subscribe", [Value::Closure(callback)]) => {
+                        // `C051` bounds the queue at a capacity the subscriber
+                        // names, so one that falls behind loses its OLDEST
+                        // events rather than growing without limit. An unnamed
+                        // capacity is unbounded.
+                        (
+                            "Revision",
+                            "subscribe",
+                            [Value::Closure(callback)] | [Value::Closure(callback), _],
+                        ) => {
+                            let capacity = match arguments {
+                                [_, Value::Integer(capacity)] => capacity
+                                    .to_u64()
+                                    .and_then(|value| usize::try_from(value).ok())
+                                    .unwrap_or(usize::MAX),
+                                _ => usize::MAX,
+                            };
                             self.revision_subscribers.push(super::RevisionSubscriber {
                                 callback: *callback,
                                 queued: Vec::new(),
+                                capacity,
+                                gap: None,
                             });
                             Value::Nil
                         }
@@ -2309,8 +2326,13 @@ impl Machine {
                         ("Revision", "flush", []) if self.revision_delivery_closed => {
                             let mut undelivered = 0_usize;
                             for subscriber in &mut self.revision_subscribers {
-                                undelivered += subscriber.queued.len();
+                                // A pending GAP is accepted-but-undelivered
+                                // too: it names events that can no longer
+                                // reach a terminal state.
+                                undelivered +=
+                                    subscriber.queued.len() + usize::from(subscriber.gap.is_some());
                                 subscriber.queued.clear();
+                                subscriber.gap = None;
                             }
                             Value::Tuple(vec![
                                 Value::Symbol("incomplete".to_owned()),
@@ -2326,10 +2348,40 @@ impl Machine {
                         ("Revision", "flush", []) => {
                             let mut delivered = Vec::new();
                             for index in 0..self.revision_subscribers.len() {
-                                let (callback, queued) = {
+                                let (callback, gap, queued) = {
                                     let subscriber = &mut self.revision_subscribers[index];
-                                    (subscriber.callback, std::mem::take(&mut subscriber.queued))
+                                    (
+                                        subscriber.callback,
+                                        subscriber.gap.take(),
+                                        std::mem::take(&mut subscriber.queued),
+                                    )
                                 };
+                                // `C051` delivers the GapEvent BEFORE the
+                                // retained events, so a subscriber learns what
+                                // it missed ahead of what it still has.
+                                if let Some((from, to)) = gap {
+                                    let event = Value::Tuple(vec![
+                                        Value::Symbol("GapEvent".to_owned()),
+                                        Value::Integer(from.into()),
+                                        Value::Integer(to.into()),
+                                    ]);
+                                    delivered.push(event.clone());
+                                    if let Err(error) = self.invoke_closure_value(
+                                        callback,
+                                        &[event],
+                                        program,
+                                        classes,
+                                    ) {
+                                        let recorded = match error {
+                                            MachineError::Raised(raised) => raised.0,
+                                            other => super::catchable_name(&other).map_or_else(
+                                                || Value::Symbol("SubscriberError".to_owned()),
+                                                |name| Value::Symbol(name.to_owned()),
+                                            ),
+                                        };
+                                        self.revision_event_errors.push(recorded);
+                                    }
+                                }
                                 for (commit, target) in queued {
                                     let event = Value::Tuple(vec![
                                         Value::Symbol("RevisionEvent".to_owned()),
@@ -2479,6 +2531,18 @@ impl Machine {
                     let target = program.classes[*class].name.clone();
                     for subscriber in &mut self.revision_subscribers {
                         subscriber.queued.push((commit, target.clone()));
+                        // `C051` coalesces the DROPPED range into one
+                        // GapEvent, and `C052` makes that range inclusive and
+                        // forbids pretending no change occurred - so a
+                        // successive drop extends the existing gap rather than
+                        // reporting its own.
+                        if subscriber.queued.len() > subscriber.capacity {
+                            let (dropped, _) = subscriber.queued.remove(0);
+                            subscriber.gap = Some(match subscriber.gap {
+                                Some((from, _)) => (from, dropped),
+                                None => (dropped, dropped),
+                            });
+                        }
                     }
                     value
                 }),
