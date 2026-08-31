@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A class has a LAST SAY through `method_missing`, reached only once ordinary
+dispatch found nothing - so a declared method still wins and the handler is a
+fallback rather than an interception. `C099` passes the trailing block as the
+separate `block` parameter rather than inside the positional snapshot, which is
+what lets a handler tell one from the other.
+
 A BOUND method is a fresh value per binding, so `obj.method` twice names two of
 them, each with its own runtime identity - while a METHOD is the definition
 itself, interned once per declaration, so two reads of one selector name the
@@ -839,8 +845,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 566 agreed,
-152 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 567 agreed,
+151 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

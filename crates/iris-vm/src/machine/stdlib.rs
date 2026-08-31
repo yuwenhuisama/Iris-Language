@@ -1820,3 +1820,50 @@ impl Machine {
         Ok(matches!(equal, Value::Bool(true)))
     }
 }
+
+impl Machine {
+    /// Offers a missing selector to the class's `method_missing`.
+    ///
+    /// `IRIS-V1-RUNTIME-C099` gives a class a last say once ordinary dispatch
+    /// found nothing, so a declared method still wins. The trailing block is
+    /// passed as the separate `block` parameter rather than inside the
+    /// positional snapshot, which is what lets a handler tell one from the
+    /// other. A class declaring no handler answers `None`, leaving the
+    /// original MessageNotFound to stand.
+    pub(super) fn invoke_method_missing(
+        &mut self,
+        object: iris_runtime::ObjectId,
+        missing: &str,
+        arguments: &[Value],
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<Option<Value>, MachineError> {
+        // A missing `method_missing` must not recurse into itself.
+        if missing == "method_missing" {
+            return Ok(None);
+        }
+        let Some(slot) = selector_id(program, "method_missing") else {
+            return Ok(None);
+        };
+        if self.runtime.dispatch_instance(object, slot).is_err() {
+            return Ok(None);
+        }
+        // `C099` splits a trailing Closure out of the positional snapshot.
+        let (positional, block) = match arguments {
+            [head @ .., Value::Closure(closure)] => (head.to_vec(), Value::Closure(*closure)),
+            _ => (arguments.to_vec(), Value::Nil),
+        };
+        self.instance_method_value(
+            &Value::Object(object),
+            "method_missing",
+            &[
+                Value::Symbol(missing.to_owned()),
+                Value::Array(iris_runtime::ArrayRef::new(positional)),
+                block,
+            ],
+            program,
+            classes,
+        )
+        .map(Some)
+    }
+}

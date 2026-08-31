@@ -8295,3 +8295,51 @@ fn a_bound_method_has_its_own_identity() {
         );
     }
 }
+
+/// A class has a LAST SAY through `method_missing`.
+///
+/// `IRIS-V1-RUNTIME-C099` reaches it only once ordinary dispatch found
+/// nothing, so a declared method still wins. The trailing block is passed as
+/// the separate `block` parameter rather than inside the positional snapshot,
+/// which is what lets a handler tell one from the other.
+#[test]
+fn a_class_has_a_last_say_through_method_missing() {
+    for (source, expected) in [
+        (
+            "class F { public fun method_missing(selector, args, block) { :caught } } \
+             F.new().nope()",
+            Some(":caught"),
+        ),
+        // The handler sees the SELECTOR and the positional arguments.
+        (
+            "class F { public fun method_missing(selector, args, block) { [selector, args] } } \
+             F.new().nope(1, 2)",
+            Some("[:nope, [1, 2]]"),
+        ),
+        // A DECLARED method still wins, so the handler is a fallback rather
+        // than an interception.
+        (
+            "class F { public fun known() { :declared } \
+             public fun method_missing(selector, args, block) { :caught } } F.new().known()",
+            Some(":declared"),
+        ),
+        // Control: a class declaring NO handler still refuses, so the fallback
+        // did not make every selector answer.
+        ("class G { } G.new().nope()", None),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error(
+                "MessageNotFound { receiver_class: \"G\", selector: \"nope\" }".to_owned(),
+            ),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

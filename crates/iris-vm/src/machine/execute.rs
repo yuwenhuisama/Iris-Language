@@ -1785,6 +1785,25 @@ impl Machine {
                                         iris_runtime::DispatchError::MissingMethod { .. }
                                     )
                                 ) {
+                                    // `C099` gives a class a last say through
+                                    // `method_missing(selector, args, block)`,
+                                    // reached only once ordinary dispatch found
+                                    // nothing - so a declared method still wins.
+                                    if let Some(value) = run_frame!(
+                                        'frame,
+                                        self.invoke_method_missing(
+                                            object,
+                                            &selector_name,
+                                            &arguments,
+                                            program,
+                                            classes,
+                                        )
+                                    ) {
+                                        if let Some(destination) = instruction.destination() {
+                                            registers[destination as usize] = value;
+                                        }
+                                        continue;
+                                    }
                                     return Err(MachineError::MessageNotFound {
                                         receiver_class: self
                                             .dispatch_class_name(program, classes, class),
