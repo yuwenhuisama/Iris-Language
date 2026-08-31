@@ -166,6 +166,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::IdentityError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IdentityError),
                 )),
+                Err(iris_vm::MachineError::KeyConflictError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::KeyConflictError),
+                )),
                 Err(iris_vm::MachineError::InvalidKeyError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::InvalidKeyError),
                 )),

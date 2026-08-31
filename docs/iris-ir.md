@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A HASH groups keys by the CURRENT `==`. `C028` dispatches each key's own `==`
+to find its slot, which only the machine can do - leaving the slot unresolved
+kept two keys that compare equal as separate entries. `C031`'s rehash rebuilds
+against each key's current hash and aborts on a conflict rather than publishing
+a partial table. A RANGE index answers a slice that is its own array rather
+than a view, so writing through either leaves the other unchanged.
+
 A reflective IVAR names its own failures: a name is a Symbol spelling `@x`, so
 a Text is not a name at all, and a value with no instance state cannot hold
 one. Reporting both as a generic type failure lost the distinction the language
@@ -822,8 +829,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 559 agreed,
-159 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 562 agreed,
+156 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

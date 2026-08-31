@@ -656,10 +656,25 @@ impl Machine {
                         // A HASH key must have a hash, and an object supplies
                         // its own - the array path indexes by position and has
                         // no key to validate.
-                        if matches!(target, Value::Hash(_)) {
+                        if let Value::Hash(entries) = &target {
                             self.validate_key(&key, program, classes)?;
+                            // `C028` dispatches each key's CURRENT `==` to find
+                            // the slot, which only the machine can do - so the
+                            // slot is resolved here and the store told where to
+                            // land. Leaving it unresolved kept two keys that
+                            // compare EQUAL as separate entries.
+                            let mut slot = None;
+                            for (index, (kept, _)) in entries.entries().iter().enumerate() {
+                                if self.key_equal(kept, &key, program, classes)? {
+                                    slot = Some(index);
+                                    break;
+                                }
+                            }
+                            entries.insert_at(slot, key, stored.clone());
+                            stored
+                        } else {
+                            self.set_index(target, key, stored)?
                         }
-                        self.set_index(target, key, stored)?
                     })
                 }
                 Instruction::BindMember {

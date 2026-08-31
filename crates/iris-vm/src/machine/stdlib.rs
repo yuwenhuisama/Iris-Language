@@ -1802,3 +1802,21 @@ impl Machine {
             .map_err(|_| MachineError::InvalidKeyError)
     }
 }
+
+impl Machine {
+    /// Reports whether two keys are EQUAL under the current equality.
+    ///
+    /// A rehash groups keys into equality classes, and an object decides its
+    /// own class through the `==` its class defines - so the comparison goes
+    /// through that rather than over representations.
+    pub(super) fn key_equal(
+        &mut self,
+        left: &Value,
+        right: &Value,
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<bool, MachineError> {
+        let equal = self.binary_send("==", left.clone(), right.clone(), program, classes)?;
+        Ok(matches!(equal, Value::Bool(true)))
+    }
+}

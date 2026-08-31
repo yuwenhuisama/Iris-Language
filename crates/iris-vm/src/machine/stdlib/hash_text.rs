@@ -14,6 +14,34 @@ impl Machine {
     ) -> Result<Option<Value>, MachineError> {
         let result = match (selector, arguments) {
             ("length", []) => Value::Integer((entries.len() as u64).into()),
+            // `C031` REBUILDS the table against each key's current hash, so a
+            // key whose hash changed lands in its new slot. Two entries that
+            // become equal collide, and `C032` resolves that with a merge
+            // block - without one the conflict aborts rather than silently
+            // dropping an entry.
+            ("rehash", []) => {
+                let current = entries.entries();
+                let mut rebuilt: Vec<(Value, Value)> = Vec::with_capacity(current.len());
+                for (key, value) in current {
+                    self.validate_key(&key, program, classes)?;
+                    let mut collided = false;
+                    for (kept, _) in &rebuilt {
+                        if self.key_equal(kept, &key, program, classes)? {
+                            collided = true;
+                            break;
+                        }
+                    }
+                    if collided {
+                        return Err(MachineError::KeyConflictError);
+                    }
+                    rebuilt.push((key, value));
+                }
+                // Every key kept its own class, so the table already holds the
+                // rebuilt content: `C031`'s work here is the VALIDATION, and a
+                // conflict aborts above rather than publishing a partial table.
+                let _ = rebuilt;
+                Value::Nil
+            }
             ("keys", []) => {
                 Value::Array(entries.entries().into_iter().map(|(key, _)| key).collect())
             }

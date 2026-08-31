@@ -92,6 +92,11 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// Two entries that COLLIDE into one equality class on a rehash.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C031` raises when previously distinct keys become
+    /// equal and no merge block was supplied to resolve them.
+    KeyConflictError,
     /// An ivar NAME that is not a Symbol spelling `@x`.
     InvalidInstanceVariableName,
     /// An ivar asked of a value that carries no INSTANCE STATE.

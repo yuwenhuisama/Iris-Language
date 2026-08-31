@@ -8143,3 +8143,62 @@ fn a_reflective_ivar_names_its_failures() {
         );
     }
 }
+
+/// A hash groups keys by the CURRENT `==`, and a range indexes a SLICE.
+///
+/// `IRIS-V1-COLLECTIONS-C028` dispatches each key's own `==` to find its slot,
+/// which only the machine can do - leaving the slot unresolved kept two keys
+/// that compare equal as separate entries. `C031` rebuilds against each key's
+/// current hash, and a range index answers a slice that is its OWN array
+/// rather than a view into the original.
+#[test]
+fn a_hash_groups_by_equality_and_a_range_slices() {
+    for (source, expected) in [
+        // Two keys that compare EQUAL are one entry.
+        (
+            "class K { public property n: Integer = 0 \
+             public fun ==(o: Object) -> Bool { true } \
+             public fun hash() -> Integer { @n } } \
+             module M { public fun run() -> Integer { mut h = %{}; h[K.new()] = 1; \
+             h[K.new()] = 2; h.length() } } M.run()",
+            "1",
+        ),
+        // A REHASH validates against the current hash and keeps the table.
+        (
+            "module M { public fun run() -> Integer { mut h = %{:a: 1}; h.rehash(); \
+             h.length() } } M.run()",
+            "1",
+        ),
+        // A SLICE is its own array: writing to the source leaves it unchanged.
+        (
+            "module M { public fun run() -> Array { mut a = [1,2,3]; let s = a[0 ..< 2]; \
+             a[0] = 9; s } } M.run()",
+            "[1, 2]",
+        ),
+        // An INCLUSIVE end names one more element than an exclusive one.
+        (
+            "module M { public fun run() -> Array { mut a = [1,2,3]; a[0 ..= 1] } } M.run()",
+            "[1, 2]",
+        ),
+        // Control: DISTINCT keys stay distinct, so grouping did not merge
+        // everything.
+        (
+            "module M { public fun run() -> Integer { mut h = %{}; h[:a] = 1; h[:b] = 2; \
+             h.length() } } M.run()",
+            "2",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

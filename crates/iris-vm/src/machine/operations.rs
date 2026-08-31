@@ -230,10 +230,21 @@ impl Machine {
     pub(super) fn index(&self, receiver: Value, index: Value) -> Result<Value, MachineError> {
         match receiver {
             Value::Array(values) => {
+                let elements = values.elements();
+                // A RANGE index answers a SLICE, and the slice is its own
+                // array rather than a view: writing through either one leaves
+                // the other unchanged, which is what `a[0 ..< 2]` then
+                // `a[0] = 9` observes.
+                if let Value::Range(range) = &index {
+                    return Ok(Value::Array(iris_runtime::ArrayRef::new(
+                        slice_bounds(range, elements.len())
+                            .map(|(from, to)| elements[from..to].to_vec())
+                            .unwrap_or_default(),
+                    )));
+                }
                 let Value::Integer(index) = index else {
                     return Err(MachineError::Kernel(KernelError::Type));
                 };
-                let elements = values.elements();
                 Ok(resolve_index(&index, elements.len())
                     .and_then(|index| elements.get(index).cloned())
                     .unwrap_or(Value::Nil))
@@ -395,4 +406,23 @@ fn identity_hash(value: &Value) -> Option<u64> {
         | Value::Closure(identity) => Some(identity.raw()),
         _ => None,
     }
+}
+
+/// The half-open bounds a RANGE names within a sequence of `length`.
+///
+/// An endpoint past the end is clamped rather than refused, and a start past
+/// the end names an empty slice - `C088` tags an inclusive end separately, so
+/// `0 ..= 1` and `0 ..< 2` name the same two elements.
+fn slice_bounds(range: &iris_runtime::RangeValue, length: usize) -> Option<(usize, usize)> {
+    let from = range
+        .start
+        .to_u64()
+        .and_then(|start| usize::try_from(start).ok())?;
+    let end = range
+        .end
+        .to_u64()
+        .and_then(|end| usize::try_from(end).ok())?;
+    let to = if range.inclusive_end { end + 1 } else { end };
+    let from = from.min(length);
+    Some((from, to.clamp(from, length)))
 }
