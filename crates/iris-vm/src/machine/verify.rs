@@ -92,6 +92,14 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// A run that consumed its STEP budget without terminating.
+    ///
+    /// A program may loop forever - `while true { }` with no reachable exit -
+    /// and a machine with no bound would hang instead of answering. The
+    /// reference charges a step per operation and fails the run when the
+    /// budget is gone, so the machine does the same: a non-terminating program
+    /// FAILS rather than never returning.
+    StepBudgetExhausted,
     /// A meta transaction the runtime refuses to REACTIVATE.
     ///
     /// `Reflection::Class.reactivate` names a revision that is no longer the

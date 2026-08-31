@@ -79,6 +79,13 @@ pub struct Machine {
     /// publishes its registers here while it runs, which is what makes a
     /// collection inside a body safe rather than unsound.
     frame_roots: Vec<Vec<Value>>,
+    /// Instructions the run may still execute.
+    ///
+    /// A machine with no bound HANGS on a program that never terminates, which
+    /// is worse than failing: a caller cannot tell a slow run from a stuck
+    /// one. The reference charges a step per operation and fails the run when
+    /// the budget is gone, so this matches that guarantee.
+    remaining_steps: u64,
     revision_event_errors: Vec<Value>,
     /// Whether `Revision.shutdown` closed delivery.
     ///
@@ -154,6 +161,7 @@ impl Machine {
             revision_history: Vec::new(),
             audit_sink: None,
             frame_roots: Vec::new(),
+            remaining_steps: STEP_BUDGET,
             revision_event_errors: Vec::new(),
             revision_delivery_closed: false,
             modules: Vec::new(),
@@ -206,6 +214,12 @@ impl Machine {
 /// Symbol. Returning `None` keeps a failure that names no such error - and
 /// every control-flow unwind - travelling to its own boundary instead of being
 /// intercepted by an unrelated handler.
+/// Instructions one run may execute before it is declared non-terminating.
+///
+/// The reference uses the same bound, so a program that exhausts it fails
+/// alike on both rather than hanging on one.
+const STEP_BUDGET: u64 = 1_000_000;
+
 pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
         MachineError::IndexError => Some("IndexError"),

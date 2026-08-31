@@ -137,6 +137,12 @@ impl Machine {
                     }
                 };
             }
+            // A run that never terminates would HANG here, so each instruction
+            // charges a step and the run fails once the budget is gone.
+            self.remaining_steps = self
+                .remaining_steps
+                .checked_sub(1)
+                .ok_or(MachineError::StepBudgetExhausted)?;
             let produced = match instruction {
                 Instruction::LoadInteger { digits, .. } => {
                     let Ok(number) = digits.parse() else {

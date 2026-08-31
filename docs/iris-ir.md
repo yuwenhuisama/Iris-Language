@@ -765,6 +765,20 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+COMPILING a program and AGREEING with the reference are different
+measurements, and the second is the load-bearing one. All 736 runnable corpus
+vectors compile; `measure_corpus_agreement` in
+`crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
+and reports how many answer alike. At the time of writing that is 493 agreed,
+226 disagreed, 17 held - so roughly a third of the vectors the machine ACCEPTS
+still answer something the language does not say. Coverage was never a
+correctness claim, and quoting it as one overstated the machine.
+
+A run that never terminates FAILS rather than hanging: each instruction charges
+a step against a budget the reference also uses, so a program that exhausts it
+answers alike on both. Without that bound a caller cannot tell a slow run from
+a stuck one.
+
 The machine has a user ENTRY POINT: `iris --vm <file>` runs a script on it,
 and a construct it does not cover is reported as refused rather than rerouted
 to the reference - falling back silently would report success for a program the

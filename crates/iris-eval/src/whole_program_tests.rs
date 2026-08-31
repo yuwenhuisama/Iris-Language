@@ -428,3 +428,91 @@ Main.run()
         "[2, 7, \"text\", 42]",
     );
 }
+
+/// Reports how many corpus vectors the two backends AGREE on.
+///
+/// Compiling a program proves only that the machine accepted it; agreement
+/// proves it answered what the language says. The two numbers are different
+/// measurements and this one is the load-bearing one.
+#[test]
+#[ignore = "measurement, run explicitly"]
+fn measure_corpus_agreement() {
+    let raw = std::fs::read_to_string("/tmp/srcs.tsv").unwrap_or_default();
+    let (mut agreed, mut disagreed, mut held, mut total) = (0_usize, 0_usize, 0_usize, 0_usize);
+    let mut seen = 0_usize;
+    let mut failures: Vec<String> = Vec::new();
+    for line in raw.lines() {
+        let Some((name, encoded)) = line.split_once('\t') else {
+            continue;
+        };
+        let Ok(bytes) = base64_decode(encoded) else {
+            continue;
+        };
+        let Ok(source) = String::from_utf8(bytes) else {
+            continue;
+        };
+        // Bound the sweep so one non-terminating program cannot hide the
+        // result for every other: the index is printed before the run, so a
+        // hang names itself.
+        let limit: usize = std::env::var("AGREE_LIMIT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(usize::MAX);
+        let skip: usize = std::env::var("AGREE_SKIP")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        seen += 1;
+        if seen <= skip || seen > skip + limit {
+            continue;
+        }
+        total += 1;
+        eprintln!("RUN {seen} {name}");
+        let guarded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compare_backends(&source, &[&Interpreter, &Bytecode])
+        }));
+        let Ok(outcome) = guarded else {
+            disagreed += 1;
+            if failures.len() < 400 {
+                failures.push(format!("{name}: PANIC"));
+            }
+            continue;
+        };
+        match outcome {
+            Agreement::Agreed { .. } => agreed += 1,
+            Agreement::Disagreed { observations } => {
+                disagreed += 1;
+                if failures.len() < 400 {
+                    failures.push(format!("{name}: {observations:?}"));
+                }
+            }
+            Agreement::Insufficient { .. } => held += 1,
+        }
+    }
+    println!("AGREE total={total} agreed={agreed} disagreed={disagreed} held={held}");
+    for failure in &failures {
+        println!("FAIL {failure}");
+    }
+}
+
+fn base64_decode(text: &str) -> Result<Vec<u8>, ()> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let mut buffer = 0_u32;
+    let mut bits = 0_u32;
+    for byte in text.trim().bytes() {
+        if byte == b'=' {
+            break;
+        }
+        let Some(index) = TABLE.iter().position(|candidate| *candidate == byte) else {
+            return Err(());
+        };
+        buffer = (buffer << 6) | index as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    Ok(out)
+}

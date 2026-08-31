@@ -184,6 +184,12 @@ pub(super) fn collect_signatures<'a>(
             // program depending on it fails.
             mixins.push(name.clone());
         }
+        // A REDECLARED module REPLACES the earlier one rather than merging
+        // with it: the reference answers MessageNotFound for the first
+        // declaration's method afterwards, so keeping both would answer a
+        // value the language does not have.
+        signatures.retain(|signature| signature.module != module.name);
+        modules.retain(|known: &crate::compile::ir::ModuleDeclaration| known.name != module.name);
         modules.push(crate::compile::ir::ModuleDeclaration {
             name: module.name.clone(),
             mixins,

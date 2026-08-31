@@ -7681,3 +7681,54 @@ fn print_renders_through_to_string() {
         );
     }
 }
+
+/// A run that never terminates FAILS rather than hanging.
+///
+/// A machine with no bound cannot tell a slow run from a stuck one, so each
+/// instruction charges a step and the run fails once the budget is gone - the
+/// reference charges the same way, so both answer alike. A REDECLARED module
+/// replaces the earlier one, and holding the name twice made the load-time
+/// ordering unsatisfiable, which hung before any budget could apply.
+#[test]
+fn a_non_terminating_program_fails() {
+    // `break` from inside a CLOSURE never reaches the enclosing loop, so this
+    // spins until the budget is gone.
+    let agreement = crate::backend::compare_backends(
+        "outer: while true { let c = { break outer } }",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("StepBudgetExhausted".to_owned())
+    );
+
+    // A DUPLICATE module declaration loads rather than hanging.
+    let agreement = crate::backend::compare_backends(
+        "module N { } module N { } 1",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("1".to_owned())
+    );
+
+    // Control: a loop that DOES terminate still answers, so the budget bounds
+    // a stuck run rather than a long one.
+    let agreement = crate::backend::compare_backends(
+        "mut n = 0; while n < 1000 { n = n + 1 }; n",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("[nil, 1000]".to_owned())
+    );
+}

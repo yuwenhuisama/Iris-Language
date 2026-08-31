@@ -157,6 +157,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::MetaTransactionError) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::MetaTransactionSuspension)),
                 ),
+                Err(iris_vm::MachineError::StepBudgetExhausted) => Support::Ran(
+                    Observation::Error(format!("{:?}", EvaluationError::StepBudgetExhausted)),
+                ),
                 Err(iris_vm::MachineError::AuditHistoryUnavailable) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::AuditHistoryUnavailable)),
                 ),

@@ -377,11 +377,16 @@ impl Machine {
         // A module is DECLARED, and also discovered from the names of its
         // functions - a module with methods but no declaration entry is still
         // registered, and one that only composes others still exists.
-        let mut module_names: Vec<String> = program
-            .modules
-            .iter()
-            .map(|declaration| declaration.name.clone())
-            .collect();
+        // A name is held ONCE: `module N { } module N { }` declares the same
+        // module twice, and a duplicate made the ordering loop below
+        // unsatisfiable - `ordered` holds each name once, so it could never
+        // reach a length that counted one name twice, and the run hung.
+        let mut module_names: Vec<String> = Vec::new();
+        for declaration in &program.modules {
+            if !module_names.contains(&declaration.name) {
+                module_names.push(declaration.name.clone());
+            }
+        }
         for declaration in &program.functions {
             let Some((module, _)) = declaration.name.split_once('.') else {
                 continue;
