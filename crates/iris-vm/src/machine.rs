@@ -254,6 +254,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::InvalidKeyError => Some("InvalidKeyError"),
         MachineError::KeyConflictError => Some("KeyConflictError"),
         MachineError::IdentityError => Some("IdentityError"),
+        MachineError::ImmutableBinding => Some("ImmutableBindingError"),
         MachineError::InvalidInstanceVariableName => Some("InvalidInstanceVariableNameError"),
         MachineError::InstanceStateError => Some("InstanceStateError"),
         MachineError::MetaTransactionError => Some("MetaTransactionError"),

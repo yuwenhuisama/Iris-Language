@@ -163,6 +163,9 @@ impl Backend for Bytecode {
                         EvaluationError::InvalidInstanceVariableName
                     )))
                 }
+                Err(iris_vm::MachineError::ImmutableBinding) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::ImmutableBinding),
+                )),
                 Err(iris_vm::MachineError::IdentityError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IdentityError),
                 )),

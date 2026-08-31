@@ -8818,3 +8818,52 @@ fn a_builtin_class_constructs() {
         );
     }
 }
+
+/// Only a `mut` binding may be WRITTEN, per `IRIS-V1-CONTROL-C009`.
+///
+/// `let`, a parameter and a loop variable are immutable, so a write to one
+/// names a place the program cannot change - the reference raises when the
+/// write RUNS rather than refusing the program statically. A DEFERRED binding
+/// is the exception: it is declared without a value and its first write is
+/// what supplies one.
+#[test]
+fn only_a_mut_binding_is_written() {
+    for (source, expected) in [
+        // A `let` binding, a PARAMETER and a loop variable each refuse.
+        (
+            "module M { public fun run() -> Object { let a = 1; a = 2; a } } M.run()",
+            None,
+        ),
+        (
+            "module M { public fun f(x) -> Object { x = 2; x } } M.f(1)",
+            None,
+        ),
+        (
+            "module M { public fun run() -> Object { mut t = 0; \
+             for i in [1,2] { i = 9; t = t + i }; t } } M.run()",
+            None,
+        ),
+        // Controls: a `mut` binding writes, locally and at program level.
+        (
+            "module M { public fun run() -> Object { mut a = 1; a = 2; a } } M.run()",
+            Some("2"),
+        ),
+        (
+            "mut g = 1; module M { public fun run() -> Object { g = 2; g } } M.run()",
+            Some("2"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("ImmutableBinding".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

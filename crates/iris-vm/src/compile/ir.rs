@@ -404,6 +404,14 @@ pub enum Instruction {
     RaiseArgumentError {
         destination: Register,
     },
+    /// Fails a write to a binding that is not `mut`.
+    ///
+    /// `IRIS-V1-CONTROL-C009` makes `let`, a parameter and a loop variable
+    /// immutable, and the reference raises when the WRITE runs rather than
+    /// refusing the program statically.
+    RaiseImmutableBinding {
+        destination: Register,
+    },
     /// Fails a generic MATERIALIZATION, per `IRIS-V1-TYPES-C067`.
     ///
     /// A `where T: SomeContract` bound is checked when the class is
@@ -858,9 +866,9 @@ impl Instruction {
             | Self::BindParameters { destination, .. } => Some(*destination),
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
-            Self::RaiseTypeContract { destination } | Self::RaiseArgumentError { destination } => {
-                Some(*destination)
-            }
+            Self::RaiseTypeContract { destination }
+            | Self::RaiseImmutableBinding { destination }
+            | Self::RaiseArgumentError { destination } => Some(*destination),
             Self::DestructureElement { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
                 Some(*destination)

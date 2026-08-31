@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+Only a `mut` binding may be WRITTEN. `C009` makes `let`, a parameter and a loop
+variable immutable, so a write to one names a place the program cannot change -
+the reference raises when the write runs rather than refusing the program
+statically. A DEFERRED binding is the exception: it is declared without a value
+and its first write is what supplies one.
+
 A REDEFINITION needs `override`. `C024` forbids an overload set: one complete
 selector maps to at most one method per revision, so a second declaration
 replaces the first and must say so. A reopen is a meta operation on a class
@@ -911,8 +917,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 596 agreed,
-128 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 600 agreed,
+124 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -516,6 +516,9 @@ impl Machine {
                 Instruction::RaiseArgumentError { .. } => {
                     dispatch!(Err(MachineError::ArgumentError)?)
                 }
+                Instruction::RaiseImmutableBinding { .. } => {
+                    dispatch!(Err(MachineError::ImmutableBinding)?)
+                }
                 Instruction::Binary {
                     selector,
                     left,

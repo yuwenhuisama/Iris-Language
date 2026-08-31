@@ -692,7 +692,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         return Ok(destination);
                     };
                     if !binding.shared {
-                        return Err(CompileError::new("name assignment immutable"));
+                        // The reference RAISES when the write runs rather than
+                        // refusing the program, so the backend answers a
+                        // program that raises it.
+                        let destination = self.allocate()?;
+                        self.instructions
+                            .push(Instruction::RaiseImmutableBinding { destination });
+                        return Ok(destination);
                     }
                     let source = self.expression(right)?;
                     let destination = self.allocate()?;
@@ -703,6 +709,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 };
+                // `C009` makes `let`, a parameter and a loop variable
+                // IMMUTABLE, so only a `mut` binding may be written. A
+                // DEFERRED binding is the exception: it is declared without a
+                // value and its first write is what supplies one.
+                if !binding.shared && binding.assigned.is_none() {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseImmutableBinding { destination });
+                    return Ok(destination);
+                }
                 let source = self.expression(right)?;
                 let destination = binding.register;
                 if binding.shared {

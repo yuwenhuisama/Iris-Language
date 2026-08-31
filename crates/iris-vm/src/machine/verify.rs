@@ -92,6 +92,12 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// A write to a binding that is not `mut`.
+    ///
+    /// `IRIS-V1-CONTROL-C009` makes `let`, a parameter and a loop variable
+    /// IMMUTABLE, so only a `mut` binding may be assigned - a write to any
+    /// other names a place the program cannot change.
+    ImmutableBinding,
     /// Two entries that COLLIDE into one equality class on a rehash.
     ///
     /// `IRIS-V1-COLLECTIONS-C031` raises when previously distinct keys become
@@ -669,6 +675,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::RaiseUnsupported { .. }
         | Instruction::RaiseNameError { .. }
         | Instruction::RaiseTypeContract { .. }
+        | Instruction::RaiseImmutableBinding { .. }
         | Instruction::RaiseArgumentError { .. }
         | Instruction::RaiseParseDiagnostic { .. }
         | Instruction::RaiseLoopTransfer { .. }
