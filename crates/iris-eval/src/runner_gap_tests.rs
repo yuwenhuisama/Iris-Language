@@ -8202,3 +8202,53 @@ fn a_hash_groups_by_equality_and_a_range_slices() {
         );
     }
 }
+
+/// A `mixin` may name a CLASS, which contributes its methods.
+///
+/// The reference answers `:A` for a method only the mixed-in class declares,
+/// so a class composes the way a module does - a module is registered for it
+/// on first use, giving the MRO one identity per named class. The composing
+/// class still wins for a selector it declares itself.
+#[test]
+fn a_mixin_may_name_a_class() {
+    for (source, expected) in [
+        // A method only the mixed-in class declares is reachable.
+        (
+            "class A { public fun only_a() { :A } }; class B mixin A { }; B.new().only_a()",
+            ":A",
+        ),
+        // The COMPOSING class wins for a selector it declares itself.
+        (
+            "class A { public fun trace() { :A } }; \
+             class B mixin A { public fun trace() { :B } }; B.new().trace()",
+            ":B",
+        ),
+        // Control: a MODULE mixin still composes, so naming a class did not
+        // displace the ordinary form.
+        (
+            "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } A.new().h()",
+            "8",
+        ),
+        // Control: with TWO module mixins the later one wins, so the MRO order
+        // is unchanged.
+        (
+            "module Mo { public fun h() -> Integer { 1 } } \
+             module Mp { public fun h() -> Integer { 2 } } \
+             class A mixin Mo, Mp { } A.new().h()",
+            "2",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

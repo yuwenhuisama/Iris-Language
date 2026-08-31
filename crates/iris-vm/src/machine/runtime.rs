@@ -490,10 +490,41 @@ impl Machine {
             // edge rather than being dropped at the name.
             let mut modules = Vec::with_capacity(declaration.mixins.len());
             for (name, private_access) in &declaration.mixins {
-                let Some((_, module)) = self.modules.iter().find(|(known, _)| known == name) else {
-                    return Err(MachineError::NameError);
+                // A mixin may name a CLASS rather than a module, and the class
+                // then contributes its methods the way a module does - the
+                // reference answers `:A` for a method only the mixed-in class
+                // declares. A module is registered for it on first use, so the
+                // MRO carries one identity per named class.
+                let module = match self.modules.iter().find(|(known, _)| known == name) {
+                    Some((_, module)) => *module,
+                    None => {
+                        let Some(source) = program.classes.iter().find(|class| class.name == *name)
+                        else {
+                            return Err(MachineError::NameError);
+                        };
+                        let module = self
+                            .runtime
+                            .registry_mut()
+                            .define_module(&[])
+                            .map_err(MachineError::Class)?;
+                        for (selector, function) in &source.methods {
+                            let selector = selector_id(program, selector)
+                                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                            self.runtime
+                                .registry_mut()
+                                .define_module_method(
+                                    module,
+                                    selector,
+                                    MethodBody::new(*function as u64),
+                                    Visibility::Public,
+                                )
+                                .map_err(MachineError::Class)?;
+                        }
+                        self.modules.push((name.clone(), module));
+                        module
+                    }
                 };
-                modules.push(iris_runtime::CompositionEdge::new(*module, *private_access));
+                modules.push(iris_runtime::CompositionEdge::new(module, *private_access));
             }
             let class = self
                 .runtime
