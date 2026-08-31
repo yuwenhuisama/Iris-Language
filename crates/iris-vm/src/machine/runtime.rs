@@ -540,6 +540,18 @@ impl Machine {
                 .registry_mut()
                 .begin_origin_transaction(class)
                 .map_err(MachineError::Class)?;
+            // `C024` forbids an OVERLOAD SET, so a second declaration of one
+            // selector replaces the first and must write `override`. The
+            // refusal is raised here rather than at compile time, because the
+            // class identity it names exists only once the class is defined.
+            if let Some(selector) = declaration.override_required.first() {
+                let selector = selector_id(program, selector)
+                    .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                return Err(MachineError::Class(ClassError::OverrideRequired {
+                    class,
+                    selector,
+                }));
+            }
             for (selector, function) in &declaration.methods {
                 // `C077` refuses a private method from every path but the
                 // declaring class, so the declared visibility is published -
@@ -729,8 +741,11 @@ impl Machine {
         class: ClassId,
         object: iris_runtime::ObjectId,
     ) -> Result<(), MachineError> {
+        // A BUILT-IN class has no declaration entry, so it declares no stored
+        // property and there is nothing to initialize - `Object.new()` is an
+        // ordinary construction rather than a class the program never named.
         let Some(index) = classes.iter().position(|known| *known == class) else {
-            return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+            return Ok(());
         };
         // A SUPERCLASS initializes its own properties first, which is the
         // order the reference produces: `[:base, :child]` rather than the

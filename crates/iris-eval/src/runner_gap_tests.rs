@@ -8736,3 +8736,85 @@ fn a_bare_module_name_is_a_value() {
         );
     }
 }
+
+/// A REDEFINITION needs `override`, per `IRIS-V1-RUNTIME-C024`.
+///
+/// One complete selector maps to at most one method per revision - there is no
+/// overload set - so a second declaration REPLACES the first and must say so.
+/// A reopen is a meta operation on a class that already holds the selector and
+/// is checked; an origin declaration is a static fact and passes, which is why
+/// a duplicate inside ONE body is checked while the first declaration is not.
+#[test]
+fn a_redefinition_needs_override() {
+    for (source, expected) in [
+        // A duplicate inside one body, distinguished only by parameter type -
+        // which is an overload set the language does not have.
+        (
+            "class A { public fun m(x: Integer) -> Symbol { :integer } \
+             public fun m(x: String) -> Symbol { :string } }",
+            None,
+        ),
+        // A REOPEN replacing what the origin declared.
+        (
+            "class A { public fun m() { :old } }; open class A { public fun m() { :new } }",
+            None,
+        ),
+        // Control: writing `override` publishes the replacement.
+        (
+            "class A { public fun m() -> Symbol { :old } }; \
+             open class A { override public fun m() -> Symbol { :new } } A.new().m()",
+            Some(":new"),
+        ),
+        // Control: a reopen adding a NEW selector replaces nothing.
+        (
+            "class A { public fun m() -> Symbol { :m } }; \
+             open class A { public fun other() -> Symbol { :other } } A.new().other()",
+            Some(":other"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error(
+                "Class(OverrideRequired { class: ClassId(7), selector: Selector(_) })".to_owned(),
+            ),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}
+
+/// A BUILT-IN class constructs like any other.
+///
+/// It has no declaration entry, so it declares no stored property and there is
+/// nothing to initialize - requiring an entry reported `Object.new()` as a
+/// class the program never named.
+#[test]
+fn a_builtin_class_constructs() {
+    for (source, expected) in [
+        ("Object.new()", "<object>"),
+        // The constructed object takes part in ordinary comparisons.
+        ("nil < Object.new()", "false"),
+        // Control: a DECLARED class still initializes its properties, so
+        // skipping the lookup for built-ins did not skip the work.
+        ("class A { property n: Integer = 7 } A.new().n", "7"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

@@ -617,9 +617,32 @@ fn collect_class<'a>(
         .filter(|signature| signature.private)
         .map(|signature| signature.selector.to_owned())
         .collect();
+    // `C024` forbids an OVERLOAD SET: one selector maps to at most one method
+    // per revision, so a second declaration of a selector REPLACES the first
+    // and must write `override` to say so. A declaration that does not is
+    // recorded here and refused at load, where the class identity the failure
+    // names exists.
+    let mut override_required = Vec::new();
+    let mut declared: Vec<(iris_syntax::MethodKind, &str)> = Vec::new();
+    for statement in &class.body {
+        let Statement::Method(method) = statement else {
+            continue;
+        };
+        // A QUALIFIED `impl fun C::m()` lives in the contract's view rather
+        // than the class's own table, so it replaces nothing there.
+        if matches!(method.impl_contract, Some(Some(_))) {
+            continue;
+        }
+        let seen = (method.kind, method.selector.as_str());
+        if declared.contains(&seen) && !method.is_override {
+            override_required.push(method.selector.clone());
+        }
+        declared.push(seen);
+    }
     classes.push(Class {
         name: class.name.clone(),
         private_methods,
+        override_required,
         generic: !class.parameters.is_empty(),
         superclass,
         methods,
@@ -709,6 +732,33 @@ fn collect_reopen<'a>(
         classes[target]
             .mixins
             .push((name.clone(), mixin.private_access));
+    }
+    // A REOPEN replaces what the origin declared, so `C024` requires
+    // `override` there too: the origin is a static fact and passes unchecked,
+    // while a reopen is a meta operation on a class that already has the
+    // selector. The check names the class the reopen targets.
+    for statement in &class.body {
+        let Statement::Method(method) = statement else {
+            continue;
+        };
+        if matches!(method.impl_contract, Some(Some(_))) || method.is_override {
+            continue;
+        }
+        let replaces = match method.kind {
+            iris_syntax::MethodKind::Class => classes[target]
+                .class_methods
+                .iter()
+                .any(|(name, _)| *name == method.selector),
+            _ => classes[target]
+                .methods
+                .iter()
+                .any(|(name, _)| *name == method.selector),
+        };
+        if replaces {
+            classes[target]
+                .override_required
+                .push(method.selector.clone());
+        }
     }
     let first_function = signatures.len();
     collect_methods(&class.name, &class.body, true, signatures)?;

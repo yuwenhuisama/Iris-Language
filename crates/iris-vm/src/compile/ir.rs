@@ -1017,6 +1017,13 @@ pub(crate) struct Class {
     /// or a module composed with `private` access - so the marker has to reach
     /// the registry rather than being dropped at the declaration.
     pub(crate) private_methods: Vec<String>,
+    /// Selectors this class REPLACES without writing `override`.
+    ///
+    /// `IRIS-V1-RUNTIME-C024` forbids an overload set: one selector maps to at
+    /// most one method per revision, so a second declaration replaces the
+    /// first and must say so. The check is recorded here and raised at load,
+    /// where the class identity the failure names exists.
+    pub(crate) override_required: Vec<String>,
     pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,

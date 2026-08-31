@@ -226,6 +226,13 @@ impl Backend for Bytecode {
                         EvaluationError::LoopBreak(None, iris_runtime::Value::Nil)
                     )))
                 }
+                // A CLASS-level refusal - a replacement needing `override`, a
+                // duplicate class variable - is an ordinary observation the
+                // reference spells the same way, so it is reported rather than
+                // treated as a defect in the machine.
+                Err(iris_vm::MachineError::Class(error)) => Support::Ran(Observation::Error(
+                    normalize_error(&format!("{:?}", EvaluationError::Class(error))),
+                )),
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
                 }
