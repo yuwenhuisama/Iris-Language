@@ -227,6 +227,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
         MachineError::InvalidKeyError => Some("InvalidKeyError"),
+        MachineError::IdentityError => Some("IdentityError"),
         MachineError::MetaTransactionError => Some("MetaTransactionError"),
         // `C077` names the visibility failure, and `V434` observes a private
         // call being refused from every path but the declaring class.

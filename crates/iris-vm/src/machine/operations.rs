@@ -192,16 +192,24 @@ impl Machine {
             (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {
                 left == right
             }
-            // `same?` asks whether two references name ONE value, which these
-            // families answer for themselves rather than by content.
+            // `same?` asks whether two references name ONE value, so only a
+            // family with a REFERENCE answers it. A Symbol, a Text or an
+            // Integer is a value with no identity of its own, and answering
+            // by content made `:t same? :t` true where the language refuses
+            // the question entirely.
             (Value::MutableString(left), Value::MutableString(right)) => left.same(right),
-            (Value::Symbol(left), Value::Symbol(right)) => left == right,
-            (Value::Text(left), Value::Text(right)) => left == right,
-            (Value::Integer(left), Value::Integer(right)) => left == right,
-            (Value::Regex(left), Value::Regex(right)) => {
-                left.pattern == right.pattern && left.flags == right.flags
-            }
-            _ => return Err(MachineError::Kernel(KernelError::Identity)),
+            (Value::Closure(left), Value::Closure(right)) => left == right,
+            (Value::ArrayIterator(left), Value::ArrayIterator(right)) => left == right,
+            (Value::HashIterator(left), Value::HashIterator(right)) => left == right,
+            (Value::ByteIterator(left), Value::ByteIterator(right)) => left == right,
+            (Value::Generator(left), Value::Generator(right)) => left == right,
+            (Value::Task(left), Value::Task(right)) => left == right,
+            (Value::Gate(left), Value::Gate(right)) => left == right,
+            // `C029` accepts only identity-BEARING operands, so an
+            // identity-less value raises rather than being compared by
+            // content. A contract VIEW is identity-less too: `C050` makes it a
+            // capability rather than a value with its own identity.
+            _ => return Err(MachineError::IdentityError),
         };
         Ok(Value::Bool(same))
     }

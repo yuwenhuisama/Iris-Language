@@ -148,3 +148,21 @@ Each outcome is recorded in `docs/spec-defects-v1.md`.
   the pause, so the constant simply stays in scope. Recorded rather than
   matched, for the same reason as the prefix replay: reproducing it would mean
   copying an artefact of the reference's strategy.
+
+## `same?` spells one refusal two ways in the reference
+
+`IRIS-V1-RUNTIME-C029` accepts only identity-BEARING operands for `same?`, so
+an identity-less value raises. The reference agrees on that, but names the
+refusal differently depending on which of its two evaluators ran the program:
+
+    "s" same? "s"                 answers Runtime(Identity)
+    class Z {} "s" same? "s"      answers IdentityError
+
+The only difference is the declaration, which routes the program to the source
+evaluator rather than the simple one. The rule is the same in both, and no
+clause distinguishes them, so this is an artefact of the reference having two
+paths rather than a fact about the language.
+
+The backend raises `IdentityError` for both, since that is what the corpus
+vectors observe. Recorded rather than imitated: reproducing the split would
+mean copying the shape of the reference's implementation into a second one.

@@ -92,6 +92,12 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// An identity question asked of an identity-LESS value.
+    ///
+    /// `IRIS-V1-RUNTIME-C029` accepts only identity-bearing operands for
+    /// `same?`, so a Text, a Symbol, a Tuple or a numeric raises rather than
+    /// being compared by content - the question has no answer for them.
+    IdentityError,
     /// A value with no specification-stable hash, per `IRIS-V1-COLLECTIONS-C087`.
     ///
     /// An Array or a Hash has no such hash, so asking for one is a KEY failure

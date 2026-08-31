@@ -901,7 +901,11 @@ impl Machine {
                     }
                 }
                 Instruction::Identity { left, right, .. } => {
-                    self.identity(&registers[*left as usize], &registers[*right as usize])?
+                    // An identity-LESS operand raises rather than being
+                    // compared, and the refusal is catchable like any other.
+                    dispatch!(
+                        self.identity(&registers[*left as usize], &registers[*right as usize])?
+                    )
                 }
                 Instruction::TypeTest { value, target, .. } => {
                     self.type_test(&registers[*value as usize], &registers[*target as usize])?

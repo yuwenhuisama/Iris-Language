@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+`same?` asks whether two references name ONE value. `C029` accepts only
+identity-BEARING operands, so a Text, a Symbol, a Tuple or a numeric raises
+rather than being compared by content - the question has no answer for a value
+with no identity of its own, and answering by content made `:t same? :t` true
+where the language refuses the question entirely.
+
 A BUILT-IN class answers its own CONSTANTS: `Float64.nan` and
 `Float32.infinity` are read as bare members rather than called, so they are
 consulted before a class's declared variables. `Integer(x)` and `Float64(x)`
@@ -788,8 +794,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 530 agreed,
-188 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 540 agreed,
+178 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

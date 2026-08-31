@@ -7873,3 +7873,47 @@ fn builtin_constants_and_numeric_conversions_answer() {
         &crate::backend::Observation::Error("Runtime(Type)".to_owned())
     );
 }
+
+/// `same?` asks whether two references name ONE value.
+///
+/// `IRIS-V1-RUNTIME-C029` accepts only identity-BEARING operands, so a Text, a
+/// Symbol or a numeric raises rather than being compared by content - the
+/// question has no answer for a value with no identity of its own. Answering
+/// by content made `:t same? :t` true where the language refuses the question
+/// entirely.
+#[test]
+fn same_asks_identity_rather_than_content() {
+    for (source, expected) in [
+        // A closure and a mutable string DO have identity.
+        (
+            "let a = { 1 }; [a same? a, a same? { 1 }]",
+            Some("[true, false]"),
+        ),
+        (
+            "module M { public fun run() -> Object { let m = m\"x\"; \
+             [m.same?(m), m.same?(m\"x\")] } } M.run()",
+            Some("[true, false]"),
+        ),
+        // An identity-LESS value refuses the question.
+        ("class Z {} let a = :t; a same? :t", None),
+        ("class Z {} let a = \"s\"; a same? \"s\"", None),
+        // A declaration is written so the program travels the reference's
+        // SOURCE evaluator: its simple path spells this same refusal
+        // `Runtime(Identity)`, a reference-side discrepancy recorded in
+        // `docs/owner-decisions-pending.md` rather than imitated here.
+        ("class Z {} (1, 2) same? (1, 2)", None),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("IdentityError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}
