@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A BUILT-IN class answers its own CONSTANTS: `Float64.nan` and
+`Float32.infinity` are read as bare members rather than called, so they are
+consulted before a class's declared variables. `Integer(x)` and `Float64(x)`
+are numeric CONVERSIONS rather than constructors - an Integer stays itself and
+widens to Float64, while a Text spelling is not a conversion the language
+defines and stays a MessageNotFound the caller can catch.
+
 Every value family answers the UNIVERSAL selectors. `C087` fixes a
 specification-stable hash per family and `C091` gives each its own equality,
 but the kernel installs those selectors only on its own classes - so a Symbol,
@@ -781,8 +788,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 521 agreed,
-197 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 530 agreed,
+188 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

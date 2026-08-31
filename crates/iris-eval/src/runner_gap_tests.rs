@@ -7821,3 +7821,55 @@ fn every_value_family_answers_the_universal_selectors() {
         );
     }
 }
+
+/// A BUILT-IN class answers its own constants, and `Integer(x)` CONVERTS.
+///
+/// `Float64.nan` and `Float32.infinity` are read as bare members rather than
+/// called, so they are consulted before a class's declared variables - the
+/// kernel decides them. `Integer(x)` and `Float64(x)` are numeric conversions
+/// rather than constructors: an Integer stays itself and widens to Float64,
+/// while a Text spelling is not a conversion the language defines and stays a
+/// MessageNotFound the caller can catch.
+#[test]
+fn builtin_constants_and_numeric_conversions_answer() {
+    for (source, expected) in [
+        (
+            "[Float64.nan.is_nan(), Float64.infinity.is_infinite()]",
+            "[true, true]",
+        ),
+        // NaN is unequal to itself, which is what makes the constant real
+        // rather than a stand-in value.
+        ("Float64.nan == Float64.nan", "false"),
+        ("Integer(1)", "1"),
+        ("Float64(2) > 1.0f64", "true"),
+        // A Text spelling is NOT a conversion, and the refusal is catchable.
+        ("try { Integer(\"x\") } catch e { e }", ":MessageNotFound"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+
+    // Control: a NON-numeric operand is a type failure rather than a silent
+    // conversion, so the check rejects rather than guessing.
+    let agreement = crate::backend::compare_backends(
+        "Integer(nil)",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("Runtime(Type)".to_owned())
+    );
+}

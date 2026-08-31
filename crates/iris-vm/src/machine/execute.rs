@@ -790,6 +790,19 @@ impl Machine {
                                         selector: selector.clone(),
                                     });
                                 };
+                                // A BUILT-IN class answers its own constants -
+                                // `Float64.nan`, `Float32.infinity` - which the
+                                // kernel decides. They are read as bare MEMBERS
+                                // rather than called, so they are consulted
+                                // before the class's declared variables.
+                                if matches!(selector.as_str(), "nan" | "infinity")
+                                    && let Ok(value) = self.send(selector, Value::Class(class), &[])
+                                {
+                                    if let Some(destination) = instruction.destination() {
+                                        registers[destination as usize] = value;
+                                    }
+                                    continue;
+                                }
                                 // A name the Class does not declare is a
                                 // message it does not answer, so the failure
                                 // names the class and selector rather than
@@ -1369,12 +1382,38 @@ impl Machine {
                     // `try` around `Integer("42")` miss a refusal the
                     // reference hands to the catch.
                     let Some(callee) = callee else {
-                        dispatch!({
-                            Err(MachineError::MessageNotFound {
-                                receiver_class: "Symbol".to_owned(),
-                                selector: name.clone(),
-                            })?
-                        });
+                        // `Integer(x)` and `Float64(x)` are NUMERIC conversions
+                        // rather than constructors: an Integer stays itself and
+                        // widens to Float64, while a Text spelling is not a
+                        // conversion the language defines at all and stays a
+                        // MessageNotFound. Anything else is a type failure.
+                        let start = *first as usize;
+                        let operands = &registers[start..start + *count as usize];
+                        let converted = match (name.as_str(), operands) {
+                            ("Integer", [Value::Integer(value)]) => {
+                                Some(Value::Integer(value.clone()))
+                            }
+                            ("Float64", [Value::Integer(value)]) => {
+                                value.decimal_text().parse::<f64>().ok().map(Value::Float64)
+                            }
+                            (_, [Value::Text(_)]) => None,
+                            _ => {
+                                dispatch!(Err(MachineError::Kernel(KernelError::Type))?);
+                                continue;
+                            }
+                        };
+                        let Some(converted) = converted else {
+                            dispatch!({
+                                Err(MachineError::MessageNotFound {
+                                    receiver_class: "Symbol".to_owned(),
+                                    selector: name.clone(),
+                                })?
+                            });
+                            continue;
+                        };
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = converted;
+                        }
                         continue;
                     };
                     let Value::BoundMethod(bound) = registers[*callee as usize].clone() else {
