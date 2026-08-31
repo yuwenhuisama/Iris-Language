@@ -609,6 +609,25 @@ impl Machine {
                 }
                 Some(Value::Nil)
             }
+            // `C119` makes `A.method(:f)` and the reflective call ONE surface,
+            // so the direct form answers the same Method value rather than
+            // reporting the selector absent.
+            Value::Class(class)
+                if selector == "method" && matches!(arguments, [Value::Symbol(_)]) =>
+            {
+                let [Value::Symbol(name)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                let Some(slot) = selector_id(program, name) else {
+                    return Err(MachineError::UnknownSelector(name.clone()));
+                };
+                match self.runtime.registry().dispatch(*class, slot) {
+                    Ok(iris_runtime::DispatchOutcome::Invoke(method)) => {
+                        Some(Value::Method(method))
+                    }
+                    _ => Some(Value::Nil),
+                }
+            }
             Value::Class(class) if selector == "contracts" && arguments.is_empty() => {
                 let declared = classes
                     .iter()

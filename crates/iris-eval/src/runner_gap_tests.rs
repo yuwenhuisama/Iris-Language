@@ -8438,3 +8438,43 @@ fn a_mutable_string_appends_in_place() {
         );
     }
 }
+
+/// `A.method(:f)` and the reflective call are ONE surface.
+///
+/// `C119` makes the direct form answer the same Method value the reflective
+/// one does, rather than reporting the selector absent - a class answered
+/// `Reflection::Class.method(A, :f)` while refusing `A.method(:f)` for the
+/// same method.
+#[test]
+fn a_class_answers_method_directly() {
+    for (source, expected) in [
+        (
+            "class A { public fun f(value) { value } } \
+             [A.method(:f).parameters, A.method(:f).return_type]",
+            "[[:Dynamic<Object>], :Dynamic<Object>]",
+        ),
+        // The REFLECTIVE form answers alike, which is what makes them one
+        // surface rather than two implementations.
+        (
+            "class A { public fun f(value) { value } } \
+             Reflection::Class.method(A, :f).parameters",
+            "[:Dynamic<Object>]",
+        ),
+        // Control: a selector the class does NOT declare answers nil rather
+        // than a method, so the lookup still reports absence.
+        ("class A { } A.method(:absent)", "nil"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
