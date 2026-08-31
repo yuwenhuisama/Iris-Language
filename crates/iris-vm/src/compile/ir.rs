@@ -223,6 +223,16 @@ pub enum Instruction {
         first: Register,
         count: u16,
     },
+    /// Guards an ANNOTATED binding or parameter, per `IRIS-V1-TYPES-C004`.
+    ///
+    /// `let s: String = 1` is a type failure the reference raises when the
+    /// binding runs, so the annotation is a runtime guarantee rather than
+    /// discarded metadata. It shares `CheckReturn`'s admission rule: an
+    /// annotation the backend cannot decide admits every value.
+    CheckAnnotation {
+        value: Register,
+        annotation: iris_syntax::TypeExpression,
+    },
     /// Guards the RETURN boundary, per `IRIS-V1-TYPES-C004`.
     ///
     /// A declared return Type is checked before the value is published to the
@@ -819,7 +829,9 @@ impl Instruction {
             Self::MakeRegex { destination, .. } | Self::EscapeRegex { destination, .. } => {
                 Some(*destination)
             }
-            Self::ApplyReopen { .. } | Self::CheckReturn { .. } => None,
+            Self::ApplyReopen { .. } | Self::CheckReturn { .. } | Self::CheckAnnotation { .. } => {
+                None
+            }
             Self::NativeFixture { destination, .. } | Self::Print { destination, .. } => {
                 Some(*destination)
             }

@@ -19,11 +19,17 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 value,
                 ..
             } => {
-                // Static analysis has already validated the annotation. The VM
-                // stores the same runtime value either way, so declining here
-                // discarded type metadata without adding a runtime guarantee.
-                let _ = annotation;
+                // `C004` makes an annotated binding a GUARDED boundary, so
+                // `let s: String = 1` raises when the binding runs. Treating
+                // the annotation as static metadata answered the value instead
+                // of the failure the language states.
                 let value = self.expression(value)?;
+                if let Some(annotation) = annotation {
+                    self.instructions.push(Instruction::CheckAnnotation {
+                        value,
+                        annotation: annotation.clone(),
+                    });
+                }
                 // A rebinding SHADOWS rather than overwrites: the earlier
                 // register may still be read by a closure or an earlier
                 // instruction, so reusing it would corrupt that read.

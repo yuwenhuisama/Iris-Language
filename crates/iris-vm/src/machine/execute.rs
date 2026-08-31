@@ -325,6 +325,13 @@ impl Machine {
                     let pattern = pattern.clone();
                     dispatch!(Self::make_regex(&pattern, flags)?)
                 }
+                Instruction::CheckAnnotation { value, annotation } => {
+                    let value = registers[*value as usize].clone();
+                    if !self.annotation_admits(&value, annotation, program, classes)? {
+                        dispatch!(Err(MachineError::TypeContractError)?);
+                    }
+                    continue;
+                }
                 Instruction::CheckReturn { value, annotation } => {
                     let value = registers[*value as usize].clone();
                     if !self.annotation_admits(&value, annotation, program, classes)? {

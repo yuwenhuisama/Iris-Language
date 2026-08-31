@@ -7969,3 +7969,48 @@ fn a_call_supplies_a_count_the_signature_binds() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// An ANNOTATED binding or parameter is a guarded boundary.
+///
+/// `IRIS-V1-TYPES-C004` makes `let s: String = 1` a type failure raised when
+/// the binding runs, so the annotation is a runtime guarantee rather than
+/// discarded metadata - treating it as static answered the value instead of
+/// the failure. `Dynamic<T>` admits what T admits: the wrapper defers the
+/// check rather than removing it.
+#[test]
+fn an_annotated_boundary_is_guarded() {
+    for (source, expected) in [
+        // A BINDING whose value the annotation excludes.
+        (
+            "class A { public fun f() -> Object { let s: String = 1; s } } A.new().f()",
+            None,
+        ),
+        // A PARAMETER, checked as the frame starts.
+        (
+            "class A { public fun f(x: Integer) -> Object { x } } A.new().f(\"s\")",
+            None,
+        ),
+        ("let value: Dynamic<String> = 1; value", None),
+        // Controls: a value the annotation ADMITS still binds, and an
+        // annotation that decides nothing narrows nothing.
+        (
+            "class A { public fun f() -> Object { let s: String = \"x\"; s } } A.new().f()",
+            Some("\"x\""),
+        ),
+        ("let value: Dynamic<String> = \"s\"; value", Some("\"s\"")),
+        ("let value: Dynamic<Object> = 1; value", Some("1")),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("TypeContractError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

@@ -120,6 +120,22 @@ pub(super) fn lower_function(
             index,
         });
     }
+    // `C004` guards an ANNOTATED parameter the way it guards a binding, so a
+    // call passing a value the annotation excludes raises when the frame
+    // starts rather than running the body with it.
+    for (index, parameter) in signature.parameters.iter().enumerate() {
+        let Some(annotation) = parameter.annotation.as_ref() else {
+            continue;
+        };
+        let slot = index + usize::from(signature.receiver);
+        let Ok(value) = Register::try_from(slot) else {
+            continue;
+        };
+        lowering.instructions.push(Instruction::CheckAnnotation {
+            value,
+            annotation: annotation.clone(),
+        });
+    }
     // The owner's constants are bound after them, and `lookup` searches in
     // REVERSE, so a parameter of the same name would lose to the constant.
     // A constant whose name a parameter already claims is therefore skipped,

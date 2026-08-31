@@ -804,9 +804,14 @@ mod ir_document_tests {
         };
         assert_eq!(function.name, "M.add");
         assert_eq!(function.parameters, 2);
-        // The body reads r0 and r1 - the parameters - without any load.
+        // The body reads r0 and r1 - the parameters - without any load. The
+        // annotated parameters are GUARDED first, per `C004`, so the body's
+        // own first instruction follows those checks.
         assert_eq!(
-            function.instructions.first(),
+            function
+                .instructions
+                .iter()
+                .find(|instruction| !matches!(instruction, Instruction::CheckAnnotation { .. })),
             Some(&Instruction::Binary {
                 destination: 2,
                 selector: "+",

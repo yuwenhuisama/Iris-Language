@@ -233,6 +233,15 @@ impl Machine {
                 }
                 Ok(true)
             }
+            // `Dynamic<T>` admits what T admits: the wrapper defers the check
+            // to run time rather than removing it, so `let x: Dynamic<String>
+            // = 1` is still the failure `String` would give.
+            TypeExpression::Generic { name, arguments }
+                if name == "Dynamic"
+                    && let [argument] = arguments.as_slice() =>
+            {
+                self.annotation_admits(value, argument, program, classes)
+            }
             TypeExpression::Typeof(_)
             | TypeExpression::Generic { .. }
             | TypeExpression::Function { .. } => Ok(true),
