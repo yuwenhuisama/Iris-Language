@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CLASS answers its INSTANCE methods, with the Class itself as the receiver.
+The singleton table holds only `class fun` declarations, so a plain method
+reported absent for a selector the class plainly declares. A signature taking a
+receiver is also not a module function: the module path copies arguments into
+the callee's leading registers with no receiver among them, so `A.m()` for an
+instance `m` arrived one argument short.
+
 Bytes that do not DECODE name an encoding failure: a byte string is the right
 kind of receiver for `to_string` and its content simply does not decode, so
 reporting a type error described the receiver rather than the bytes.
@@ -882,8 +889,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 584 agreed,
-134 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 588 agreed,
+130 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -1725,10 +1725,25 @@ impl Machine {
                                     iris_runtime::DispatchOutcome::WouldInvokeMethodMissing {
                                         selector,
                                     } => {
-                                        return Err(MachineError::Construction(
-                                            iris_runtime::DispatchError::MissingMethod { selector }
-                                                .into(),
-                                        ));
+                                        // A class answers its INSTANCE methods
+                                        // too, with the Class itself as the
+                                        // receiver - the singleton table holds
+                                        // only `class fun` declarations, so a
+                                        // plain method reported absent for a
+                                        // selector the class plainly declares.
+                                        match self.runtime.registry().dispatch(class, selector) {
+                                            Ok(iris_runtime::DispatchOutcome::Invoke(method)) => {
+                                                method
+                                            }
+                                            _ => {
+                                                return Err(MachineError::Construction(
+                                                    iris_runtime::DispatchError::MissingMethod {
+                                                        selector,
+                                                    }
+                                                    .into(),
+                                                ));
+                                            }
+                                        }
                                     }
                                 };
                                 let function =

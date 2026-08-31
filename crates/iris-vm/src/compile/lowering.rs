@@ -432,9 +432,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
     }
 
     pub(super) fn resolve(&self, module: &str, selector: &str) -> Option<usize> {
-        self.signatures
-            .iter()
-            .rposition(|signature| signature.module == module && signature.selector == selector)
+        self.signatures.iter().rposition(|signature| {
+            signature.module == module
+                && signature.selector == selector
+                // A signature taking a RECEIVER is an instance method, which
+                // this path cannot call: it copies arguments into the callee's
+                // leading registers with no receiver among them, so `A.m()`
+                // for an instance `m` arrived one argument short. A class
+                // receiver is dispatched elsewhere.
+                && !signature.receiver
+        })
     }
     /// Reserves a fresh register.
     pub(super) fn allocate(&mut self) -> Result<Register, CompileError> {

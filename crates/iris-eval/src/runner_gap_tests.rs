@@ -8651,3 +8651,44 @@ fn undecodable_bytes_name_an_encoding_failure() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A CLASS answers its instance methods, with the Class as the receiver.
+///
+/// The singleton table holds only `class fun` declarations, so a plain method
+/// reported absent for a selector the class plainly declares. A signature
+/// taking a RECEIVER is also not a module function: the module path copies
+/// arguments into the callee's leading registers with no receiver among them,
+/// so `A.m()` for an instance `m` arrived one argument short.
+#[test]
+fn a_class_answers_its_instance_methods() {
+    for (source, expected) in [
+        ("class A { public fun m() { :m } }; A.m()", ":m"),
+        // A method added by a REOPEN is reached the same way.
+        (
+            "class A { }; open class A { public fun added() { :added } }; A.added()",
+            ":added",
+        ),
+        // Control: a MODULE function still resolves through the module path,
+        // which is what the receiver check must not disturb.
+        ("module M { public fun f() -> Integer { 7 } } M.f()", "7"),
+        // Control: a bare SIBLING call inside a module is unchanged.
+        (
+            "module M { public fun a() -> Integer { 41 } \
+             public fun run() -> Integer { a() + 1 } } M.run()",
+            "42",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
