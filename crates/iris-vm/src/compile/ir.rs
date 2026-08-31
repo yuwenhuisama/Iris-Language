@@ -404,6 +404,16 @@ pub enum Instruction {
     RaiseArgumentError {
         destination: Register,
     },
+    /// Fails a call to a method the caller may not SEE.
+    ///
+    /// `IRIS-V1-RUNTIME-C077` refuses a private method from every path but its
+    /// owner. A module's bare `fun` is private to that module, so `M.hidden()`
+    /// from outside names a method the caller cannot reach - the reference
+    /// raises when the call RUNS rather than refusing the program.
+    RaiseVisibilityDenied {
+        destination: Register,
+        selector: String,
+    },
     /// Fails a write to a binding that is not `mut`.
     ///
     /// `IRIS-V1-CONTROL-C009` makes `let`, a parameter and a loop variable
@@ -868,6 +878,7 @@ impl Instruction {
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
             Self::RaiseTypeContract { destination }
             | Self::RaiseImmutableBinding { destination }
+            | Self::RaiseVisibilityDenied { destination, .. }
             | Self::RaiseArgumentError { destination } => Some(*destination),
             Self::DestructureElement { destination, .. } => Some(*destination),
             Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {

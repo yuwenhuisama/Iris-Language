@@ -8867,3 +8867,48 @@ fn only_a_mut_binding_is_written() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// A module's bare `fun` is PRIVATE to that module.
+///
+/// `IRIS-V1-RUNTIME-C077` refuses a private method from every path but its
+/// owner, so `M.hidden()` written outside names a method the caller cannot
+/// reach. A call from INSIDE the module resolves as a bare sibling call rather
+/// than through the module path, which is what leaves the module's own use of
+/// it working.
+#[test]
+fn a_modules_bare_fun_is_private_to_it() {
+    for (source, expected) in [
+        // From OUTSIDE the module the method is unreachable.
+        (
+            "module M { fun hidden() -> Integer { 1 } } M.hidden()",
+            None,
+        ),
+        // Control: `public` reaches it from anywhere.
+        (
+            "module M { public fun shown() -> Integer { 1 } } M.shown()",
+            Some("1"),
+        ),
+        // Control: the module's OWN call still works, so the refusal is about
+        // the caller rather than about the method.
+        (
+            "module M { fun hidden() -> Integer { 1 } \
+             public fun run() -> Integer { hidden() } } M.run()",
+            Some("1"),
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error(
+                "Construction(Dispatch(VisibilityDenied { selector: Selector(_) }))".to_owned(),
+            ),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

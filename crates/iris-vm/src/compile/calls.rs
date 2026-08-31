@@ -856,6 +856,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if let Expression::Name(module) = receiver.as_ref()
             && let Some(function) = self.resolve(module, selector)
         {
+            // A module's bare `fun` is PRIVATE to that module, so `M.hidden()`
+            // written outside it names a method the caller cannot reach. A
+            // call from inside the module resolves as a bare sibling call
+            // rather than through this path, which is what leaves the module's
+            // own use of it working.
+            if self.signatures[function].private && self.enclosing_module.as_deref() != Some(module)
+            {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::RaiseVisibilityDenied {
+                    destination,
+                    selector: selector.clone(),
+                });
+                return Ok(destination);
+            }
             // A resolved function binds its arguments POSITIONALLY, and the
             // backend has no keyword parameters, so a keyword argument here
             // would silently fill a positional slot with the wrapper - a

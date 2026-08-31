@@ -519,6 +519,13 @@ impl Machine {
                 Instruction::RaiseImmutableBinding { .. } => {
                     dispatch!(Err(MachineError::ImmutableBinding)?)
                 }
+                Instruction::RaiseVisibilityDenied { selector, .. } => {
+                    let selector = selector_id(program, selector)
+                        .unwrap_or(iris_runtime::Selector::INITIALIZE);
+                    dispatch!(Err(MachineError::Construction(
+                        iris_runtime::DispatchError::VisibilityDenied { selector }.into(),
+                    ))?)
+                }
                 Instruction::Binary {
                     selector,
                     left,

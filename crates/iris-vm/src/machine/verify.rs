@@ -676,6 +676,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::RaiseNameError { .. }
         | Instruction::RaiseTypeContract { .. }
         | Instruction::RaiseImmutableBinding { .. }
+        | Instruction::RaiseVisibilityDenied { .. }
         | Instruction::RaiseArgumentError { .. }
         | Instruction::RaiseParseDiagnostic { .. }
         | Instruction::RaiseLoopTransfer { .. }
