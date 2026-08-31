@@ -52,6 +52,12 @@ enum IteratorSource {
 struct IteratorRecord {
     source: Option<IteratorSource>,
     position: usize,
+    /// Whether the CURRENT entry was already removed.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C026` lets a Hash iterator remove the entry it
+    /// just yielded, once - a second removal names no entry, so it is an
+    /// iterator-state failure rather than a silent no-op.
+    removed_current: bool,
 }
 
 type TaskOutcome = Result<Value, Box<MachineError>>;

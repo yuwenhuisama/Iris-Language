@@ -526,6 +526,22 @@ impl Machine {
             // A MutableString answers its CURRENT content, so a read after a
             // write sees the replacement rather than the text the value was
             // built with.
+            // `C068` renders a byte string as TEXT when its bytes are valid
+            // UTF-8, which is what `to_string` answers - the kernel installs
+            // it on String alone, so a byte string reported the selector
+            // absent for a rendering the language defines.
+            Value::Bytes(bytes) if selector == "to_string" && arguments.is_empty() => {
+                match core::str::from_utf8(bytes) {
+                    Ok(text) => Some(Value::Text(text.to_owned())),
+                    Err(_) => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                }
+            }
+            Value::ByteArray(bytes) if selector == "to_string" && arguments.is_empty() => {
+                match String::from_utf8(bytes.bytes()) {
+                    Ok(text) => Some(Value::Text(text)),
+                    Err(_) => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                }
+            }
             Value::MutableString(text) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(text.text()))
             }

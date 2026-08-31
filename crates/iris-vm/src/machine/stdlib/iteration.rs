@@ -56,6 +56,7 @@ impl Machine {
             super::super::IteratorRecord {
                 source: Some(source),
                 position: 0,
+                removed_current: false,
             },
         );
         Ok(Some(value))
@@ -85,6 +86,38 @@ impl Machine {
             }
             (Value::ArrayIterator(identity) | Value::HashIterator(identity), "next") => {
                 self.advance_iterator(*identity).map(Some)
+            }
+            // `C026` lets a Hash iterator remove the entry it just YIELDED,
+            // once. Before the first `next` there is no current entry, and a
+            // second removal names none either - both are iterator-state
+            // failures rather than silent no-ops. The removal advances the
+            // expected version, so the iterator keeps walking what remains
+            // instead of reporting concurrent modification against itself.
+            (Value::HashIterator(identity), "remove_current") => {
+                let Some(iterator) = self.iterators.get_mut(identity) else {
+                    return Err(MachineError::IteratorState);
+                };
+                if iterator.removed_current || iterator.position == 0 {
+                    return Err(MachineError::IteratorState);
+                }
+                let Some(IteratorSource::Hash {
+                    source,
+                    keys,
+                    expected_version,
+                }) = iterator.source.as_mut()
+                else {
+                    return Err(MachineError::IteratorState);
+                };
+                if source.version() != *expected_version {
+                    return Err(MachineError::ConcurrentModification);
+                }
+                let Some(key) = keys.get(iterator.position - 1).cloned() else {
+                    return Err(MachineError::IteratorState);
+                };
+                source.remove(&key);
+                *expected_version = source.version();
+                iterator.removed_current = true;
+                Ok(Some(Value::Nil))
             }
             _ => Ok(None),
         }
@@ -131,6 +164,9 @@ impl Machine {
             return Ok(Value::IterationDone);
         };
         iterator.position += 1;
+        // A fresh yield makes a NEW entry current, so the previous removal no
+        // longer bars one.
+        iterator.removed_current = false;
         Ok(Value::IterationYield(Box::new(value)))
     }
 }

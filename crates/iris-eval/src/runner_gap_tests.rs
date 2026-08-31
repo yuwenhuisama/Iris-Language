@@ -8561,3 +8561,53 @@ fn a_bounded_subscriber_reports_its_gap() {
         );
     }
 }
+
+/// A HASH ITERATOR removes the entry it just yielded, once.
+///
+/// `IRIS-V1-COLLECTIONS-C026` lets the iterator remove its CURRENT entry - the
+/// one the last `next` yielded - and the removal advances the expected
+/// version, so the iterator keeps walking what remains rather than reporting
+/// concurrent modification against itself. Before the first `next` there is no
+/// current entry, and a second removal names none either. A BYTE string
+/// renders as text when its bytes are valid UTF-8.
+#[test]
+fn a_hash_iterator_removes_its_current_entry() {
+    for (source, expected) in [
+        // The yielded entry is removed, leaving the rest.
+        (
+            "module M { public fun run() -> Integer { mut h = %{:a: 1, :b: 2}; \
+             let i = h.iterator(); i.next(); i.remove_current(); h.length() } } M.run()",
+            Some("1"),
+        ),
+        // A byte string renders as TEXT.
+        (
+            "module M { public fun run() -> Array { let b = b\"ab\"; [b.to_string()] } } M.run()",
+            Some("[\"ab\"]"),
+        ),
+        // BEFORE the first `next` there is no current entry.
+        (
+            "module M { public fun run() -> Nil { mut h = %{}; h[:a] = 1; \
+             let it = h.iterator(); it.remove_current() } } M.run()",
+            None,
+        ),
+        // A SECOND removal names no entry either.
+        (
+            "module M { public fun run() -> Nil { mut h = %{:a: 1, :b: 2}; \
+             let i = h.iterator(); i.next(); i.remove_current(); i.remove_current() } } M.run()",
+            None,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("IteratorState".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}
