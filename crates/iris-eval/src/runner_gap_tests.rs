@@ -8611,3 +8611,43 @@ fn a_hash_iterator_removes_its_current_entry() {
         assert_eq!(observation, &wanted, "{source}");
     }
 }
+
+/// Bytes that do not DECODE name an encoding failure.
+///
+/// A byte string is the right kind of receiver for `to_string`; its content
+/// simply does not decode, so the failure is an ENCODING one rather than a
+/// type mismatch. Reporting it as a type error described the receiver rather
+/// than the bytes.
+#[test]
+fn undecodable_bytes_name_an_encoding_failure() {
+    for (source, expected) in [
+        // Valid UTF-8 renders.
+        (
+            "module M { public fun run() -> Array { let b = b\"ab\"; [b.to_string()] } } M.run()",
+            Some("[\"ab\"]"),
+        ),
+        // A lone continuation byte decodes to nothing.
+        (
+            "module M { public fun run() -> String { b\"\\xff\".to_string() } } M.run()",
+            None,
+        ),
+        // A TRUNCATED sequence is the same failure.
+        (
+            "module M { public fun run() -> String { b\"\\xc3\\x28\".to_string() } } M.run()",
+            None,
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        let wanted = match expected {
+            Some(value) => crate::backend::Observation::Value(value.to_owned()),
+            None => crate::backend::Observation::Error("EncodingError".to_owned()),
+        };
+        assert_eq!(observation, &wanted, "{source}");
+    }
+}

@@ -765,6 +765,10 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+Bytes that do not DECODE name an encoding failure: a byte string is the right
+kind of receiver for `to_string` and its content simply does not decode, so
+reporting a type error described the receiver rather than the bytes.
+
 A HASH ITERATOR removes the entry it just YIELDED, once. `C026` advances the
 expected version with the removal, so the iterator keeps walking what remains
 rather than reporting concurrent modification against itself - before the first

@@ -533,13 +533,17 @@ impl Machine {
             Value::Bytes(bytes) if selector == "to_string" && arguments.is_empty() => {
                 match core::str::from_utf8(bytes) {
                     Ok(text) => Some(Value::Text(text.to_owned())),
-                    Err(_) => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                    // Bytes that are not valid UTF-8 name no text, which is an
+                    // ENCODING failure rather than a type mismatch: the
+                    // receiver is the right kind, its content simply does not
+                    // decode.
+                    Err(_) => return Err(MachineError::EncodingError),
                 }
             }
             Value::ByteArray(bytes) if selector == "to_string" && arguments.is_empty() => {
                 match String::from_utf8(bytes.bytes()) {
                     Ok(text) => Some(Value::Text(text)),
-                    Err(_) => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+                    Err(_) => return Err(MachineError::EncodingError),
                 }
             }
             Value::MutableString(text) if selector == "to_string" && arguments.is_empty() => {
