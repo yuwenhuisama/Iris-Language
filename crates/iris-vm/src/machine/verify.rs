@@ -92,6 +92,10 @@ pub enum MachineError {
     /// into, so it raises rather than silently discarding the value.
     IndexError,
     TypeContractError,
+    /// An ivar NAME that is not a Symbol spelling `@x`.
+    InvalidInstanceVariableName,
+    /// An ivar asked of a value that carries no INSTANCE STATE.
+    InstanceStateError,
     /// An identity question asked of an identity-LESS value.
     ///
     /// `IRIS-V1-RUNTIME-C029` accepts only identity-bearing operands for

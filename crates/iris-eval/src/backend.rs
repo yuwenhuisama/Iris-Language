@@ -157,6 +157,12 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::MetaTransactionError) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::MetaTransactionSuspension)),
                 ),
+                Err(iris_vm::MachineError::InvalidInstanceVariableName) => {
+                    Support::Ran(Observation::Error(format!(
+                        "{:?}",
+                        EvaluationError::InvalidInstanceVariableName
+                    )))
+                }
                 Err(iris_vm::MachineError::IdentityError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::IdentityError),
                 )),

@@ -2161,6 +2161,31 @@ impl Machine {
                                 None => Value::Nil,
                             }
                         }
+                        // An ivar NAME is a Symbol spelling `@x`; a Text is
+                        // not a name at all, which the language reports for
+                        // itself rather than as a generic type failure.
+                        (
+                            "Reflection::Object",
+                            "get_ivar" | "set_ivar",
+                            [_, Value::Text(_), ..],
+                        ) => Err(MachineError::InvalidInstanceVariableName)?,
+                        // An IDENTITY-LESS value carries no instance state, so
+                        // asking it to hold an ivar names that rather than a
+                        // type mismatch.
+                        (
+                            "Reflection::Object",
+                            "get_ivar" | "set_ivar",
+                            [
+                                Value::Nil
+                                | Value::Bool(_)
+                                | Value::Integer(_)
+                                | Value::Float32(_)
+                                | Value::Float64(_)
+                                | Value::Text(_)
+                                | Value::Symbol(_),
+                                ..,
+                            ],
+                        ) => Err(MachineError::InstanceStateError)?,
                         (
                             "Reflection::Object",
                             "get_ivar",

@@ -8096,3 +8096,50 @@ fn a_hash_key_goes_through_its_own_hash() {
         &crate::backend::Observation::Error("Runtime(StableHash(InvalidNumericKey))".to_owned())
     );
 }
+
+/// A reflective ivar names its OWN failures.
+///
+/// An ivar name is a Symbol spelling `@x`; a Text is not a name at all, and a
+/// value with no INSTANCE STATE cannot hold one. Reporting both as a generic
+/// type failure lost the distinction the language draws between them.
+#[test]
+fn a_reflective_ivar_names_its_failures() {
+    for (source, expected) in [
+        // A round trip through the reflective surface.
+        (
+            "class A { }; let a = A.new(); Reflection::Object.set_ivar(a, :@x, 1); \
+             Reflection::Object.get_ivar(a, :@x)",
+            "[1, 1]",
+        ),
+        // A Text is not an ivar NAME.
+        (
+            "class A { }; let a = A.new(); \
+             try { Reflection::Object.get_ivar(a, \"@x\") } catch e { e }",
+            ":InvalidInstanceVariableNameError",
+        ),
+        // An identity-less value carries no instance state.
+        (
+            "try { Reflection::Object.set_ivar(nil, :@x, 1) } catch e { e }",
+            ":InstanceStateError",
+        ),
+        // Control: an ABSENT ivar reads nil rather than failing, so the
+        // failures above are about the name and the receiver.
+        (
+            "class A { }; Reflection::Object.get_ivar(A.new(), :@absent)",
+            "nil",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
