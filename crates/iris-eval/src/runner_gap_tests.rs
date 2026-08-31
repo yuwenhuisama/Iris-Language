@@ -8385,3 +8385,56 @@ fn a_cleanup_that_raises_chains_its_cause() {
         );
     }
 }
+
+/// A MUTABLE string appends in place, and `+` answers a new text.
+///
+/// `<<` writes through every reference to the string, while `+` leaves the
+/// receiver untouched - both reached the kernel, which installs neither on
+/// this family, so a program that plainly appends answered MessageNotFound.
+/// An IDENTITY-bearing value compares by which value it is, so two iterators
+/// over one array are distinct even though they would yield the same elements.
+#[test]
+fn a_mutable_string_appends_in_place() {
+    for (source, expected) in [
+        // `<<` is seen through an earlier SNAPSHOT of the text, which is a
+        // plain String and therefore unchanged.
+        (
+            "module M { public fun run() -> Array { let m = m\"ab\"; \
+             let snap = m.to_string(); m << \"c\"; [snap, m.to_string()] } } M.run()",
+            "[\"ab\", \"abc\"]",
+        ),
+        // `+` answers a NEW text: appending to the receiver afterwards leaves
+        // that answer alone.
+        (
+            "module M { public fun run() -> Array { let a = m\"a\"; let b = a + \"b\"; \
+             a << \"c\"; [a.to_string(), b.to_string()] } } M.run()",
+            "[\"ac\", \"ab\"]",
+        ),
+        // `+=` REBINDS rather than writing through, so an alias taken before
+        // it still reads the original.
+        (
+            "module M { public fun run() -> Array { mut a = m\"a\"; let alias = a; \
+             a += \"b\"; [alias.to_string(), a.to_string()] } } M.run()",
+            "[\"a\", \"ab\"]",
+        ),
+        // Two ITERATORS over one array are distinct, and each equals itself.
+        (
+            "module M { public fun run() -> Array { let a = [1].iterator(); \
+             let b = [1].iterator(); [a == b, a == a] } } M.run()",
+            "[false, true]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

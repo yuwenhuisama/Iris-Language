@@ -106,6 +106,31 @@ impl Machine {
         {
             return Ok(ordering);
         }
+        // A MUTABLE string appends IN PLACE with `<<`, so every reference to it
+        // sees the write - while `+` answers a NEW text, leaving the receiver
+        // untouched. Both reached the kernel, which installs neither on this
+        // family, so a program that plainly appends answered MessageNotFound.
+        if let Value::MutableString(text) = &receiver
+            && matches!(selector, "<<" | "+")
+        {
+            let addition = match &argument {
+                Value::Text(addition) => addition.clone(),
+                Value::MutableString(addition) => addition.text(),
+                _ => return Err(MachineError::Kernel(iris_runtime::KernelError::Type)),
+            };
+            if selector == "<<" {
+                text.set(format!("{}{addition}", text.text()));
+                return Ok(receiver.clone());
+            }
+            return Ok(Value::Text(format!("{}{addition}", text.text())));
+        }
+        // An IDENTITY-bearing value compares by WHICH value it is: two
+        // iterators over one array are distinct, and each equals itself.
+        if matches!(selector, "==" | "!=")
+            && let Some(same) = identity_equality(&receiver, &argument)
+        {
+            return Ok(Value::Bool(if selector == "==" { same } else { !same }));
+        }
         // A CLASS may define an operator on its singleton side, and an
         // operator arrives here rather than through `Send` - so authored
         // dispatch has to be consulted, or `P + P` would miss a `class fun +`
@@ -1866,4 +1891,23 @@ impl Machine {
         )
         .map(Some)
     }
+}
+
+/// Reports whether two IDENTITY-bearing values name one value.
+///
+/// An iterator, a closure, a task and the other identity-bearing families
+/// compare by which value they are rather than by content: two iterators over
+/// one array are distinct even though they would yield the same elements.
+fn identity_equality(left: &Value, right: &Value) -> Option<bool> {
+    let identity = |value: &Value| match value {
+        Value::ArrayIterator(identity)
+        | Value::HashIterator(identity)
+        | Value::ByteIterator(identity)
+        | Value::Generator(identity)
+        | Value::Task(identity)
+        | Value::Gate(identity)
+        | Value::Closure(identity) => Some(identity.raw()),
+        _ => None,
+    };
+    Some(identity(left)? == identity(right)?)
 }

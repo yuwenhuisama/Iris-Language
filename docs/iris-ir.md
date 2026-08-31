@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A MUTABLE string appends IN PLACE with `<<`, so every reference to it sees the
+write, while `+` answers a new text and leaves the receiver untouched - both
+reached the kernel, which installs neither on this family. An IDENTITY-bearing
+value compares by which value it is, so two iterators over one array are
+distinct even though they would yield the same elements.
+
 A CLEANUP that raises chains the exception it interrupted. `C067` makes a
 `finally` raising while another exception propagates report the interrupted one
 as its `cause`, so the propagating context travels with the cleanup body -
@@ -850,8 +856,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 570 agreed,
-148 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 574 agreed,
+144 disagreed, 18 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
