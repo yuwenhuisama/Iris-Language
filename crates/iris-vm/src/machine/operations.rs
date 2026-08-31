@@ -218,6 +218,12 @@ impl Machine {
             (Value::Generator(left), Value::Generator(right)) => left == right,
             (Value::Task(left), Value::Task(right)) => left == right,
             (Value::Gate(left), Value::Gate(right)) => left == right,
+            // A BOUND method is a fresh value per binding, so `obj.method`
+            // twice names two of them - its own runtime identity decides.
+            (Value::BoundMethod(left), Value::BoundMethod(right)) => left.id() == right.id(),
+            // A METHOD is the definition itself, which is interned once per
+            // declaration, so two reads of one selector name the same value.
+            (Value::Method(left), Value::Method(right)) => left == right,
             // `C029` accepts only identity-BEARING operands, so an
             // identity-less value raises rather than being compared by
             // content. A contract VIEW is identity-less too: `C050` makes it a

@@ -8252,3 +8252,46 @@ fn a_mixin_may_name_a_class() {
         );
     }
 }
+
+/// A BOUND method is a fresh value per binding; a METHOD is the definition.
+///
+/// `obj.method` twice names two bound values, each with its own runtime
+/// identity, while `Reflection::Class.method(A, :f)` twice names ONE method -
+/// the definition is interned per declaration. A bound method also keeps the
+/// body it captured, so a later reopen does not change what it calls.
+#[test]
+fn a_bound_method_has_its_own_identity() {
+    for (source, expected) in [
+        // Two BINDINGS of one selector are distinct; a saved one is itself.
+        (
+            "class A { public fun method() { :m } }; let obj = A.new(); \
+             let saved = obj.method; [obj.method same? obj.method, saved same? saved]",
+            "[false, true]",
+        ),
+        // Two reads of the DEFINITION name the same method.
+        (
+            "class A { public fun f() { 1 } }; \
+             [Reflection::Class.method(A,:f) same? Reflection::Class.method(A,:f)]",
+            "[true]",
+        ),
+        // A bound method keeps the body it CAPTURED.
+        (
+            "class A { public fun m() { :old } }; let a=A.new(); let saved=a.m; \
+             open class A { override public fun m() { :new } }; saved.call()",
+            ":old",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
