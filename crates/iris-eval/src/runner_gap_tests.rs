@@ -9004,3 +9004,37 @@ fn a_type_is_not_its_class_and_a_yield_has_no_identity() {
         );
     }
 }
+
+/// A TYPE answers `kind` and `members` as bare MEMBERS.
+///
+/// Both live on the authored surface, which a member read has to consult -
+/// `(A & B).type.kind` otherwise reported a selector the language plainly
+/// defines as absent. A composed type answers the ATOMS it was built from, so
+/// an inner union is named rather than flattened away.
+#[test]
+fn a_type_answers_its_shape() {
+    for (source, expected) in [
+        ("class A {} A.type.kind", ":nominal"),
+        ("class A {} class B {} (A | B).type.kind", ":union"),
+        ("class A {} class B {} (A & B).type.kind", ":intersection"),
+        // A nested union stays its own member rather than being flattened.
+        (
+            "class A {} class B {} class C {} let t = (A & (B | C)).type; \
+             [t.kind, (B | C).type same? t.members[1]]",
+            "[:intersection, true]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

@@ -690,18 +690,24 @@ impl Machine {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
-                    if matches!(registers[*receiver as usize], Value::Method(_))
-                        && let Some(value) = run_frame!(
-                            'frame,
-                            self.authored_send(
-                                &registers[*receiver as usize],
-                                selector,
-                                &[],
-                                program,
-                                classes,
-                            )
+                    // A TYPE answers `kind` and `members` as bare MEMBERS, and
+                    // a Method answers its own metadata the same way - both
+                    // live on the authored surface, which a member read has to
+                    // consult or `(A & B).type.kind` reports a selector the
+                    // language plainly defines as absent.
+                    if matches!(
+                        registers[*receiver as usize],
+                        Value::Method(_) | Value::Type(..) | Value::ComposedType(_)
+                    ) && let Some(value) = run_frame!(
+                        'frame,
+                        self.authored_send(
+                            &registers[*receiver as usize],
+                            selector,
+                            &[],
+                            program,
+                            classes,
                         )
-                    {
+                    ) {
                         value
                     } else if let Some(value) = run_frame!(
                         'frame,

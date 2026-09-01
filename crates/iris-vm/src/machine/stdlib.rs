@@ -808,6 +808,19 @@ impl Machine {
             {
                 Some(value.clone())
             }
+            // A COMPOSED type answers the atoms it was built from, so
+            // `(A & (B | C)).type.members[1]` names the inner union itself
+            // rather than flattening it away.
+            Value::ComposedType(form) if selector == "members" && arguments.is_empty() => {
+                let members = match form {
+                    iris_runtime::ComposedType::Never => Vec::new(),
+                    iris_runtime::ComposedType::Union(members)
+                    | iris_runtime::ComposedType::Intersection(members) => {
+                        members.iter().map(reflect_atom).collect()
+                    }
+                };
+                Some(Value::Array(iris_runtime::ArrayRef::new(members)))
+            }
             Value::ComposedType(form) if selector == "kind" && arguments.is_empty() => {
                 Some(Value::Symbol(
                     match form {
@@ -1995,4 +2008,20 @@ fn identity_equality(left: &Value, right: &Value) -> Option<bool> {
         _ => None,
     };
     Some(identity(left)? == identity(right)?)
+}
+
+/// Reflects one type ATOM as the value a program observes.
+///
+/// A nominal atom answers its Type, a contract answers the Contract itself,
+/// and a nested union answers a composed type - so a member read names what
+/// the source wrote rather than a flattened list.
+fn reflect_atom(atom: &iris_runtime::TypeAtom) -> Value {
+    match atom {
+        iris_runtime::TypeAtom::Nominal(class, arguments) => Value::Type(*class, arguments.clone()),
+        iris_runtime::TypeAtom::NonNil => Value::Symbol("NonNil".to_owned()),
+        iris_runtime::TypeAtom::Contract(contract) => Value::Contract(*contract),
+        iris_runtime::TypeAtom::Union(nested) => {
+            Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
+        }
+    }
 }
