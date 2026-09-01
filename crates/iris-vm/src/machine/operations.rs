@@ -188,10 +188,20 @@ impl Machine {
             | (Value::Bool(false), Value::Bool(false))
             | (Value::Bool(true), Value::Bool(true))
             | (Value::IterationDone, Value::IterationDone) => true,
+            // `C089` forbids falling back to object identity for an
+            // identity-LESS wrapper, so a yield raises rather than comparing -
+            // two wrappers around one value are not one value. It is decided
+            // before the singleton arms below, since a yield beside `done` is
+            // still the question with no answer.
+            (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => {
+                return Err(MachineError::IdentityError);
+            }
             (Value::Nil, _) | (Value::Bool(_), _) | (_, Value::Nil) | (_, Value::Bool(_)) => false,
             (Value::IterationDone, _) | (_, Value::IterationDone) => false,
-            (Value::IterationYield(_), Value::IterationYield(_)) => false,
-            (Value::IterationYield(_), _) | (_, Value::IterationYield(_)) => false,
+            // A TYPE and the Class it reifies are different values, so the
+            // question has an answer and that answer is no - refusing it
+            // reported no comparison where the language makes one.
+            (Value::Type(..), Value::Class(_)) | (Value::Class(_), Value::Type(..)) => false,
             (Value::Object(left), Value::Object(right)) => left == right,
             (Value::Class(left), Value::Class(right)) => left == right,
             (Value::Type(left, left_arguments), Value::Type(right, right_arguments)) => {

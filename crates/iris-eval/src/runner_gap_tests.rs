@@ -8955,3 +8955,52 @@ fn a_class_reshapes_its_method_set() {
         );
     }
 }
+
+/// A TYPE is not the Class it reifies, and a YIELD has no identity.
+///
+/// The question `A.type same? A` has an answer and that answer is no -
+/// refusing it reported no comparison where the language makes one. `C089`
+/// forbids falling back to object identity for an identity-LESS wrapper, so a
+/// yield raises instead: two wrappers around one value are not one value, and
+/// that holds even beside `done`, which is a singleton and compares.
+#[test]
+fn a_type_is_not_its_class_and_a_yield_has_no_identity() {
+    for (source, expected) in [
+        // A Type and its Class are DIFFERENT values.
+        ("class A {} A.type same? A", "false"),
+        // One Type is itself.
+        ("class A {} A.type same? A.type", "true"),
+        // A closed generic behaves the same way.
+        (
+            "class Box<T> {} let t = Box<String>.type; \
+             [t same? Box<String>.type, t same? Box<String>]",
+            "[true, false]",
+        ),
+        // `done` is a SINGLETON, so the question has an answer.
+        (
+            "module M { public fun run() -> Object { \
+             try { Iteration.done.same?(Iteration.done) } catch e { e } } } M.run()",
+            "true",
+        ),
+        // A YIELD refuses the question, even beside `done`, and the refusal is
+        // catchable like any other.
+        (
+            "module M { public fun run() -> Object { \
+             try { Iteration.done.same?(Iteration.yield(1)) } catch e { e } } } M.run()",
+            ":IdentityError",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

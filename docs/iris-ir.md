@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A TYPE is not the CLASS it reifies: `A.type same? A` has an answer and that
+answer is no, so refusing the question reported no comparison where the
+language makes one. `C089` forbids falling back to object identity for an
+identity-LESS wrapper, so a yield raises instead - two wrappers around one
+value are not one value, and that holds even beside `done`, which is a
+singleton and compares.
+
 A class RESHAPES its own method set. `C023` binds a second selector to one
 method with an alias, drops the class's own with `remove_method`, and blocks a
 selector outright with `undef_method` so an inherited one no longer answers
@@ -930,8 +937,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 602 agreed,
-122 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 604 agreed,
+120 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
