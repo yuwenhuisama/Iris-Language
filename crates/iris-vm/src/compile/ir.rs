@@ -1029,6 +1029,12 @@ pub(crate) struct ModuleDeclaration {
 pub(crate) struct Contract {
     pub(crate) name: String,
     pub(crate) requirements: Vec<ContractRequirement>,
+    /// Capability names this contract DENIES to every conforming class.
+    ///
+    /// `IRIS-V1-META-C081` fixes the vocabulary, and a denial written on a
+    /// contract narrows the policy of each class that declares it - the
+    /// promise carries the restriction with it.
+    pub(crate) meta_deny: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

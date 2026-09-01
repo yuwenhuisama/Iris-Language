@@ -283,6 +283,18 @@ pub(super) fn collect_signatures<'a>(
             }
         }
     }
+    // A denial written on a CONTRACT narrows every class that declares it:
+    // the promise carries the restriction with it, so a conforming class is
+    // registered with the contract's denials as well as its own.
+    for class in &mut classes {
+        for contract in &class.contracts {
+            for denied in &contracts[*contract].meta_deny {
+                if !class.meta_deny.contains(denied) {
+                    class.meta_deny.push(denied.clone());
+                }
+            }
+        }
+    }
     // A class variable is ANCHORED once per ancestry, so a subclass
     // redeclaring one its superclass already anchors is a duplicate rather
     // than a fresh slot. The ancestry is walked here, after every class is
@@ -435,6 +447,7 @@ fn collect_contract(
     contracts.push(Contract {
         name: declaration.name.clone(),
         requirements,
+        meta_deny: declaration.meta_deny.clone(),
     });
     Ok(())
 }

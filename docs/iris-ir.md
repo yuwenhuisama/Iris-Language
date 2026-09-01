@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CONTRACT's `meta deny` narrows every class that declares it. `C081` fixes
+the capability vocabulary, and a denial written on a contract travels with the
+PROMISE - a conforming class is registered with the contract's denials as well
+as its own, and the refusal is catchable like any other named failure.
+
 A SLICE endpoint CLAMPS rather than emptying the slice. An endpoint out of
 range is clamped and a NEGATIVE one resolves from the end, so `s[-9 ..< 2]`
 answers the first two elements - reading the endpoints as unsigned made every
@@ -1109,8 +1114,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 656 agreed,
-79 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 657 agreed,
+78 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

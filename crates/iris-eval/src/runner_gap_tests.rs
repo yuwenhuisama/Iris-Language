@@ -9964,3 +9964,30 @@ fn a_slice_endpoint_clamps() {
         "[1, 2]",
     );
 }
+
+/// A CONTRACT's `meta deny` narrows every class that declares it.
+///
+/// `C081` fixes the capability vocabulary, and a denial written on a contract
+/// travels with the PROMISE - a conforming class is registered with the
+/// contract's denials as well as its own. The refusal is CATCHABLE, so a
+/// program can name it.
+#[test]
+fn a_contract_meta_deny_narrows_its_conformers() {
+    agrees_on(
+        "contract C meta deny method_set { }; class A for C { }; \
+         try { A.open() { |t| t.define_method(:x) { 1 } } } catch e { e }",
+        ":MetaCapabilityError",
+    );
+    // Control: a contract denying NOTHING leaves the operation allowed, so
+    // the refusal comes from the denial rather than from conforming at all.
+    agrees_on(
+        "contract C { }; class A for C { }; \
+         try { A.open() { |t| t.define_method(:x) { 1 } } } catch e { e }",
+        "nil",
+    );
+    // Control: a class declaring no contract is unaffected.
+    agrees_on(
+        "class A { }; try { A.open() { |t| t.define_method(:x) { 1 } } } catch e { e }",
+        "nil",
+    );
+}
