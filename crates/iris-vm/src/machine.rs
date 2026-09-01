@@ -286,6 +286,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::PatternMatchError => Some("PatternMatchError"),
         MachineError::ReflectionAccess => Some("ReflectionAccessError"),
         MachineError::JsonSyntaxError => Some("JSONSyntaxError"),
+        MachineError::JsonDuplicateNameError => Some("JSONDuplicateNameError"),
         MachineError::SerializationError => Some("SerializationError"),
         // `C047` rejects an incomplete signature as an ordinary catchable Iris
         // error, so a program may `try { lib.bind(..) } catch e { e }` and

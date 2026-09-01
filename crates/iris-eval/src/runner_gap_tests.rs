@@ -9144,6 +9144,22 @@ fn agrees_on(source: &str, expected: &str) {
     );
 }
 
+/// Asserts both backends AGREE, and on the stated ERROR.
+fn agrees_on_error(source: &str, expected: &str) {
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {source}: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error(expected.to_owned()),
+        "{source}"
+    );
+}
+
 /// TEXT indexes in SCALARS, and has no `[]=` at all.
 ///
 /// `C009` counts a scalar once, so an astral character is ONE position, a
@@ -9434,5 +9450,36 @@ fn json_refuses_invalid_utf8_at_the_boundary() {
     agrees_on(
         r#"module M { public fun run() -> Object { JSON.decode("[1,2]") } } M.run()"#,
         "[1, 2]",
+    );
+}
+
+/// A DUPLICATE JSON name is refused by NAME, not as a syntax failure.
+///
+/// `C014` makes rejecting a duplicate the SAFE DEFAULT unless a caller selects
+/// last-wins, first-wins or collect-all. The text PARSES - it is the object it
+/// describes that is refused - so reporting a syntax failure named the wrong
+/// thing and hid which rule turned the document down.
+#[test]
+fn a_duplicate_json_name_is_refused_by_name() {
+    agrees_on_error(
+        r#"module M { public fun run() -> Object { JSON.decode("{\"a\": 1, \"a\": 2}") } } M.run()"#,
+        "JsonDuplicateNameError",
+    );
+    // A duplicate NESTED inside another object is refused the same way.
+    agrees_on_error(
+        r#"module M { public fun run() -> Object { JSON.decode("{\"o\": {\"k\": 1, \"k\": 2}}") } } M.run()"#,
+        "JsonDuplicateNameError",
+    );
+    // Control: DISTINCT names decode normally, so the check did not refuse
+    // every object.
+    agrees_on(
+        r#"module M { public fun run() -> Object { JSON.decode("{\"a\": 1, \"b\": 2}") } } M.run()"#,
+        r#"{"a": 1, "b": 2}"#,
+    );
+    // Control: a genuine SYNTAX failure keeps its own name, so the two
+    // refusals stay distinguishable.
+    agrees_on_error(
+        r#"module M { public fun run() -> Object { JSON.decode("{\"a\" 1}") } } M.run()"#,
+        "JsonSyntaxError",
     );
 }

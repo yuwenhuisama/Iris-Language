@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A DUPLICATE JSON name is refused by NAME, not as a syntax failure. `C014`
+makes rejecting a duplicate the SAFE DEFAULT unless a caller selects last-wins,
+first-wins or collect-all. The text PARSES - it is the object it describes that
+is refused - so reporting a syntax failure named the wrong thing and hid which
+rule turned the document down.
+
 BYTES slice in BYTE units, and a ByteArray slice is an INDEPENDENT snapshot
 rather than a view - writing through either one leaves the other unchanged.
 `C070` snapshots the replacement BEFORE the write, which is what lets a
@@ -1012,8 +1018,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 635 agreed,
-100 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 637 agreed,
+98 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

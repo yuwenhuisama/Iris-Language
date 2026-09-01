@@ -135,8 +135,11 @@ fn decode_container(
                 return Err(MachineError::JsonSyntaxError);
             }
             let held = decode_json(cursor)?;
+            // The text PARSED - it is the object it describes that is
+            // refused, so this is a duplicate-name failure rather than a
+            // syntax one.
             if entries.iter().any(|(existing, _)| *existing == key) {
-                return Err(MachineError::JsonSyntaxError);
+                return Err(MachineError::JsonDuplicateNameError);
             }
             entries.push((key, held));
         }

@@ -145,6 +145,13 @@ pub enum MachineError {
     PatternMatchError,
     ReflectionAccess,
     JsonSyntaxError,
+    /// A JSON object named one key TWICE.
+    ///
+    /// `IRIS-V1-LIBRARY-C014` makes rejecting a duplicate name the SAFE
+    /// DEFAULT unless a caller selects last-wins, first-wins or collect-all.
+    /// It is not a syntax failure: the text parses, and the object it
+    /// describes is the thing being refused.
+    JsonDuplicateNameError,
     SerializationError,
     UnsupportedConstruct,
     AuditHistoryUnavailable,
