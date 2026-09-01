@@ -681,14 +681,14 @@ impl Machine {
                             // slot is resolved here and the store told where to
                             // land. Leaving it unresolved kept two keys that
                             // compare EQUAL as separate entries.
-                            let mut slot = None;
-                            for (index, (kept, _)) in entries.entries().iter().enumerate() {
-                                if self.key_equal(kept, &key, program, classes)? {
-                                    slot = Some(index);
-                                    break;
-                                }
-                            }
-                            entries.insert_at(slot, key, stored.clone());
+                            let slot = self.hash_slot(entries, &key, program, classes)?;
+                            // The bucket the key hashes to NOW is recorded with
+                            // the entry, so a later lookup can tell an entry
+                            // placed under an old hash from one that still
+                            // matches - which is the `C030` inconsistency
+                            // `rehash()` exists to repair.
+                            let bucket = self.key_hash(&key, program, classes)?;
+                            entries.insert_bucketed(slot, key, stored.clone(), bucket);
                             stored
                         } else {
                             self.set_index(target, key, stored)?

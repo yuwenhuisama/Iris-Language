@@ -35,20 +35,22 @@ impl Machine {
                     .map(|(_, value)| value)
                     .collect(),
             ),
-            ("include?" | "has_key?", [key]) => Value::Bool(entries.contains_key(key)),
+            // `C028` dispatches the key's CURRENT `==` to find the slot, so a
+            // lookup groups by EQUALITY rather than by representation - two
+            // objects that compare equal name one entry, which a raw
+            // comparison could not see.
+            ("include?" | "has_key?", [key]) => {
+                Value::Bool(self.hash_slot(entries, key, program, classes)?.is_some())
+            }
             // `fetch` differs from indexing exactly here: indexing answers nil
             // for an absent key and `fetch` REFUSES, which is what makes it an
             // assertion that the key is present.
-            ("fetch", [key]) => entries
-                .entries()
-                .iter()
-                .position(|(held, _)| held == key)
+            ("fetch", [key]) => self
+                .hash_slot(entries, key, program, classes)?
                 .and_then(|position| entries.value_at(position))
                 .ok_or(MachineError::KeyError)?,
-            ("delete", [key]) => entries
-                .entries()
-                .iter()
-                .position(|(held, _)| held == key)
+            ("delete", [key]) => self
+                .hash_slot(entries, key, program, classes)?
                 .and_then(|position| entries.remove_at(position))
                 .unwrap_or(Value::Nil),
             ("map", [block @ Value::Closure(_)]) => {
@@ -209,5 +211,38 @@ impl Machine {
         // failure above leaves the original table untouched.
         entries.replace_entries(rebuilt);
         Ok(Value::Nil)
+    }
+}
+
+impl Machine {
+    /// The slot a KEY names, under the current equality.
+    ///
+    /// `C028` dispatches each key's own `==` to decide, so two objects that
+    /// compare EQUAL name one entry - a raw comparison over representations
+    /// cannot see that and leaves a lookup missing an entry that is present.
+    pub(crate) fn hash_slot(
+        &mut self,
+        entries: &HashRef,
+        key: &Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Option<usize>, MachineError> {
+        // `C028` uses the key's current `hash` AND `==`, so a key whose hash
+        // has MOVED since insertion no longer finds its entry: the stored slot
+        // was placed under the old hash. `C030` makes `rehash()` the remedy
+        // and leaves the inconsistency until then to the program.
+        let wanted = self.key_hash(key, program, classes)?;
+        for (position, (held, _)) in entries.entries().iter().enumerate() {
+            // The bucket recorded at INSERTION is what the entry sits under, so
+            // a key whose hash has since moved misses it.
+            let placed = entries.bucket_at(position).unwrap_or(Value::Nil);
+            if placed != Value::Nil && placed != wanted {
+                continue;
+            }
+            if self.key_equal(held, key, program, classes)? {
+                return Ok(Some(position));
+            }
+        }
+        Ok(None)
     }
 }

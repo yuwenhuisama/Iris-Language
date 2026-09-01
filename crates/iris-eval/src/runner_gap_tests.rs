@@ -10249,3 +10249,38 @@ fn a_class_name_is_an_immutable_binding() {
     // Control: a `mut` binding still accepts the write.
     agrees_on("mut x = 1; try { x = 2 } catch e { e }", "2");
 }
+
+/// A HASH LOOKUP uses the key's CURRENT `hash` AND `==`.
+///
+/// `C028` finds a slot by BUCKET first and equality second, so two keys that
+/// hash alike and compare equal name ONE entry, while a key whose hash has
+/// MOVED since insertion no longer finds its own - `C030` makes `rehash()`
+/// the remedy and leaves the inconsistency until then to the program. A class
+/// DEFINING `hash` decides its own bucket, so its declared method runs before
+/// the identity hash every object otherwise has.
+#[test]
+fn a_hash_lookup_uses_the_current_hash_and_equality() {
+    // Two keys that hash alike and compare equal name ONE entry, so `delete`
+    // finds what `fetch` found.
+    agrees_on(
+        r#"class Key { public property id: Integer = 0 public fun ==(other: Object) -> Bool { @id == other.id() } public fun hash() -> Integer { @id } public fun id() -> Integer { @id } } module M { public fun run() -> Array { mut first = Key.new(); mut second = Key.new(); mut h = %{}; h[first] = 1; h[second] = 2; [h.fetch(first), h.delete(second)] } } M.run()"#,
+        "[2, 2]",
+    );
+    // Keys whose EQUALITY moved after insertion still sit under their own
+    // buckets, so each `fetch` finds its own entry and `rehash` reports the
+    // conflict the change created.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); a.equal_id = 1; a.hash_code = 11; mut b = Key.new(); b.equal_id = 2; b.hash_code = 22; mut h = %{}; h[a] = :a; h[b] = :b; a.equal_id = 0; b.equal_id = 0; mut raised = :none; try { h.rehash() } catch e { raised = e }; [raised, h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
+        "[:KeyConflictError, 2, :a, :b]",
+    );
+    // Control: an ordinary key is unaffected.
+    agrees_on(
+        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; [h.fetch("a"), h.delete("a")] } } M.run()"#,
+        "[1, 1]",
+    );
+    // Control: an ABSENT key stays absent.
+    agrees_on(
+        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; [h.include?("b"), h.delete("b")] } } M.run()"#,
+        "[false, nil]",
+    );
+}

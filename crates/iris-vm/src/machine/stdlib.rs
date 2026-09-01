@@ -1995,6 +1995,45 @@ impl Machine {
     /// hash covers its family. Calling `public_hash` directly refused those,
     /// and it also spells a refusal `StableHash(..)` where the language says
     /// `InvalidKeyError` - one failure with two names.
+    /// The BUCKET a key currently hashes to.
+    ///
+    /// `C028` dispatches the key's CURRENT `hash`, and an OBJECT supplies its
+    /// own - so authored dispatch runs first. A key with no hash at all is not
+    /// a legal key, which is the key failure rather than a missing message.
+    pub(crate) fn key_hash(
+        &mut self,
+        key: &Value,
+        program: &crate::compile::Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        // A class DEFINING `hash` decides its own bucket, so its declared
+        // method runs before the identity hash every object otherwise has -
+        // reaching the identity first gave two keys that hash ALIKE two
+        // different buckets and left them as separate entries.
+        if let Value::Object(object) = key
+            && let Some(slot) = selector_id(program, "hash")
+            && let Ok(method) = self.runtime.dispatch_instance(*object, slot)
+            && let Ok(function) = usize::try_from(method.body().raw())
+            && let Some(callee) = program.functions.get(function).cloned()
+        {
+            let returned = self.run_body(
+                &callee.instructions,
+                callee.registers,
+                vec![Value::Object(*object)],
+                program,
+                classes,
+            )?;
+            return Ok(returned.into_iter().next().unwrap_or(Value::Nil));
+        }
+        if matches!(key, Value::Object(_)) {
+            return self
+                .authored_send(key, "hash", &[], program, classes)?
+                .ok_or(MachineError::InvalidKeyError);
+        }
+        self.send("hash", key.clone(), &[])
+            .map_err(|_| MachineError::InvalidKeyError)
+    }
+
     pub(super) fn validate_key(
         &mut self,
         key: &Value,
