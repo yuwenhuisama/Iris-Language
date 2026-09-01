@@ -197,6 +197,9 @@ impl Backend for Bytecode {
                     "{:?}",
                     EvaluationError::KeyError
                 ))),
+                Err(iris_vm::MachineError::RangeError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::RangeError),
+                )),
                 Err(iris_vm::MachineError::EncodingError) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::EncodingError),
                 )),

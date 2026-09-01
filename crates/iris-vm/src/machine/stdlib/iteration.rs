@@ -2,6 +2,36 @@ use iris_runtime::Value;
 
 use super::super::{IteratorSource, Machine, MachineError};
 
+/// Materializes the values a Range would yield, in order.
+///
+/// `IRIS-V1-COLLECTIONS-C039` gives openness and step their meaning here once,
+/// so iterating a Range and asking it for an array cannot disagree about which
+/// values it holds.
+pub(crate) fn range_values(range: &iris_runtime::RangeValue) -> Result<Vec<Value>, MachineError> {
+    let Some(start) = range.start.to_i128() else {
+        return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+    };
+    let Some(end) = range.end.to_i128() else {
+        return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+    };
+    let Some(step) = range.step.to_i128() else {
+        return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+    };
+    let mut values = Vec::new();
+    let mut current = start;
+    while (step > 0 && (current < end || (range.inclusive_end && current == end)))
+        || (step < 0 && (current > end || (range.inclusive_end && current == end)))
+    {
+        let value = current
+            .to_string()
+            .parse()
+            .map_err(|_| MachineError::Kernel(iris_runtime::KernelError::Type))?;
+        values.push(Value::Integer(value));
+        current += step;
+    }
+    Ok(values)
+}
+
 impl Machine {
     pub(crate) fn open_builtin_iterator(
         &mut self,
@@ -17,30 +47,7 @@ impl Machine {
                 expected_version: source.version(),
                 source: source.clone(),
             },
-            Value::Range(range) => {
-                let Some(start) = range.start.to_i128() else {
-                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
-                };
-                let Some(end) = range.end.to_i128() else {
-                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
-                };
-                let Some(step) = range.step.to_i128() else {
-                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
-                };
-                let mut values = Vec::new();
-                let mut current = start;
-                while (step > 0 && (current < end || (range.inclusive_end && current == end)))
-                    || (step < 0 && (current > end || (range.inclusive_end && current == end)))
-                {
-                    let value = current
-                        .to_string()
-                        .parse()
-                        .map_err(|_| MachineError::Kernel(iris_runtime::KernelError::Type))?;
-                    values.push(Value::Integer(value));
-                    current += step;
-                }
-                IteratorSource::Values(values)
-            }
+            Value::Range(range) => IteratorSource::Values(range_values(range)?),
             _ => return Ok(None),
         };
         let identity = iris_runtime::ObjectId::new(self.next_iterator);

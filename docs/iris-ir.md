@@ -765,6 +765,27 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A HELD row is NAMED, not just counted. A rise in the held count otherwise
+hides a failure that used to be visible, and eleven rows sat held behind a
+single internal `UnknownSelector` defect - naming them turned the whole group
+into ordinary, fixable disagreements.
+
+TEXT indexes in SCALARS, not bytes: `C009` counts a scalar once, so an astral
+character is ONE position, a negative index resolves from the end, and a read
+past the end answers nil rather than raising. Text is immutable, so `[]=` is a
+missing message rather than a defect.
+
+A MATCH that matches no arm is REFUSED. Falling off the last arm without a
+fallback leaves no value to answer, so leaving the destination register
+unwritten reported an undefined read where the language states a refusal.
+
+A RANGE answers `to_array` through the SAME materialization iterating it uses,
+and takes `by(step:)` as a keyword. A zero step never advances and a step whose
+sign walks away from the end never arrives, so both are refused up front.
+
+`inspect` answers a REPARSABLE literal, escaping every scalar the literal
+grammar gives a meaning to.
+
 `Float64(-Infinity)` is a SPELLING, not a conversion of a named value.
 `Infinity` alone is a `NameError`, so the operand never becomes a value an
 ordinary call could take - only the negated form denotes a value at all. It is
@@ -955,8 +976,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 612 agreed,
-112 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 622 agreed,
+113 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

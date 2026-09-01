@@ -671,8 +671,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 destination,
                 source: value,
             });
-        } else if exits.is_empty() {
-            return Err(CompileError::new("match fallback"));
+        } else {
+            // Falling off the last arm means NO arm matched. Without a
+            // fallback there is no value to answer, so the reference refuses
+            // the match as UnsupportedConstruct - leaving the destination
+            // unwritten instead made the machine read an undefined register
+            // and report a defect where the language states a refusal.
+            let refusal = self.allocate()?;
+            self.instructions.push(Instruction::RaiseUnsupported {
+                destination: refusal,
+            });
+            self.instructions.push(Instruction::Move {
+                destination,
+                source: refusal,
+            });
         }
         let after = self.instructions.len();
         for exit in exits {

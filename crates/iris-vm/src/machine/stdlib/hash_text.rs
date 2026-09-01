@@ -137,6 +137,28 @@ pub(super) fn text_send(text: &str, selector: &str, arguments: &[Value]) -> Opti
                 .collect(),
         )),
         ("to_symbol", []) => Some(Value::Symbol(text.to_owned())),
+        // `inspect` answers a REPARSABLE literal, so every scalar the literal
+        // grammar gives a meaning to is escaped back. Interpolation is written
+        // `${...}` and the escape table has no `\$`, so a `$` that would OPEN
+        // one is emitted as its Unicode escape instead - that reparses to the
+        // same scalar without interpolating.
+        ("inspect", []) => {
+            let mut rendered = String::from("\"");
+            let mut scalars = text.chars().peekable();
+            while let Some(scalar) = scalars.next() {
+                match scalar {
+                    '"' => rendered.push_str("\\\""),
+                    '\\' => rendered.push_str("\\\\"),
+                    '\n' => rendered.push_str("\\n"),
+                    '\r' => rendered.push_str("\\r"),
+                    '\t' => rendered.push_str("\\t"),
+                    '$' if scalars.peek() == Some(&'{') => rendered.push_str("\\u{24}"),
+                    scalar => rendered.push(scalar),
+                }
+            }
+            rendered.push('"');
+            Some(Value::Text(rendered))
+        }
         _ => None,
     }
 }

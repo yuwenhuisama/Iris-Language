@@ -9127,3 +9127,129 @@ fn negative_infinity_is_spelled_not_evaluated() {
         );
     }
 }
+
+/// Asserts both backends AGREE, and on the stated value.
+fn agrees_on(source: &str, expected: &str) {
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {source}: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value(expected.to_owned()),
+        "{source}"
+    );
+}
+
+/// TEXT indexes in SCALARS, and has no `[]=` at all.
+///
+/// `C009` counts a scalar once, so an astral character is ONE position, a
+/// negative index resolves from the end, and a read past the end answers nil
+/// rather than raising. The machine had no text indexing at all and reported
+/// an internal `UnknownSelector` defect, which the harness could only HOLD -
+/// hiding the failure instead of showing it.
+#[test]
+fn text_indexes_in_scalars() {
+    // An astral scalar is ONE position, not its byte length.
+    agrees_on(r#"class Z { } "a\u{1f600}b"[1]"#, "\"\u{1f600}\"");
+    agrees_on(r#""abc"[0]"#, "\"a\"");
+    // A NEGATIVE index resolves from the end.
+    agrees_on(r#""abc"[-1]"#, "\"c\"");
+    // Control: a read PAST the end answers nil rather than raising, which is
+    // what distinguishes a read from a write.
+    agrees_on(r#""abc"[9]"#, "nil");
+    // A range answers a slice cut on scalar boundaries.
+    agrees_on(r#""abc"[0 ..< 2]"#, "\"ab\"");
+    // Control: text is IMMUTABLE, so `[]=` is a missing message a script can
+    // catch - not a machine defect.
+    agrees_on(
+        r#"module M { public fun run() -> Object { mut s = "abc"; try { s[0] = "z" } catch v, _ { :refused } } } M.run()"#,
+        ":refused",
+    );
+}
+
+/// A MATCH that matches no arm is REFUSED, not an undefined read.
+///
+/// Falling off the last arm without a fallback leaves no value to answer, and
+/// the reference refuses the match. The machine left its destination register
+/// unwritten and reported a `ReadBeforeWrite` defect where the language states
+/// a refusal.
+#[test]
+fn an_unmatched_match_is_refused() {
+    // The refusal is NOT a raise a script can catch: both backends answer
+    // `UnsupportedConstruct` even from inside a `try`, so it ends the program
+    // rather than becoming a catchable value.
+    let agreement = crate::backend::compare_backends(
+        "module M { public fun run() -> Object { try { match 1 { 2 => :two } } catch v, _ { :refused } } } M.run()",
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("UnsupportedConstruct".to_owned())
+    );
+    // Control: an arm that DOES match still answers its own value, so the
+    // refusal did not swallow a working match.
+    agrees_on(
+        "module M { public fun run() -> Object { match 2 { 2 => :two } } } M.run()",
+        ":two",
+    );
+    // Control: a fallback still supplies the value when no arm matches.
+    agrees_on(
+        "module M { public fun run() -> Object { match 1 { 2 => :two, _ => :other } } } M.run()",
+        ":other",
+    );
+}
+
+/// A RANGE answers its values and takes a `by(step:)`.
+///
+/// `C051` makes `to_array` the ordered element sequence, and `C038` spells the
+/// stride as a KEYWORD argument. A zero step never advances and a step whose
+/// SIGN walks away from the end never arrives, so both are refused up front
+/// rather than looping forever.
+#[test]
+fn a_range_answers_its_values() {
+    agrees_on(
+        "module M { public fun run() -> Array { [(1 ..= 3).to_array(), (1 ..< 3).to_array()] } } M.run()",
+        "[[1, 2, 3], [1, 2]]",
+    );
+    agrees_on(
+        "module M { public fun run() -> Array { [(3 ..= 1).to_array(), (1 ..= 5).by(step: 2).to_array()] } } M.run()",
+        "[[3, 2, 1], [1, 3, 5]]",
+    );
+    // Control: a zero step never advances, so it is refused up front.
+    agrees_on(
+        "module M { public fun run() -> Object { try { (1 ..= 5).by(step: 0) } catch v, _ { v } } } M.run()",
+        ":RangeError",
+    );
+    // Control: a step walking AWAY from the end never arrives.
+    agrees_on(
+        "module M { public fun run() -> Object { try { (1 ..= 5).by(step: -2) } catch v, _ { v } } } M.run()",
+        ":RangeError",
+    );
+    // Control: a descending range takes the matching negative step.
+    agrees_on(
+        "module M { public fun run() -> Array { (3 ..= 1).by(step: -1).to_array() } } M.run()",
+        "[3, 2, 1]",
+    );
+}
+
+/// `inspect` answers a REPARSABLE literal.
+///
+/// Every scalar the literal grammar gives a meaning to is escaped back.
+/// Interpolation is written `${...}` and the escape table has no `\$`, so a
+/// `$` that would OPEN one is emitted as its Unicode escape instead.
+#[test]
+fn inspect_answers_a_reparsable_literal() {
+    agrees_on(r#""ab".inspect()"#, r#""\"ab\"""#);
+    agrees_on(r#""a\"b".inspect()"#, r#""\"a\\\"b\"""#);
+    // Control: interpolation ALREADY happened, so `inspect` quotes the
+    // resulting text rather than the source spelling.
+    agrees_on(r#""${1}".inspect()"#, r#""\"1\"""#);
+    agrees_on(r#""a\nb".inspect()"#, r#""\"a\\nb\"""#);
+}

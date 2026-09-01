@@ -248,6 +248,7 @@ const STEP_BUDGET: u64 = 1_000_000;
 pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
         MachineError::IndexError => Some("IndexError"),
+        MachineError::RangeError => Some("RangeError"),
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),

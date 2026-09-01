@@ -497,6 +497,46 @@ impl Machine {
                     )),
                 })
             }
+            // `C051` makes `to_array` the ordered element sequence, which a
+            // Range answers through the SAME materialization iterating it
+            // uses - the two cannot disagree about which values it holds.
+            Value::Range(range) if selector == "to_array" && arguments.is_empty() => Some(
+                Value::Array(iris_runtime::ArrayRef::new(iteration::range_values(range)?)),
+            ),
+            // `C038` spells the operand `range.by(step: Integer)`, so the
+            // stride arrives as a KEYWORD argument rather than a bare
+            // positional one.
+            Value::Range(range) if selector == "by" && arguments.len() == 1 => {
+                let step = match &arguments[0] {
+                    Value::KeywordArgument(name, value) if name == "step" => value.as_ref(),
+                    value => value,
+                };
+                let Value::Integer(step) = step else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
+                };
+                let Some(magnitude) = step.to_i128() else {
+                    return Err(MachineError::RangeError);
+                };
+                // A zero step never advances, and a step whose SIGN walks away
+                // from the end never arrives: both are refused up front rather
+                // than looping forever.
+                if magnitude == 0 {
+                    return Err(MachineError::RangeError);
+                }
+                let descending = iris_runtime::Numeric::compare(
+                    &iris_runtime::NumericValue::Integer(range.end.clone()),
+                    &iris_runtime::NumericValue::Integer(range.start.clone()),
+                ) == Some(std::cmp::Ordering::Less);
+                if (descending && magnitude > 0) || (!descending && magnitude < 0) {
+                    return Err(MachineError::RangeError);
+                }
+                Some(Value::Range(Box::new(iris_runtime::RangeValue {
+                    start: range.start.clone(),
+                    end: range.end.clone(),
+                    inclusive_end: range.inclusive_end,
+                    step: step.clone(),
+                })))
+            }
             Value::Text(text) => hash_text::text_send(text, selector, arguments),
             Value::Integer(value) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(value.decimal_text()))

@@ -41,6 +41,12 @@ pub enum MachineError {
     /// absent key, and `fetch` refuses, which is what makes it usable as an
     /// assertion that the key is present.
     KeyError,
+    /// A value fell outside the range its operation admits.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C038` refuses a Range step of zero, and refuses one
+    /// whose SIGN walks away from the end - a step that never terminates is
+    /// rejected up front rather than looping forever.
+    RangeError,
     /// A byte sequence was not valid in the selected Encoding.
     ///
     /// `IRIS-V1-LIBRARY-C022` makes STRICT handling the default, so a lossy

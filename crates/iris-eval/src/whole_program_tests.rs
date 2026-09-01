@@ -486,7 +486,12 @@ fn measure_corpus_agreement() {
                     failures.push(format!("{name}: {observations:?}"));
                 }
             }
-            Agreement::Insufficient { .. } => held += 1,
+            // A HELD vector is named, not just counted: a rise in the held
+            // count otherwise hides a failure that used to be visible.
+            Agreement::Insufficient { ran, declined } => {
+                held += 1;
+                failures.push(format!("HOLD {name}: ran={ran:?} declined={declined:?}"));
+            }
         }
     }
     println!("AGREE total={total} agreed={agreed} disagreed={disagreed} held={held}");

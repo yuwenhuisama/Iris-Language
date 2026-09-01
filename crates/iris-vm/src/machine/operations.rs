@@ -301,7 +301,38 @@ impl Machine {
                     .map(|byte| Value::Integer(byte.into()))
                     .unwrap_or(Value::Nil))
             }
-            _ => Err(MachineError::UnknownSelector("[]".to_owned())),
+            // TEXT indexes in SCALARS, not bytes: `C009` counts a scalar once,
+            // so an astral character is ONE position and a slice cuts on
+            // scalar boundaries rather than splitting one apart.
+            Value::Text(_) | Value::MutableString(_) => {
+                let text = match &receiver {
+                    Value::Text(text) => text.clone(),
+                    Value::MutableString(text) => text.text(),
+                    _ => return Err(MachineError::Kernel(KernelError::Type)),
+                };
+                let scalars: Vec<char> = text.chars().collect();
+                if let Value::Range(range) = &index {
+                    return Ok(Value::Text(
+                        slice_bounds(range, scalars.len())
+                            .map(|(from, to)| scalars[from..to].iter().collect())
+                            .unwrap_or_default(),
+                    ));
+                }
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                // A read outside the resolved range answers nil rather than
+                // raising, which is what distinguishes it from a write.
+                Ok(resolve_index(&index, scalars.len())
+                    .and_then(|index| scalars.get(index))
+                    .map_or(Value::Nil, |scalar| Value::Text(scalar.to_string())))
+            }
+            // A receiver with no indexing is a MISSING MESSAGE, which a script
+            // can catch - not a defect in the machine.
+            receiver => Err(MachineError::MessageNotFound {
+                receiver_class: super::value_class_name(&receiver).to_owned(),
+                selector: "[]".to_owned(),
+            }),
         }
     }
 
@@ -342,7 +373,12 @@ impl Machine {
                 entries.insert(index, value.clone());
                 Ok(value)
             }
-            _ => Err(MachineError::UnknownSelector("[]=".to_owned())),
+            // TEXT is immutable, so it has no `[]=` at all: the refusal is a
+            // MISSING MESSAGE a script can catch, not a machine defect.
+            receiver => Err(MachineError::MessageNotFound {
+                receiver_class: super::value_class_name(&receiver).to_owned(),
+                selector: "[]=".to_owned(),
+            }),
         }
     }
 }
