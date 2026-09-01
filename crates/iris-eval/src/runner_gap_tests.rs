@@ -10223,3 +10223,29 @@ fn an_ivar_name_is_a_sigil_and_an_identifier() {
         ":InvalidInstanceVariableNameError",
     );
 }
+
+/// A CLASS or CONTRACT name is a BINDING the declaration made.
+///
+/// Writing one is an IMMUTABLE write rather than a missing name, while a
+/// MODULE name is not a binding at all and stays a NameError. Reporting every
+/// undeclared write the same way lost that distinction.
+#[test]
+fn a_class_name_is_an_immutable_binding() {
+    agrees_on(
+        "class A {}; module M {}; contract C {}; const K = Object.new(); \
+         [try { A = 1 } catch e { e }, try { M = 1 } catch e { e }, \
+          try { C = 1 } catch e { e }, try { K = Object.new() } catch e { e }]",
+        "[:ImmutableBindingError, :NameError, :ImmutableBindingError, :ImmutableBindingError]",
+    );
+    agrees_on(
+        "class A {}; try { A = 1 } catch e { e }",
+        ":ImmutableBindingError",
+    );
+    // Control: a `const` is immutable by the same rule.
+    agrees_on(
+        "const K = 1; try { K = 2 } catch e { e }",
+        ":ImmutableBindingError",
+    );
+    // Control: a `mut` binding still accepts the write.
+    agrees_on("mut x = 1; try { x = 2 } catch e { e }", "2");
+}

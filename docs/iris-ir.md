@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CLASS or CONTRACT name is a BINDING the declaration made, so writing one is
+an IMMUTABLE write rather than a missing name. A MODULE name is not a binding
+at all and stays a NameError - reporting every undeclared write the same way
+lost that distinction.
+
 An IVAR NAME is one `@` followed by an ordinary identifier. `@`, `@@x`, `@x?`
 and `@1x` are each a Symbol that is not a NAME - the sigil alone does not make
 one, and a Text is not a name at all. Accepting any symbol answered nil for
@@ -1160,8 +1165,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 668 agreed,
-67 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 669 agreed,
+66 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

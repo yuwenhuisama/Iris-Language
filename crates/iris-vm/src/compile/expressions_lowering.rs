@@ -720,11 +720,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         .rev()
                         .find(|binding| binding.name == *name)
                     else {
+                        // A CLASS or CONTRACT name is a binding the
+                        // declaration made, so writing it is an IMMUTABLE
+                        // write rather than a missing name. A MODULE name is
+                        // not a binding at all, so it stays a NameError.
+                        let destination = self.allocate()?;
+                        if self.class_index(name).is_some() || self.contract_index(name).is_some() {
+                            self.instructions
+                                .push(Instruction::RaiseImmutableBinding { destination });
+                            return Ok(destination);
+                        }
                         // `C009` makes a bare `name = expr` never CREATE a
                         // binding, so an absent target is the reference's own
                         // NameError when the assignment runs rather than a
                         // construct the backend lacks.
-                        let destination = self.allocate()?;
                         self.instructions
                             .push(Instruction::RaiseNameError { destination });
                         return Ok(destination);
