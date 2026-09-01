@@ -596,6 +596,13 @@ pub enum Instruction {
     },
     IteratorClose {
         iterator: Register,
+        /// The context a body exception is propagating under, if any.
+        ///
+        /// `IRIS-V1-CONTROL-C047` keeps the BODY's exception primary when
+        /// cleanup also raises, appending the cleanup failure to its
+        /// suppressed list - so an exceptional close carries the context it
+        /// must not displace. A normal close has none.
+        context: Option<Register>,
     },
     /// Installs an exception handler for the following protected region.
     EnterTry {

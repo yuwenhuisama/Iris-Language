@@ -9038,3 +9038,57 @@ fn a_type_answers_its_shape() {
         );
     }
 }
+
+/// A CLEANUP that raises does not displace the body's exception.
+///
+/// `IRIS-V1-CONTROL-C047` keeps the BODY's exception primary when a loop's
+/// `close` also raises, appending the cleanup failure to its suppressed list -
+/// the machine let `:close` overwrite `:body`, reporting the wrong exception
+/// and losing the other entirely. A close on the NORMAL exit carries no
+/// exception to protect and simply propagates its own.
+#[test]
+fn a_raising_cleanup_is_suppressed_beside_the_body() {
+    for (source, expected) in [
+        // The body's exception stays primary; the close joins `suppressed`.
+        (
+            "mut n = 0; class It { public fun next() { n = n + 1; \
+             if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+             public fun close() { raise :close } } \
+             class S { public fun iterator() { It.new() } } \
+             try { for x in S.new() { raise :body } } catch v, c { [v, c.suppressed.length()] }",
+            "[:body, 1]",
+        ),
+        // Control: a close that does NOT raise suppresses nothing.
+        (
+            "mut n = 0; class It { public fun next() { n = n + 1; \
+             if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+             public fun close() { nil } } \
+             class S { public fun iterator() { It.new() } } \
+             try { for x in S.new() { raise :body } } catch v, c { [v, c.suppressed.length()] }",
+            "[:body, 0]",
+        ),
+        // Control: with NO body exception the loop completes normally, so the
+        // protection did not change an ordinary run.
+        (
+            "mut n = 0; mut seen = 0; class It { public fun next() { n = n + 1; \
+             if n < 3 { Iteration.yield(n) } else { Iteration.done } } \
+             public fun close() { nil } } \
+             class S { public fun iterator() { It.new() } } \
+             for x in S.new() { seen = seen + x }; seen",
+            "[nil, 3]",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

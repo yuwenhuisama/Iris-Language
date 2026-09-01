@@ -156,8 +156,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // A return bypasses the exception handlers that protect loop
                 // bodies, so active iterators must be closed explicitly here.
                 for iterator in self.loops.iter().rev().filter_map(|loop_| loop_.iterator) {
-                    self.instructions
-                        .push(Instruction::IteratorClose { iterator });
+                    self.instructions.push(Instruction::IteratorClose {
+                        iterator,
+                        context: None,
+                    });
                 }
                 // `C004` guards the return boundary on the EXPLICIT path too,
                 // not only where the body falls off its end.
@@ -423,8 +425,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.patch(jump, close)?;
         }
         self.instructions.push(Instruction::LeaveTry);
-        self.instructions
-            .push(Instruction::IteratorClose { iterator });
+        self.instructions.push(Instruction::IteratorClose {
+            iterator,
+            context: None,
+        });
         let skip_handler = self.instructions.len();
         self.instructions.push(Instruction::Jump { target: 0 });
         let exceptional = self.instructions.len();
@@ -435,8 +439,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             *handler = exceptional;
             *cleanup = close;
         }
-        self.instructions
-            .push(Instruction::IteratorClose { iterator });
+        self.instructions.push(Instruction::IteratorClose {
+            iterator,
+            context: Some(context),
+        });
         self.instructions.push(Instruction::Propagate {
             value: exception,
             context,

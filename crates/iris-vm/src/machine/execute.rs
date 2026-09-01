@@ -1265,41 +1265,35 @@ impl Machine {
                         _ => return Err(MachineError::TypeContractError),
                     }
                 }
-                Instruction::IteratorClose { iterator } => {
+                Instruction::IteratorClose { iterator, context } => {
                     let iterator = registers[*iterator as usize].clone();
-                    if run_frame!(
-                        'frame,
-                        self.iteration_send(&iterator, "close", &[])
-                    )
-                    .is_none()
-                    {
-                        let Value::Object(object) = iterator else {
-                            return Err(MachineError::MessageNotFound {
-                                receiver_class: super::value_class_name(&iterator).to_owned(),
-                                selector: "close".to_owned(),
-                            });
-                        };
-                        let selector = selector_id(program, "close")
-                            .ok_or_else(|| MachineError::UnknownSelector("close".to_owned()))?;
-                        let method = self
-                            .runtime
-                            .dispatch_instance(object, selector)
-                            .map_err(MachineError::Construction)?;
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
-                        let callee = program.functions.get(function).cloned().ok_or(
-                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
-                        )?;
-                        let _ = run_frame!('frame, self.run_body(
-                            &callee.instructions,
-                            callee.registers,
-                            vec![Value::Object(object)],
-                            program,
-                            classes,
-                        ));
+                    let closed = self.close_iterator(&iterator, program, classes);
+                    // `C047` keeps the BODY's exception primary when cleanup
+                    // also raises: the cleanup failure joins its suppressed
+                    // list rather than displacing it. A close on the normal
+                    // exit carries no context and simply propagates.
+                    let primary = context.map(|register| registers[register as usize].clone());
+                    match (primary, closed) {
+                        (
+                            Some(Value::ExceptionContext(
+                                identity,
+                                value,
+                                cause,
+                                mut suppressed,
+                                sites,
+                                location,
+                            )),
+                            Err(MachineError::Raised(cleanup)),
+                        ) => {
+                            suppressed.push(cleanup.1);
+                            if let Some(register) = context {
+                                registers[*register as usize] = Value::ExceptionContext(
+                                    identity, value, cause, suppressed, sites, location,
+                                );
+                            }
+                        }
+                        (_, Err(error)) => return Err(error),
+                        (_, Ok(())) => {}
                     }
                     continue;
                 }

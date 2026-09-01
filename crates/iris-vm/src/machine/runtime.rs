@@ -936,3 +936,54 @@ impl Machine {
         )))
     }
 }
+
+impl Machine {
+    /// Closes an iterator, answering what its `close` did.
+    ///
+    /// The outcome is ANSWERED rather than propagated, because a close that
+    /// raises while a body exception is already travelling must not displace
+    /// it - `IRIS-V1-CONTROL-C047` makes the body's exception primary and
+    /// appends the cleanup failure to its suppressed list.
+    pub(super) fn close_iterator(
+        &mut self,
+        iterator: &Value,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        if self.iteration_send(iterator, "close", &[])?.is_some() {
+            return Ok(());
+        }
+        let Value::Object(object) = iterator else {
+            return Err(MachineError::MessageNotFound {
+                receiver_class: super::value_class_name(iterator).to_owned(),
+                selector: "close".to_owned(),
+            });
+        };
+        let selector = selector_id(program, "close")
+            .ok_or_else(|| MachineError::UnknownSelector("close".to_owned()))?;
+        let method = self
+            .runtime
+            .dispatch_instance(*object, selector)
+            .map_err(MachineError::Construction)?;
+        let function = usize::try_from(method.body().raw()).map_err(|_| {
+            MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function: usize::MAX,
+            })
+        })?;
+        let callee = program
+            .functions
+            .get(function)
+            .cloned()
+            .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function,
+            }))?;
+        self.run_body(
+            &callee.instructions,
+            callee.registers,
+            vec![Value::Object(*object)],
+            program,
+            classes,
+        )
+        .map(|_| ())
+    }
+}

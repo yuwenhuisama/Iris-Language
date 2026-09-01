@@ -600,7 +600,8 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => vec![*array, *index, *version],
         Instruction::RangeNext { range, index, .. } => vec![*range, *index],
         Instruction::IteratorOpen { iterable, .. } => vec![*iterable],
-        Instruction::IteratorNext { iterator, .. } | Instruction::IteratorClose { iterator } => {
+        Instruction::IteratorNext { iterator, .. }
+        | Instruction::IteratorClose { iterator, .. } => {
             vec![*iterator]
         }
         Instruction::SetIndex {
