@@ -537,6 +537,7 @@ fn collect_class<'a>(
             _ => None,
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let mut shared_class_variables = Vec::new();
     // A stored property whose initializer is not a literal gets a synthesized
     // FRAME with `self` bound, appended after the class's own methods so its
     // index is stable once every declaration has been collected.
@@ -578,6 +579,24 @@ fn collect_class<'a>(
             // while `C<String>.n` answers. Registering the bare name too would
             // answer a value the language does not have there.
             if class.parameters.is_empty() || *shared {
+                // A SHARED property on a generic class belongs to the
+                // unapplied definition only, so a closed construction must not
+                // reach it - answering the definition's value there gave
+                // `C<String>.n` a slot the language does not give it.
+                if *shared && !class.parameters.is_empty() {
+                    shared_class_variables.push(name.clone());
+                    // A construction still needs its OWN slot for a write to
+                    // land in: `C<String>.n = 3` answers 3 while leaving the
+                    // definition's `C.n` untouched, so the two must not share
+                    // one slot.
+                    for construction in written_constructions(source, &class.name) {
+                        class_variables.push(ClassVariable {
+                            name: format!("{name}<{construction}>"),
+                            mutable: true,
+                            initializer: initializer.clone(),
+                        });
+                    }
+                }
                 class_variables.push(ClassVariable {
                     name: name.clone(),
                     mutable: true,
@@ -679,6 +698,7 @@ fn collect_class<'a>(
         private_methods,
         override_required,
         contract_signature_clash: false,
+        shared_class_variables,
         meta_deny: class.meta_deny.clone(),
         generic: !class.parameters.is_empty(),
         superclass,

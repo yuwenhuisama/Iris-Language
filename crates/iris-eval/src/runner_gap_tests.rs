@@ -9688,3 +9688,44 @@ fn contradicting_contract_requirements_cannot_both_be_met() {
         "UnsupportedConstruct",
     );
 }
+
+/// A SHARED class property lives on the UNAPPLIED generic definition.
+///
+/// `C064` puts a `shared class property` on the definition itself, while a
+/// PLAIN one belongs to each closed construction - so the two forms reach
+/// opposite receivers. A closed construction still needs its own slot for a
+/// write to land in, which is what keeps the definition's value untouched.
+#[test]
+fn a_shared_class_property_belongs_to_the_definition() {
+    // The BARE name answers; the construction does not reach it.
+    agrees_on(
+        "class Cache<T> { shared class property count: Integer = 0 } Cache.count",
+        "0",
+    );
+    agrees_on_error(
+        "class Cache<T> { shared class property count: Integer = 0 } Cache<String>.count",
+        r#"MessageNotFound { receiver_class: "Class", selector: "count" }"#,
+    );
+    // Control: a PLAIN class property is the mirror image - the construction
+    // answers and the bare name does not.
+    agrees_on(
+        "class Cache<T> { class property count: Integer = 0 } Cache<String>.count",
+        "0",
+    );
+    agrees_on_error(
+        "class Cache<T> { class property count: Integer = 0 } Cache.count",
+        r#"MessageNotFound { receiver_class: "Class", selector: "count" }"#,
+    );
+    // A write through a construction lands in the CONSTRUCTION's slot, leaving
+    // the definition's own value untouched.
+    agrees_on(
+        "class Cache<T> { shared class property count: Integer = 0 } Cache<String>.count = 3; Cache.count",
+        "[3, 0]",
+    );
+    // Control: on a NON-generic class there is no construction to distinguish,
+    // so the bare name answers as it always did.
+    agrees_on(
+        "class Cache { shared class property count: Integer = 0 } Cache.count",
+        "0",
+    );
+}

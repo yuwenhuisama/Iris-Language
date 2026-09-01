@@ -1103,6 +1103,12 @@ pub(crate) struct Class {
     pub(crate) qualified_impls: Vec<(usize, String, usize)>,
     pub(crate) property_methods: Vec<String>,
     pub(crate) class_variables: Vec<ClassVariable>,
+    /// Class variables declared `shared class property` on a GENERIC class.
+    ///
+    /// `IRIS-V1-TYPES-C064` puts a shared property on the UNAPPLIED
+    /// definition, so a closed construction does not reach it - `C<String>.n`
+    /// is a MessageNotFound while `C.n` answers.
+    pub(crate) shared_class_variables: Vec<String>,
     pub(crate) stored_properties: Vec<StoredProperty>,
 }
 

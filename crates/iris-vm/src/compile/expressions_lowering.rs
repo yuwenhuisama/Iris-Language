@@ -467,6 +467,26 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
                     return self.expression(receiver);
                 }
+                // `C064` puts a SHARED class property on the UNAPPLIED generic
+                // definition, so a closed construction does not reach it:
+                // `C.n` answers while `C<String>.n` is a MessageNotFound.
+                // Falling through to ordinary dispatch found the definition's
+                // own slot and answered a value the language has no slot for.
+                if let Expression::ClosedGeneric { name, .. } = receiver.as_ref()
+                    && let Some(class) = self.class_index(name)
+                    && self.classes[class]
+                        .shared_class_variables
+                        .iter()
+                        .any(|shared| shared == selector)
+                {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::RaiseMessageNotFound {
+                        destination,
+                        receiver_class: "Class".to_owned(),
+                        selector: selector.clone(),
+                    });
+                    return Ok(destination);
+                }
                 // A CLOSED generic construction reads its own class-variable
                 // slot, so `Cache<String>.value` and `Cache<Integer>.value` do
                 // not share one.
