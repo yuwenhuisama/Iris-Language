@@ -9323,3 +9323,32 @@ fn a_bare_member_read_reaches_kernel_selectors() {
         ":refused",
     );
 }
+
+/// An ITERATOR RELEASES its source when it is exhausted.
+///
+/// `C017` and `C018` make the release an OWNERSHIP fact rather than a timing
+/// one, so `share_count` observes it directly instead of needing a collector
+/// to run. It is a conformance probe on REPRESENTATION, not part of the Array
+/// surface the specification defines for programs - the machine offered no
+/// such probe at all, so the ownership rule went unobserved.
+#[test]
+fn an_iterator_releases_its_source() {
+    // Holding the iterator RETAINS the array, and exhausting it releases back
+    // to the original count.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); mut it = a.iterator(); let held = a.share_count(); let first = it.next(); let retained = a.share_count(); let done = it.next() == Iteration.done; let after = a.share_count(); [held > base, retained > base, done, after == base] } } M.run()"#,
+        "[true, true, true, true]",
+    );
+    // Control: an EXHAUSTED iterator stays exhausted and keeps answering
+    // `done`, without retaining the source again.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); mut it = a.iterator(); it.next(); it.next(); let after = a.share_count(); let one = it.next(); let two = it.next(); [after == base, one == Iteration.done, two == Iteration.done, one == two, a.share_count() == base] } } M.run()"#,
+        "[true, true, true, true, true]",
+    );
+    // Control: an array nobody iterates keeps its count UNCHANGED across an
+    // ordinary read, so the probe tracks ownership rather than every send.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); let n = a.length(); [n, a.share_count() - base] } } M.run()"#,
+        "[1, 0]",
+    );
+}

@@ -15,6 +15,17 @@ impl Machine {
     ) -> Result<Option<Value>, MachineError> {
         let result = match (selector, arguments) {
             ("length" | "count", []) => Value::Integer((values.len() as u64).into()),
+            // `C017` and `C018` require an Iterator to RELEASE its source, an
+            // ownership fact rather than a timing one. This answers how many
+            // live references share the Array body, so a vector observes the
+            // release directly instead of needing a collector to run. It is a
+            // conformance probe on REPRESENTATION, not part of the Array
+            // surface the specification defines for programs.
+            ("share_count", []) => Value::Integer(
+                u64::try_from(values.share_count())
+                    .unwrap_or_default()
+                    .into(),
+            ),
             ("map", [block @ Value::Closure(_)]) => Value::Array(ArrayRef::new(
                 values
                     .elements()

@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An ITERATOR RELEASES its source when it is exhausted. `C017` and `C018` make
+the release an OWNERSHIP fact rather than a timing one, so `share_count`
+observes it directly instead of needing a collector to run. It is a conformance
+probe on REPRESENTATION, not part of the Array surface the specification
+defines for programs.
+
 A BARE MEMBER read reaches the KERNEL selectors too. `Float64(1).hash` reads
 without parentheses and `hash` is not on the authored surface, so declaring the
 selector absent without asking the kernel reported a missing message for one
@@ -990,8 +996,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 629 agreed,
-106 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 631 agreed,
+104 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
