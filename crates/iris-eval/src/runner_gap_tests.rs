@@ -10135,3 +10135,39 @@ fn a_construction_resolves_initialize_before_its_properties() {
         "[:plain, :original]",
     );
 }
+
+/// A SLICE names a CONTIGUOUS span, so a STEPPED range is refused.
+///
+/// `C046` answers the empty slice for a start-after-end span and `C038`
+/// INFERS step -1 for exactly that literal, so a descending literal is a legal
+/// empty slice rather than the reverse slicing this rejects. Only a step that
+/// could not have been inferred - an explicit `by` - is refused, instead of
+/// being quietly walked as though it named a span.
+#[test]
+fn a_stepped_range_is_not_a_slice() {
+    agrees_on_error(
+        r#"module M { public fun run() -> String { "abc"[(1 ..= 3).by(step: 2)] } } M.run()"#,
+        "ArgumentError",
+    );
+    agrees_on_error(
+        r#"module M { public fun run() -> String { "abcde"[(0 ..= 4).by(step: 2)] } } M.run()"#,
+        "ArgumentError",
+    );
+    // An ARRAY refuses it the same way, so this is about ranges rather than
+    // about text.
+    agrees_on_error(
+        "module M { public fun run() -> Object { [1,2,3,4][(0 ..= 3).by(step: 2)] } } M.run()",
+        "ArgumentError",
+    );
+    // Control: an ordinary ascending range still slices.
+    agrees_on(
+        r#"module M { public fun run() -> String { "abc"[(0 ..= 2)] } } M.run()"#,
+        r#""abc""#,
+    );
+    // Control: a DESCENDING literal infers step -1 and is a legal EMPTY
+    // slice, so the refusal targets the explicit `by` rather than the sign.
+    agrees_on(
+        r#"module M { public fun run() -> String { "abc"[2 ..< 1] } } M.run()"#,
+        r#""""#,
+    );
+}

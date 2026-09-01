@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A SLICE names a CONTIGUOUS span, so a STEPPED range is refused. `C046` answers
+the empty slice for a start-after-end span and `C038` INFERS step -1 for
+exactly that literal, so a descending literal is a legal empty slice rather
+than the reverse slicing this rejects - only a step that could not have been
+inferred, meaning an explicit `by`, is refused instead of being quietly walked
+as though it named a span.
+
 A CONSTRUCTION resolves `initialize` BEFORE its property initializers run. A
 property initializer that REDEFINES the method arms it for the NEXT
 construction, not the one already under way - resolving afterwards let a class
@@ -1144,8 +1151,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 664 agreed,
-71 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 665 agreed,
+70 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

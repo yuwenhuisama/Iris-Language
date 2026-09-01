@@ -252,10 +252,9 @@ impl Machine {
                 // the other unchanged, which is what `a[0 ..< 2]` then
                 // `a[0] = 9` observes.
                 if let Value::Range(range) = &index {
+                    let (from, to) = slice_bounds(range, elements.len())?;
                     return Ok(Value::Array(iris_runtime::ArrayRef::new(
-                        slice_bounds(range, elements.len())
-                            .map(|(from, to)| elements[from..to].to_vec())
-                            .unwrap_or_default(),
+                        elements[from..to].to_vec(),
                     )));
                 }
                 let Value::Integer(index) = index else {
@@ -294,9 +293,8 @@ impl Machine {
                     Value::ByteArray(bytes) => bytes.bytes(),
                     _ => return Err(MachineError::Kernel(KernelError::Type)),
                 };
-                let taken = slice_bounds(range, bytes.len())
-                    .map(|(from, to)| bytes[from..to].to_vec())
-                    .unwrap_or_default();
+                let (from, to) = slice_bounds(range, bytes.len())?;
+                let taken = bytes[from..to].to_vec();
                 Ok(match &receiver {
                     Value::ByteArray(_) => Value::ByteArray(iris_runtime::ByteArrayRef::new(taken)),
                     _ => Value::Bytes(taken),
@@ -332,11 +330,8 @@ impl Machine {
                 };
                 let scalars: Vec<char> = text.chars().collect();
                 if let Value::Range(range) = &index {
-                    return Ok(Value::Text(
-                        slice_bounds(range, scalars.len())
-                            .map(|(from, to)| scalars[from..to].iter().collect())
-                            .unwrap_or_default(),
-                    ));
+                    let (from, to) = slice_bounds(range, scalars.len())?;
+                    return Ok(Value::Text(scalars[from..to].iter().collect()));
                 }
                 let Value::Integer(index) = index else {
                     return Err(MachineError::Kernel(KernelError::Type));
@@ -408,8 +403,7 @@ impl Machine {
                     _ => return Err(MachineError::Kernel(KernelError::Type)),
                 };
                 let current = bytes.bytes();
-                let (from, to) = slice_bounds(range, current.len())
-                    .ok_or(MachineError::Kernel(KernelError::Type))?;
+                let (from, to) = slice_bounds(range, current.len())?;
                 let mut rebuilt = current.get(..from).unwrap_or_default().to_vec();
                 rebuilt.extend_from_slice(&replacement);
                 rebuilt.extend_from_slice(current.get(to..).unwrap_or_default());
@@ -527,7 +521,28 @@ fn identity_hash(value: &Value) -> Option<u64> {
 /// An endpoint past the end is clamped rather than refused, and a start past
 /// the end names an empty slice - `C088` tags an inclusive end separately, so
 /// `0 ..= 1` and `0 ..< 2` name the same two elements.
-fn slice_bounds(range: &iris_runtime::RangeValue, length: usize) -> Option<(usize, usize)> {
+fn slice_bounds(
+    range: &iris_runtime::RangeValue,
+    length: usize,
+) -> Result<(usize, usize), MachineError> {
+    // A SLICE names a contiguous span, so a STEPPED range describes something
+    // an index cannot answer and is refused rather than quietly walking every
+    // element.
+    let Some(step) = range.step.to_i128() else {
+        return Err(MachineError::ArgumentError);
+    };
+    // `C046` answers the EMPTY slice for a start-after-end span and `C038`
+    // INFERS step -1 for exactly that literal, so a descending literal is a
+    // legal empty slice rather than the reverse slicing this rejects. Only a
+    // step that could not have been inferred - an explicit `by` - is refused.
+    let descending_literal = step == -1
+        && iris_runtime::Numeric::compare(
+            &iris_runtime::NumericValue::Integer(range.end.clone()),
+            &iris_runtime::NumericValue::Integer(range.start.clone()),
+        ) == Some(std::cmp::Ordering::Less);
+    if step != 1 && !descending_literal {
+        return Err(MachineError::ArgumentError);
+    }
     // An endpoint OUT of range clamps rather than emptying the slice, and a
     // NEGATIVE one resolves from the end - reading the endpoints as unsigned
     // made `s[-9 ..< 2]` answer nothing where the language answers the first
@@ -542,5 +557,5 @@ fn slice_bounds(range: &iris_runtime::RangeValue, length: usize) -> Option<(usiz
         resolved
     }
     .min(length);
-    Some((from, to.max(from)))
+    Ok((from, to.max(from)))
 }
