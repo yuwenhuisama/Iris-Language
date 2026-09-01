@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+TWO contracts requiring one selector with CONTRADICTING signatures cannot both
+be satisfied. `D-173` holds ONE signature per selector in the static spine, so
+no single member can satisfy both requirements - the clash is in the
+CONFORMANCE rather than in any member, and is decided from the requirements
+alone, before any member is looked at.
+
 An EXCEPTION CONTEXT carries its own identity, so it can be a HASH KEY. `C056`
 makes every raise a DISTINCT event: two catches of the same symbol are two
 events and compare false, and each hashes by the identity it carries rather
@@ -1054,8 +1060,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 644 agreed,
-91 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 646 agreed,
+89 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -9656,3 +9656,35 @@ fn an_exception_context_is_a_usable_key() {
         "[2, 1, 2]",
     );
 }
+
+/// TWO contracts requiring one selector with CONTRADICTING signatures cannot
+/// both be satisfied.
+///
+/// `D-173` holds ONE signature per selector in the static spine, so no single
+/// member can satisfy both requirements - the clash is in the CONFORMANCE
+/// rather than in any member, and is decided from the requirements alone.
+/// Declining the program described the same refusal as a construct the backend
+/// lacks, which is a different claim entirely.
+#[test]
+fn contradicting_contract_requirements_cannot_both_be_met() {
+    agrees_on_error(
+        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X for A, B { public impl fun m(x: Object) -> String { "x" } }"#,
+        "TypeContractError",
+    );
+    // Control: two contracts AGREEING on the signature state one requirement
+    // twice, which any single member satisfies.
+    agrees_on_error(
+        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: String) -> String } class X for A, B { public impl fun m(x: String) -> String { "x" } }"#,
+        "UnsupportedConstruct",
+    );
+    // Control: two contracts naming DIFFERENT selectors never contradict.
+    agrees_on_error(
+        r#"contract A { fun m(x: String) -> String } contract B { fun n(x: Object) -> Integer } class X for A, B { public impl fun m(x: String) -> String { "x" } public impl fun n(x: Object) -> Integer { 1 } }"#,
+        "UnsupportedConstruct",
+    );
+    // Control: a single contract has nothing to contradict.
+    agrees_on_error(
+        r#"contract A { fun m(x: String) -> String } class X for A { public impl fun m(x: String) -> String { "x" } }"#,
+        "UnsupportedConstruct",
+    );
+}

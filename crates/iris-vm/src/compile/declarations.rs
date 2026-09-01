@@ -283,6 +283,41 @@ pub(super) fn collect_signatures<'a>(
             }
         }
     }
+    // `D-173` also settles a class conforming to TWO contracts that require one
+    // selector with CONTRADICTING signatures: the static spine holds one
+    // signature per selector, so NO single member can satisfy both. The clash
+    // is in the CONFORMANCE rather than in any member, so it is decided from
+    // the requirements alone, before any member is even looked at.
+    for class in &mut classes {
+        let conformances = class.contracts.clone();
+        for (position, first) in conformances.iter().enumerate() {
+            for second in &conformances[position + 1..] {
+                for left in &contracts[*first].requirements {
+                    for right in &contracts[*second].requirements {
+                        if left.selector != right.selector {
+                            continue;
+                        }
+                        // An UNANNOTATED position states nothing, so only two
+                        // stated Types can contradict each other.
+                        let parameters_differ = left.arity != right.arity
+                            || left.parameter_types.iter().zip(&right.parameter_types).any(
+                                |(left, right)| match (left, right) {
+                                    (Some(left), Some(right)) => left != right,
+                                    _ => false,
+                                },
+                            );
+                        let returns_differ = match (&left.return_type, &right.return_type) {
+                            (Some(left), Some(right)) => left != right,
+                            _ => false,
+                        };
+                        if parameters_differ || returns_differ {
+                            class.contract_signature_clash = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
     Ok(CollectedDeclarations {
         signatures,
         classes,
