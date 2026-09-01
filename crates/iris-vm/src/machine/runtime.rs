@@ -544,6 +544,17 @@ impl Machine {
             // selector replaces the first and must write `override`. The
             // refusal is raised here rather than at compile time, because the
             // class identity it names exists only once the class is defined.
+            // A class variable is ANCHORED once per ancestry, so a subclass
+            // redeclaring one its superclass already anchors is a duplicate
+            // rather than a fresh slot.
+            if let Some(name) = declaration.duplicate_class_variable.as_ref() {
+                let name = selector_id(program, name)
+                    .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                return Err(MachineError::Class(ClassError::DuplicateClassVariable {
+                    class,
+                    name,
+                }));
+            }
             // `D-173` makes a replacement whose return Type contradicts a
             // contract requirement an INCOMPATIBLE member, not a new one.
             if declaration.contract_signature_clash {

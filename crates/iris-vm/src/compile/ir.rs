@@ -1109,6 +1109,13 @@ pub(crate) struct Class {
     /// definition, so a closed construction does not reach it - `C<String>.n`
     /// is a MessageNotFound while `C.n` answers.
     pub(crate) shared_class_variables: Vec<String>,
+    /// A class variable this class ANCHORS that its ancestry already anchors.
+    ///
+    /// A class variable is anchored once per ancestry, so a subclass
+    /// redeclaring one is a duplicate rather than a fresh slot. The refusal is
+    /// recorded here and raised at load, where the class identity it names
+    /// exists.
+    pub(crate) duplicate_class_variable: Option<String>,
     pub(crate) stored_properties: Vec<StoredProperty>,
 }
 

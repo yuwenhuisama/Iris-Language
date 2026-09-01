@@ -283,6 +283,27 @@ pub(super) fn collect_signatures<'a>(
             }
         }
     }
+    // A class variable is ANCHORED once per ancestry, so a subclass
+    // redeclaring one its superclass already anchors is a duplicate rather
+    // than a fresh slot. The ancestry is walked here, after every class is
+    // collected, because a superclass may be declared after its subclass.
+    for index in 0..classes.len() {
+        let mut ancestor = classes[index].superclass;
+        let mut duplicate = None;
+        while let Some(parent) = ancestor {
+            if let Some(found) = classes[index].class_variables.iter().find(|variable| {
+                classes[parent]
+                    .class_variables
+                    .iter()
+                    .any(|anchored| anchored.name == variable.name)
+            }) {
+                duplicate = Some(found.name.clone());
+                break;
+            }
+            ancestor = classes[parent].superclass;
+        }
+        classes[index].duplicate_class_variable = duplicate;
+    }
     // `D-173` also settles a class conforming to TWO contracts that require one
     // selector with CONTRADICTING signatures: the static spine holds one
     // signature per selector, so NO single member can satisfy both. The clash
@@ -699,6 +720,7 @@ fn collect_class<'a>(
         override_required,
         contract_signature_clash: false,
         shared_class_variables,
+        duplicate_class_variable: None,
         meta_deny: class.meta_deny.clone(),
         generic: !class.parameters.is_empty(),
         superclass,

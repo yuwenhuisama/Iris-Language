@@ -9729,3 +9729,33 @@ fn a_shared_class_property_belongs_to_the_definition() {
         "0",
     );
 }
+
+/// A CLASS VARIABLE is ANCHORED once per ancestry.
+///
+/// A subclass redeclaring one its superclass already anchors is a DUPLICATE
+/// rather than a fresh slot, so the class is refused. Declining the program
+/// instead described the same refusal as a construct the backend lacks, which
+/// is a different claim entirely.
+#[test]
+fn a_class_variable_is_anchored_once_per_ancestry() {
+    agrees_on_error(
+        "class A { shared mut @@s = 1 } class B extends A { shared mut @@s = 2 }",
+        "Class(DuplicateClassVariable { class: ClassId(8), name: Selector(_) })",
+    );
+    // Control: a DIFFERENT name anchors freely in the subclass.
+    agrees_on_error(
+        "class A { shared mut @@s = 1 } class B extends A { shared mut @@t = 2 }",
+        "UnsupportedConstruct",
+    );
+    // Control: two UNRELATED classes each anchor their own, since the rule is
+    // about one ancestry rather than about the name being used twice.
+    agrees_on_error(
+        "class A { shared mut @@s = 1 } class B { shared mut @@s = 2 }",
+        "UnsupportedConstruct",
+    );
+    // Control: a subclass anchoring NOTHING inherits without complaint.
+    agrees_on_error(
+        "class A { shared mut @@s = 1 } class B extends A { }",
+        "UnsupportedConstruct",
+    );
+}
