@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+NO ORDER is a false comparison, and EQUALITY derives from `<=>`. `C092` lets
+two values have no order at all, which `<=>` reports as nil - and a comparison
+against no order is FALSE rather than a type failure. `C091` then derives
+equality from the same body when a class defines `<=>` and no `==` of its own,
+while two references to ONE object are already equal by identity and consult
+nothing, which is why the body runs for a distinct pair and not for a
+self-comparison.
+
 SERIALIZATION is an OPT-IN `for Serializable` promise. `C004` forbids duck
 typing, reflection visibility or a merely matching method from implying
 eligibility, and `C005` makes the representation ordinary Iris data the Class
@@ -1086,8 +1094,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 652 agreed,
-83 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 653 agreed,
+82 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

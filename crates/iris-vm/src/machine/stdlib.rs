@@ -56,6 +56,11 @@ impl Machine {
                 classes,
             )?
         {
+            // A reopened built-in orders by the same rule: no order at all is
+            // a false comparison rather than a refusal.
+            if ordering == Value::Nil {
+                return Ok(Value::Bool(false));
+            }
             let Value::Integer(ordering) = ordering else {
                 return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
             };
@@ -84,10 +89,14 @@ impl Machine {
             && let Some(ordering) =
                 self.authored_operator(&receiver, "<=>", &argument, program, classes)?
         {
+            // `C092` lets two values have NO ORDER, which `<=>` reports as
+            // nil - and a comparison against no order is FALSE rather than a
+            // type failure. Only a body answering some OTHER non-Integer is
+            // the type failure the clause names.
+            if ordering == Value::Nil {
+                return Ok(Value::Bool(false));
+            }
             let Value::Integer(ordering) = ordering else {
-                // `C092` requires an ordering to be an Integer, so a body
-                // answering anything else is a type failure rather than a
-                // silently false comparison.
                 return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
             };
             let ordering: i64 = ordering.decimal_text().parse().unwrap_or_default();
@@ -97,6 +106,21 @@ impl Machine {
                 ">" => ordering > 0,
                 _ => ordering >= 0,
             }));
+        }
+        // `C091` derives EQUALITY from `<=>` when a class defines one and no
+        // `==` of its own: two objects are equal when they compare EQUAL, so
+        // the authored body runs. Two references to ONE object are already
+        // equal by identity, so nothing is consulted there - which is why the
+        // body is called for a distinct pair and not for a self-comparison.
+        if matches!(selector, "==" | "!=")
+            && let (Value::Object(left), Value::Object(right)) = (&receiver, &argument)
+            && left != right
+            && let Some(ordering) =
+                self.authored_operator(&receiver, "<=>", &argument, program, classes)?
+        {
+            let equal = matches!(&ordering, Value::Integer(ordering)
+                if ordering.decimal_text() == "0");
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
         }
         // `C092` gives every value a `<=>`: two values with no order answer
         // nil rather than refusing, and an OBJECT with no `<=>` of its own is

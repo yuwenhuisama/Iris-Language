@@ -9843,3 +9843,47 @@ fn a_canonical_encoding_orders_by_key() {
         r#""{\"b\":1,\"a\":2}""#,
     );
 }
+
+/// NO ORDER is a false comparison, and EQUALITY derives from `<=>`.
+///
+/// `C092` lets two values have no order at all, which `<=>` reports as nil -
+/// and a comparison against no order is FALSE rather than a type failure.
+/// `C091` then derives equality from the same body when a class defines `<=>`
+/// and no `==` of its own, while two references to ONE object are already
+/// equal by identity and consult nothing.
+#[test]
+fn no_order_compares_false_and_equality_derives_from_it() {
+    // A whole battery of comparisons: the body runs for each DISTINCT pair.
+    agrees_on(
+        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let same = a; let b = Probe.new(); \
+         let results = [a == same, a <=> b, a == b, a != b, a < b]; [results, calls]",
+        "[[true, nil, false, true, false], [:call, :call, :call, :call]]",
+    );
+    // `<` against NO ORDER is false rather than a refusal.
+    agrees_on(
+        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let b = Probe.new(); let r = a < b; [r, calls]",
+        "[false, [:call]]",
+    );
+    // Equality on a DISTINCT pair consults the body.
+    agrees_on(
+        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let b = Probe.new(); let r = a == b; [r, calls]",
+        "[false, [:call]]",
+    );
+    // Control: comparing an object to ITSELF is equal by identity, so the
+    // body is not consulted at all.
+    agrees_on(
+        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let r = a == a; [r, calls]",
+        "[true, []]",
+    );
+    // Control: a body answering a real ORDER still orders normally, so the
+    // nil case did not flatten every comparison to false.
+    agrees_on(
+        "class Probe { public fun <=>(other) { -1 } }; let a = Probe.new(); let b = Probe.new(); \
+         [a < b, a > b, a == b]",
+        "[true, false, false]",
+    );
+}
