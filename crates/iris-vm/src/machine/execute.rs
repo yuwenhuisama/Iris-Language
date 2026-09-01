@@ -2241,7 +2241,38 @@ impl Machine {
                                     Value::Nil,
                                 ))));
                             }
-                            let _ = parent;
+                            // `C094` also refuses a change that would DROP a
+                            // contract the ancestry supplied: the class still
+                            // declares the conformance, so a parent that no
+                            // longer provides it leaves the promise unmet.
+                            let supplied = |target: &iris_runtime::ClassId| {
+                                let mut found = Vec::new();
+                                let mut at = classes.iter().position(|known| known == target);
+                                while let Some(index) = at {
+                                    let Some(declaration) = program.classes.get(index) else {
+                                        break;
+                                    };
+                                    found.extend(declaration.contracts.iter().copied());
+                                    at = declaration.superclass;
+                                }
+                                found
+                            };
+                            let before = supplied(class);
+                            let after = supplied(parent);
+                            let own = classes
+                                .iter()
+                                .position(|known| known == class)
+                                .and_then(|index| program.classes.get(index))
+                                .map(|declaration| declaration.contracts.clone())
+                                .unwrap_or_default();
+                            if before.iter().any(|contract| {
+                                !after.contains(contract) && !own.contains(contract)
+                            }) {
+                                return Err(MachineError::Raised(Box::new((
+                                    Value::Symbol("TypeContractError".to_owned()),
+                                    Value::Nil,
+                                ))));
+                            }
                             Value::Nil
                         }
                         ("Reflection::Class", "properties", [Value::Class(class)]) => {

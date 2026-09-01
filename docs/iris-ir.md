@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A SUPERCLASS change cannot DROP a contract the ancestry supplied. `C094`
+refuses a change that would leave a declared conformance unmet: the class still
+promises the contract, so a parent that no longer provides it breaks the
+promise, and accepting the change left the class claiming a conformance nothing
+supplies.
+
 A `return` from a CLEANUP records the exception it DISCARDS. `C063` lets a
 `return` from `finally` override a pending exception, and the discarded value
 is recorded in a protected diagnostic channel - never as cause or suppressed
@@ -1124,8 +1130,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 659 agreed,
-76 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 660 agreed,
+75 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

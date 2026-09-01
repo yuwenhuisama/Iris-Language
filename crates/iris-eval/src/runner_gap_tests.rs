@@ -10041,3 +10041,32 @@ fn a_return_from_cleanup_records_what_it_discards() {
         ":pending",
     );
 }
+
+/// A SUPERCLASS change cannot DROP a contract the ancestry supplied.
+///
+/// `C094` refuses a change that would leave a declared conformance unmet: the
+/// class still promises the contract, so a parent that no longer provides it
+/// breaks the promise. Accepting the change silently left the class claiming a
+/// conformance nothing supplies.
+#[test]
+fn a_superclass_change_cannot_drop_a_contract() {
+    agrees_on(
+        "contract Walks { fun walk() } class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+         class Dog extends Animal { } \
+         let refused = try { Reflection::Class.set_superclass(Dog, Object) } catch e { e }; \
+         [refused, Dog.type.subtype?(Animal.type)]",
+        "[:TypeContractError, true]",
+    );
+    // Control: with NO contract in the ancestry there is nothing to drop.
+    agrees_on(
+        "class Animal { } class Dog extends Animal { } \
+         try { Reflection::Class.set_superclass(Dog, Object) } catch e { e }",
+        "nil",
+    );
+    // Control: ADDING a superclass supplies more rather than less.
+    agrees_on(
+        "class Animal { } class Dog { } \
+         try { Reflection::Class.set_superclass(Dog, Animal) } catch e { e }",
+        "nil",
+    );
+}
