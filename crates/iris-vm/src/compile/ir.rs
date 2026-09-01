@@ -1143,6 +1143,13 @@ pub(crate) struct ClassVariable {
     pub(crate) name: String,
     pub(crate) mutable: bool,
     pub(crate) initializer: LiteralValue,
+    /// A function computing the initializer, when it is not a literal.
+    ///
+    /// A class-level initializer is an ordinary EXPRESSION, evaluated the
+    /// FIRST time the property is read rather than when the class is defined -
+    /// so a body that raises is retried on the next read, and one that
+    /// succeeds runs exactly once.
+    pub(crate) initializer_function: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

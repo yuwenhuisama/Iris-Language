@@ -599,8 +599,33 @@ fn collect_class<'a>(
             // not reach it, and the reference answers MessageNotFound. Storing
             // it as one class variable would answer a value where the language
             // has none.
-            let initializer = literal_value(initializer, "class-level stored property")
-                .unwrap_or(LiteralValue::Nil);
+            // A class-level initializer that is NOT a literal is an ordinary
+            // expression evaluated the first time the property is read, so it
+            // needs a frame of its own rather than being flattened to nil.
+            let literal = literal_value(initializer, "class-level stored property");
+            let initializer_function = if literal.is_ok() {
+                None
+            } else {
+                signatures.push(Signature {
+                    module: &class.name,
+                    selector: name,
+                    parameters: Vec::new(),
+                    return_type: None,
+                    body: &[],
+                    // The frame takes the CLASS as its receiver: a
+                    // receiverless signature is reachable as a bare module
+                    // function, which would run the initializer on EVERY read
+                    // instead of only the first.
+                    receiver: true,
+                    class_method: false,
+                    private: false,
+                    is_async: false,
+                    constants: Vec::new(),
+                    expression_body: Some(initializer),
+                });
+                Some(signatures.len() - 1)
+            };
+            let initializer = literal.unwrap_or(LiteralValue::Nil);
             // `IRIS-V1-TYPES-C064` puts a `shared class property` on the
             // UNAPPLIED generic definition, while a plain one belongs to each
             // closed CONSTRUCTION. The runtime keys class state by
@@ -628,6 +653,7 @@ fn collect_class<'a>(
                             name: format!("{name}<{construction}>"),
                             mutable: true,
                             initializer: initializer.clone(),
+                            initializer_function,
                         });
                     }
                 }
@@ -635,6 +661,7 @@ fn collect_class<'a>(
                     name: name.clone(),
                     mutable: true,
                     initializer: initializer.clone(),
+                    initializer_function,
                 });
             } else {
                 for construction in written_constructions(source, &class.name) {
@@ -642,6 +669,7 @@ fn collect_class<'a>(
                         name: format!("{name}<{construction}>"),
                         mutable: true,
                         initializer: initializer.clone(),
+                        initializer_function,
                     });
                 }
             }
@@ -1079,6 +1107,7 @@ fn class_variable(
         name: name.to_owned(),
         mutable,
         initializer,
+        initializer_function: None,
     })
 }
 

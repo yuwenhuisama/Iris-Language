@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CLASS-LEVEL initializer RUNS on the first READ. It is an ordinary expression
+evaluated when the property is first read rather than where the class is
+defined, so a body that RAISES is retried on the next read and one that
+SUCCEEDS runs exactly once. A body that does not complete leaves the property
+without a value its declared Type admits, so the ANNOTATION is what fails. The
+frame takes the CLASS as its receiver - a receiverless one is reachable as a
+bare module function, which would run the initializer on every read.
+
 A SUPERCLASS change cannot DROP a contract the ancestry supplied. `C094`
 refuses a change that would leave a declared conformance unmet: the class still
 promises the contract, so a parent that no longer provides it breaks the
@@ -1130,8 +1138,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 660 agreed,
-75 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 662 agreed,
+73 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

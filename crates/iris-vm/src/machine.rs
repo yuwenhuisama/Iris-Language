@@ -131,6 +131,14 @@ pub struct Machine {
     gates: std::collections::HashMap<iris_runtime::ObjectId, Option<Value>>,
     /// Propagations a `finally` transfer DISCARDED, per `IRIS-V1-ASYNC-C028`.
     discarded_contexts: Vec<Value>,
+    /// Class-level initializers that have not RUN yet, by class and selector.
+    ///
+    /// A class-level initializer is an ordinary EXPRESSION evaluated the first
+    /// time the property is read rather than when the class is defined, so a
+    /// body that raises is retried on the next read and one that succeeds runs
+    /// exactly once.
+    pending_class_initializers:
+        std::collections::HashMap<(iris_runtime::ClassId, iris_runtime::Selector), usize>,
     /// Async frames PAUSED at an `await`, in the order they suspended.
     ///
     /// `IRIS-V1-ASYNC-C014` resumes them in that order, so this is a queue
@@ -200,6 +208,7 @@ impl Machine {
             closure_depth: 0,
             gates: std::collections::HashMap::new(),
             discarded_contexts: Vec::new(),
+            pending_class_initializers: std::collections::HashMap::new(),
             suspended: Vec::new(),
             pending_frame: None,
         })

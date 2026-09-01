@@ -10070,3 +10070,35 @@ fn a_superclass_change_cannot_drop_a_contract() {
         "nil",
     );
 }
+
+/// A CLASS-LEVEL initializer RUNS on the first READ.
+///
+/// It is an ordinary expression evaluated when the property is first read
+/// rather than where the class is defined, so a body that RAISES is retried on
+/// the next read and one that SUCCEEDS runs exactly once. A body that does not
+/// complete leaves the property without a value its declared Type admits, so
+/// the ANNOTATION is what fails.
+#[test]
+fn a_class_level_initializer_runs_on_first_read() {
+    // A raising body is retried, and the failure is the annotation's.
+    agrees_on(
+        "mut log = []; class Box<T> { class property tag: Integer = { log.append(:attempt); raise :boom; 1 }.call() } \
+         let a = try { Box<String>.tag } catch e { e }; let b = try { Box<String>.tag } catch e { e }; [a, b, log]",
+        "[:TypeContractError, :TypeContractError, [:attempt, :attempt]]",
+    );
+    // A body that SUCCEEDS runs exactly once, however often it is read.
+    agrees_on(
+        "mut log = []; class Box<T> { class property tag: Integer = { log.append(:attempt); 1 }.call() } \
+         let a = Box<String>.tag; let b = Box<String>.tag; [a, b, log]",
+        "[1, 1, [:attempt]]",
+    );
+    // A NON-generic class runs its initializer once by the same rule.
+    agrees_on(
+        "mut log = []; class Box { class property tag: Integer = { log.append(:attempt); 1 }.call() } \
+         let a = Box.tag; let b = Box.tag; [a, b, log]",
+        "[1, 1, [:attempt]]",
+    );
+    // Control: a LITERAL initializer needs no frame at all and answers
+    // directly, so the lazy path did not take over every class property.
+    agrees_on("class Box { class property tag: Integer = 5 } Box.tag", "5");
+}

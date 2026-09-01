@@ -871,6 +871,14 @@ impl Machine {
                                 // names the class and selector rather than
                                 // surfacing the registry's own missing-variable
                                 // error, which no reference observation spells.
+                                // A class-level initializer RUNS on first
+                                // read, so it is forced before the slot is
+                                // consulted rather than answering the nil the
+                                // declaration left there.
+                                run_frame!(
+                                    'frame,
+                                    self.force_class_initializer(class, slot, program, classes)
+                                );
                                 match self.runtime.class_var(class, slot) {
                                     Ok(Some(value)) => value,
                                     Ok(None) | Err(_) => {

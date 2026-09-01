@@ -611,6 +611,13 @@ impl Machine {
                 self.runtime
                     .declare_class_var(class, selector, value, variable.mutable)
                     .map_err(MachineError::Construction)?;
+                // A non-literal initializer RUNS on first read, so the slot is
+                // declared now and the body is remembered rather than being
+                // evaluated where the class is defined.
+                if let Some(function) = variable.initializer_function {
+                    self.pending_class_initializers
+                        .insert((class, selector), function);
+                }
             }
             for (selector, function) in &declaration.class_methods {
                 let selector = selector_id(program, selector)
@@ -1029,4 +1036,53 @@ fn meta_capabilities(names: &[String]) -> Result<iris_runtime::MetaCapabilities,
         });
     }
     Ok(iris_runtime::MetaCapabilities::denying(&denied))
+}
+
+impl Machine {
+    /// Runs a class-level initializer the first time its property is READ.
+    ///
+    /// A body that RAISES is retried on the next read, and one that succeeds
+    /// runs exactly once - so the entry is removed only after the value is
+    /// stored.
+    pub(super) fn force_class_initializer(
+        &mut self,
+        class: iris_runtime::ClassId,
+        selector: iris_runtime::Selector,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<(), MachineError> {
+        let Some(function) = self
+            .pending_class_initializers
+            .get(&(class, selector))
+            .copied()
+        else {
+            return Ok(());
+        };
+        let callee = program
+            .functions
+            .get(function)
+            .cloned()
+            .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                function,
+            }))?;
+        // An initializer that does not COMPLETE leaves the property without a
+        // value its declared Type admits, so the annotation is what fails -
+        // reporting the raised value let the failure escape as though the read
+        // itself had raised it.
+        let returned = self
+            .run_body(
+                &callee.instructions,
+                callee.registers,
+                vec![Value::Class(class)],
+                program,
+                classes,
+            )
+            .map_err(|_| MachineError::TypeContractError)?;
+        let value = returned.into_iter().next().unwrap_or(Value::Nil);
+        self.runtime
+            .assign_class_var(class, selector, value)
+            .map_err(MachineError::Construction)?;
+        self.pending_class_initializers.remove(&(class, selector));
+        Ok(())
+    }
 }
