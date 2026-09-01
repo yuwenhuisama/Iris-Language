@@ -886,13 +886,50 @@ impl Machine {
                         // MACHINE DEFECT instead - a compiler bug wearing a
                         // program error's clothes - and held the row.
                         let Value::Object(object) = registers[*receiver as usize] else {
-                            return Err(MachineError::MessageNotFound {
-                                receiver_class: super::value_class_name(
-                                    &registers[*receiver as usize],
-                                )
-                                .to_owned(),
+                            // A BUILT-IN value answers its own selectors as
+                            // bare members too - `Float64(1).hash` reads
+                            // without parentheses. Declaring the selector
+                            // absent without consulting them reported a
+                            // missing message for one the language defines.
+                            let receiver = registers[*receiver as usize].clone();
+                            let answered = match run_frame!(
+                                'frame,
+                                self.authored_send(&receiver, selector, &[], program, classes)
+                            ) {
+                                Some(value) => Some(value),
+                                // A KERNEL selector - `hash`, `==` - is not on
+                                // the authored surface, so a bare member read
+                                // asks the kernel too. Only a MISSING message
+                                // falls through: a selector that exists and
+                                // FAILED keeps its own failure.
+                                None => match self.send(selector, receiver.clone(), &[]) {
+                                    Ok(value) => Some(value),
+                                    Err(
+                                        MachineError::MessageNotFound { .. }
+                                        | MachineError::UnknownSelector(_),
+                                    ) => None,
+                                    Err(error) => return Err(error),
+                                },
+                            };
+                            if let Some(value) = answered {
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = value;
+                                }
+                                continue;
+                            }
+                            // The refusal is an ordinary CATCHABLE failure, so
+                            // it goes to the innermost handler. Returning it
+                            // here let `try { x.nonesuch } catch ...` escape
+                            // the catch entirely - the handler was reachable
+                            // and simply never consulted.
+                            let refused = dispatch!(Err(MachineError::MessageNotFound {
+                                receiver_class: super::value_class_name(&receiver).to_owned(),
                                 selector: selector.clone(),
-                            });
+                            })?);
+                            if let Some(destination) = instruction.destination() {
+                                registers[destination as usize] = refused;
+                            }
+                            continue;
                         };
                         let bound_selector = selector_id(program, selector).ok_or_else(|| {
                             MachineError::MessageNotFound {

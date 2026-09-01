@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A BARE MEMBER read reaches the KERNEL selectors too. `Float64(1).hash` reads
+without parentheses and `hash` is not on the authored surface, so declaring the
+selector absent without asking the kernel reported a missing message for one
+the language defines. Only a MISSING message falls through - a selector that
+exists and FAILED keeps its own failure. The refusal itself is CATCHABLE, so it
+goes to the innermost handler rather than escaping the frame.
+
 A REHASH rebuilds against each key's CURRENT hash and REPUBLISHES the table.
 `C031` places every surviving entry under the hash it has now, and two entries
 that become equal collide into one class - `C032` resolves that with a merge
@@ -983,8 +990,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 624 agreed,
-111 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 629 agreed,
+106 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

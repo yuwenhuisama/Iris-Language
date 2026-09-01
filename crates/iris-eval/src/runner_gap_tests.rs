@@ -9288,3 +9288,38 @@ fn a_rehash_rebuilds_against_current_hashes() {
         "[2, 1, 2]",
     );
 }
+
+/// A BARE MEMBER read reaches the KERNEL selectors too.
+///
+/// `Float64(1).hash` reads without parentheses, and `hash` is not on the
+/// authored surface - so declaring the selector absent without consulting the
+/// kernel reported a missing message for one the language defines. Only a
+/// MISSING message falls through: a selector that exists and FAILED keeps its
+/// own failure.
+#[test]
+fn a_bare_member_read_reaches_kernel_selectors() {
+    agrees_on(
+        "Float64.from_bits(0x0000000000000000).hash",
+        "4379003086384345280",
+    );
+    agrees_on("Float64(1).hash", "17824117788395916856");
+    // Control: the CALLED form already worked and still answers the same
+    // value, so the bare read did not grow a second meaning.
+    agrees_on("Float64(1).hash()", "17824117788395916856");
+    // Positive and negative zero are EQUAL, so `C093` requires their hashes to
+    // agree as well - which is what the bare read was hiding.
+    agrees_on(
+        "Float64.from_bits(0x0000000000000000) == Float64.from_bits(0x8000000000000000)",
+        "true",
+    );
+    agrees_on(
+        "Float64.from_bits(0x0000000000000000).hash == Float64.from_bits(0x8000000000000000).hash",
+        "true",
+    );
+    // Control: a selector NO surface defines is still a missing message, so
+    // the fallback did not make every name answerable.
+    agrees_on(
+        "module M { public fun run() -> Object { try { Float64(1).nonesuch } catch v, _ { :refused } } } M.run()",
+        ":refused",
+    );
+}
