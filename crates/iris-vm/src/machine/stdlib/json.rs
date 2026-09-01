@@ -1,12 +1,14 @@
 use iris_runtime::{ArrayRef, HashRef, KernelError, Value};
 
-use super::super::{Machine, MachineError};
+use super::super::{Machine, MachineError, selector_id};
 
 impl Machine {
     pub(crate) fn json_call(
         &mut self,
         selector: &str,
         arguments: &[Value],
+        program: &crate::compile::Program,
+        classes: &[iris_runtime::ClassId],
     ) -> Result<Value, MachineError> {
         let [value, rest @ ..] = arguments else {
             return Err(MachineError::Kernel(KernelError::Arity));
@@ -39,8 +41,15 @@ impl Machine {
                 decode_json(&mut cursor, depth_limit, 0)
             }
             "encode" => {
+                // `C002` leaves ordering to the caller, so a document is
+                // rendered in INSERTION order unless canonical ordering is
+                // selected by name.
+                let canonical = rest.iter().any(|option| {
+                    matches!(option, Value::KeywordArgument(name, flag)
+                        if name == "canonical" && **flag == Value::Bool(true))
+                });
                 let mut rendered = String::new();
-                encode_json(value, &mut rendered)?;
+                self.encode_json(value, canonical, &mut rendered, program, classes)?;
                 Ok(Value::Text(rendered))
             }
             _ => Err(MachineError::MessageNotFound {
@@ -51,40 +60,113 @@ impl Machine {
     }
 }
 
-fn encode_json(value: &Value, output: &mut String) -> Result<(), MachineError> {
-    match value {
-        Value::Nil => output.push_str("null"),
-        Value::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
-        Value::Integer(number) => output.push_str(&number.decimal_text()),
-        Value::Text(text) => render_json_text(text, output),
-        Value::Array(values) => {
-            output.push('[');
-            for (index, element) in values.elements().iter().enumerate() {
-                if index > 0 {
-                    output.push(',');
+impl Machine {
+    /// Renders a `C011` JSON-compatible value.
+    ///
+    /// The encoder REJECTS an unsupported value rather than falling back to
+    /// `to_string`, `inspect`, object identity or raw ivar scanning.
+    fn encode_json(
+        &mut self,
+        value: &Value,
+        canonical: bool,
+        output: &mut String,
+        program: &crate::compile::Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<(), MachineError> {
+        match value {
+            Value::Nil => output.push_str("null"),
+            Value::Bool(flag) => output.push_str(if *flag { "true" } else { "false" }),
+            Value::Integer(number) => output.push_str(&number.decimal_text()),
+            Value::Text(text) => render_json_text(text, output),
+            Value::Array(values) => {
+                output.push('[');
+                for (index, element) in values.elements().iter().enumerate() {
+                    if index > 0 {
+                        output.push(',');
+                    }
+                    self.encode_json(element, canonical, output, program, classes)?;
                 }
-                encode_json(element, output)?;
+                output.push(']');
             }
-            output.push(']');
-        }
-        Value::Hash(entries) => {
-            output.push('{');
-            for (index, (key, held)) in entries.entries().iter().enumerate() {
-                let Value::Text(key) = key else {
+            Value::Hash(entries) => {
+                let mut pairs = Vec::new();
+                for (key, held) in entries.entries() {
+                    let Value::Text(key) = key else {
+                        return Err(MachineError::SerializationError);
+                    };
+                    pairs.push((key, held));
+                }
+                // Canonical ordering sorts by KEY, which is what makes two
+                // encodings of one document comparable byte for byte.
+                if canonical {
+                    pairs.sort_by(|left, right| left.0.cmp(&right.0));
+                }
+                output.push('{');
+                for (index, (key, held)) in pairs.iter().enumerate() {
+                    if index > 0 {
+                        output.push(',');
+                    }
+                    render_json_text(key, output);
+                    output.push(':');
+                    self.encode_json(held, canonical, output, program, classes)?;
+                }
+                output.push('}');
+            }
+            // `C004` makes participation an OPT-IN `for Serializable` promise that
+            // duck typing, reflection visibility or a merely matching method must
+            // not imply, and `C005` makes the representation ordinary Iris data
+            // the Class chooses - so it is obtained by ASKING the class rather
+            // than by inspecting the object.
+            Value::Object(object) => {
+                let class = self
+                    .runtime
+                    .class_of(*object)
+                    .map_err(MachineError::Construction)?;
+                let declares = classes
+                    .iter()
+                    .position(|known| *known == class)
+                    .and_then(|index| program.classes.get(index))
+                    .is_some_and(|declaration| {
+                        declaration.contracts.iter().any(|contract| {
+                            program
+                                .contracts
+                                .get(*contract)
+                                .is_some_and(|contract| contract.name == "Serializable")
+                        })
+                    });
+                if !declares {
                     return Err(MachineError::SerializationError);
-                };
-                if index > 0 {
-                    output.push(',');
                 }
-                render_json_text(key, output);
-                output.push(':');
-                encode_json(held, output)?;
+                // `C005` makes the representation ordinary Iris data the
+                // Class CHOOSES, so it is obtained by running the class's own
+                // `serialize` rather than by inspecting the object.
+                let selector =
+                    selector_id(program, "serialize").ok_or(MachineError::SerializationError)?;
+                let method = self
+                    .runtime
+                    .dispatch_instance(*object, selector)
+                    .map_err(|_| MachineError::SerializationError)?;
+                let function = usize::try_from(method.body().raw())
+                    .map_err(|_| MachineError::SerializationError)?;
+                let callee = program
+                    .functions
+                    .get(function)
+                    .cloned()
+                    .ok_or(MachineError::SerializationError)?;
+                let returned = self.run_body(
+                    &callee.instructions,
+                    callee.registers,
+                    vec![Value::Object(*object)],
+                    program,
+                    classes,
+                )?;
+                let represented = returned.into_iter().next().unwrap_or(Value::Nil);
+                self.encode_json(&represented, canonical, output, program, classes)?;
             }
-            output.push('}');
+            _ => return Err(MachineError::SerializationError),
         }
-        _ => return Err(MachineError::SerializationError),
+        Ok(())
     }
-    Ok(())
 }
 
 fn render_json_text(value: &str, output: &mut String) {

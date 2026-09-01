@@ -9788,3 +9788,58 @@ fn a_json_decode_limit_refuses_rather_than_truncates() {
         "[1, [2, [3, [4]]]]",
     );
 }
+
+/// SERIALIZATION is an OPT-IN `for Serializable` promise.
+///
+/// `C004` forbids duck typing, reflection visibility or a merely matching
+/// method from implying eligibility, and `C005` makes the representation
+/// ordinary Iris data the Class CHOOSES - so it is obtained by running the
+/// class's own `serialize` rather than by inspecting the object. The machine
+/// refused every object outright, so a class that opted in was still denied.
+#[test]
+fn serialization_is_an_opt_in_promise() {
+    agrees_on(
+        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
+        r#""{\"schema\":1,\"name\":\"Ada\",\"age\":37}""#,
+    );
+    // Control: a MATCHING method without the declared promise is still
+    // refused, which is exactly what makes participation opt-in.
+    agrees_on_error(
+        r#"class User { public fun serialize() -> Hash { %{} } } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
+        "SerializationError",
+    );
+    // Control: ordinary data encodes without any promise at all.
+    agrees_on(
+        r#"module M { public fun run() -> String { JSON.encode(%{}) } } M.run()"#,
+        r#""{}""#,
+    );
+}
+
+/// CANONICAL encoding orders a document by KEY.
+///
+/// `C002` leaves ordering to the caller, so a document is rendered in
+/// INSERTION order unless canonical ordering is selected by name - which is
+/// what makes two encodings of one document comparable byte for byte.
+#[test]
+fn a_canonical_encoding_orders_by_key() {
+    agrees_on(
+        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new(), canonical: true) } } M.run()"#,
+        r#""{\"age\":37,\"name\":\"Ada\",\"schema\":1}""#,
+    );
+    // Control: WITHOUT the keyword the insertion order is kept, so canonical
+    // ordering is selected rather than assumed.
+    agrees_on(
+        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
+        r#""{\"schema\":1,\"name\":\"Ada\",\"age\":37}""#,
+    );
+    // An ordinary Hash orders the same way, so the rule is about the DOCUMENT
+    // rather than about serialization.
+    agrees_on(
+        r#"module M { public fun run() -> String { mut h = %{}; h["b"] = 1; h["a"] = 2; JSON.encode(h, canonical: true) } } M.run()"#,
+        r#""{\"a\":2,\"b\":1}""#,
+    );
+    agrees_on(
+        r#"module M { public fun run() -> String { mut h = %{}; h["b"] = 1; h["a"] = 2; JSON.encode(h) } } M.run()"#,
+        r#""{\"b\":1,\"a\":2}""#,
+    );
+}

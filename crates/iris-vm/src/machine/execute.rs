@@ -2674,7 +2674,12 @@ impl Machine {
                     ..
                 } => dispatch!({
                     let start = *first as usize;
-                    self.json_call(selector, &registers[start..start + *count as usize])?
+                    self.json_call(
+                        selector,
+                        &registers[start..start + *count as usize],
+                        program,
+                        classes,
+                    )?
                 }),
                 Instruction::ContractCast {
                     receiver, contract, ..

@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+SERIALIZATION is an OPT-IN `for Serializable` promise. `C004` forbids duck
+typing, reflection visibility or a merely matching method from implying
+eligibility, and `C005` makes the representation ordinary Iris data the Class
+CHOOSES - so it is obtained by running the class's own `serialize` rather than
+by inspecting the object. CANONICAL encoding then orders the document by KEY,
+which is what makes two encodings of one document comparable byte for byte;
+without the keyword the insertion order is kept.
+
 A JSON decode LIMIT refuses before the container is allocated. `C013` makes a
 depth limit a REFUSAL rather than a truncation afterwards, and it arrives as a
 KEYWORD argument - accepting only one argument refused the call outright,
@@ -1078,8 +1086,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 651 agreed,
-84 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 652 agreed,
+83 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
