@@ -10197,3 +10197,29 @@ fn append_converts_and_mutates_in_place() {
         r#"["ab"]"#,
     );
 }
+
+/// An IVAR NAME is one `@` followed by an ordinary identifier.
+///
+/// `@`, `@@x`, `@x?` and `@1x` are each a Symbol that is not a NAME - the
+/// sigil alone does not make one, and a Text is not a name at all. Accepting
+/// any symbol answered nil for spellings the language refuses outright.
+#[test]
+fn an_ivar_name_is_a_sigil_and_an_identifier() {
+    agrees_on(
+        r#"class A { }; let a = A.new(); [try { Reflection::Object.get_ivar(a, "@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@x?") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@1x") } catch e { e }]"#,
+        "[:InvalidInstanceVariableNameError, :InvalidInstanceVariableNameError, \
+         :InvalidInstanceVariableNameError, :InvalidInstanceVariableNameError, \
+         :InvalidInstanceVariableNameError]",
+    );
+    // Control: a WELL-FORMED name is accepted and answers nil for an unset
+    // slot, so the check refuses spellings rather than every read.
+    agrees_on(
+        r#"class A { }; let a = A.new(); try { Reflection::Object.get_ivar(a, :"@x") } catch e { e }"#,
+        "nil",
+    );
+    // Control: a TEXT is not a name at all, whatever it spells.
+    agrees_on(
+        r#"class A { }; let a = A.new(); try { Reflection::Object.get_ivar(a, "@x") } catch e { e }"#,
+        ":InvalidInstanceVariableNameError",
+    );
+}

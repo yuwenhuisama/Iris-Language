@@ -2382,6 +2382,16 @@ impl Machine {
                             "get_ivar" | "set_ivar",
                             [_, Value::Text(_), ..],
                         ) => Err(MachineError::InvalidInstanceVariableName)?,
+                        // A Symbol has to SPELL an ivar name: one `@` followed
+                        // by an ordinary identifier. `@`, `@@x`, `@x?` and
+                        // `@1x` are each a symbol that is not a name, so
+                        // accepting any symbol answered nil for spellings the
+                        // language refuses outright.
+                        (
+                            "Reflection::Object",
+                            "get_ivar" | "set_ivar",
+                            [_, Value::Symbol(name), ..],
+                        ) if !is_ivar_name(name) => Err(MachineError::InvalidInstanceVariableName)?,
                         // An IDENTITY-LESS value carries no instance state, so
                         // asking it to hold an ivar names that rather than a
                         // type mismatch.
@@ -2959,4 +2969,21 @@ fn source_location(source: &str, offset: usize) -> Value {
         u32::try_from(line).unwrap_or(u32::MAX),
         u32::try_from(column).unwrap_or(u32::MAX),
     )
+}
+
+/// Reports whether a Symbol SPELLS an instance variable name.
+///
+/// A name is one `@` followed by an ordinary identifier, so `@`, `@@x`, `@x?`
+/// and `@1x` are symbols that are not names - the sigil alone does not make
+/// one.
+fn is_ivar_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('@') else {
+        return false;
+    };
+    let mut scalars = rest.chars();
+    let Some(first) = scalars.next() else {
+        return false;
+    };
+    (first.is_alphabetic() || first == '_')
+        && scalars.all(|scalar| scalar.is_alphanumeric() || scalar == '_')
 }
