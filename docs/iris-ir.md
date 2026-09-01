@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An UNOBSERVED FAILURE reports the value it CARRIES. A report is a four-element
+`(:UnobservedFailure, task, captured, :unobserved)`, and the captured value is
+the whole point of the diagnostic - listing a bare Task left every program
+indexing into a report asking a Task for `[]`.
+
 An ITERATOR RELEASES its source when it is exhausted. `C017` and `C018` make
 the release an OWNERSHIP fact rather than a timing one, so `share_count`
 observes it directly instead of needing a collector to run. It is a conformance
@@ -996,8 +1001,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 631 agreed,
-104 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 633 agreed,
+102 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

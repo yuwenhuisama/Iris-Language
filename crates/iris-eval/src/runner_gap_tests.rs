@@ -9352,3 +9352,35 @@ fn an_iterator_releases_its_source() {
         "[1, 0]",
     );
 }
+
+/// An UNOBSERVED FAILURE reports the value it CARRIES.
+///
+/// A report is a four-element `(:UnobservedFailure, task, captured,
+/// :unobserved)`, and the captured value is the whole point of the diagnostic.
+/// The machine listed a bare Task instead, so every program indexing into a
+/// report asked a Task for `[]` and got a missing message.
+#[test]
+fn an_unobserved_failure_reports_its_value() {
+    agrees_on(
+        r#"class A { public async fun fail() -> Nil { raise :x } } module M { public fun run() -> Array { let task = A.new().fail(); let report = Diagnostics.unobserved_failures()[0]; [report[0], report[2], report[3]] } } M.run()"#,
+        "[:UnobservedFailure, :x, :unobserved]",
+    );
+    // The whole report is reachable by index, including the Task itself.
+    agrees_on(
+        r#"class A { public async fun fail() -> Nil { raise :x } } let t = A.new().fail(); let all = Diagnostics.unobserved_failures(); let e = all[0]; [all.length(), e[1], e[2]]"#,
+        "[1, <task>, :x]",
+    );
+    // Control: a program that raised nothing reports NO failures, so the list
+    // is not populated by merely creating tasks.
+    agrees_on(
+        r#"module M { public fun run() -> Object { Diagnostics.unobserved_failures() } } M.run()"#,
+        "[]",
+    );
+    // Control: a task whose failure WAS observed leaves the list empty, which
+    // is what makes the report about being unobserved rather than about
+    // having failed.
+    agrees_on(
+        r#"class A { public async fun ok() -> Integer { 1 } } module M { public fun run() -> Array { let t = A.new().ok(); let v = Host.run(t); [v, Diagnostics.unobserved_failures().length()] } } M.run()"#,
+        "[1, 0]",
+    );
+}

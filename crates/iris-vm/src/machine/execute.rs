@@ -1068,11 +1068,26 @@ impl Machine {
                     }
                 }
                 Instruction::UnobservedFailures { .. } => {
+                    // A report is a four-element `(:UnobservedFailure, task,
+                    // captured, :unobserved)`, not a bare Task: the CAPTURED
+                    // value is the whole point of the diagnostic, and a bare
+                    // Task left every program indexing into it empty-handed.
                     Value::Array(iris_runtime::ArrayRef::new(
                         self.unobserved_failures
                             .iter()
                             .copied()
-                            .map(Value::Task)
+                            .map(|identity| {
+                                let captured = match self.tasks.get(&identity) {
+                                    Some(Err(error)) => super::captured_value(error),
+                                    _ => Value::Nil,
+                                };
+                                Value::Tuple(vec![
+                                    Value::Symbol("UnobservedFailure".to_owned()),
+                                    Value::Task(identity),
+                                    captured,
+                                    Value::Symbol("unobserved".to_owned()),
+                                ])
+                            })
                             .collect(),
                     ))
                 }

@@ -245,6 +245,18 @@ impl Machine {
 /// alike on both rather than hanging on one.
 const STEP_BUDGET: u64 = 1_000_000;
 
+/// The value a failure CARRIES, as a program would catch it.
+///
+/// A raise carries its own operand, and a failure the specification NAMES
+/// carries that name as a Symbol - which is what a diagnostic report shows
+/// rather than the machine's own spelling of the error.
+pub(super) fn captured_value(error: &MachineError) -> Value {
+    match error {
+        MachineError::Raised(propagation) => propagation.0.clone(),
+        error => catchable_name(error).map_or(Value::Nil, |name| Value::Symbol(name.to_owned())),
+    }
+}
+
 pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
         MachineError::IndexError => Some("IndexError"),
