@@ -1003,6 +1003,37 @@ impl<'a, 'b> Lowering<'a, 'b> {
         }) {
             return Err(CompileError::new(construct));
         }
+        // An undeclared name is a `NameError` when it is READ, but a SEND
+        // names the failure after the message: the reference reports the
+        // receiver's own name and the selector, so `Foo.bar()` says what was
+        // asked for rather than only that `Foo` is absent. A lowercase name is
+        // an ordinary binding read and keeps the `NameError` it already had.
+        if let Expression::Name(name) = receiver.as_ref()
+            && name.chars().next().is_some_and(char::is_uppercase)
+            // A BUILT-IN class is the kernel's and has no declaration entry,
+            // so it is a legitimate receiver even though nothing declares it.
+            && !is_builtin_receiver(name)
+            && self.lookup(name).is_none()
+            && self.class_index(name).is_none()
+            && self.contract_index(name).is_none()
+            && !self.modules.iter().any(|module| module.name == *name)
+            && !self
+                .signatures
+                .iter()
+                .any(|signature| signature.module == name)
+            && !self
+                .program_bindings
+                .iter()
+                .any(|binding| binding.name == *name)
+        {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::RaiseMessageNotFound {
+                destination,
+                receiver_class: name.clone(),
+                selector: selector.clone(),
+            });
+            return Ok(destination);
+        }
         let receiver = self.expression(receiver)?;
         let (first, count) = self.argument_window(arguments)?;
         let destination = self.allocate()?;
@@ -1260,4 +1291,53 @@ pub(super) const fn compound_selector(
         Operator::ShiftRight => Some(">>"),
         Operator::Assign | Operator::LogicalAnd | Operator::LogicalOr => None,
     }
+}
+
+/// Reports whether a NAME denotes a receiver the kernel supplies.
+///
+/// A built-in class, a service namespace and a library entry point all have no
+/// declaration entry, so an undeclared-name check has to know them by name or
+/// it refuses receivers the language plainly answers.
+fn is_builtin_receiver(name: &str) -> bool {
+    name.starts_with("Reflection::")
+        || name.starts_with("Encoding::")
+        || matches!(
+            name,
+            "Object"
+                | "Nil"
+                | "Bool"
+                | "Integer"
+                | "Float32"
+                | "Float64"
+                | "String"
+                | "Symbol"
+                | "Array"
+                | "Hash"
+                | "Range"
+                | "Tuple"
+                | "Bytes"
+                | "ByteArray"
+                | "MutableString"
+                | "Regex"
+                | "JSON"
+                | "Host"
+                | "Gate"
+                | "Task"
+                | "Iteration"
+                | "Iterator"
+                | "Diagnostics"
+                | "Reflection"
+                | "Encoding"
+                | "Package"
+                | "File"
+                | "FFI"
+                | "NativeFixture"
+                | "Type"
+                | "Class"
+                | "Module"
+                | "Contract"
+                | "Method"
+                | "Closure"
+                | "Exception"
+        )
 }

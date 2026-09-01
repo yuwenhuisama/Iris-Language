@@ -688,6 +688,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::RaiseNoActiveException => Vec::new(),
         Instruction::RaiseUnsupported { .. }
         | Instruction::RaiseNameError { .. }
+        | Instruction::RaiseMessageNotFound { .. }
         | Instruction::RaiseTypeContract { .. }
         | Instruction::RaiseImmutableBinding { .. }
         | Instruction::RaiseVisibilityDenied { .. }

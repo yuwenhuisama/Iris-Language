@@ -384,6 +384,17 @@ pub enum Instruction {
     RaiseNameError {
         destination: Register,
     },
+    /// Fails a send to a receiver NAME nothing declares.
+    ///
+    /// An undeclared name is a `NameError` when it is READ, but a send names
+    /// the failure after the message: the reference reports the receiver's own
+    /// name and the selector, so `Foo.bar()` says what was asked for rather
+    /// than only that `Foo` is absent.
+    RaiseMessageNotFound {
+        destination: Register,
+        receiver_class: String,
+        selector: String,
+    },
     /// Binds one element of a DESTRUCTURING loop binding.
     ///
     /// `IRIS-V1-CONTROL-C045` raises `PatternMatchError` when the item is not
@@ -888,9 +899,9 @@ impl Instruction {
             | Self::RaiseVisibilityDenied { destination, .. }
             | Self::RaiseArgumentError { destination } => Some(*destination),
             Self::DestructureElement { destination, .. } => Some(*destination),
-            Self::RaiseUnsupported { destination } | Self::RaiseNameError { destination } => {
-                Some(*destination)
-            }
+            Self::RaiseUnsupported { destination }
+            | Self::RaiseNameError { destination }
+            | Self::RaiseMessageNotFound { destination, .. } => Some(*destination),
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }

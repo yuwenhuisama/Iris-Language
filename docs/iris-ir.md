@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A SEND to an undeclared name is named after the MESSAGE. An undeclared name is
+a `NameError` when it is READ, but a send reports the receiver's own name and
+the selector, so `Foo.bar()` says what was asked for rather than only that
+`Foo` is absent. A BUILT-IN class has no declaration entry and is still a
+legitimate receiver, so the check knows those by name.
+
 A `meta deny` list is part of what the class IS. `C081` fixes the capability
 vocabulary, and a denial narrows the policy the class is registered with -
 registering EVERY class with the full policy let a denied operation succeed
@@ -1035,8 +1041,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 640 agreed,
-95 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 641 agreed,
+94 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

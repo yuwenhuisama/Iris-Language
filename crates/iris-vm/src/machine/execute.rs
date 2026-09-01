@@ -519,6 +519,14 @@ impl Machine {
                 Instruction::RaiseImmutableBinding { .. } => {
                     dispatch!(Err(MachineError::ImmutableBinding)?)
                 }
+                Instruction::RaiseMessageNotFound {
+                    receiver_class,
+                    selector,
+                    ..
+                } => dispatch!(Err(MachineError::MessageNotFound {
+                    receiver_class: receiver_class.clone(),
+                    selector: selector.clone(),
+                })?),
                 Instruction::RaiseVisibilityDenied { selector, .. } => {
                     let selector = selector_id(program, selector)
                         .unwrap_or(iris_runtime::Selector::INITIALIZE);

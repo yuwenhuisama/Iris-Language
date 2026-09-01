@@ -9561,3 +9561,38 @@ fn a_meta_deny_list_narrows_the_policy() {
     // ordinarily - only the denied operation is refused.
     agrees_on("class A meta deny instance_state { }; A.new()", "<object>");
 }
+
+/// A SEND to an undeclared name is named after the MESSAGE.
+///
+/// An undeclared name is a `NameError` when it is READ, but a send reports the
+/// receiver's own name and the selector - so `Foo.bar()` says what was asked
+/// for rather than only that `Foo` is absent.
+#[test]
+fn a_send_to_an_undeclared_name_names_the_message() {
+    agrees_on_error(
+        "ReflectionCapability.new()",
+        r#"MessageNotFound { receiver_class: "ReflectionCapability", selector: "new" }"#,
+    );
+    agrees_on_error(
+        "A.new_current()",
+        r#"MessageNotFound { receiver_class: "A", selector: "new_current" }"#,
+    );
+    agrees_on_error(
+        "Foo.bar()",
+        r#"MessageNotFound { receiver_class: "Foo", selector: "bar" }"#,
+    );
+    // Control: a LOWERCASE receiver is an ordinary binding read, so it keeps
+    // the NameError it already had.
+    agrees_on_error("foo.bar()", "NameError");
+    // Control: reading the name ALONE is still a NameError - only the send
+    // form is named after the message.
+    agrees_on_error("Foo", "NameError");
+    // Control: a BUILT-IN class has no declaration entry but is a legitimate
+    // receiver, so the check must not refuse it.
+    agrees_on("Object.new()", "<object>");
+    // Control: a DECLARED class still answers its own methods.
+    agrees_on(
+        "class A { public fun m() -> Integer { 1 } } A.new().m()",
+        "1",
+    );
+}
