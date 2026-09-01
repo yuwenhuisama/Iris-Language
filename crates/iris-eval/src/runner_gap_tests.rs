@@ -9596,3 +9596,33 @@ fn a_send_to_an_undeclared_name_names_the_message() {
         "1",
     );
 }
+
+/// A BOUND METHOD compares by its own runtime IDENTITY.
+///
+/// `obj.method` answers a FRESH value per binding, so reading it twice names
+/// two of them and both `==` and `same?` answer false - while the SAVED value
+/// is the same one as itself. Answering nothing at all made `==` on a bound
+/// method a missing message rather than the `false` the language states.
+#[test]
+fn a_bound_method_compares_by_identity() {
+    agrees_on(
+        r#"class A { public fun method() { :m } }; let obj = A.new(); let saved = obj.method; [obj.method same? obj.method, saved same? saved, obj.method == obj.method]"#,
+        "[false, true, false]",
+    );
+    agrees_on(
+        r#"class A { public fun method() { :m } }; let obj = A.new(); obj.method == obj.method"#,
+        "false",
+    );
+    // A CLOSURE call answers a fresh value each time in the same way, so
+    // neither comparison finds two calls equal.
+    agrees_on(
+        r#"class A { public fun m() { :x } } let o = A.new(); let mk = { { :v } }; [o.m == o.m, mk.call() == mk.call(), o.m same? o.m, mk.call() same? mk.call()]"#,
+        "[false, false, false, false]",
+    );
+    // Control: reading the bound method still ANSWERS one, so the comparison
+    // was added without disturbing the read.
+    agrees_on(
+        r#"class A { public fun method() { :m } }; let obj = A.new(); obj.method"#,
+        "<method>",
+    );
+}

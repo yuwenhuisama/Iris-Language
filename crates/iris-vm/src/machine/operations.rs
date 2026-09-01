@@ -458,6 +458,14 @@ fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
         (Value::MutableString(left), Value::Text(right)) => Some(left.text() == *right),
         (Value::Text(left), Value::MutableString(right)) => Some(*left == right.text()),
         (Value::Range(left), Value::Range(right)) => Some(left == right),
+        // A BOUND method is a fresh value per binding, so `obj.method` twice
+        // names two of them and equality follows the same runtime identity
+        // `same?` asks about - answering nothing at all made `==` on one a
+        // missing message rather than the `false` the language states.
+        (Value::BoundMethod(left), Value::BoundMethod(right)) => Some(left.id() == right.id()),
+        // A METHOD is the definition itself, interned once per declaration, so
+        // two reads of one selector name the same value.
+        (Value::Method(left), Value::Method(right)) => Some(left == right),
         (Value::Tuple(left), Value::Tuple(right)) => {
             if left.len() != right.len() {
                 return Some(false);
