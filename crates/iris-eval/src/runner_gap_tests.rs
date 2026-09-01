@@ -9626,3 +9626,33 @@ fn a_bound_method_compares_by_identity() {
         "<method>",
     );
 }
+
+/// An EXCEPTION CONTEXT carries its own identity, so it can be a HASH KEY.
+///
+/// `C056` makes every raise a DISTINCT event: two catches of the same symbol
+/// are two events and compare false, and each hashes by the identity it
+/// carries rather than by content. Answering no hash at all made `h[context]`
+/// an invalid-key failure for a value the language lets a program file away.
+#[test]
+fn an_exception_context_is_a_usable_key() {
+    // Two separate raises are two EVENTS, so neither equality nor identity
+    // finds them the same.
+    agrees_on(
+        "let first = try { raise :same } catch _, c { c }; \
+         let second = try { raise :same } catch _, c { c }; \
+         [first == second, first same? second]",
+        "[false, false]",
+    );
+    // A context stored under itself is found again.
+    agrees_on(
+        "let first = try { raise :same } catch _, c { c }; let h = %{ first: 1 }; h[first]",
+        "1",
+    );
+    // Control: two DISTINCT contexts occupy two slots rather than colliding.
+    agrees_on(
+        "let first = try { raise :a } catch _, c { c }; \
+         let second = try { raise :b } catch _, c { c }; \
+         let h = %{ first: 1, second: 2 }; [h.length(), h[first], h[second]]",
+        "[2, 1, 2]",
+    );
+}

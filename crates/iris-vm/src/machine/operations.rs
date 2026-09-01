@@ -463,6 +463,12 @@ fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
         // `same?` asks about - answering nothing at all made `==` on one a
         // missing message rather than the `false` the language states.
         (Value::BoundMethod(left), Value::BoundMethod(right)) => Some(left.id() == right.id()),
+        // `C056` makes every raise a DISTINCT event, so two contexts are equal
+        // only when they ARE the same event - two catches of the same symbol
+        // are two events and compare false.
+        (Value::ExceptionContext(left, ..), Value::ExceptionContext(right, ..)) => {
+            Some(left == right)
+        }
         // A METHOD is the definition itself, interned once per declaration, so
         // two reads of one selector name the same value.
         (Value::Method(left), Value::Method(right)) => Some(left == right),
@@ -507,6 +513,11 @@ fn identity_hash(value: &Value) -> Option<u64> {
         | Value::Task(identity)
         | Value::Gate(identity)
         | Value::Closure(identity) => Some(identity.raw()),
+        // `C056` makes every raise a DISTINCT event, so a context carries its
+        // own identity and is a legitimate hash key. Answering no hash at all
+        // made `h[context]` an invalid-key failure for a value the language
+        // lets a program file away.
+        Value::ExceptionContext(identity, ..) => Some(identity.raw()),
         _ => None,
     }
 }

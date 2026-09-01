@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An EXCEPTION CONTEXT carries its own identity, so it can be a HASH KEY. `C056`
+makes every raise a DISTINCT event: two catches of the same symbol are two
+events and compare false, and each hashes by the identity it carries rather
+than by content. A key check that consults only the specification-stable family
+hashes refuses every identity-bearing value the language lets a program file
+away.
+
 A BOUND METHOD compares by its own runtime IDENTITY. `obj.method` answers a
 FRESH value per binding, so reading it twice names two of them and both `==`
 and `same?` answer false, while the saved value is the same one as itself.
@@ -1047,8 +1054,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 643 agreed,
-92 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 644 agreed,
+91 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

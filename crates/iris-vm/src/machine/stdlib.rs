@@ -1969,6 +1969,13 @@ impl Machine {
                 None => Err(MachineError::InvalidKeyError),
             };
         }
+        // An IDENTITY-bearing value hashes by its identity rather than by
+        // content, which no specification-stable family hash covers - so a
+        // context or a task is a legitimate key even though `public_hash`
+        // alone refuses it.
+        if self.send("hash", key.clone(), &[]).is_ok() {
+            return Ok(());
+        }
         iris_runtime::public_hash(key)
             .map(|_| ())
             .map_err(|_| MachineError::InvalidKeyError)
