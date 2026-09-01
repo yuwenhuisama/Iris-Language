@@ -19,28 +19,11 @@ impl Machine {
             // become equal collide, and `C032` resolves that with a merge
             // block - without one the conflict aborts rather than silently
             // dropping an entry.
-            ("rehash", []) => {
-                let current = entries.entries();
-                let mut rebuilt: Vec<(Value, Value)> = Vec::with_capacity(current.len());
-                for (key, value) in current {
-                    self.validate_key(&key, program, classes)?;
-                    let mut collided = false;
-                    for (kept, _) in &rebuilt {
-                        if self.key_equal(kept, &key, program, classes)? {
-                            collided = true;
-                            break;
-                        }
-                    }
-                    if collided {
-                        return Err(MachineError::KeyConflictError);
-                    }
-                    rebuilt.push((key, value));
-                }
-                // Every key kept its own class, so the table already holds the
-                // rebuilt content: `C031`'s work here is the VALIDATION, and a
-                // conflict aborts above rather than publishing a partial table.
-                let _ = rebuilt;
-                Value::Nil
+            ("rehash", []) => self.rehash(entries, None, program, classes)?,
+            // `C032` supplies the merge as a trailing block, which reaches the
+            // send as an ordinary closure argument.
+            ("rehash", [block @ Value::Closure(_)]) => {
+                self.rehash(entries, Some(block.clone()), program, classes)?
             }
             ("keys", []) => {
                 Value::Array(entries.entries().into_iter().map(|(key, _)| key).collect())
@@ -160,5 +143,71 @@ pub(super) fn text_send(text: &str, selector: &str, arguments: &[Value]) -> Opti
             Some(Value::Text(rendered))
         }
         _ => None,
+    }
+}
+
+impl Machine {
+    /// Rebuilds a Hash against its keys' CURRENT hashes.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C031` rebuilds from current public hashes, so a
+    /// key whose hash changed lands in its new slot rather than keeping a
+    /// stale one. Two entries that become EQUAL collide into one equality
+    /// class, and `C032` resolves that with a merge block - without one the
+    /// conflict aborts rather than silently dropping an entry.
+    fn rehash(
+        &mut self,
+        entries: &HashRef,
+        merge: Option<Value>,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
+        let current = entries.entries();
+        let mut rebuilt: Vec<(Value, Value)> = Vec::with_capacity(current.len());
+        for (key, value) in current {
+            // Validation happens against the CURRENT hash, so an unhashable
+            // key aborts the rehash rather than silently keeping its old slot.
+            self.validate_key(&key, program, classes)?;
+            let mut collision = None;
+            for (index, (kept, _)) in rebuilt.iter().enumerate() {
+                if self.key_equal(kept, &key, program, classes)? {
+                    collision = Some(index);
+                    break;
+                }
+            }
+            let Some(index) = collision else {
+                rebuilt.push((key, value));
+                continue;
+            };
+            let Some(merge) = merge.clone() else {
+                return Err(MachineError::KeyConflictError);
+            };
+            let (kept_key, kept_value) = rebuilt[index].clone();
+            let merged = self.invoke_closure(
+                &merge,
+                &[kept_key, kept_value, key, value],
+                program,
+                classes,
+            )?;
+            // `C032` takes the block result as a two-element `(key, value)`
+            // replacement. A different SHAPE is a Type failure, distinct from
+            // the `C031` conflict a MISSING block reports.
+            let Value::Tuple(replacement) = &merged else {
+                return Err(MachineError::TypeContractError);
+            };
+            let [new_key, new_value] = replacement.as_slice() else {
+                return Err(MachineError::TypeContractError);
+            };
+            // The returned key must REMAIN equal to the class it replaces, so
+            // a key that leaves its own class is a new inconsistency.
+            if !self.key_equal(new_key, &rebuilt[index].0, program, classes)? {
+                return Err(MachineError::KeyConflictError);
+            }
+            self.validate_key(new_key, program, classes)?;
+            rebuilt[index] = (new_key.clone(), new_value.clone());
+        }
+        // Every check passed, so the replacement is published ATOMICALLY - a
+        // failure above leaves the original table untouched.
+        entries.replace_entries(rebuilt);
+        Ok(Value::Nil)
     }
 }

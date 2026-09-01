@@ -9253,3 +9253,38 @@ fn inspect_answers_a_reparsable_literal() {
     agrees_on(r#""${1}".inspect()"#, r#""\"1\"""#);
     agrees_on(r#""a\nb".inspect()"#, r#""\"a\\nb\"""#);
 }
+
+/// A REHASH rebuilds against each key's CURRENT hash.
+///
+/// `C031` rebuilds from current public hashes, so a key whose hash changed
+/// lands in its new slot. Two entries that become EQUAL collide into one
+/// equality class, and `C032` resolves that with a merge block whose result
+/// must be a two-element `(key, value)` replacement. The machine validated the
+/// keys but never REPUBLISHED the table and had no merge form at all, so a
+/// collision aborted where the language merges.
+#[test]
+fn a_rehash_rebuilds_against_current_hashes() {
+    // A merge block folds the colliding entries, and a block answering the
+    // wrong SHAPE is a Type failure distinct from the missing-block conflict.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); mut c = Key.new(); b.equal_id = 1; c.equal_id = 2; mut h = %{}; h[a] = 2; h[b] = 3; h[c] = 4; b.equal_id = 0; let merge = { |kept, left, incoming, right| (kept, left + right) }; let answered = h.rehash(merge); let merged = h.fetch(a); c.equal_id = 0; let bad = { |kept, left, incoming, right| :bad }; mut raised = :none; try { h.rehash(bad) } catch e { raised = e }; [answered, merged, raised, h.length()] } } M.run()"#,
+        "[nil, 5, :TypeContractError, 2]",
+    );
+    // Two separate collisions each call the block once.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k1 = Key.new(); k1.equal_id = 1; k1.hash_code = 10; mut k2 = Key.new(); k2.equal_id = 2; k2.hash_code = 10; mut k3 = Key.new(); k3.equal_id = 3; k3.hash_code = 20; mut k4 = Key.new(); k4.equal_id = 4; k4.hash_code = 20; mut h = %{}; h[k1] = 1; h[k2] = 2; h[k3] = 4; h[k4] = 8; k2.equal_id = 1; k4.equal_id = 3; mut calls = 0; h.rehash() { |kept, left, incoming, right| calls = calls + 1; (kept, left + right) }; [h.length(), calls, h.fetch(k1), h.fetch(k3)] } } M.run()"#,
+        "[2, 2, 3, 12]",
+    );
+    // Control: a collision with NO merge block aborts rather than dropping an
+    // entry silently.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Object { mut a = Key.new(); mut b = Key.new(); b.equal_id = 1; mut h = %{}; h[a] = 1; h[b] = 2; b.equal_id = 0; try { h.rehash() } catch v, _ { v } } } M.run()"#,
+        ":KeyConflictError",
+    );
+    // Control: with no collision at all the table survives the rebuild
+    // unchanged, so the republish did not disturb a healthy Hash.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); b.equal_id = 1; mut h = %{}; h[a] = 1; h[b] = 2; h.rehash(); [h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
+        "[2, 1, 2]",
+    );
+}
