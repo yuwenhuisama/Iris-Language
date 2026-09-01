@@ -528,15 +528,19 @@ fn identity_hash(value: &Value) -> Option<u64> {
 /// the end names an empty slice - `C088` tags an inclusive end separately, so
 /// `0 ..= 1` and `0 ..< 2` name the same two elements.
 fn slice_bounds(range: &iris_runtime::RangeValue, length: usize) -> Option<(usize, usize)> {
-    let from = range
-        .start
-        .to_u64()
-        .and_then(|start| usize::try_from(start).ok())?;
-    let end = range
-        .end
-        .to_u64()
-        .and_then(|end| usize::try_from(end).ok())?;
-    let to = if range.inclusive_end { end + 1 } else { end };
-    let from = from.min(length);
-    Some((from, to.clamp(from, length)))
+    // An endpoint OUT of range clamps rather than emptying the slice, and a
+    // NEGATIVE one resolves from the end - reading the endpoints as unsigned
+    // made `s[-9 ..< 2]` answer nothing where the language answers the first
+    // two elements.
+    let from = super::resolve_index(&range.start, length)
+        .unwrap_or(0)
+        .min(length);
+    let resolved = super::resolve_index(&range.end, length).unwrap_or(0);
+    let to = if range.inclusive_end {
+        resolved.saturating_add(1)
+    } else {
+        resolved
+    }
+    .min(length);
+    Some((from, to.max(from)))
 }

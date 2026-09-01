@@ -9930,3 +9930,37 @@ fn a_closed_generic_type_carries_its_arguments() {
         "true",
     );
 }
+
+/// A SLICE endpoint CLAMPS rather than emptying the slice.
+///
+/// An endpoint out of range is clamped and a NEGATIVE one resolves from the
+/// end, so `s[-9 ..< 2]` answers the first two elements. Reading the endpoints
+/// as unsigned made every negative start answer nothing at all.
+#[test]
+fn a_slice_endpoint_clamps() {
+    agrees_on(
+        r#"module M { public fun run() -> Array { let s = "abc"; [s[-9 ..< 2], s[2 ..< 1]] } } M.run()"#,
+        r#"["ab", ""]"#,
+    );
+    agrees_on(
+        r#"module M { public fun run() -> Object { let s = "abc"; s[-9 ..< 2] } } M.run()"#,
+        r#""ab""#,
+    );
+    // Control: a start PAST the end names an empty slice, so clamping did not
+    // turn every range into a match.
+    agrees_on(
+        r#"module M { public fun run() -> Object { let s = "abc"; s[2 ..< 1] } } M.run()"#,
+        r#""""#,
+    );
+    // Control: an ordinary in-range slice is unchanged.
+    agrees_on(
+        r#"module M { public fun run() -> Object { let s = "abc"; s[0 ..< 2] } } M.run()"#,
+        r#""ab""#,
+    );
+    // An ARRAY slices by the same rule, so this is about ranges rather than
+    // about text.
+    agrees_on(
+        "module M { public fun run() -> Object { let a = [1,2,3]; a[-9 ..< 2] } } M.run()",
+        "[1, 2]",
+    );
+}
