@@ -358,6 +358,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.statement(statement)?;
         }
         let value = self.statement(last)?;
+        // A BINDING declares a name rather than answering a value, so a block
+        // ending in one has no value of its own - answering the bound value
+        // gave `if true { let y = 1 }` a result the language does not give it.
+        let value = if matches!(
+            last,
+            Statement::Binding { .. }
+                | Statement::GlobalBinding { .. }
+                | Statement::SharedBinding { .. }
+                | Statement::DeferredBinding { .. }
+        ) {
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::LoadNil { destination });
+            destination
+        } else {
+            value
+        };
         self.names.truncate(outer);
         Ok(value)
     }

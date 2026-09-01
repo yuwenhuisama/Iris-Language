@@ -9991,3 +9991,20 @@ fn a_contract_meta_deny_narrows_its_conformers() {
         "nil",
     );
 }
+
+/// A BINDING declares a name rather than ANSWERING a value.
+///
+/// A block ending in a binding has no value of its own, so `if true { let y =
+/// 1 }` answers nil - answering the bound value gave the block a result the
+/// language does not give it.
+#[test]
+fn a_block_ending_in_a_binding_answers_nil() {
+    agrees_on("if true { let y = 1 }", "nil");
+    agrees_on("if true { mut y = 1 }", "nil");
+    agrees_on("if true { mut y: Integer = 1 }", "nil");
+    // Control: a block ending in an EXPRESSION still answers it.
+    agrees_on("if true { 1 }", "1");
+    // Control: READING the bound name afterwards answers the value, so the
+    // binding still took effect - only its own result is absent.
+    agrees_on("if true { mut y = 1; y }", "1");
+}
