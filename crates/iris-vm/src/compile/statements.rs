@@ -145,6 +145,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 else_body,
             } => self.if_value(condition, then_body, else_body.as_deref()),
             Statement::Return(value) => {
+                // A RETURN needs a call to return FROM. At the top level there
+                // is no frame to leave, so the reference refuses the program
+                // rather than treating it as the script's value - answering
+                // the operand made `return 1` a legal way to end a script.
+                if self.top_level {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseUnsupported { destination });
+                    return Ok(destination);
+                }
                 let value = match value {
                     Some(value) => self.expression(value)?,
                     None => {

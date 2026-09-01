@@ -9483,3 +9483,27 @@ fn a_duplicate_json_name_is_refused_by_name() {
         "JsonSyntaxError",
     );
 }
+
+/// A TOP-LEVEL `return` is REFUSED.
+///
+/// A return needs a call to return FROM, and at the top level there is no
+/// frame to leave - so the reference refuses the program. Answering the
+/// operand made `return 1` a legal way to end a script and quietly gave it a
+/// value the language never assigns.
+#[test]
+fn a_top_level_return_is_refused() {
+    agrees_on_error("return 1", "UnsupportedConstruct");
+    // The refusal does not depend on the return being the FIRST statement.
+    agrees_on_error("1; return 2", "UnsupportedConstruct");
+    // Control: inside a method there IS a frame to leave, so the same
+    // statement answers its operand.
+    agrees_on(
+        "module M { public fun run() -> Integer { return 1 } } M.run()",
+        "1",
+    );
+    // Control: an early return inside a method still leaves the frame.
+    agrees_on(
+        "module M { public fun run() -> Integer { if true { return 1 }; 2 } } M.run()",
+        "1",
+    );
+}

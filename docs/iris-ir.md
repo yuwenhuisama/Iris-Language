@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A TOP-LEVEL `return` is REFUSED. A return needs a call to return FROM, and at
+the top level there is no frame to leave - answering the operand made
+`return 1` a legal way to end a script and quietly gave it a value the language
+never assigns.
+
 A DUPLICATE JSON name is refused by NAME, not as a syntax failure. `C014`
 makes rejecting a duplicate the SAFE DEFAULT unless a caller selects last-wins,
 first-wins or collect-all. The text PARSES - it is the object it describes that
@@ -1018,8 +1023,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 637 agreed,
-98 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 638 agreed,
+97 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
