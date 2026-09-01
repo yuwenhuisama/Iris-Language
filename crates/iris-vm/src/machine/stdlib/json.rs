@@ -13,9 +13,18 @@ impl Machine {
         };
         match selector {
             "decode" => {
-                let Value::Text(text) = value else {
-                    return Err(MachineError::Kernel(KernelError::Type));
-                };
+                // `C012` raises EncodingError for invalid UTF-8 BEFORE any
+                // JSON token is interpreted, so a byte input is refused at the
+                // BOUNDARY rather than part-way through a parse.
+                let text =
+                    match value {
+                        Value::Text(text) => text.clone(),
+                        Value::Bytes(bytes) => String::from_utf8(bytes.clone())
+                            .map_err(|_| MachineError::EncodingError)?,
+                        Value::ByteArray(bytes) => String::from_utf8(bytes.bytes())
+                            .map_err(|_| MachineError::EncodingError)?,
+                        _ => return Err(MachineError::Kernel(KernelError::Type)),
+                    };
                 let mut cursor = text.chars().peekable();
                 decode_json(&mut cursor)
             }

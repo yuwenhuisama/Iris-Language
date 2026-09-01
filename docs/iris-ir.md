@@ -765,6 +765,17 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+BYTES slice in BYTE units, and a ByteArray slice is an INDEPENDENT snapshot
+rather than a view - writing through either one leaves the other unchanged.
+`C070` snapshots the replacement BEFORE the write, which is what lets a
+ByteArray be assigned into itself, and `C067` makes `to_bytes` an immutable
+copy rather than a window onto later mutation.
+
+JSON REFUSES invalid UTF-8 at the BOUNDARY. `C012` raises EncodingError before
+any token is interpreted, so a byte input that is not text is refused up front
+rather than part-way through a parse - and that refusal is CATCHABLE like any
+other named failure.
+
 An UNOBSERVED FAILURE reports the value it CARRIES. A report is a four-element
 `(:UnobservedFailure, task, captured, :unobserved)`, and the captured value is
 the whole point of the diagnostic - listing a bare Task left every program
@@ -1001,8 +1012,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 633 agreed,
-102 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 635 agreed,
+100 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

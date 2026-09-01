@@ -261,6 +261,10 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
         MachineError::IndexError => Some("IndexError"),
         MachineError::RangeError => Some("RangeError"),
+        // `C012` refuses invalid UTF-8 at the boundary, and that refusal is an
+        // ordinary catchable failure - leaving it off this list let it escape
+        // a `try` that plainly names it.
+        MachineError::EncodingError => Some("EncodingError"),
         MachineError::IteratorState => Some("IteratorStateError"),
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),

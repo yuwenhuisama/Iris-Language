@@ -282,6 +282,26 @@ impl Machine {
                     .and_then(|index| values.get(index).cloned())
                     .unwrap_or(Value::Nil))
             }
+            // `C070` slices in BYTE units: Bytes answers Bytes, and a
+            // ByteArray answers an INDEPENDENT snapshot rather than a view -
+            // writing through either one leaves the other unchanged.
+            Value::Bytes(_) | Value::ByteArray(_) if matches!(index, Value::Range(_)) => {
+                let Value::Range(range) = &index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let bytes = match &receiver {
+                    Value::Bytes(bytes) => bytes.clone(),
+                    Value::ByteArray(bytes) => bytes.bytes(),
+                    _ => return Err(MachineError::Kernel(KernelError::Type)),
+                };
+                let taken = slice_bounds(range, bytes.len())
+                    .map(|(from, to)| bytes[from..to].to_vec())
+                    .unwrap_or_default();
+                Ok(match &receiver {
+                    Value::ByteArray(_) => Value::ByteArray(iris_runtime::ByteArrayRef::new(taken)),
+                    _ => Value::Bytes(taken),
+                })
+            }
             Value::Bytes(bytes) => {
                 let Value::Integer(index) = index else {
                     return Err(MachineError::Kernel(KernelError::Type));
@@ -372,6 +392,29 @@ impl Machine {
                 // object's own `hash`; this path only stores.
                 entries.insert(index, value.clone());
                 Ok(value)
+            }
+            // `C070` accepts Bytes or ByteArray, SNAPSHOTS an aliasing source
+            // before mutating, may change length, and replaces the range
+            // atomically so no partial content is ever exposed.
+            Value::ByteArray(bytes) if matches!(index, Value::Range(_)) => {
+                let Value::Range(range) = &index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                // The replacement is snapshotted FIRST, so assigning a
+                // ByteArray into itself reads pre-mutation content.
+                let replacement = match &value {
+                    Value::Bytes(replacement) => replacement.clone(),
+                    Value::ByteArray(replacement) => replacement.bytes(),
+                    _ => return Err(MachineError::Kernel(KernelError::Type)),
+                };
+                let current = bytes.bytes();
+                let (from, to) = slice_bounds(range, current.len())
+                    .ok_or(MachineError::Kernel(KernelError::Type))?;
+                let mut rebuilt = current.get(..from).unwrap_or_default().to_vec();
+                rebuilt.extend_from_slice(&replacement);
+                rebuilt.extend_from_slice(current.get(to..).unwrap_or_default());
+                bytes.mutate(|bytes| *bytes = rebuilt);
+                Ok(Value::Nil)
             }
             // TEXT is immutable, so it has no `[]=` at all: the refusal is a
             // MISSING MESSAGE a script can catch, not a machine defect.

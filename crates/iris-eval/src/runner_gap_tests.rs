@@ -9384,3 +9384,55 @@ fn an_unobserved_failure_reports_its_value() {
         "[1, 0]",
     );
 }
+
+/// BYTES slice in BYTE units, and a ByteArray answers an INDEPENDENT snapshot.
+///
+/// `C070` makes a ByteArray slice its own value rather than a view, so writing
+/// through either one leaves the other unchanged. The replacement is
+/// snapshotted BEFORE the write, which is what lets a ByteArray be assigned
+/// into itself, and `C067` makes `to_bytes` an immutable copy rather than a
+/// window onto later mutation.
+#[test]
+fn bytes_slice_in_byte_units() {
+    // The slice taken BEFORE the write keeps its own content, and the write
+    // may change the receiver's length.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; a[0 ..< 2] = b"ZZ"; [b.to_bytes(), a.to_bytes()] } } M.run()"#,
+        "[bytes:6162, bytes:5a5a63]",
+    );
+    // Control: reading a slice alone leaves the source untouched.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; [b.to_bytes(), a.to_bytes()] } } M.run()"#,
+        "[bytes:6162, bytes:616263]",
+    );
+    // Control: an INTEGER index still answers a single byte, so the range
+    // form did not take over ordinary indexing.
+    agrees_on(
+        r#"module M { public fun run() -> Object { let a = mb"abc"; a[0] } } M.run()"#,
+        "97",
+    );
+}
+
+/// JSON REFUSES invalid UTF-8 at the BOUNDARY.
+///
+/// `C012` raises EncodingError before any JSON token is interpreted, so a byte
+/// input that is not text is refused up front rather than part-way through a
+/// parse. The machine accepted only text and reported a Type failure where the
+/// language names an encoding one.
+#[test]
+fn json_refuses_invalid_utf8_at_the_boundary() {
+    agrees_on(
+        r#"module M { public fun run() -> Object { try { JSON.decode(b"\xc3\x28") } catch v, _ { v } } } M.run()"#,
+        ":EncodingError",
+    );
+    // Control: VALID bytes decode exactly as the same text would, so the
+    // boundary check did not refuse legitimate byte input.
+    agrees_on(
+        r#"module M { public fun run() -> Object { JSON.decode(b"[1,2]") } } M.run()"#,
+        "[1, 2]",
+    );
+    agrees_on(
+        r#"module M { public fun run() -> Object { JSON.decode("[1,2]") } } M.run()"#,
+        "[1, 2]",
+    );
+}

@@ -589,6 +589,15 @@ impl Machine {
             Value::MutableString(text) if selector == "to_string" && arguments.is_empty() => {
                 Some(Value::Text(text.text()))
             }
+            // `C067` makes Bytes the IMMUTABLE form, so a ByteArray answers a
+            // snapshot of its current content rather than a view onto it - a
+            // later mutation must not be visible through the answer.
+            Value::ByteArray(bytes) if selector == "to_bytes" && arguments.is_empty() => {
+                Some(Value::Bytes(bytes.bytes()))
+            }
+            Value::Bytes(bytes) if selector == "to_bytes" && arguments.is_empty() => {
+                Some(Value::Bytes(bytes.clone()))
+            }
             // These families answer `length` in the reference, and a value the
             // backend can PRODUCE but not measure is the defect that has
             // recurred here: a suppressed list handed to a catch, or a byte
