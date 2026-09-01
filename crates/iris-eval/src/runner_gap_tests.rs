@@ -9538,3 +9538,26 @@ fn a_reopen_cannot_break_a_contract_signature() {
         r#""a""#,
     );
 }
+
+/// A `meta deny` list is part of what the class IS.
+///
+/// `C081` fixes the capability vocabulary, and a denial narrows the policy the
+/// class is registered with. Registering EVERY class with the full policy let
+/// a denied operation succeed anyway, so `meta deny instance_state` did not
+/// actually deny anything.
+#[test]
+fn a_meta_deny_list_narrows_the_policy() {
+    agrees_on_error(
+        "class A meta deny instance_state { }; Reflection::Object.set_ivar(A.new(), :@x, 1)",
+        "Construction(InstanceState { class: ClassId(7) })",
+    );
+    // Control: a class denying NOTHING still allows the same operation, so the
+    // denial refuses by policy rather than the operation being unsupported.
+    agrees_on(
+        "class A { }; Reflection::Object.set_ivar(A.new(), :@x, 1)",
+        "1",
+    );
+    // Control: denying a capability does not stop the class being used
+    // ordinarily - only the denied operation is refused.
+    agrees_on("class A meta deny instance_state { }; A.new()", "<object>");
+}

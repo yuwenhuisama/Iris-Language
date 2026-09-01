@@ -644,6 +644,7 @@ fn collect_class<'a>(
         private_methods,
         override_required,
         contract_signature_clash: false,
+        meta_deny: class.meta_deny.clone(),
         generic: !class.parameters.is_empty(),
         superclass,
         methods,

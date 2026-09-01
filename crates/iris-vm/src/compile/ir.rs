@@ -1058,6 +1058,12 @@ pub(crate) struct Class {
     /// is an incompatible member rather than a new one. The refusal is
     /// recorded here and raised at load, where the class it names exists.
     pub(crate) contract_signature_clash: bool,
+    /// Capability names this class DENIES, as `meta deny` spelled them.
+    ///
+    /// `IRIS-V1-META-C081` fixes the capability vocabulary, and a denial is
+    /// part of what the class IS - registering every class with the full
+    /// policy let a denied operation succeed anyway.
+    pub(crate) meta_deny: Vec<String>,
     pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,

@@ -532,7 +532,7 @@ impl Machine {
                 .define_class_with_capabilities_and_composition_edges(
                     StaticSpine::new(index as u64 + 1),
                     superclass,
-                    iris_runtime::MetaCapabilities::all(),
+                    meta_capabilities(&declaration.meta_deny)?,
                     &modules,
                 )
                 .map_err(MachineError::Class)?;
@@ -991,4 +991,31 @@ impl Machine {
         )
         .map(|_| ())
     }
+}
+
+/// The policy a class's `meta deny` list describes.
+///
+/// `IRIS-V1-META-C081` fixes the capability vocabulary, so a name outside it
+/// is a diagnostic rather than a silently ignored denial - registering every
+/// class with the full policy let a denied operation succeed anyway.
+fn meta_capabilities(names: &[String]) -> Result<iris_runtime::MetaCapabilities, MachineError> {
+    let mut denied = Vec::with_capacity(names.len());
+    for name in names {
+        denied.push(match name.as_str() {
+            "method_set" => iris_runtime::Capability::MethodSet,
+            "method_body" => iris_runtime::Capability::MethodBody,
+            "property_set" => iris_runtime::Capability::PropertySet,
+            "property_body" => iris_runtime::Capability::PropertyBody,
+            "modules" => iris_runtime::Capability::Modules,
+            "superclass" => iris_runtime::Capability::Superclass,
+            "subclass" => iris_runtime::Capability::Subclass,
+            "shape" => iris_runtime::Capability::Shape,
+            "class_state_set" => iris_runtime::Capability::ClassStateSet,
+            "class_state_write" => iris_runtime::Capability::ClassStateWrite,
+            "instance_state" => iris_runtime::Capability::InstanceState,
+            "native" => iris_runtime::Capability::Native,
+            _ => return Err(MachineError::ParseDiagnostic),
+        });
+    }
+    Ok(iris_runtime::MetaCapabilities::denying(&denied))
 }
