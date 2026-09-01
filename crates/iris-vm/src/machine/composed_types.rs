@@ -11,6 +11,26 @@ impl Machine {
         program: &Program,
         classes: &[iris_runtime::ClassId],
     ) -> Result<Value, MachineError> {
+        // A CLOSED generic names one Type per ARGUMENT list: `Box<String>` and
+        // `Box<Integer>` are two Types of one class, so the arguments are
+        // carried rather than dropped - without them the two are the same
+        // value and `same?` cannot tell them apart.
+        if let TypeExpression::Generic { name, arguments } = expression
+            && let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)?
+        {
+            let mut reified = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let TypeExpression::Name(argument) = argument else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                let TypeAtom::Nominal(argument, _) = self.type_atom(argument, program, classes)?
+                else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                reified.push(argument);
+            }
+            return Ok(Value::Type(class, reified));
+        }
         let form = self.normalize_type(expression, program, classes)?;
         Ok(match form {
             ComposedType::Union(members) | ComposedType::Intersection(members)

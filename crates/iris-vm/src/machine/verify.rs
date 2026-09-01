@@ -157,6 +157,12 @@ pub enum MachineError {
     /// `IRIS-V1-LIBRARY-C013` makes a decode limit a REFUSAL before the
     /// offending container is allocated, not a truncation afterwards.
     JsonLimitError,
+    /// A `<=>` body answered something that is neither an ordering nor nil.
+    ///
+    /// `IRIS-V1-RUNTIME-C092` makes an ordering an Integer and NO ORDER nil,
+    /// so any other answer breaks the comparison contract itself rather than
+    /// being an ordinary type failure.
+    ComparisonContractError,
     SerializationError,
     UnsupportedConstruct,
     AuditHistoryUnavailable,

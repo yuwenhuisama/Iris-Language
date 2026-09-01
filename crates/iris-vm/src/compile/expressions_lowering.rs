@@ -467,6 +467,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if selector == "type" && matches!(receiver.as_ref(), Expression::ReifiedType(_)) {
                     return self.expression(receiver);
                 }
+                // A CLOSED generic's Type carries its ARGUMENTS: `Box<String>`
+                // and `Box<Integer>` are two Types of one class, so reading
+                // `type` off the bare class discarded exactly what tells them
+                // apart and made them the same value.
+                if selector == "type"
+                    && let Expression::ClosedGeneric { name, arguments } = receiver.as_ref()
+                    && self.class_index(name).is_some()
+                {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BuildType {
+                        destination,
+                        expression: iris_syntax::TypeExpression::Generic {
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        },
+                    });
+                    return Ok(destination);
+                }
                 // `C064` puts a SHARED class property on the UNAPPLIED generic
                 // definition, so a closed construction does not reach it:
                 // `C.n` answers while `C<String>.n` is a MessageNotFound.

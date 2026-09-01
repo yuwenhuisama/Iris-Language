@@ -96,10 +96,17 @@ impl Machine {
             if ordering == Value::Nil {
                 return Ok(Value::Bool(false));
             }
+            // `D-094` separates two failures: another INTEGER satisfies the
+            // broad `Integer?` return type but violates the protocol, which is
+            // a ComparisonContractError, while a non-Integer, non-nil answer
+            // violates the return type itself and is a type failure.
             let Value::Integer(ordering) = ordering else {
                 return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
             };
-            let ordering: i64 = ordering.decimal_text().parse().unwrap_or_default();
+            let ordering: i64 = match ordering.decimal_text().parse() {
+                Ok(ordering @ -1..=1) => ordering,
+                _ => return Err(MachineError::ComparisonContractError),
+            };
             return Ok(Value::Bool(match selector {
                 "<" => ordering < 0,
                 "<=" => ordering <= 0,

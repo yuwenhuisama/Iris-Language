@@ -9887,3 +9887,46 @@ fn no_order_compares_false_and_equality_derives_from_it() {
         "[true, false, false]",
     );
 }
+
+/// An ORDERING is -1, 0 or 1 - another Integer breaks the CONTRACT.
+///
+/// `D-094` separates two failures: another Integer satisfies the broad
+/// `Integer?` return type but violates the protocol, which is a
+/// ComparisonContractError, while a non-Integer, non-nil answer violates the
+/// return type itself and is a type failure.
+#[test]
+fn an_ordering_is_minus_one_zero_or_one() {
+    agrees_on_error(
+        r#"class B { public fun <=>(o: Object) -> Object { 7 } } module M { public fun run() -> Object { B.new() < B.new() } } M.run()"#,
+        "ComparisonContractError",
+    );
+    // Control: a VALID ordering compares normally.
+    agrees_on(
+        "class B { public fun <=>(o: Object) -> Object { -1 } } module M { public fun run() -> Object { B.new() < B.new() } } M.run()",
+        "true",
+    );
+    // Control: NO ORDER is still a false comparison rather than a refusal.
+    agrees_on(
+        "class B { public fun <=>(o: Object) -> Object { nil } } module M { public fun run() -> Object { B.new() < B.new() } } M.run()",
+        "false",
+    );
+}
+
+/// A CLOSED generic names one Type per ARGUMENT list.
+///
+/// `Box<String>` and `Box<Integer>` are two Types of ONE class, so a Type
+/// carries the arguments it was closed over - dropping them made the two the
+/// same value and left `same?` unable to tell them apart.
+#[test]
+fn a_closed_generic_type_carries_its_arguments() {
+    agrees_on(
+        "class Box<T> {} Box<String>.type same? Box<String>.type; Box<String>.type same? Box<Integer>.type",
+        "[true, false]",
+    );
+    // Control: one construction's Type is the SAME value as itself, so the
+    // arguments distinguish rather than simply making every Type distinct.
+    agrees_on(
+        "class Box<T> {} Box<String>.type same? Box<String>.type",
+        "true",
+    );
+}

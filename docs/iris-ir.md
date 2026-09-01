@@ -765,6 +765,16 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An ORDERING is -1, 0 or 1. `D-094` separates two failures: another INTEGER
+satisfies the broad `Integer?` return type but violates the protocol, which is
+a ComparisonContractError, while a non-Integer, non-nil answer violates the
+return type itself and is a type failure.
+
+A CLOSED generic names one Type per ARGUMENT list. `Box<String>` and
+`Box<Integer>` are two Types of ONE class, so a Type carries the arguments it
+was closed over - dropping them made the two the same value and left `same?`
+unable to tell them apart.
+
 NO ORDER is a false comparison, and EQUALITY derives from `<=>`. `C092` lets
 two values have no order at all, which `<=>` reports as nil - and a comparison
 against no order is FALSE rather than a type failure. `C091` then derives
@@ -1094,8 +1104,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 653 agreed,
-82 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 655 agreed,
+80 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
