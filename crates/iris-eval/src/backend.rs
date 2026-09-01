@@ -187,6 +187,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::ReflectionAccess) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::ReflectionAccess),
                 )),
+                Err(iris_vm::MachineError::JsonLimitError) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::JsonLimitError),
+                )),
                 Err(iris_vm::MachineError::JsonDuplicateNameError) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::JsonDuplicateNameError)),
                 ),

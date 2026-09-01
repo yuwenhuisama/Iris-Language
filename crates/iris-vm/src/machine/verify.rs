@@ -152,6 +152,11 @@ pub enum MachineError {
     /// It is not a syntax failure: the text parses, and the object it
     /// describes is the thing being refused.
     JsonDuplicateNameError,
+    /// A JSON document nested deeper than the caller ALLOWED.
+    ///
+    /// `IRIS-V1-LIBRARY-C013` makes a decode limit a REFUSAL before the
+    /// offending container is allocated, not a truncation afterwards.
+    JsonLimitError,
     SerializationError,
     UnsupportedConstruct,
     AuditHistoryUnavailable,

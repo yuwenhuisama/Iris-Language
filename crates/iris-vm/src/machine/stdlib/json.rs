@@ -8,9 +8,19 @@ impl Machine {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, MachineError> {
-        let [value] = arguments else {
+        let [value, rest @ ..] = arguments else {
             return Err(MachineError::Kernel(KernelError::Arity));
         };
+        // `C013` makes a decode limit a REFUSAL before the offending container
+        // is allocated, not a truncation afterwards. It arrives as a KEYWORD
+        // argument, so accepting only one argument refused the call outright.
+        let depth_limit = rest.iter().find_map(|option| match option {
+            Value::KeywordArgument(name, limit) if name == "depth" => match &**limit {
+                Value::Integer(limit) => limit.to_usize(),
+                _ => None,
+            },
+            _ => None,
+        });
         match selector {
             "decode" => {
                 // `C012` raises EncodingError for invalid UTF-8 BEFORE any
@@ -26,7 +36,7 @@ impl Machine {
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     };
                 let mut cursor = text.chars().peekable();
-                decode_json(&mut cursor)
+                decode_json(&mut cursor, depth_limit, 0)
             }
             "encode" => {
                 let mut rendered = String::new();
@@ -94,6 +104,8 @@ fn render_json_text(value: &str, output: &mut String) {
 
 fn decode_json(
     cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    depth_limit: Option<usize>,
+    depth: usize,
 ) -> Result<Value, MachineError> {
     while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
         cursor.next();
@@ -102,7 +114,14 @@ fn decode_json(
         return Err(MachineError::JsonSyntaxError);
     };
     match scalar {
-        '[' | '{' => decode_container(cursor, scalar),
+        '[' | '{' => {
+            // The refusal happens BEFORE the container is allocated, so a
+            // document at the limit is turned down rather than truncated.
+            if depth_limit.is_some_and(|limit| depth >= limit) {
+                return Err(MachineError::JsonLimitError);
+            }
+            decode_container(cursor, scalar, depth_limit, depth + 1)
+        }
         '"' => decode_text(cursor),
         _ => decode_scalar(cursor),
     }
@@ -111,6 +130,8 @@ fn decode_json(
 fn decode_container(
     cursor: &mut std::iter::Peekable<std::str::Chars<'_>>,
     opening: char,
+    depth_limit: Option<usize>,
+    depth: usize,
 ) -> Result<Value, MachineError> {
     let closing = if opening == '[' { ']' } else { '}' };
     cursor.next();
@@ -125,16 +146,16 @@ fn decode_container(
             break;
         }
         if closing == ']' {
-            values.push(decode_json(cursor)?);
+            values.push(decode_json(cursor, depth_limit, depth)?);
         } else {
-            let key = decode_json(cursor)?;
+            let key = decode_json(cursor, depth_limit, depth)?;
             while cursor.peek().is_some_and(|scalar| scalar.is_whitespace()) {
                 cursor.next();
             }
             if cursor.next() != Some(':') {
                 return Err(MachineError::JsonSyntaxError);
             }
-            let held = decode_json(cursor)?;
+            let held = decode_json(cursor, depth_limit, depth)?;
             // The text PARSED - it is the object it describes that is
             // refused, so this is a duplicate-name failure rather than a
             // syntax one.

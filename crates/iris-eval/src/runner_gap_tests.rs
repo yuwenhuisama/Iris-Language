@@ -9759,3 +9759,32 @@ fn a_class_variable_is_anchored_once_per_ancestry() {
         "UnsupportedConstruct",
     );
 }
+
+/// A JSON decode LIMIT refuses before the container is allocated.
+///
+/// `C013` makes a depth limit a REFUSAL rather than a truncation afterwards,
+/// and it arrives as a KEYWORD argument - accepting only one argument refused
+/// the call outright, reporting an arity failure where the language names a
+/// limit.
+#[test]
+fn a_json_decode_limit_refuses_rather_than_truncates() {
+    agrees_on_error(
+        r#"module M { public fun run() -> Array { JSON.decode("[1,[2,[3,[4]]]]", depth: 3) } } M.run()"#,
+        "JsonLimitError",
+    );
+    // Control: a limit the document FITS inside decodes whole.
+    agrees_on(
+        r#"module M { public fun run() -> Array { JSON.decode("[1,[2,[3,[4]]]]", depth: 9) } } M.run()"#,
+        "[1, [2, [3, [4]]]]",
+    );
+    agrees_on(
+        r#"module M { public fun run() -> Array { JSON.decode("[1,[2]]", depth: 2) } } M.run()"#,
+        "[1, [2]]",
+    );
+    // Control: with NO limit named the document decodes as it always did, so
+    // the keyword did not become mandatory.
+    agrees_on(
+        r#"module M { public fun run() -> Array { JSON.decode("[1,[2,[3,[4]]]]") } } M.run()"#,
+        "[1, [2, [3, [4]]]]",
+    );
+}
