@@ -1050,6 +1050,14 @@ pub(crate) struct Class {
     /// first and must say so. The check is recorded here and raised at load,
     /// where the class identity the failure names exists.
     pub(crate) override_required: Vec<String>,
+    /// Whether a REOPEN replaced a member with one the class's contract
+    /// forbids.
+    ///
+    /// `IRIS-V1-TYPES-D-173` puts the contract-visible SIGNATURE in the static
+    /// spine, so a replacement whose return Type contradicts the requirement
+    /// is an incompatible member rather than a new one. The refusal is
+    /// recorded here and raised at load, where the class it names exists.
+    pub(crate) contract_signature_clash: bool,
     pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,

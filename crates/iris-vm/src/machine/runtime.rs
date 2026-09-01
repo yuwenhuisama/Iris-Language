@@ -544,6 +544,11 @@ impl Machine {
             // selector replaces the first and must write `override`. The
             // refusal is raised here rather than at compile time, because the
             // class identity it names exists only once the class is defined.
+            // `D-173` makes a replacement whose return Type contradicts a
+            // contract requirement an INCOMPATIBLE member, not a new one.
+            if declaration.contract_signature_clash {
+                return Err(MachineError::TypeContractError);
+            }
             if let Some(selector) = declaration.override_required.first() {
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;

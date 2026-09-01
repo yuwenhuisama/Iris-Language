@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A REOPEN cannot REPLACE a member with one the contract forbids. `D-173` puts
+the contract-visible SIGNATURE in the static spine, so a replacement whose
+return Type contradicts the requirement is an INCOMPATIBLE member rather than a
+new one. Publishing it anyway let a class silently stop satisfying the contract
+it declares. The refusal is recorded while lowering and raised at load, where
+the class identity it names exists.
+
 A TOP-LEVEL `return` is REFUSED. A return needs a call to return FROM, and at
 the top level there is no frame to leave - answering the operand made
 `return 1` a legal way to end a script and quietly gave it a value the language
@@ -1023,8 +1030,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 638 agreed,
-97 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 639 agreed,
+96 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

@@ -643,6 +643,7 @@ fn collect_class<'a>(
         name: class.name.clone(),
         private_methods,
         override_required,
+        contract_signature_clash: false,
         generic: !class.parameters.is_empty(),
         superclass,
         methods,
@@ -758,6 +759,30 @@ fn collect_reopen<'a>(
             classes[target]
                 .override_required
                 .push(method.selector.clone());
+        }
+    }
+    // `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+    // REPLACEMENT whose return Type contradicts a declared requirement is an
+    // incompatible member rather than a new one. An UNANNOTATED position
+    // states nothing and is left alone. The refusal is recorded rather than
+    // returned, because it names a class identity that exists only at load.
+    for contract in &classes[target].contracts {
+        for requirement in &contracts[*contract].requirements {
+            let Some(required) = requirement.return_type.as_ref() else {
+                continue;
+            };
+            let clashes = class.body.iter().any(|statement| match statement {
+                Statement::Method(method) if method.selector == requirement.selector => {
+                    matches!(
+                        method.return_type.as_ref(),
+                        Some(TypeExpression::Name(actual)) if actual != required
+                    )
+                }
+                _ => false,
+            });
+            if clashes {
+                classes[target].contract_signature_clash = true;
+            }
         }
     }
     let first_function = signatures.len();

@@ -9507,3 +9507,34 @@ fn a_top_level_return_is_refused() {
         "1",
     );
 }
+
+/// A REOPEN cannot REPLACE a member with one the contract forbids.
+///
+/// `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+/// replacement whose return Type contradicts the requirement is an
+/// INCOMPATIBLE member rather than a new one. The machine published the
+/// replacement and answered its value, letting a class silently stop
+/// satisfying the contract it declares.
+#[test]
+fn a_reopen_cannot_break_a_contract_signature() {
+    agrees_on_error(
+        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public fun extra() { 9 } public override fun draw() -> Integer { 1 } } A.new().draw()"#,
+        "TypeContractError",
+    );
+    // Control: a replacement whose return Type MATCHES the requirement is an
+    // ordinary override and takes effect.
+    agrees_on(
+        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public override fun draw() -> String { "b" } } A.new().draw()"#,
+        r#""b""#,
+    );
+    // Control: a reopen adding an UNRELATED member touches no requirement.
+    agrees_on(
+        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public fun extra() -> Integer { 9 } } A.new().draw()"#,
+        r#""a""#,
+    );
+    // Control: with no reopen at all the class answers as declared.
+    agrees_on(
+        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } A.new().draw()"#,
+        r#""a""#,
+    );
+}
