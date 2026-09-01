@@ -10008,3 +10008,36 @@ fn a_block_ending_in_a_binding_answers_nil() {
     // binding still took effect - only its own result is absent.
     agrees_on("if true { mut y = 1; y }", "1");
 }
+
+/// A `return` from a CLEANUP records the exception it DISCARDS.
+///
+/// `C063` lets a `return` from `finally` override a pending exception, and the
+/// discarded context is recorded in a protected diagnostic channel - never as
+/// cause or suppressed metadata. Dropping it silently lost the only record
+/// that an exception was travelling at all.
+#[test]
+fn a_return_from_cleanup_records_what_it_discards() {
+    agrees_on(
+        "module M { public fun run() -> Symbol { try { raise :pending } finally { return :override } } } \
+         module N { public fun run() -> Array { [M.run(), Diagnostics.discarded_contexts()] } } N.run()",
+        "[:override, [:pending]]",
+    );
+    // Control: ordinary callers observe ONLY the new control transfer, so the
+    // override itself is unchanged.
+    agrees_on(
+        "module M { public fun run() -> Symbol { try { raise :pending } finally { return :override } } } M.run()",
+        ":override",
+    );
+    // Control: with NO exception travelling there is nothing to discard.
+    agrees_on(
+        "module M { public fun run() -> Symbol { try { :ok } finally { return :override } } } M.run()",
+        ":override",
+    );
+    // Control: a cleanup that does NOT transfer control leaves the caught
+    // value standing, so the channel is about discarding rather than about
+    // running a cleanup.
+    agrees_on(
+        "module M { public fun run() -> Symbol { try { raise :pending } catch v, _ { v } finally { :ignored } } } M.run()",
+        ":pending",
+    );
+}

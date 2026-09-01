@@ -1473,6 +1473,19 @@ impl Machine {
                     continue;
                 }
                 Instruction::Return { value } => {
+                    // `C063` lets a `return` from a cleanup OVERRIDE a pending
+                    // exception, and the discarded context is recorded in a
+                    // protected diagnostic channel - never as cause or
+                    // suppressed metadata. Dropping it silently lost the only
+                    // record that an exception was travelling at all.
+                    if let Some(Value::ExceptionContext(_, discarded, ..)) =
+                        self.pending_cleanup_cause.take()
+                    {
+                        // The channel records the VALUE that was travelling,
+                        // which is what a program observes - the context is
+                        // the machine's own carrier for it.
+                        self.discarded_contexts.push(*discarded);
+                    }
                     let value = registers[*value as usize].clone();
                     // The answer is handed back in the frame's own result
                     // slot, so a caller reads it without knowing the callee's

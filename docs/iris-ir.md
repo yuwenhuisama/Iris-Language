@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A `return` from a CLEANUP records the exception it DISCARDS. `C063` lets a
+`return` from `finally` override a pending exception, and the discarded value
+is recorded in a protected diagnostic channel - never as cause or suppressed
+metadata. Dropping it silently lost the only record that an exception was
+travelling at all.
+
 A BINDING declares a name rather than ANSWERING a value. A block ending in one
 has no value of its own, so `if true { let y = 1 }` answers nil - answering the
 bound value gave the block a result the language does not give it.
@@ -1118,8 +1124,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 658 agreed,
-77 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 659 agreed,
+76 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
