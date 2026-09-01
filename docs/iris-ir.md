@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CONSTRUCTION resolves `initialize` BEFORE its property initializers run. A
+property initializer that REDEFINES the method arms it for the NEXT
+construction, not the one already under way - resolving afterwards let a class
+replace its own initializer mid-construction and run the replacement on the
+very object that installed it.
+
 A CLASS-LEVEL initializer RUNS on the first READ. It is an ordinary expression
 evaluated when the property is first read rather than where the class is
 defined, so a body that RAISES is retried on the next read and one that
@@ -1138,8 +1144,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 662 agreed,
-73 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 664 agreed,
+71 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

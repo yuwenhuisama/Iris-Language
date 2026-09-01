@@ -10102,3 +10102,36 @@ fn a_class_level_initializer_runs_on_first_read() {
     // directly, so the lazy path did not take over every class property.
     agrees_on("class Box { class property tag: Integer = 5 } Box.tag", "5");
 }
+
+/// A CONSTRUCTION resolves `initialize` BEFORE its property initializers run.
+///
+/// A property initializer that REDEFINES the method arms it for the NEXT
+/// construction, not the one already under way. Resolving afterwards let a
+/// class replace its own initializer mid-construction and run the replacement
+/// on the very object that installed it.
+#[test]
+fn a_construction_resolves_initialize_before_its_properties() {
+    agrees_on(
+        "mut ran = :none; class A { property tag: Symbol = arm() \
+         public fun initialize() -> Object { ran = :original; nil } \
+         public fun arm() -> Symbol { \
+           let committed = A.open() { |t| t.define_method(:initialize) { ran = :replacement; nil } }; \
+           :armed } \
+         public fun m() -> Symbol { :old } } \
+         module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()",
+        "[:armed, :original]",
+    );
+    // Control: with NO redefinition the declared initializer runs as always.
+    agrees_on(
+        "mut ran = :none; class A { public fun initialize() -> Object { ran = :original; nil } } \
+         module Q { public fun run() -> Object { let a = A.new(); ran } } Q.run()",
+        ":original",
+    );
+    // Control: a LITERAL property initializer leaves the ordering unchanged.
+    agrees_on(
+        "mut ran = :none; class A { property tag: Symbol = :plain \
+         public fun initialize() -> Object { ran = :original; nil } } \
+         module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()",
+        "[:plain, :original]",
+    );
+}

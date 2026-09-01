@@ -1634,9 +1634,17 @@ impl Machine {
                         .runtime
                         .allocate(class)
                         .map_err(MachineError::Construction)?;
+                    // The construction resolves `initialize` BEFORE the
+                    // property initializers run: a body that REDEFINES the
+                    // method arms it for the NEXT construction, not the one
+                    // already under way. Resolving afterwards let a class
+                    // replace its own initializer mid-construction.
+                    let resolved = self
+                        .runtime
+                        .dispatch_instance(object, Selector::INITIALIZE)
+                        .ok();
                     self.initialize_properties(program, classes, class, object)?;
-                    if let Ok(method) = self.runtime.dispatch_instance(object, Selector::INITIALIZE)
-                    {
+                    if let Some(method) = resolved {
                         let function = usize::try_from(method.body().raw()).map_err(|_| {
                             MachineError::Invalid(VerifyError::UnknownFunction {
                                 function: usize::MAX,
