@@ -9092,3 +9092,38 @@ fn a_raising_cleanup_is_suppressed_beside_the_body() {
         );
     }
 }
+
+/// `Float64(-Infinity)` is a SPELLING, not a conversion of a named value.
+///
+/// `Infinity` alone is a `NameError`, so the operand never becomes a value an
+/// ordinary call could take - only the NEGATED form denotes a value at all.
+/// The machine tried to evaluate the name and reported `NameError` where the
+/// language answers negative infinity.
+#[test]
+fn negative_infinity_is_spelled_not_evaluated() {
+    for (source, expected) in [
+        ("Float64(-Infinity)", "f64:0xfff0000000000000"),
+        // Control: the bare name is NOT a value, so the positive form and the
+        // name on its own both stay errors - the spelling was not widened
+        // into a general `Infinity` binding.
+        (
+            "try { Float64(Infinity) } catch v, _ { :refused }",
+            ":refused",
+        ),
+        ("try { Infinity } catch v, _ { :refused }", ":refused"),
+        ("try { Float64(NaN) } catch v, _ { :refused }", ":refused"),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must agree: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}

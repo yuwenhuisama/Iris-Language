@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+`Float64(-Infinity)` is a SPELLING, not a conversion of a named value.
+`Infinity` alone is a `NameError`, so the operand never becomes a value an
+ordinary call could take - only the negated form denotes a value at all. It is
+recognised while lowering the call rather than evaluated as a name.
+
 A CLEANUP that raises does not DISPLACE the body's exception. `C047` keeps the
 body's exception primary when a loop's `close` also raises, appending the
 cleanup failure to its suppressed list - the machine let the close overwrite
@@ -950,8 +955,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 610 agreed,
-114 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 612 agreed,
+112 disagreed, 12 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

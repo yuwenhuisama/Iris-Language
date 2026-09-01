@@ -273,6 +273,27 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 return Ok(destination);
             }
+            // `Float64(-Infinity)` is a SPELLING rather than a conversion of a
+            // named value: `Infinity` alone is a NameError, and only the
+            // negated form denotes a value at all. It is recognised here
+            // because the operand never becomes a value the call could take.
+            if callee.is_none()
+                && name == "Float64"
+                && let [
+                    Expression::Unary {
+                        operator: iris_syntax::UnaryOperator::Negate,
+                        operand,
+                    },
+                ] = arguments
+                && matches!(operand.as_ref(), Expression::Name(name) if name == "Infinity")
+            {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::LoadFloat64 {
+                    destination,
+                    bits: f64::NEG_INFINITY.to_bits(),
+                });
+                return Ok(destination);
+            }
             if callee.is_none() && !matches!(name.as_str(), "Integer" | "Float64") {
                 return Err(CompileError::new("call bare name"));
             }
