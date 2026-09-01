@@ -494,6 +494,15 @@ impl Machine {
                 }
                 _ => None,
             },
+            // `append` converts its operand through `to_string` and mutates
+            // IN PLACE, so every reference to the string sees the write. A
+            // conversion that RAISES leaves the receiver untouched, which is
+            // what makes a failed append observable as no change at all.
+            Value::MutableString(text) if selector == "append" && arguments.len() == 1 => {
+                let addition = self.text_operand(arguments[0].clone(), program, classes)?;
+                text.set(format!("{}{addition}", text.text()));
+                Some(receiver.clone())
+            }
             // `IRIS-V1-COLLECTIONS-C042` pins normalization and case folding to
             // a fixed Unicode data version rather than a host locale, and
             // `C044` exposes GRAPHEME CLUSTERS explicitly because `length`

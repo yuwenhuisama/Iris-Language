@@ -10171,3 +10171,29 @@ fn a_stepped_range_is_not_a_slice() {
         r#""""#,
     );
 }
+
+/// `append` converts through `to_string` and mutates IN PLACE.
+///
+/// Every reference to the string sees the write, and a conversion that RAISES
+/// leaves the receiver untouched - which is what makes a failed append
+/// observable as no change at all. The machine had no `append`, so a program
+/// that plainly appends answered a missing message.
+#[test]
+fn append_converts_and_mutates_in_place() {
+    // A conversion that raises propagates ITS value, and the receiver is
+    // unchanged.
+    agrees_on(
+        r#"class BadText { public fun to_string() -> String { raise :bad } } module M { public fun run() -> Array { let m = m"a"; mut raised = :none; try { m.append(BadText.new()) } catch e { raised = e }; [raised, m.to_string()] } } M.run()"#,
+        r#"[:bad, "a"]"#,
+    );
+    // An object converts through its own `to_string`.
+    agrees_on(
+        r#"class OkText { public fun to_string() -> String { "z" } } module M { public fun run() -> Array { let m = m"a"; m.append(OkText.new()); [m.to_string()] } } M.run()"#,
+        r#"["az"]"#,
+    );
+    // Control: appending text needs no conversion at all.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let m = m"a"; m.append("b"); [m.to_string()] } } M.run()"#,
+        r#"["ab"]"#,
+    );
+}
