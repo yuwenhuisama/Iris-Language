@@ -315,7 +315,25 @@ impl Machine {
             return Ok(None);
         };
         let Ok(method) = self.runtime.dispatch_instance(*object, selector) else {
-            return Ok(None);
+            // `C096` gives a REMOVED `to_bool` one last route: truth testing
+            // invokes `method_missing(:to_bool, [], nil)` once and uses its
+            // result. Only a selector the class actually BLOCKED takes it -
+            // a value that never had `to_bool` at all falls through to the
+            // `C094` default rather than reaching a handler.
+            let class = self
+                .runtime
+                .class_of(*object)
+                .map_err(MachineError::Construction)?;
+            let removed = self
+                .runtime
+                .registry()
+                .active(class)
+                .map(|revision| revision.tombstones().contains(&selector))
+                .unwrap_or(false);
+            if !removed {
+                return Ok(None);
+            }
+            return self.invoke_method_missing(*object, "to_bool", &[], program, classes);
         };
         let Ok(function) = usize::try_from(method.body().raw()) else {
             return Ok(None);

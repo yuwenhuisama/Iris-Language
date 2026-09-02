@@ -10595,3 +10595,38 @@ fn a_bound_method_annotation_refuses_a_closure() {
         "[:TypeContractError, 5, 7]",
     );
 }
+
+/// A REMOVED `to_bool` reaches `method_missing` once.
+///
+/// `C096` gives truth testing one last route when the selector was BLOCKED:
+/// it invokes `method_missing(:to_bool, [], nil)` and uses the result. Only a
+/// selector the class actually removed takes it - a value that never had
+/// `to_bool` at all falls through to the `C094` default rather than reaching
+/// a handler that was never meant to see it.
+#[test]
+fn a_removed_to_bool_reaches_method_missing() {
+    // The handler runs ONCE and receives the selector, an empty positional
+    // snapshot and no block.
+    agrees_on(
+        "mut calls = 0; mut seen = nil; \
+         class FallbackTruth { public fun method_missing(selector, args, block) { \
+           calls = calls + 1; seen = [selector, args, block]; true } } \
+         FallbackTruth.undef_method(:to_bool); \
+         let result = if FallbackTruth.new() { :then } else { :else }; [result, calls, seen]",
+        "[nil, [:then, 1, [:to_bool, [], nil]]]",
+    );
+    // Control: WITHOUT the removal the handler is not consulted at all, so
+    // the fallback is about a blocked selector rather than about truth.
+    agrees_on(
+        "mut calls = 0; \
+         class FallbackTruth { public fun method_missing(selector, args, block) { \
+           calls = calls + 1; true } } \
+         let result = if FallbackTruth.new() { :then } else { :else }; [result, calls]",
+        "[:then, 0]",
+    );
+    // Control: a class with no handler at all still takes the default.
+    agrees_on(
+        "class Plain { } let result = if Plain.new() { :then } else { :else }; result",
+        ":then",
+    );
+}

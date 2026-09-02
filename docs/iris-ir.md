@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A REMOVED `to_bool` reaches `method_missing` once. `C096` gives truth testing
+one last route when the selector was BLOCKED: it invokes
+`method_missing(:to_bool, [], nil)` and uses the result. Only a selector the
+class actually removed takes it - a value that never had `to_bool` at all
+falls through to the `C094` default rather than reaching a handler that was
+never meant to see it.
+
 A `BoundMethod<..>` and a `Closure<..>` do not admit each other. One names a
 Method BOUND to a receiver and the other a closure, however alike their call
 signatures look - admitting every generic annotation left
@@ -1233,8 +1240,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 683 agreed,
-52 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 684 agreed,
+51 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
