@@ -10284,3 +10284,46 @@ fn a_hash_lookup_uses_the_current_hash_and_equality() {
         "[false, nil]",
     );
 }
+
+/// TWO YIELDS order by the values they CARRY.
+///
+/// The inner `<=>` decides, and `C015` still holds the comparison to the
+/// ordering contract: an inner answer that is not -1, 0 or 1 breaks it.
+/// Answering nil let a carried value with NO order pass as though the signals
+/// themselves were unordered.
+#[test]
+fn two_yields_order_by_what_they_carry() {
+    // A carried value whose `<=>` answers nonsense breaks the contract.
+    agrees_on(
+        "class Bad { public fun compare_to(o) -> Object { :nonsense } } \
+         module M { public fun run() -> Object { \
+           try { Iteration.yield(Bad.new()) <=> Iteration.yield(Bad.new()) } catch e { e } } } M.run()",
+        ":ComparisonContractError",
+    );
+    // A carried value with NO `<=>` at all breaks it the same way, since the
+    // signals cannot borrow an order the values do not have.
+    agrees_on(
+        "class Bad { } module M { public fun run() -> Object { \
+           try { Iteration.yield(Bad.new()) <=> Iteration.yield(Bad.new()) } catch e { e } } } M.run()",
+        ":ComparisonContractError",
+    );
+    // Control: a carried value that DOES order answers its own ordering.
+    agrees_on(
+        "class Ord { public fun <=>(o) -> Object { 0 } } module M { public fun run() -> Object { \
+           try { Iteration.yield(Ord.new()) <=> Iteration.yield(Ord.new()) } catch e { e } } } M.run()",
+        "0",
+    );
+    agrees_on(
+        "module M { public fun run() -> Object { Iteration.yield(1) <=> Iteration.yield(2) } } M.run()",
+        "-1",
+    );
+    // Control: the whole battery, including a `done` against a `yield`, which
+    // has no order at all rather than breaking the contract.
+    agrees_on(
+        "class Bad { public fun compare_to(o) -> Object { :nonsense } } module M { public fun run() -> Object { \
+         [Iteration.done <=> Iteration.done, Iteration.done <=> Iteration.yield(1), \
+          Iteration.yield(1) <=> 1, Iteration.yield(1) <=> Iteration.yield(2), \
+          try { Iteration.yield(Bad.new()) <=> Iteration.yield(Bad.new()) } catch e { e }] } } M.run()",
+        "[0, nil, nil, -1, :ComparisonContractError]",
+    );
+}

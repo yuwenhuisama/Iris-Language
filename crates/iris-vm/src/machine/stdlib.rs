@@ -1970,9 +1970,25 @@ impl Machine {
             return Ok(Some(match (receiver, argument) {
                 (Value::IterationDone, Value::IterationDone) => Value::Integer(0_u8.into()),
                 (Value::IterationYield(left), Value::IterationYield(right)) => {
-                    return self
-                        .binary_send("<=>", (**left).clone(), (**right).clone(), program, classes)
-                        .map(Some);
+                    // Two YIELDS order by the values they carry, so the inner
+                    // `<=>` decides. `C015` still holds the comparison to the
+                    // ordering contract: an inner answer that is not -1, 0 or
+                    // 1 breaks it, and answering nil let a carried value with
+                    // NO order pass as though the signals were unordered.
+                    let ordering = self.binary_send(
+                        "<=>",
+                        (**left).clone(),
+                        (**right).clone(),
+                        program,
+                        classes,
+                    )?;
+                    let Value::Integer(value) = &ordering else {
+                        return Err(MachineError::ComparisonContractError);
+                    };
+                    if !matches!(value.to_i128(), Some(-1..=1)) {
+                        return Err(MachineError::ComparisonContractError);
+                    }
+                    return Ok(Some(ordering));
                 }
                 _ => Value::Nil,
             }));
