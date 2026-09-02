@@ -10687,3 +10687,44 @@ fn a_meta_transaction_body_cannot_suspend() {
     // Control: a transaction body that does NOT suspend answers its value.
     agrees_on("class B { } B.open() { |t| 1 }", "1");
 }
+
+/// A BUILT-IN class PROTECTS its superclass, and a DENY SET is READABLE.
+///
+/// Protection is a fact about the class rather than a policy it happens to
+/// deny, so an uncaught refusal reports the protection - while a program that
+/// CATCHES it binds the capability name like any other meta refusal. `C081`
+/// fixes the capability vocabulary, and a target's EFFECTIVE deny set is read
+/// as a bare member: a subclass inherits it, so the view is the only way a
+/// program observes what a class may no longer do.
+#[test]
+fn a_builtin_superclass_is_protected_and_denials_are_readable() {
+    agrees_on_error(
+        "open class Integer { } Reflection::Class.set_superclass(Integer, Object)",
+        "Class(ProtectedSuperclass { class: ClassId(3) })",
+    );
+    // CAUGHT, the same refusal binds the capability name.
+    agrees_on(
+        "open class Integer { } module M { public fun run() -> Object { \
+           try { Reflection::Class.set_superclass(Integer, Object) } catch e { e } } } M.run()",
+        ":MetaCapabilityError",
+    );
+    // A subclass INHERITS the deny set, which the bare member read reports.
+    agrees_on(
+        "class C meta deny method_set { } class D extends C { } module Q { public fun run() -> Object { \
+           [try { D.define_method(:x) { 1 } } catch e { e }, D.denied_capabilities] } } Q.run()",
+        "[:MetaCapabilityError, [:method_set]]",
+    );
+    // Control: a class denying `method_set` refuses `define_method`.
+    agrees_on(
+        "class A meta deny method_set { public fun m() -> Symbol { :live } } module Q { public fun run() -> Object { \
+           try { A.define_method(:x) { 1 } } catch e { e } } } Q.run()",
+        ":MetaCapabilityError",
+    );
+    // Control: denying `method_body` does NOT deny `method_set`, so the
+    // definition goes through.
+    agrees_on(
+        "class B meta deny method_body { } module Q { public fun run() -> Object { \
+           try { B.define_method(:x) { 1 } } catch e { e } } } Q.run()",
+        "nil",
+    );
+}

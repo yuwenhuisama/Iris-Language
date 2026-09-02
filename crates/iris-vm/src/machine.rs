@@ -273,6 +273,27 @@ pub(super) fn captured_value(error: &MachineError) -> Value {
     }
 }
 
+/// The `C081` NAME of one capability.
+///
+/// The vocabulary is fixed, so a denial is reported by the name the source
+/// wrote rather than by an implementation spelling of its own.
+pub(super) const fn capability_name(capability: iris_runtime::Capability) -> &'static str {
+    match capability {
+        iris_runtime::Capability::MethodSet => "method_set",
+        iris_runtime::Capability::MethodBody => "method_body",
+        iris_runtime::Capability::PropertySet => "property_set",
+        iris_runtime::Capability::PropertyBody => "property_body",
+        iris_runtime::Capability::Modules => "modules",
+        iris_runtime::Capability::Superclass => "superclass",
+        iris_runtime::Capability::Subclass => "subclass",
+        iris_runtime::Capability::Shape => "shape",
+        iris_runtime::Capability::ClassStateSet => "class_state_set",
+        iris_runtime::Capability::ClassStateWrite => "class_state_write",
+        iris_runtime::Capability::InstanceState => "instance_state",
+        iris_runtime::Capability::Native => "native",
+    }
+}
+
 pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
         MachineError::IndexError => Some("IndexError"),
@@ -311,10 +332,14 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::JsonLimitError => Some("JSONLimitError"),
         MachineError::ComparisonContractError => Some("ComparisonContractError"),
         // `C081` refuses a DENIED meta operation, and that refusal is an
-        // ordinary catchable failure a program can name.
-        MachineError::Class(iris_runtime::ClassError::MetaCapabilityDenied { .. }) => {
-            Some("MetaCapabilityError")
-        }
+        // ordinary catchable failure a program can name. A BUILT-IN class
+        // protecting its superclass is a different FACT with the same name to
+        // a program: uncaught it reports the protection, and caught it binds
+        // the capability name like any other meta refusal.
+        MachineError::Class(
+            iris_runtime::ClassError::MetaCapabilityDenied { .. }
+            | iris_runtime::ClassError::ProtectedSuperclass { .. },
+        ) => Some("MetaCapabilityError"),
         MachineError::SerializationError => Some("SerializationError"),
         // `C047` rejects an incomplete signature as an ordinary catchable Iris
         // error, so a program may `try { lib.bind(..) } catch e { e }` and

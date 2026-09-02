@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A BUILT-IN class PROTECTS its superclass, and a DENY SET is READABLE.
+Protection is a fact about the class rather than a policy it happens to deny,
+so an uncaught refusal reports the protection - while a program that CATCHES
+it binds the capability name like any other meta refusal. `C081` fixes the
+capability vocabulary, and a target's EFFECTIVE deny set is read as a bare
+member: a subclass inherits it, so the view is the only way a program observes
+what a class may no longer do.
+
 A META TRANSACTION body is NON-SUSPENDING. `C037` refuses an `await` inside a
 transaction, and `ASYNC-C018` owns the async reason: a parked frame is one the
 transaction would have to publish or roll back around. Running the body without
@@ -1251,8 +1259,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 686 agreed,
-49 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 688 agreed,
+47 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

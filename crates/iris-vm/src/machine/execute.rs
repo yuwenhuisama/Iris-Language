@@ -816,6 +816,29 @@ impl Machine {
                                     .map_err(MachineError::Class)?;
                                 Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
                             }
+                            // `C081` fixes the capability VOCABULARY, and a
+                            // target's EFFECTIVE deny set is read as a bare
+                            // member: a subclass inherits it and an open
+                            // cannot restore one, so the view is the only way
+                            // a program observes what a class may no longer do.
+                            "denied_capabilities" => {
+                                let capabilities = self
+                                    .runtime
+                                    .registry()
+                                    .active_meta_capabilities(class)
+                                    .map_err(MachineError::Class)?;
+                                Value::Array(iris_runtime::ArrayRef::new(
+                                    capabilities
+                                        .denied()
+                                        .into_iter()
+                                        .map(|capability| {
+                                            Value::Symbol(
+                                                super::capability_name(capability).to_owned(),
+                                            )
+                                        })
+                                        .collect(),
+                                ))
+                            }
                             // The declared contracts are read as a bare MEMBER
                             // too, which is how a program observes that a
                             // refused `remove_contract` left the spine intact.
@@ -2301,20 +2324,26 @@ impl Machine {
                             "set_superclass",
                             [Value::Class(class), Value::Class(parent)],
                         ) => {
-                            // A BUILT-IN class protects its superclass, and a
-                            // declared one may deny the capability outright.
-                            // Both refuse as the meta policy rather than as a
-                            // guess about which is which.
-                            let builtin = !classes.iter().any(|known| known == class);
-                            if builtin
-                                || self
-                                    .runtime
-                                    .registry()
-                                    .require_meta_capability(
-                                        *class,
-                                        iris_runtime::Capability::Superclass,
-                                    )
-                                    .is_err()
+                            // A BUILT-IN class PROTECTS its superclass, which
+                            // is a fact about the class rather than a policy
+                            // it happens to deny - the two refusals have
+                            // different names and reporting one for the other
+                            // told the program the wrong thing.
+                            if !classes.iter().any(|known| known == class) {
+                                return Err(MachineError::Class(ClassError::ProtectedSuperclass {
+                                    class: *class,
+                                }));
+                            }
+                            // A DECLARED class may deny the capability, which
+                            // is the meta policy refusing.
+                            if self
+                                .runtime
+                                .registry()
+                                .require_meta_capability(
+                                    *class,
+                                    iris_runtime::Capability::Superclass,
+                                )
+                                .is_err()
                             {
                                 return Err(MachineError::Raised(Box::new((
                                     Value::Symbol("MetaCapabilityError".to_owned()),
