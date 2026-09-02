@@ -1398,11 +1398,27 @@ impl Machine {
                 Instruction::Raise {
                     value,
                     cause,
+                    explicit_cause,
                     offset,
                 } => {
                     let value = registers[*value as usize].clone();
-                    let cause = cause
-                        .map(|register| registers[register as usize].clone())
+                    let explicit = cause.map(|register| registers[register as usize].clone());
+                    // `D-161` forbids a CYCLE among cause edges, and the check
+                    // runs BEFORE linkage so a rejected attempt leaves the
+                    // existing graph unchanged. Only an EXPLICIT `from` is
+                    // checked: an inherited cause is the chain the language
+                    // built itself, and re-raising the caught value through it
+                    // is exactly what `raise e` inside a catch does.
+                    if *explicit_cause
+                        && let Some(explicit) = explicit.as_ref()
+                        && context_reaches(explicit, &value)
+                    {
+                        // No context was ever linked, so this is not the raise
+                        // a handler is waiting for - it ends the program
+                        // rather than becoming a catchable value.
+                        return Err(MachineError::ExceptionChainError);
+                    }
+                    let cause = explicit
                         // A raise inside a CLEANUP inherits the exception it
                         // interrupted, which `C067` makes its cause.
                         .or_else(|| self.pending_cleanup_cause.take())
@@ -1410,6 +1426,9 @@ impl Machine {
                     if !matches!(cause, Value::Nil | Value::ExceptionContext(..)) {
                         return Err(MachineError::Kernel(KernelError::Type));
                     }
+                    // `D-161` forbids a CYCLE among cause edges, and the check
+                    // runs BEFORE linkage so a rejected attempt leaves the
+                    // existing graph unchanged.
                     let context = Value::ExceptionContext(
                         iris_runtime::ObjectId::new(self.next_context),
                         Box::new(value.clone()),
@@ -2986,4 +3005,21 @@ fn is_ivar_name(name: &str) -> bool {
     };
     (first.is_alphabetic() || first == '_')
         && scalars.all(|scalar| scalar.is_alphanumeric() || scalar == '_')
+}
+
+/// Reports whether a CAUSE chain already carries this value.
+///
+/// `D-161` forbids a cycle among cause edges, so linking a context whose chain
+/// already reaches the value being raised would close one.
+fn context_reaches(context: &Value, value: &Value) -> bool {
+    let mut current = context;
+    loop {
+        let Value::ExceptionContext(_, carried, cause, ..) = current else {
+            return false;
+        };
+        if **carried == *value {
+            return true;
+        }
+        current = cause;
+    }
 }

@@ -10421,3 +10421,45 @@ fn a_differing_arity_breaks_a_requirement() {
         "9",
     );
 }
+
+/// A CAUSE EDGE may not close a CYCLE, and only an EXPLICIT `from` can.
+///
+/// `D-161` forbids a cycle among cause edges, and the check runs BEFORE
+/// linkage so a rejected attempt leaves the existing graph unchanged. An
+/// INHERITED cause is the chain the language built itself - `raise e` inside a
+/// catch re-raises through it - so both spellings lower to one register and
+/// only the written `from` is checked.
+#[test]
+fn a_cause_edge_may_not_close_a_cycle() {
+    // Raising the value the cause chain ALREADY carries would close a cycle.
+    agrees_on_error(
+        "let f = try { raise :a } catch _, c { c }; try { raise :a from f } catch _, x { x.value }",
+        "ExceptionChainError",
+    );
+    // Control: a DIFFERENT value links normally and keeps its own cause.
+    agrees_on(
+        "let f = try { raise :a } catch _, c { c }; try { raise :b from f } catch _, x { x.value }",
+        ":b",
+    );
+    agrees_on(
+        "let f = try { raise :a } catch _, c { c }; \
+         try { raise :b from f } catch _, x { x.cause.value }",
+        ":a",
+    );
+    // Control: an INHERITED cause is not checked, so re-raising the caught
+    // value inside a catch is the ordinary re-raise it has always been.
+    agrees_on(
+        "module M { public fun r() -> Object { \
+           try { try { raise :x } catch e, first { raise e } } catch e, second { second.value } } } M.r()",
+        ":x",
+    );
+    // Control: the re-raise still gets its OWN context identity.
+    agrees_on(
+        "module M { public fun r() -> Object { \
+           try { try { raise :x } catch e, first { raise e } } \
+           catch e, second { second.same?(second.cause) } } } M.r()",
+        "false",
+    );
+    // Control: a plain raise with no cause at all is unaffected.
+    agrees_on("try { raise :b } catch _, x { x.value }", ":b");
+}

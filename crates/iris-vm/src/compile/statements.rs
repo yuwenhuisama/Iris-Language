@@ -286,6 +286,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::Raise {
                     value,
                     cause,
+                    explicit_cause: raise.cause.is_some(),
                     offset: raise.offset,
                 });
                 Ok(value)

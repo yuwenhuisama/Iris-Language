@@ -163,6 +163,11 @@ pub enum MachineError {
     /// so any other answer breaks the comparison contract itself rather than
     /// being an ordinary type failure.
     ComparisonContractError,
+    /// A `raise ... from` whose cause edge would form a CYCLE.
+    ///
+    /// `D-161` forbids a cycle among cause edges, and the check runs BEFORE
+    /// linkage so a rejected attempt leaves the existing graph unchanged.
+    ExceptionChainError,
     SerializationError,
     UnsupportedConstruct,
     AuditHistoryUnavailable,

@@ -633,6 +633,13 @@ pub enum Instruction {
     Raise {
         value: Register,
         cause: Option<Register>,
+        /// Whether the source WROTE `from`, rather than inheriting the cause.
+        ///
+        /// `D-161` forbids a cycle among cause edges, but only an EXPLICIT
+        /// `from` can close one: an inherited cause is the chain the language
+        /// built itself, and `raise e` inside a catch re-raises through it.
+        /// Both lower to the same register, so the spelling is recorded.
+        explicit_cause: bool,
         offset: usize,
     },
     ReRaise {

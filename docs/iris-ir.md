@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CAUSE EDGE may not close a CYCLE, and only an EXPLICIT `from` can. `D-161`
+forbids a cycle among cause edges, and the check runs BEFORE linkage so a
+rejected attempt leaves the existing graph unchanged. An INHERITED cause is the
+chain the language built itself - `raise e` inside a catch re-raises through it
+- so both spellings lower to one register and the written `from` is recorded to
+tell them apart.
+
 A DIFFERENT ARITY is a mismatch on its own, and a REOPEN is checked too. A
 member taking a different number of parameters cannot be called the way the
 requirement states, whatever its Types say, and a reopen REPLACES the member
@@ -1199,8 +1206,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 675 agreed,
-60 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 677 agreed,
+58 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
