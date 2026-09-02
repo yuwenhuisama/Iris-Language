@@ -289,6 +289,11 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::Construction(iris_runtime::ConstructionError::Dispatch(
             iris_runtime::DispatchError::VisibilityDenied { .. },
         )) => Some("MethodVisibilityError"),
+        // `C015` binds a REFLECTED Method against the receiver's CURRENT MRO,
+        // and that refusal is an ordinary catchable failure a program names.
+        MachineError::Construction(iris_runtime::ConstructionError::Dispatch(
+            iris_runtime::DispatchError::MethodBinding { .. },
+        )) => Some("MethodBindingError"),
         // A call whose arity does not match its body is an ordinary catchable
         // Iris error, so `try { .. } catch e { e }` binds it by name.
         MachineError::ArgumentError => Some("ArgumentError"),

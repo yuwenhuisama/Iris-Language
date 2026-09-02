@@ -2234,6 +2234,26 @@ impl Machine {
                             "invoke",
                             [Value::Method(method), receiver, rest @ ..],
                         ) => {
+                            // `C015` binds a REFLECTED Method against the
+                            // receiver's CURRENT MRO: a module removed since
+                            // the Method was taken no longer supplies it, so
+                            // invoking it is a binding failure rather than a
+                            // call that quietly still works.
+                            if let Some(class) = match receiver {
+                                Value::Object(object) => Some(
+                                    self.runtime
+                                        .class_of(*object)
+                                        .map_err(MachineError::Construction)?,
+                                ),
+                                Value::Class(class) => Some(*class),
+                                _ => None,
+                            } {
+                                self.runtime
+                                    .registry()
+                                    .validate_method_binding(class, *method)
+                                    .map_err(iris_runtime::ConstructionError::from)
+                                    .map_err(MachineError::Construction)?;
+                            }
                             let function = usize::try_from(method.body().raw()).map_err(|_| {
                                 MachineError::Invalid(VerifyError::UnknownFunction {
                                     function: usize::MAX,

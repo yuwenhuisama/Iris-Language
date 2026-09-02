@@ -10496,3 +10496,37 @@ fn a_suspended_frame_resumes_without_double_closing() {
         "[:closed]",
     );
 }
+
+/// A REFLECTED Method binds against the receiver's CURRENT MRO.
+///
+/// `C015` validates the binding at invocation, so a module REMOVED since the
+/// Method was taken no longer supplies it - invoking it is a binding failure
+/// rather than a call that quietly still works. The refusal is catchable, so
+/// a program can name it.
+#[test]
+fn a_reflected_method_binds_against_the_current_mro() {
+    agrees_on(
+        "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } \
+         module M { public fun run() -> Object { \
+           let m = Reflection::Class.method(A, :h); let a = A.new(); A.remove_module(Mo); \
+           try { Reflection::Class.invoke(m, a, []) } catch e { e } } } M.run()",
+        ":MethodBindingError",
+    );
+    // Control: with the module STILL composed the invocation answers, so the
+    // check refuses a stale binding rather than reflection itself.
+    agrees_on(
+        "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } \
+         module M { public fun run() -> Object { \
+           let m = Reflection::Class.method(A, :h); let a = A.new(); \
+           try { Reflection::Class.invoke(m, a, []) } catch e { e } } } M.run()",
+        "8",
+    );
+    // Control: an ORDINARY send after the removal is a missing message, which
+    // is a different failure from a stale reflected binding.
+    agrees_on(
+        "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } \
+         module M { public fun run() -> Object { \
+           let a = A.new(); A.remove_module(Mo); try { a.h() } catch e { e } } } M.run()",
+        ":MessageNotFound",
+    );
+}

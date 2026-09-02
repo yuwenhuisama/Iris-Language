@@ -765,6 +765,11 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A REFLECTED Method binds against the receiver's CURRENT MRO. `C015` validates
+the binding at invocation, so a module REMOVED since the Method was taken no
+longer supplies it - invoking it is a binding failure rather than a call that
+quietly still works.
+
 A RESUMED frame keeps room for the registers it resumes INTO. The file a frame
 paused with holds only the registers the prefix had allocated, and the
 instructions it resumes into may use more - indexing past what the suspension
@@ -1217,8 +1222,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 679 agreed,
-56 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 681 agreed,
+54 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
