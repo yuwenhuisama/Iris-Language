@@ -614,9 +614,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
-            Expression::ClosedGeneric { name, .. } => {
+            Expression::ClosedGeneric { name, arguments } => {
                 let destination = self.allocate()?;
                 if let Some(class) = self.class_index(name) {
+                    // `C067` checks a `where` bound at MATERIALIZATION, and
+                    // naming the closed construction materializes it - so an
+                    // argument that breaks the bound is refused here as it is
+                    // when the Type is named or the class constructed.
+                    if self.violates_contract_bound(class, arguments) {
+                        self.instructions
+                            .push(Instruction::RaiseTypeContract { destination });
+                        return Ok(destination);
+                    }
                     self.instructions
                         .push(Instruction::LoadClass { destination, class });
                 } else if let Some(contract) = self.contract_index(name) {

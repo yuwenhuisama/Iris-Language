@@ -888,6 +888,42 @@ fn collect_reopen<'a>(
             classes[target].contracts.push(contract);
         }
     }
+    // A reopen's `where` constraint NARROWS what the class admits: `C067`
+    // checks a bound at materialization, so a bound added by a reopen governs
+    // every construction the program names - including one written before the
+    // reopen, since the class has only one set of bounds. Dropping it let a
+    // construction the language refuses stand.
+    for constraint in &class.constraints {
+        let (TypeExpression::Name(bound) | TypeExpression::Generic { name: bound, .. }) =
+            &constraint.bound
+        else {
+            continue;
+        };
+        // A reopen RESTATES the header, so its own parameter list names the
+        // same positions the declaration used.
+        let Some(position) = class
+            .parameters
+            .iter()
+            .position(|parameter| *parameter == constraint.parameter)
+        else {
+            continue;
+        };
+        if bound == "NonNil" {
+            if !classes[target].non_nil_bounds.contains(&position) {
+                classes[target].non_nil_bounds.push(position);
+            }
+            continue;
+        }
+        let Some(contract) = contracts.iter().position(|known| known.name == *bound) else {
+            continue;
+        };
+        if !classes[target]
+            .contract_bounds
+            .contains(&(position, contract))
+        {
+            classes[target].contract_bounds.push((position, contract));
+        }
+    }
     for mixin in &class.mixins {
         let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = &mixin.target
         else {

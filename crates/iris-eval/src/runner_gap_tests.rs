@@ -10630,3 +10630,37 @@ fn a_removed_to_bool_reaches_method_missing() {
         ":then",
     );
 }
+
+/// A REOPEN's `where` constraint NARROWS what the class admits.
+///
+/// `C067` checks a bound at MATERIALIZATION, and a class has ONE set of
+/// bounds - so a bound added by a reopen governs every construction the
+/// program names, including one written before the reopen. Dropping the
+/// reopen's constraint let a construction the language refuses stand, and
+/// NAMING a closed construction materializes it just as constructing does.
+#[test]
+fn a_reopen_where_bound_narrows_the_class() {
+    agrees_on_error(
+        "contract Show { fun show() -> Symbol } \
+         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Box<T> { }; let a = Box<Str>; let b = Box<Integer>; \
+         open class Box<T> where T: Show { }; [a, b]",
+        "TypeContractError",
+    );
+    // Control: an argument that SATISFIES the bound is admitted.
+    agrees_on(
+        "contract Show { fun show() -> Symbol } \
+         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Box<T> where T: Show { }; let a = Box<Str>; a",
+        "<class>",
+    );
+    // Control: with NO bound at all every argument is admitted, so the
+    // refusal comes from the constraint rather than from naming a
+    // construction.
+    agrees_on(
+        "contract Show { fun show() -> Symbol } \
+         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Box<T> { }; let b = Box<Integer>; b",
+        "<class>",
+    );
+}

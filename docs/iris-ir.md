@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A REOPEN's `where` constraint NARROWS what the class admits. `C067` checks a
+bound at MATERIALIZATION, and a class has ONE set of bounds - so a bound added
+by a reopen governs every construction the program names, including one
+written before the reopen. NAMING a closed construction materializes it just
+as constructing does, so the refusal reaches that path too.
+
 A REMOVED `to_bool` reaches `method_missing` once. `C096` gives truth testing
 one last route when the selector was BLOCKED: it invokes
 `method_missing(:to_bool, [], nil)` and uses the result. Only a selector the
@@ -1240,8 +1246,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 684 agreed,
-51 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 685 agreed,
+50 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
