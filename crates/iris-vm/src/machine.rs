@@ -139,6 +139,13 @@ pub struct Machine {
     closure_depth: usize,
     /// Gates by identity, holding the posted value once completed.
     gates: std::collections::HashMap<iris_runtime::ObjectId, Option<Value>>,
+    /// The last DECODER refusal, as `(decoder, offset, expected)`.
+    ///
+    /// `IRIS-V1-LIBRARY-C036` requires a safe decoding diagnostic to identify
+    /// the decoder, the offset when available and the violated limit or
+    /// expected construct - so a caught failure can say WHERE the document
+    /// stopped being readable rather than only that it did.
+    decoder_diagnostic: Option<(&'static str, usize, &'static str)>,
     /// Propagations a `finally` transfer DISCARDED, per `IRIS-V1-ASYNC-C028`.
     discarded_contexts: Vec<Value>,
     /// How many META TRANSACTION bodies are currently running.
@@ -223,6 +230,7 @@ impl Machine {
             async_depth: 0,
             closure_depth: 0,
             gates: std::collections::HashMap::new(),
+            decoder_diagnostic: None,
             discarded_contexts: Vec::new(),
             open_depth: 0,
             pending_class_initializers: std::collections::HashMap::new(),
@@ -316,6 +324,9 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
         MachineError::InvalidKeyError => Some("InvalidKeyError"),
+        // `fetch` REFUSES an absent key, which is what makes it an assertion
+        // that the key is present - and that refusal is catchable by name.
+        MachineError::KeyError => Some("KeyError"),
         MachineError::KeyConflictError => Some("KeyConflictError"),
         MachineError::IdentityError => Some("IdentityError"),
         MachineError::ImmutableBinding => Some("ImmutableBindingError"),

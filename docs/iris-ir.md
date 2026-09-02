@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A NAMED failure travels with a CONTEXT, and a decoder names WHERE it stopped.
+A program reads `c.value` off the context a catch binds, so a named runtime
+failure needs one of its own - binding nil left the catch holding nothing to
+ask. `C036` then requires a safe decoding diagnostic to identify the decoder,
+the offset when available and the violated limit or expected construct,
+counting the scalars CONSUMED before the refusal rather than guessing.
+
 A SCALAR write needs ONE scalar, and `each` walks through a CURSOR. `C054`
 makes a scalar write replace exactly one scalar and raise IndexError out of
 range, while a RANGE write accepts any text and may change length - `C058`
@@ -1317,8 +1324,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 706 agreed,
-29 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 707 agreed,
+28 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

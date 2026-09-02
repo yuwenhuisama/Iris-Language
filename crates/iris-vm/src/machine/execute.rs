@@ -98,8 +98,14 @@ impl Machine {
                     // and simply never consulted.
                     Err(error) => match (super::catchable_name(&error), handlers.pop()) {
                         (Some(name), Some((handler, exception, context_register))) => {
-                            registers[exception as usize] = Value::Symbol(name.to_owned());
-                            registers[context_register as usize] = Value::Nil;
+                            let value = Value::Symbol(name.to_owned());
+                            registers[exception as usize] = value.clone();
+                            // A NAMED failure still travels with a context: a
+                            // program reads `c.value` and the decoder
+                            // diagnostic off it, so binding nil left the catch
+                            // holding nothing to ask.
+                            registers[context_register as usize] =
+                                self.named_failure_context(value);
                             converted = Some(error);
                             counter = handler;
                             continue $label;
@@ -133,8 +139,10 @@ impl Machine {
                         }
                         Err(error) => match (super::catchable_name(&error), handlers.pop()) {
                             (Some(name), Some((handler, exception, context_register))) => {
-                                registers[exception as usize] = Value::Symbol(name.to_owned());
-                                registers[context_register as usize] = Value::Nil;
+                                let value = Value::Symbol(name.to_owned());
+                                registers[exception as usize] = value.clone();
+                                registers[context_register as usize] =
+                                    self.named_failure_context(value);
                                 converted = Some(error);
                                 counter = handler;
                                 continue 'frame;
@@ -777,6 +785,21 @@ impl Machine {
                             "re_raise_sites" => Value::ReadonlyArray(sites.clone()),
                             "original_stack" => Value::ReadonlyArray(Vec::new()),
                             "raise_location" => (**location).clone(),
+                            // `C036` names the decoder, the offset and the
+                            // construct it expected, so a caught failure says
+                            // WHERE the document stopped being readable.
+                            "decoder" | "offset" | "expected" => {
+                                match (self.decoder_diagnostic, selector.as_str()) {
+                                    (Some((decoder, ..)), "decoder") => {
+                                        Value::Symbol(decoder.to_owned())
+                                    }
+                                    (Some((_, offset, _)), "offset") => {
+                                        Value::Integer((offset as u64).into())
+                                    }
+                                    (Some((.., expected)), _) => Value::Symbol(expected.to_owned()),
+                                    (None, _) => Value::Nil,
+                                }
+                            }
                             _ => return Err(MachineError::UnknownSelector(selector.clone())),
                         }
                     } else if let Value::RaiseSite(location) = &registers[*receiver as usize] {
@@ -3101,5 +3124,25 @@ fn context_reaches(context: &Value, value: &Value) -> bool {
             return true;
         }
         current = cause;
+    }
+}
+
+impl Machine {
+    /// The CONTEXT a named runtime failure travels with.
+    ///
+    /// A program reads `c.value` and the decoder diagnostic off the context a
+    /// catch binds, so a named failure needs one of its own - binding nil left
+    /// the catch holding nothing to ask.
+    fn named_failure_context(&mut self, value: Value) -> Value {
+        let identity = iris_runtime::ObjectId::new(self.next_context);
+        self.next_context = self.next_context.saturating_add(1);
+        Value::ExceptionContext(
+            identity,
+            Box::new(value),
+            Box::new(Value::Nil),
+            Vec::new(),
+            Vec::new(),
+            Box::new(Value::Nil),
+        )
     }
 }

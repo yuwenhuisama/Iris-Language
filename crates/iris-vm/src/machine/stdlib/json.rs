@@ -37,8 +37,30 @@ impl Machine {
                             .map_err(|_| MachineError::EncodingError)?,
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     };
+                // `C036` counts the scalars CONSUMED before the refusal, so
+                // the offset names where the document stopped being readable
+                // rather than being a guess.
+                let total = text.chars().count();
                 let mut cursor = text.chars().peekable();
-                decode_json(&mut cursor, depth_limit, 0)
+                match decode_json(&mut cursor, depth_limit, 0) {
+                    Ok(decoded) => {
+                        self.decoder_diagnostic = None;
+                        Ok(decoded)
+                    }
+                    Err(error) => {
+                        let remaining = cursor.count();
+                        self.decoder_diagnostic = Some((
+                            "JSON",
+                            total.saturating_sub(remaining),
+                            match error {
+                                MachineError::JsonLimitError => "depth",
+                                MachineError::JsonDuplicateNameError => "unique-name",
+                                _ => "value",
+                            },
+                        ));
+                        Err(error)
+                    }
+                }
             }
             "encode" => {
                 // `C002` leaves ordering to the caller, so a document is

@@ -10969,3 +10969,40 @@ fn a_scalar_write_and_a_cursor_walk() {
         "[[1, 2], 2]",
     );
 }
+
+/// A NAMED failure travels with a CONTEXT, and a decoder names WHERE it stopped.
+///
+/// A program reads `c.value` off the context a catch binds, so a named runtime
+/// failure needs one of its own - binding nil left the catch holding nothing
+/// to ask. `C036` then requires a safe decoding diagnostic to identify the
+/// decoder, the offset when available and the violated limit or expected
+/// construct, counting the scalars CONSUMED before the refusal rather than
+/// guessing.
+#[test]
+fn a_named_failure_carries_a_context_and_a_decoder_diagnostic() {
+    // The offset names where the document stopped being readable.
+    agrees_on(
+        r#"module M { public fun run() -> Object { try { JSON.decode("[1,2") } catch v, c { [v, c.decoder, c.offset, c.expected] } } } M.run()"#,
+        "[:JSONSyntaxError, :JSON, 4, :value]",
+    );
+    // A LIMIT refusal names the limit it violated rather than a value.
+    agrees_on(
+        r#"module M { public fun run() -> Object { try { JSON.decode("[1,[2,[3,[4]]]]", depth: 3) } catch v, c { [v, c.decoder, c.expected] } } } M.run()"#,
+        "[:JSONLimitError, :JSON, :depth]",
+    );
+    // A named failure binds a CONTEXT, so `c.value` answers the name.
+    agrees_on(
+        r#"module M { public fun run() -> Object { try { JSON.decode("[1,2") } catch v, c { c.value } } } M.run()"#,
+        ":JSONSyntaxError",
+    );
+    // `fetch` REFUSES an absent key, and that refusal is catchable by name.
+    agrees_on(
+        r#"module M { public fun run() -> Object { try { %{}.fetch(:a) } catch v, c { v } } } M.run()"#,
+        ":KeyError",
+    );
+    // Control: an ORDINARY raise carries no decoder diagnostic at all.
+    agrees_on(
+        "module M { public fun run() -> Object { try { raise :x } catch v, c { [c.decoder, c.offset, c.expected] } } } M.run()",
+        "[nil, nil, nil]",
+    );
+}
