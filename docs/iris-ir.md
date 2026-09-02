@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+Every DECLARED class carries an implicit `to_bool` answering true. That is
+what makes an ordinary object truthy, and what `A.type.members()` reports -
+omitting it left the member list missing a selector the language gives every
+class. A class DECLARING its own keeps that one, since the declared entry is
+published after the implicit one and replaces it.
+
 `to_array` is the ORDERED element sequence for every sequence-shaped value.
 `C051` gives a Tuple, an Array and a byte string the same materialization a
 Range already had, and `C025` makes an Array's copy INDEPENDENT of the
@@ -1282,8 +1288,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 694 agreed,
-41 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 695 agreed,
+40 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

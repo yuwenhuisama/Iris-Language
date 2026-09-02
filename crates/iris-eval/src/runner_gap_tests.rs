@@ -10821,3 +10821,26 @@ fn to_array_and_type_reflection_answer_their_sequences() {
         "[[1, 2], [9, 2]]",
     );
 }
+
+/// Every DECLARED class carries an implicit `to_bool` answering true.
+///
+/// That is what makes an ordinary object truthy, and what `A.type.members()`
+/// reports - omitting it left the member list missing a selector the language
+/// gives every class. A class DECLARING its own keeps that one, since the
+/// declared entry replaces the implicit one.
+#[test]
+fn a_declared_class_carries_an_implicit_to_bool() {
+    agrees_on("class A { } A.type.members()", "[:to_bool]");
+    agrees_on(
+        "class A { public fun g() -> Integer { 1 } } A.type.members()",
+        "[:to_bool, :g]",
+    );
+    // Control: the implicit method makes an ordinary object truthy.
+    agrees_on("class A { } if A.new() { :then } else { :else }", ":then");
+    // Control: a class DECLARING its own `to_bool` keeps that one, so the
+    // implicit entry did not shadow a declared method.
+    agrees_on(
+        "class A { public fun to_bool() -> Bool { false } } if A.new() { :then } else { :else }",
+        ":else",
+    );
+}

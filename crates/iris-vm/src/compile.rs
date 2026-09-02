@@ -338,6 +338,36 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     let instructions = std::mem::take(&mut lowering.instructions);
     drop(lowering);
     functions.extend(closures);
+    // Every DECLARED class carries an implicit `to_bool` answering true, which
+    // is what makes an ordinary object truthy and what `A.type.members()`
+    // reports. A class DECLARING its own keeps it, since the declared entry is
+    // published after this one and replaces it.
+    let mut classes = classes;
+    if !classes.is_empty() {
+        let implicit = functions.len();
+        functions.push(ir::Function {
+            name: "to_bool".to_owned(),
+            parameters: 1,
+            captures: 0,
+            fixed_arity: Some(1),
+            parameter_types: vec![String::new()],
+            return_type: String::new(),
+            is_async: false,
+            registers: 2,
+            instructions: vec![
+                Instruction::LoadBool {
+                    destination: 1,
+                    value: true,
+                },
+                Instruction::Return { value: 1 },
+            ],
+        });
+        for class in &mut classes {
+            if !class.methods.iter().any(|(name, _)| name == "to_bool") {
+                class.methods.insert(0, ("to_bool".to_owned(), implicit));
+            }
+        }
+    }
     Ok(Program {
         source: source.to_owned(),
         instructions,
