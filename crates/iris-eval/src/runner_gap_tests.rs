@@ -10463,3 +10463,36 @@ fn a_cause_edge_may_not_close_a_cycle() {
     // Control: a plain raise with no cause at all is unaffected.
     agrees_on("try { raise :b } catch _, x { x.value }", ":b");
 }
+
+/// A RESUMED frame keeps room for the registers it resumes INTO.
+///
+/// The file a frame paused with holds only the registers the prefix had
+/// allocated, and the instructions it resumes into may use more - indexing
+/// past what the suspension happened to capture crashed the machine outright
+/// rather than answering anything at all.
+///
+/// A SUSPENSION is a registered continuation, not an EXIT: `C013` leaves the
+/// protected region unentered, so a `using` resource stays open. Closing on
+/// the way out ran cleanup a second time on the replayed re-entry, which is
+/// the double close `V084` forbids.
+#[test]
+fn a_suspended_frame_resumes_without_double_closing() {
+    // The body raises AFTER the await, so the resumed frame reaches
+    // instructions the paused file had no room for.
+    agrees_on(
+        r#"class R { public fun close() -> Object { raise :close_failed } } module M { public async fun inner(g) -> Object { using(R.new()) { let v = await g; raise :body_failed } } } let g = Gate.new(); let t = M.inner(g); let posted = Gate.complete(g, 7); try { Host.run(t) } catch v, c { [v, c.suppressed.length] }"#,
+        "[:body_failed, 1]",
+    );
+    // The resource is closed exactly ONCE, on the way out of the resumed
+    // frame rather than once at the suspension and again on re-entry.
+    agrees_on(
+        r#"mut log = []; class C { public fun close() -> Nil { log.append(:closed) } } class A { public async fun f(gate: Object) -> Symbol { using(C.new()) { |r| await gate }; :done } } module M { public fun run() -> Array { let gate = Gate.new(); let task = A.new().f(gate); Gate.complete(gate, 1); [Host.run(task), log] } } M.run()"#,
+        "[:done, [:closed]]",
+    );
+    // Control: a `using` with NO suspension still closes once, so the guard
+    // did not stop cleanup from running at all.
+    agrees_on(
+        r#"mut log = []; class C { public fun close() -> Nil { log.append(:closed) } } module M { public fun run() -> Array { using(C.new()) { |r| :body }; log } } M.run()"#,
+        "[:closed]",
+    );
+}

@@ -207,6 +207,13 @@ impl Machine {
             return Err(MachineError::Kernel(KernelError::Type));
         };
         let outcome = self.invoke_closure_value(callback, &[], program, classes);
+        // `C013` makes a suspension a REGISTERED CONTINUATION, not an exit, so
+        // the protected region has not been left and the resource must stay
+        // open. Closing here would run cleanup once on the way out and again
+        // on the replayed re-entry, which is the double close `V084` forbids.
+        if matches!(outcome, Err(MachineError::Suspended(_))) {
+            return outcome;
+        }
         let closed = self.close_resource(resource, program, classes);
         match (outcome, closed) {
             (Ok(value), Ok(())) => Ok(value),

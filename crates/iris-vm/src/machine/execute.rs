@@ -58,6 +58,13 @@ impl Machine {
         let mut handlers: Vec<(usize, Register, Register)> = Vec::new();
         if let Some((frame, posted)) = resume {
             registers = frame.registers;
+            // The file a frame PAUSED with holds only the registers the
+            // prefix had allocated. The instructions it resumes into may use
+            // more, so it grows to the function's declared size rather than
+            // indexing past what the suspension happened to capture.
+            if registers.len() < size {
+                registers.resize(size, Value::Nil);
+            }
             counter = frame.counter;
             handlers = frame.handlers;
             if let Some(destination) = frame.destination {
