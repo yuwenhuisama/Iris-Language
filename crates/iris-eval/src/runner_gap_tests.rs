@@ -10386,3 +10386,38 @@ fn naming_a_closed_generic_type_checks_its_bound() {
     // applies to bounds rather than to naming a Type at all.
     agrees_on("class Box<T> {} Box<Nil>.type", "<type>");
 }
+
+/// A DIFFERENT ARITY is a mismatch on its own, and a REOPEN is checked too.
+///
+/// A member taking a different number of parameters cannot be called the way
+/// the requirement states, whatever its Types say. A reopen REPLACES the
+/// member the origin declared, so a replacement that no longer fits leaves the
+/// conformance unmet just as an original mismatch would - checking only the
+/// original let a reopen quietly break the promise.
+#[test]
+fn a_differing_arity_breaks_a_requirement() {
+    // A REOPEN whose override takes two parameters no longer implements a
+    // requirement stating none.
+    agrees_on_error(
+        "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+         open class A { public fun m() { 9 } public override fun draw(a, b) { 2 } } A.new().m()",
+        "TypeContractError",
+    );
+    // The ORIGINAL declaration is checked the same way.
+    agrees_on_error(
+        "contract C { fun draw(a) } class A for C { public fun draw(a, b) { 1 } } A",
+        "TypeContractError",
+    );
+    // Control: a reopen whose override KEEPS the arity still implements it.
+    agrees_on(
+        "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+         open class A { public fun m() { 9 } public override fun draw() { 2 } } A.new().m()",
+        "9",
+    );
+    // Control: a matching arity with parameters is unaffected.
+    agrees_on(
+        "contract C { fun draw(a) } class A for C { public fun draw(a) { 1 } } \
+         open class A { public fun m() { 9 } public override fun draw(a) { 2 } } A.new().m()",
+        "9",
+    );
+}

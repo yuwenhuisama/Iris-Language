@@ -264,11 +264,15 @@ pub(super) fn collect_signatures<'a>(
                 // implement it, whatever the marker claims. Only the mixin
                 // case was looked at, so a class stating the mismatch
                 // directly passed unexamined.
+                // A REOPEN's member is checked too: it REPLACES the one the
+                // origin declared, so a replacement that no longer fits the
+                // requirement leaves the conformance unmet just as an
+                // original mismatch would.
                 let declared = declarations
                     .iter()
-                    .find_map(|declaration| match declaration {
+                    .filter_map(|declaration| match declaration {
                         iris_syntax::Declaration::Class(candidate)
-                            if candidate.name == class.name && !candidate.reopen =>
+                            if candidate.name == class.name =>
                         {
                             candidate.body.iter().find_map(|statement| match statement {
                                 Statement::Method(method)
@@ -280,14 +284,18 @@ pub(super) fn collect_signatures<'a>(
                             })
                         }
                         _ => None,
-                    });
+                    })
+                    .next_back();
                 let Some(method) = composed.or(declared) else {
                     continue;
                 };
-                // An UNANNOTATED position states nothing, so it is left alone
-                // rather than treated as a mismatch.
-                let clashes = method.parameters.len() == requirement.arity
-                    && method
+                // A different ARITY is a mismatch on its own: a member taking
+                // a different number of parameters cannot be called the way
+                // the requirement states, whatever its Types say. An
+                // UNANNOTATED position states nothing, so only two stated
+                // Types can contradict each other.
+                let clashes = method.parameters.len() != requirement.arity
+                    || method
                         .parameters
                         .iter()
                         .zip(&requirement.parameter_types)

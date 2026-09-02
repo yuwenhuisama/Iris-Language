@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A DIFFERENT ARITY is a mismatch on its own, and a REOPEN is checked too. A
+member taking a different number of parameters cannot be called the way the
+requirement states, whatever its Types say, and a reopen REPLACES the member
+the origin declared - so a replacement that no longer fits leaves the
+conformance unmet just as an original mismatch would. Checking only the
+original let a reopen quietly break the promise.
+
 NAMING a closed generic's Type MATERIALIZES it, so a `where` bound applies.
 `C067` checks a bound at MATERIALIZATION, and naming the Type materializes it
 just as a construction does - so an argument that breaks the bound is refused
@@ -1192,8 +1199,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 674 agreed,
-61 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 675 agreed,
+60 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
