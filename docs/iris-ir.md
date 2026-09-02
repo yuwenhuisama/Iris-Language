@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A RESOURCE refusal is CATCHABLE, and a bare `raise` in a CLEANUP re-raises.
+`C160` expects a resource refusal for an allocation the host cannot satisfy,
+and an ordinary catchable failure is what lets a program observe it rather than
+dying undiagnosed. An exception is still PROPAGATING through a cleanup, so a
+bare `raise` inside one re-raises that exception - reporting no active
+exception described the cleanup as running outside the propagation it exists to
+interrupt.
+
 A BUILT-IN class PROTECTS its superclass, and a DENY SET is READABLE.
 Protection is a fact about the class rather than a policy it happens to deny,
 so an uncaught refusal reports the protection - while a program that CATCHES
@@ -1259,8 +1267,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 688 agreed,
-47 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 690 agreed,
+45 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

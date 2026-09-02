@@ -567,7 +567,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::EnterCleanup {
                     context: Some(context),
                 });
+                // An exception is still PROPAGATING through this cleanup, so a
+                // bare `raise` inside it re-raises that one - reporting no
+                // active exception described the cleanup as running outside
+                // the propagation it exists to interrupt.
+                self.exception_contexts.push((exception, context));
                 self.body(finally)?;
+                self.exception_contexts.pop();
                 self.instructions
                     .push(Instruction::EnterCleanup { context: None });
             }
@@ -587,7 +593,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::EnterCleanup {
                     context: Some(context),
                 });
+                // The exception is propagating here too, so a bare `raise`
+                // names it rather than finding none.
+                self.exception_contexts.push((exception, context));
                 self.body(finally)?;
+                self.exception_contexts.pop();
                 self.instructions
                     .push(Instruction::EnterCleanup { context: None });
             }

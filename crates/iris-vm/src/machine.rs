@@ -331,6 +331,12 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::JsonDuplicateNameError => Some("JSONDuplicateNameError"),
         MachineError::JsonLimitError => Some("JSONLimitError"),
         MachineError::ComparisonContractError => Some("ComparisonContractError"),
+        // `C160` expects a RESOURCE refusal for an allocation the host cannot
+        // satisfy, and an ordinary catchable failure is what lets a program
+        // observe it rather than dying undiagnosed.
+        MachineError::Kernel(iris_runtime::KernelError::Numeric(
+            iris_runtime::NumericError::Resource,
+        )) => Some("ResourceError"),
         // `C081` refuses a DENIED meta operation, and that refusal is an
         // ordinary catchable failure a program can name. A BUILT-IN class
         // protecting its superclass is a different FACT with the same name to

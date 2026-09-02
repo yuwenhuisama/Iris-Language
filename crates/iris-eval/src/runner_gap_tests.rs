@@ -10728,3 +10728,36 @@ fn a_builtin_superclass_is_protected_and_denials_are_readable() {
         "nil",
     );
 }
+
+/// A RESOURCE refusal is CATCHABLE, and a bare `raise` in a CLEANUP re-raises.
+///
+/// `C160` expects a resource refusal for an allocation the host cannot
+/// satisfy, and an ordinary catchable failure is what lets a program observe
+/// it rather than dying undiagnosed. An exception is still PROPAGATING through
+/// a cleanup, so a bare `raise` inside one re-raises that exception - reporting
+/// no active exception described the cleanup as running outside the
+/// propagation it exists to interrupt.
+#[test]
+fn a_resource_refusal_is_catchable_and_a_cleanup_reraises() {
+    agrees_on(
+        "module M { public fun run() -> Object { try { 1 << 1000000000 } catch e { e } } } M.run()",
+        ":ResourceError",
+    );
+    // Control: a shift the host CAN satisfy answers its value.
+    agrees_on(
+        "module M { public fun run() -> Object { 1 << 10 } } M.run()",
+        "1024",
+    );
+    // A bare `raise` inside `finally` names the exception travelling through
+    // it rather than finding none.
+    agrees_on(
+        "try { try { raise :pending } finally { raise } } catch _, c { c.value }",
+        ":pending",
+    );
+    // Control: a cleanup that raises NOTHING lets the original stand, so the
+    // re-raise did not change what an ordinary cleanup propagates.
+    agrees_on(
+        "try { try { raise :pending } finally { :nothing } } catch _, c { c.value }",
+        ":pending",
+    );
+}
