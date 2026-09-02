@@ -688,6 +688,25 @@ impl Machine {
                     .map_err(|_| MachineError::SerializationError)?;
                 Some(Value::Integer(hash.into()))
             }
+            // `D-142` lets user code ITERATE and COPY a runtime-owned
+            // collection but never insert, delete, replace or reorder it, so
+            // a mutating selector is refused rather than reaching the
+            // ordinary Array path that would happily perform it.
+            Value::ReadonlyArray(_)
+                if matches!(
+                    selector,
+                    "append"
+                        | "push"
+                        | "delete"
+                        | "clear"
+                        | "insert"
+                        | "[]="
+                        | "reverse!"
+                        | "sort!"
+                ) =>
+            {
+                return Err(MachineError::ReadonlyMutation);
+            }
             // `D-159` makes an exception CONTEXT readable but never
             // assignable, so a write names the READONLY property rather than
             // a setter the language never had.

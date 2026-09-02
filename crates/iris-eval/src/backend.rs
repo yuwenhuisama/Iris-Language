@@ -190,6 +190,9 @@ impl Backend for Bytecode {
                 Err(iris_vm::MachineError::ExceptionChainError) => Support::Ran(
                     Observation::Error(format!("{:?}", EvaluationError::ExceptionChainError)),
                 ),
+                Err(iris_vm::MachineError::ReadonlyMutation) => Support::Ran(Observation::Error(
+                    format!("{:?}", EvaluationError::ReadonlyMutation),
+                )),
                 Err(iris_vm::MachineError::ReadonlyProperty) => Support::Ran(Observation::Error(
                     format!("{:?}", EvaluationError::ReadonlyProperty),
                 )),

@@ -163,6 +163,12 @@ pub enum MachineError {
     /// so any other answer breaks the comparison contract itself rather than
     /// being an ordinary type failure.
     ComparisonContractError,
+    /// A MUTATING selector was sent to a runtime-owned collection.
+    ///
+    /// `D-142` lets user code ITERATE and COPY such a collection but never
+    /// insert, delete, replace or reorder it, so the refusal names the
+    /// read-only view rather than a message the Array surface plainly has.
+    ReadonlyMutation,
     /// A write was attempted against a READ-ONLY property.
     ///
     /// `D-159` makes an `ExceptionContext` member readable but never

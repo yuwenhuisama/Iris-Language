@@ -844,6 +844,50 @@ impl Machine {
                             // member: a subclass inherits it and an open
                             // cannot restore one, so the view is the only way
                             // a program observes what a class may no longer do.
+                            // `C095` answers PERMISSION-FILTERED IMMUTABLE
+                            // metadata, so a private member is withheld and
+                            // the result is a READ-ONLY view rather than an
+                            // Array a caller could mutate.
+                            "methods" => {
+                                let registry = self.runtime.registry();
+                                let revision =
+                                    registry.active(class).map_err(MachineError::Class)?;
+                                let selectors: Vec<iris_runtime::Selector> = revision
+                                    .methods()
+                                    .iter()
+                                    .filter(|(_, method)| {
+                                        registry.method_by_id(**method).is_none_or(|method| {
+                                            matches!(
+                                                method.visibility(),
+                                                iris_runtime::Visibility::Public
+                                            )
+                                        })
+                                    })
+                                    .map(|(selector, _)| *selector)
+                                    .collect();
+                                Value::ReadonlyArray(
+                                    selectors
+                                        .into_iter()
+                                        .map(|selector| {
+                                            self.selector_name(program, selector)
+                                                .map_or(Value::Nil, Value::Symbol)
+                                        })
+                                        .collect(),
+                                )
+                            }
+                            // The STATIC SPINE is the declaration's own
+                            // identity, so a meta operation that adds a method
+                            // leaves it unchanged - that is what makes it the
+                            // spine rather than the revision.
+                            "static_spine" => Value::Integer(
+                                self.runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?
+                                    .static_spine()
+                                    .identity()
+                                    .into(),
+                            ),
                             "denied_capabilities" => {
                                 let capabilities = self
                                     .runtime

@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+CLASS metadata is PERMISSION-FILTERED and READ-ONLY, and the SPINE is fixed.
+`C095` answers permission-filtered immutable metadata, so a private member is
+withheld and the result is a read-only view - `D-142` lets user code ITERATE
+and COPY it but never insert, delete, replace or reorder it, so a mutating
+selector is refused rather than reaching the ordinary Array path that would
+happily perform it. The STATIC SPINE is the declaration's own identity, so a
+meta operation that adds a method leaves it unchanged.
+
 A CONTEXT is READ-ONLY, and a CONTRACT VIEW refuses what it does not name.
 `D-159` makes an exception context readable but never assignable, so a write
 names the READONLY property rather than a setter the language never had, and
@@ -1336,8 +1344,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 710 agreed,
-25 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 712 agreed,
+23 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

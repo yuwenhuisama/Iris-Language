@@ -352,7 +352,9 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::JsonDuplicateNameError => Some("JSONDuplicateNameError"),
         MachineError::JsonLimitError => Some("JSONLimitError"),
         MachineError::ComparisonContractError => Some("ComparisonContractError"),
-        MachineError::ReadonlyProperty => Some("ReadonlyMutationError"),
+        MachineError::ReadonlyProperty | MachineError::ReadonlyMutation => {
+            Some("ReadonlyMutationError")
+        }
         // `C160` expects a RESOURCE refusal for an allocation the host cannot
         // satisfy, and an ordinary catchable failure is what lets a program
         // observe it rather than dying undiagnosed.

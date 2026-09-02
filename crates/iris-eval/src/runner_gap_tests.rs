@@ -11041,3 +11041,40 @@ fn a_context_is_readonly_and_a_view_refuses_by_contract() {
         "Construction(Dispatch(ContractDispatch { contract: ModuleId(3), selector: Selector(_) }))",
     );
 }
+
+/// CLASS metadata is PERMISSION-FILTERED and READ-ONLY, and the SPINE is fixed.
+///
+/// `C095` answers permission-filtered immutable metadata, so a private member
+/// is withheld and the result is a read-only view - `D-142` lets user code
+/// ITERATE and COPY it but never insert, delete, replace or reorder it, so a
+/// mutating selector is refused rather than reaching the ordinary Array path
+/// that would happily perform it. The STATIC SPINE is the declaration's own
+/// identity, so a meta operation that adds a method leaves it unchanged.
+#[test]
+fn class_metadata_is_filtered_readonly_and_spine_is_fixed() {
+    // A PRIVATE member is withheld; the implicit `to_bool` is not.
+    agrees_on(
+        "class A { private fun hidden() { 1 } public fun shown() { 2 } }; A.methods",
+        "[:to_bool, :shown]",
+    );
+    // Mutating the view is refused rather than silently accepted.
+    agrees_on(
+        "class A { private fun hidden() { 1 } public fun shown() { 2 } }; \
+         let methods = A.methods; let mutation = try { methods.append(:fake) } catch e { e }; \
+         [methods, mutation]",
+        "[[:to_bool, :shown], :ReadonlyMutationError]",
+    );
+    // Defining a method leaves the SPINE unchanged, which is what makes it
+    // the declaration's identity rather than the revision's.
+    agrees_on(
+        "class A { public fun f() -> Nil {} } module M { public fun run() -> Array { \
+           let before = A.static_spine; A.define_method(:g) { 41 }; let after = A.static_spine; \
+           [before == after, A.method(:g).return_type, A.new().g()] } } M.run()",
+        "[true, :Dynamic<Object>, 41]",
+    );
+    // Control: the spine is a plain identity a program can read on its own.
+    agrees_on(
+        "class A { public fun f() -> Nil {} } module M { public fun run() -> Object { A.static_spine } } M.run()",
+        "1",
+    );
+}
