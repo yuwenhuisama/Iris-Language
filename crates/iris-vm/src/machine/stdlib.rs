@@ -907,6 +907,29 @@ impl Machine {
                 }
                 _ => None,
             },
+            // `IDENTITY-C030` gives a script RUNTIME-LOCAL package identity, so
+            // a Type names that package rather than a publishable one.
+            Value::Type(..) if selector == "package" && arguments.is_empty() => {
+                Some(Value::Symbol("runtime-local".to_owned()))
+            }
+            // `C078` derives a nominal Type's PUBLISHABLE identity hash from
+            // the package, the qualified name and the major API version, so
+            // two Types with identical declarations stay distinct and moving
+            // one between packages changes its identity. An identity hash
+            // would answer a fresh number per read instead.
+            Value::Type(class, _) if selector == "hash" && arguments.is_empty() => {
+                let name = classes
+                    .iter()
+                    .position(|known| known == class)
+                    .and_then(|index| program.classes.get(index))
+                    .map(|declaration| declaration.name.clone())
+                    .unwrap_or_default();
+                Some(Value::Integer(iris_runtime::contract_type_hash(
+                    "runtime-local",
+                    &name,
+                    1,
+                )))
+            }
             Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
                 Some(Value::Symbol("nominal".to_owned()))
             }
@@ -2133,6 +2156,23 @@ impl Machine {
         // A missing `method_missing` must not recurse into itself.
         if missing == "method_missing" {
             return Ok(None);
+        }
+        // An object whose class declares NO `to_string` still answers one:
+        // `D-111` renders it as its package and source name, which is what
+        // lets an ordinary object be printed at all. A declared method wins,
+        // since ordinary dispatch already ran before reaching here.
+        if matches!(missing, "to_string" | "inspect") && arguments.is_empty() {
+            let class = self
+                .runtime
+                .class_of(object)
+                .map_err(MachineError::Construction)?;
+            let name = classes
+                .iter()
+                .position(|known| *known == class)
+                .and_then(|index| program.classes.get(index))
+                .map(|declaration| declaration.name.clone())
+                .unwrap_or_default();
+            return Ok(Some(Value::Text(format!("<runtime-local::{name}>"))));
         }
         let Some(slot) = selector_id(program, "method_missing") else {
             return Ok(None);

@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An OBJECT renders by PACKAGE and NAME, and a nominal Type hashes PUBLISHABLY.
+`D-111` renders an object whose class declares no `to_string` as its package
+and source name, which is what lets an ordinary object be printed at all.
+`C078` derives a nominal Type's identity hash from the package, the qualified
+name and the major API version, so two Types with identical declarations stay
+distinct - an identity hash would answer a fresh number per read instead.
+
 A RESOURCE refusal is CATCHABLE, and a bare `raise` in a CLEANUP re-raises.
 `C160` expects a resource refusal for an allocation the host cannot satisfy,
 and an ordinary catchable failure is what lets a program observe it rather than
@@ -1267,8 +1274,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 690 agreed,
-45 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 692 agreed,
+43 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

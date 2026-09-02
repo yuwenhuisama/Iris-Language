@@ -10761,3 +10761,31 @@ fn a_resource_refusal_is_catchable_and_a_cleanup_reraises() {
         ":pending",
     );
 }
+
+/// An OBJECT renders by PACKAGE and NAME, and a nominal Type hashes PUBLISHABLY.
+///
+/// `D-111` renders an object whose class declares no `to_string` as its
+/// package and source name, which is what lets an ordinary object be printed
+/// at all. `C078` derives a nominal Type's identity hash from the package, the
+/// qualified name and the major API version, so two Types with identical
+/// declarations stay distinct - an identity hash would answer a fresh number
+/// per read instead.
+#[test]
+fn an_object_renders_by_package_and_a_type_hashes_publishably() {
+    agrees_on(
+        r#"class Widget { } module M { public fun run() -> String { Widget.new().to_string() } } M.run()"#,
+        r#""<runtime-local::Widget>""#,
+    );
+    // Control: a DECLARED `to_string` still wins, since ordinary dispatch runs
+    // before the fallback.
+    agrees_on(
+        r#"class Widget { public fun to_string() -> String { "w" } } module M { public fun run() -> String { Widget.new().to_string() } } M.run()"#,
+        r#""w""#,
+    );
+    // A Type names its RUNTIME-LOCAL package and hashes stably by it.
+    agrees_on(
+        "class A { } class B { } \
+         [A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]",
+        "[:runtime-local, true, true]",
+    );
+}
