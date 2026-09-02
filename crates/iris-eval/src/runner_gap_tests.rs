@@ -10844,3 +10844,31 @@ fn a_declared_class_carries_an_implicit_to_bool() {
         ":else",
     );
 }
+
+/// TEXT converts to BYTES explicitly, and to an array of SCALARS.
+///
+/// `C072` keeps text and binary conversion to explicit APIs and the encoding
+/// is UTF-8, so the bytes are the text's own encoding rather than a
+/// host-chosen one. `C009` counts a SCALAR once, so an astral character is ONE
+/// element of `to_array` rather than the several bytes that carry it.
+#[test]
+fn text_converts_to_bytes_and_scalars() {
+    agrees_on(
+        r#"module M { public fun run() -> Bytes { "ab".to_bytes() } } M.run()"#,
+        "bytes:6162",
+    );
+    // A non-ASCII scalar answers its UTF-8 encoding, which is two bytes here.
+    agrees_on(
+        r#"module M { public fun run() -> Bytes { "\xFF".to_bytes() } } M.run()"#,
+        "bytes:c3bf",
+    );
+    // An ASTRAL scalar is ONE element, not the four bytes that encode it.
+    agrees_on(
+        r#"module M { public fun run() -> Array { "a\u{1f600}".to_array() } } M.run()"#,
+        r#"["a", "😀"]"#,
+    );
+    agrees_on(
+        r#"module M { public fun run() -> Array { "abc".to_array() } } M.run()"#,
+        r#"["a", "b", "c"]"#,
+    );
+}
