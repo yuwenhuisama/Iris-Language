@@ -10561,3 +10561,37 @@ fn indexing_a_hash_uses_the_current_bucket() {
         "1",
     );
 }
+
+/// A `BoundMethod<..>` and a `Closure<..>` do not admit each other.
+///
+/// One names a Method BOUND to a receiver and the other a closure, however
+/// alike their call signatures look. Admitting every generic annotation left
+/// `let m: BoundMethod<..> = { |x| x }` accepted, so an annotation the
+/// language refuses passed unchecked.
+#[test]
+fn a_bound_method_annotation_refuses_a_closure() {
+    agrees_on(
+        "module M { public fun run() -> Object { \
+           try { let bad: BoundMethod<(Integer) -> Integer> = { |x: Integer| -> Integer x }; bad } \
+           catch e { e } } } M.run()",
+        ":TypeContractError",
+    );
+    // Control: a `Closure<..>` annotation admits a closure, so the check
+    // distinguishes the two rather than refusing both.
+    agrees_on(
+        "module M { public fun run() -> Object { \
+           let closure: Closure<(Integer) -> Integer> = { |x: Integer| -> Integer x }; \
+           closure.call(7) } } M.run()",
+        "7",
+    );
+    // A BOUND method still calls normally beside the refused annotation.
+    agrees_on(
+        "class A { public fun f(x: Integer) -> Integer { x } } module M { public fun run() -> Object { \
+           let m = Reflection::Class.method(A, :f); \
+           let mismatched = try { let bad: BoundMethod<(Integer) -> Integer> = { |x: Integer| -> Integer x }; bad } catch e { e }; \
+           let bound = m.bind(A.new()); \
+           let closure: Closure<(Integer) -> Integer> = { |x: Integer| -> Integer x }; \
+           [mismatched, bound.call(5), closure.call(7)] } } M.run()",
+        "[:TypeContractError, 5, 7]",
+    );
+}

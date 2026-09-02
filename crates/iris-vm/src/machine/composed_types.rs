@@ -262,6 +262,16 @@ impl Machine {
             {
                 self.annotation_admits(value, argument, program, classes)
             }
+            // A `BoundMethod<..>` names a Method BOUND to a receiver, and a
+            // `Closure<..>` names a closure: neither admits the other, however
+            // alike their call signatures look. Admitting every generic left
+            // `let m: BoundMethod<..> = { |x| x }` accepted.
+            TypeExpression::Generic { name, .. } if name == "BoundMethod" => {
+                Ok(matches!(value, Value::BoundMethod(_) | Value::Method(_)))
+            }
+            TypeExpression::Generic { name, .. } if name == "Closure" => {
+                Ok(matches!(value, Value::Closure(_)))
+            }
             TypeExpression::Typeof(_)
             | TypeExpression::Generic { .. }
             | TypeExpression::Function { .. } => Ok(true),
