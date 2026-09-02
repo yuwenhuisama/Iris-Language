@@ -259,7 +259,29 @@ pub(super) fn collect_signatures<'a>(
                             _ => None,
                         })
                 });
-                let Some(method) = composed else {
+                // A class's OWN member is checked the same way: an `impl`
+                // whose parameter Type contradicts the requirement does not
+                // implement it, whatever the marker claims. Only the mixin
+                // case was looked at, so a class stating the mismatch
+                // directly passed unexamined.
+                let declared = declarations
+                    .iter()
+                    .find_map(|declaration| match declaration {
+                        iris_syntax::Declaration::Class(candidate)
+                            if candidate.name == class.name && !candidate.reopen =>
+                        {
+                            candidate.body.iter().find_map(|statement| match statement {
+                                Statement::Method(method)
+                                    if method.selector == requirement.selector =>
+                                {
+                                    Some(method)
+                                }
+                                _ => None,
+                            })
+                        }
+                        _ => None,
+                    });
+                let Some(method) = composed.or(declared) else {
                     continue;
                 };
                 // An UNANNOTATED position states nothing, so it is left alone

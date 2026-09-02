@@ -765,6 +765,12 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+An `impl` whose parameter Type CONTRADICTS the requirement does not implement
+it. `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+member stating a different parameter Type is an incompatible replacement
+whatever the `impl` marker claims - only the MIXIN case was examined, so a
+class stating the mismatch directly passed unchecked.
+
 TWO YIELDS order by the values they CARRY. The inner `<=>` decides, and `C015`
 still holds the comparison to the ordering contract: an inner answer that is
 not -1, 0 or 1 breaks it. Answering nil let a carried value with NO order pass
@@ -1179,8 +1185,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 672 agreed,
-63 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 673 agreed,
+62 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

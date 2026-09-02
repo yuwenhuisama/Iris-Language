@@ -10327,3 +10327,32 @@ fn two_yields_order_by_what_they_carry() {
         "[0, nil, nil, -1, :ComparisonContractError]",
     );
 }
+
+/// An `impl` whose parameter Type CONTRADICTS the requirement does not
+/// implement it.
+///
+/// `D-173` puts the contract-visible SIGNATURE in the static spine, so a
+/// member stating a different parameter Type is an incompatible replacement
+/// whatever the `impl` marker claims. Only the MIXIN case was examined, so a
+/// class stating the mismatch DIRECTLY passed unchecked.
+#[test]
+fn an_impl_cannot_contradict_its_requirement() {
+    agrees_on_error(
+        "contract C { fun draw(n: Integer) -> Nil } \
+         class A for C { public impl fun draw(s: String) -> Nil { nil } } A",
+        "TypeContractError",
+    );
+    // Control: a MATCHING parameter Type implements the requirement, so the
+    // check refuses a contradiction rather than every `impl`.
+    agrees_on(
+        "contract C { fun draw(n: Integer) -> Nil } \
+         class A for C { public impl fun draw(n: Integer) -> Nil { nil } } A",
+        "<class>",
+    );
+    // Control: an UNANNOTATED position states nothing and cannot contradict.
+    agrees_on(
+        "contract C { fun draw(n: Integer) -> Nil } \
+         class A for C { public impl fun draw(n) -> Nil { nil } } A",
+        "<class>",
+    );
+}
