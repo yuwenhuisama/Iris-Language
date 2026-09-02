@@ -131,6 +131,12 @@ pub struct Machine {
     gates: std::collections::HashMap<iris_runtime::ObjectId, Option<Value>>,
     /// Propagations a `finally` transfer DISCARDED, per `IRIS-V1-ASYNC-C028`.
     discarded_contexts: Vec<Value>,
+    /// How many META TRANSACTION bodies are currently running.
+    ///
+    /// `IRIS-V1-META-C037` makes a transaction body NON-SUSPENDING, so an
+    /// `await` inside one is refused rather than parking a frame the
+    /// transaction would have to publish or roll back around.
+    open_depth: usize,
     /// Class-level initializers that have not RUN yet, by class and selector.
     ///
     /// A class-level initializer is an ordinary EXPRESSION evaluated the first
@@ -208,6 +214,7 @@ impl Machine {
             closure_depth: 0,
             gates: std::collections::HashMap::new(),
             discarded_contexts: Vec::new(),
+            open_depth: 0,
             pending_class_initializers: std::collections::HashMap::new(),
             suspended: Vec::new(),
             pending_frame: None,

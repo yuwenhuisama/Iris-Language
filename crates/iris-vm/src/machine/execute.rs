@@ -1068,6 +1068,11 @@ impl Machine {
                     }
                 }
                 Instruction::Await { task, .. } => {
+                    // `C037` forbids SUSPENDING inside a meta transaction, and
+                    // `ASYNC-C018` owns the async reason for the prohibition.
+                    if self.open_depth > 0 {
+                        dispatch!(Err(MachineError::MetaTransactionError)?);
+                    }
                     // Awaiting a PENDING Gate suspends this frame rather than
                     // failing: `C014` lets the prefix keep its locals until the
                     // Gate completes, so the register file and the instruction
@@ -2720,12 +2725,18 @@ impl Machine {
                         .registry_mut()
                         .begin_transaction(runtime_class)
                         .map_err(MachineError::Class)?;
-                    let value = match self.invoke_closure_value(
+                    // `C037` makes the body NON-SUSPENDING, so an `await`
+                    // inside it is refused rather than parking a frame the
+                    // transaction would have to publish or roll back around.
+                    self.open_depth = self.open_depth.saturating_add(1);
+                    let outcome = self.invoke_closure_value(
                         callback,
                         &[Value::Class(runtime_class)],
                         program,
                         classes,
-                    ) {
+                    );
+                    self.open_depth = self.open_depth.saturating_sub(1);
+                    let value = match outcome {
                         Ok(value) => value,
                         // C034 rolls the candidate back on failure and
                         // publishes nothing, so a body that raised must not

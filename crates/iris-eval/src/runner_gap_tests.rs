@@ -10664,3 +10664,26 @@ fn a_reopen_where_bound_narrows_the_class() {
         "<class>",
     );
 }
+
+/// A META TRANSACTION body is NON-SUSPENDING.
+///
+/// `C037` refuses an `await` inside a transaction, and `ASYNC-C018` owns the
+/// async reason: a parked frame is one the transaction would have to publish
+/// or roll back around. Running the body without noticing let the await
+/// simply succeed.
+#[test]
+fn a_meta_transaction_body_cannot_suspend() {
+    agrees_on_error(
+        "class A { public async fun f() -> Integer { 1 } } class B { } \
+         B.open() { |t| await A.new().f() }",
+        "MetaTransactionSuspension",
+    );
+    // Control: the same await OUTSIDE a transaction runs normally, so the
+    // refusal is about the transaction rather than about awaiting.
+    agrees_on(
+        "class A { public async fun f() -> Integer { 1 } } Host.run(A.new().f())",
+        "1",
+    );
+    // Control: a transaction body that does NOT suspend answers its value.
+    agrees_on("class B { } B.open() { |t| 1 }", "1");
+}
