@@ -410,6 +410,41 @@ impl Machine {
                 bytes.mutate(|bytes| *bytes = rebuilt);
                 Ok(Value::Nil)
             }
+            // `C054` reads use SCALAR indexing, and a scalar write requires a
+            // ONE-SCALAR replacement, raises IndexError out of range and
+            // mutates in place. A RANGE write accepts any text and may change
+            // length. `C058` makes both commit ATOMICALLY, so the replacement
+            // is fully resolved before the receiver is written.
+            Value::MutableString(text) => {
+                let scalars: Vec<char> = text.text().chars().collect();
+                let replacement = match &value {
+                    Value::Text(replacement) => replacement.clone(),
+                    Value::MutableString(replacement) => replacement.text(),
+                    _ => return Err(MachineError::Kernel(KernelError::Type)),
+                };
+                let (from, to) = match &index {
+                    Value::Range(range) => slice_bounds(range, scalars.len())?,
+                    Value::Integer(position) => {
+                        // A scalar write replaces exactly ONE scalar, so the
+                        // replacement must itself be one scalar.
+                        if replacement.chars().count() != 1 {
+                            return Err(MachineError::Kernel(KernelError::Type));
+                        }
+                        let position = super::resolve_index(position, scalars.len())
+                            .ok_or(MachineError::IndexError)?;
+                        if position >= scalars.len() {
+                            return Err(MachineError::IndexError);
+                        }
+                        (position, position + 1)
+                    }
+                    _ => return Err(MachineError::Kernel(KernelError::Type)),
+                };
+                let mut rebuilt: String = scalars.get(..from).unwrap_or_default().iter().collect();
+                rebuilt.push_str(&replacement);
+                rebuilt.extend(scalars.get(to..).unwrap_or_default().iter());
+                text.set(rebuilt);
+                Ok(Value::Nil)
+            }
             // TEXT is immutable, so it has no `[]=` at all: the refusal is a
             // MISSING MESSAGE a script can catch, not a machine defect.
             receiver => Err(MachineError::MessageNotFound {

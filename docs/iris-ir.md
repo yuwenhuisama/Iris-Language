@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A SCALAR write needs ONE scalar, and `each` walks through a CURSOR. `C054`
+makes a scalar write replace exactly one scalar and raise IndexError out of
+range, while a RANGE write accepts any text and may change length - `C058`
+commits both atomically, so the replacement is fully resolved before the
+receiver is written. `C036` walks a Hash through a cursor rather than a
+snapshot, so a block may REMOVE the entry it was just handed and the walk keeps
+going over what remains.
+
 A MUTABLE STRING's cursor is a LIVE view that FAILS FAST. `C061` captures the
 content version, so ANY change to the receiver invalidates an active cursor
 rather than letting it walk a snapshot the program can no longer see, and the
@@ -1309,8 +1317,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 703 agreed,
-32 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 706 agreed,
+29 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

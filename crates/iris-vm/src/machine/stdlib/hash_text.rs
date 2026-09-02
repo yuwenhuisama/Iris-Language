@@ -1,4 +1,4 @@
-use iris_runtime::{ArrayRef, ClassId, HashRef, Value};
+use iris_runtime::{ArrayRef, ClassId, HashRef, KernelError, Value};
 
 use super::super::{Machine, MachineError, truthy};
 use crate::compile::Program;
@@ -53,6 +53,33 @@ impl Machine {
                 .hash_slot(entries, key, program, classes)?
                 .and_then(|position| entries.remove_at(position))
                 .unwrap_or(Value::Nil),
+            // `C036` walks through a CURSOR rather than a snapshot, so a block
+            // may remove the entry it was just handed and the walk keeps going
+            // over what remains. `each_with_iterator` hands the cursor itself
+            // to the block, which is how a removal names the current entry.
+            ("each" | "each_with_iterator", [block @ Value::Closure(_)]) => {
+                let with_iterator = selector == "each_with_iterator";
+                let receiver = Value::Hash(entries.clone());
+                let Some(cursor) = self.open_builtin_iterator(&receiver)? else {
+                    return Err(MachineError::IteratorState);
+                };
+                loop {
+                    let Some(step) = self.iteration_send(&cursor, "next", &[])? else {
+                        return Err(MachineError::IteratorState);
+                    };
+                    let Value::IterationYield(entry) = step else {
+                        break;
+                    };
+                    let Value::Tuple(mut passed) = *entry else {
+                        return Err(MachineError::Kernel(KernelError::Type));
+                    };
+                    if with_iterator {
+                        passed.push(cursor.clone());
+                    }
+                    self.invoke_closure(block, &passed, program, classes)?;
+                }
+                receiver.clone()
+            }
             ("map", [block @ Value::Closure(_)]) => {
                 let mut mapped = Vec::new();
                 for (key, value) in entries.entries() {

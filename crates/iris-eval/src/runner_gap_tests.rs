@@ -10936,3 +10936,36 @@ fn a_mutable_string_cursor_is_live() {
         r#"Iteration.yield("a")"#,
     );
 }
+
+/// A SCALAR write needs ONE scalar, and `each` walks through a CURSOR.
+///
+/// `C054` makes a scalar write replace exactly one scalar and raise IndexError
+/// out of range, while a RANGE write accepts any text and may change length -
+/// `C058` commits both atomically, so the replacement is fully resolved before
+/// the receiver is written. `C036` walks a Hash through a cursor rather than a
+/// snapshot, so a block may REMOVE the entry it was just handed and the walk
+/// keeps going over what remains.
+#[test]
+fn a_scalar_write_and_a_cursor_walk() {
+    // Writing past the end raises rather than growing the string.
+    agrees_on_error(
+        r#"module M { public fun run() -> Nil { let m = m"ab"; m[1] = "x"; m[9] = "z" } } M.run()"#,
+        "IndexError",
+    );
+    // An IN-RANGE scalar write lands, so the refusal is about the position.
+    agrees_on(
+        r#"module M { public fun run() -> Object { let m = m"ab"; m[1] = "x"; m.to_string() } } M.run()"#,
+        r#""ax""#,
+    );
+    // A block removing through the cursor empties the hash without the walk
+    // reporting concurrent modification against itself.
+    agrees_on(
+        r#"module M { public fun run() -> Integer { mut h = %{}; h[:a] = 1; h[:b] = 2; let block = { |entry_key, entry_value, cursor| cursor.remove_current() }; h.each_with_iterator(block); h.length() } } M.run()"#,
+        "0",
+    );
+    // Control: a plain `each` visits every entry and leaves the hash intact.
+    agrees_on(
+        r#"module M { public fun run() -> Array { mut h = %{}; h[:a] = 1; h[:b] = 2; mut seen = []; h.each({ |k, v| seen.append(v) }); [seen, h.length()] } } M.run()"#,
+        "[[1, 2], 2]",
+    );
+}
