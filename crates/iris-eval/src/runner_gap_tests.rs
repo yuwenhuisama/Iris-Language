@@ -10530,3 +10530,34 @@ fn a_reflected_method_binds_against_the_current_mro() {
         ":MessageNotFound",
     );
 }
+
+/// INDEXING a Hash finds the slot by CURRENT bucket, like every other lookup.
+///
+/// `C028` dispatches the key's own `hash` and `==`, so a key whose hash has
+/// MOVED since insertion no longer finds the entry placed under its old one -
+/// `C030` makes `rehash()` the remedy. Comparing representations let the index
+/// read alone still find it, so `h[k]` and `h.fetch(k)` disagreed about the
+/// same hash.
+#[test]
+fn indexing_a_hash_uses_the_current_bucket() {
+    // The read BEFORE the rehash misses, and the read after finds it again.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k = Key.new(); k.equal_id = 1; k.hash_code = 1; mut h = %{}; h[k] = :ok; k.hash_code = 2; let before = h[k]; h.rehash(); [before, h.fetch(k)] } } M.run()"#,
+        "[nil, :ok]",
+    );
+    // A moved hash misses on its own, without a rehash to repair it.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Object { mut k = Key.new(); k.hash_code = 1; mut h = %{}; h[k] = :ok; k.hash_code = 2; h[k] } } M.run()"#,
+        "nil",
+    );
+    // Control: a key whose hash has NOT moved is found by the index read.
+    agrees_on(
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Object { mut k = Key.new(); k.hash_code = 1; mut h = %{}; h[k] = :ok; h[k] } } M.run()"#,
+        ":ok",
+    );
+    // Control: an ordinary key is unaffected.
+    agrees_on(
+        r#"module M { public fun run() -> Object { mut h = %{}; h["a"] = 1; h["a"] } } M.run()"#,
+        "1",
+    );
+}

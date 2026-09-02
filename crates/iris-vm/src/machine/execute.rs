@@ -664,10 +664,23 @@ impl Machine {
                 }
                 Instruction::Index {
                     receiver, index, ..
-                } => self.index(
-                    registers[*receiver as usize].clone(),
-                    registers[*index as usize].clone(),
-                )?,
+                } => {
+                    let target = registers[*receiver as usize].clone();
+                    let key = registers[*index as usize].clone();
+                    // `C028` finds a HASH slot by the key's CURRENT bucket and
+                    // `==`, which only the machine can dispatch - comparing
+                    // representations let a key whose hash has MOVED still
+                    // find the entry placed under its old one.
+                    if let Value::Hash(entries) = &target {
+                        dispatch!({
+                            let slot = self.hash_slot(entries, &key, program, classes)?;
+                            slot.and_then(|slot| entries.value_at(slot))
+                                .unwrap_or(Value::Nil)
+                        })
+                    } else {
+                        self.index(target, key)?
+                    }
+                }
                 Instruction::SetIndex {
                     receiver,
                     index,
