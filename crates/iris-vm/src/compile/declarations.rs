@@ -516,6 +516,7 @@ fn collect_class<'a>(
     // The bound is recorded by PARAMETER POSITION so a construction naming
     // concrete arguments can decide it.
     let mut contract_bounds = Vec::new();
+    let mut non_nil_bounds = Vec::new();
     for constraint in &class.constraints {
         let named = match &constraint.bound {
             TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => Some(name),
@@ -524,6 +525,18 @@ fn collect_class<'a>(
         let Some(bound) = named else {
             continue;
         };
+        // `NonNil` is not a CONTRACT, so it has no entry to look up - it names
+        // the one argument it excludes instead, and is recorded by position.
+        if bound == "NonNil" {
+            if let Some(position) = class
+                .parameters
+                .iter()
+                .position(|parameter| *parameter == constraint.parameter)
+            {
+                non_nil_bounds.push(position);
+            }
+            continue;
+        }
         let Some(contract) = contracts.iter().position(|known| known.name == *bound) else {
             continue;
         };
@@ -782,6 +795,7 @@ fn collect_class<'a>(
         private_methods,
         override_required,
         contract_signature_clash: false,
+        non_nil_bounds,
         shared_class_variables,
         duplicate_class_variable: None,
         meta_deny: class.meta_deny.clone(),

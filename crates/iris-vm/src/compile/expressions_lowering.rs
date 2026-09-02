@@ -473,8 +473,19 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // apart and made them the same value.
                 if selector == "type"
                     && let Expression::ClosedGeneric { name, arguments } = receiver.as_ref()
-                    && self.class_index(name).is_some()
+                    && let Some(class) = self.class_index(name)
                 {
+                    // `C067` checks a `where` bound at MATERIALIZATION, and
+                    // naming the Type materializes it just as a construction
+                    // does - so a closed generic whose argument breaks the
+                    // bound is refused here too rather than answering a Type
+                    // the language never admits.
+                    if self.violates_contract_bound(class, arguments) {
+                        let destination = self.allocate()?;
+                        self.instructions
+                            .push(Instruction::RaiseTypeContract { destination });
+                        return Ok(destination);
+                    }
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::BuildType {
                         destination,

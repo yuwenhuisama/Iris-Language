@@ -1101,6 +1101,12 @@ pub(crate) struct Class {
     /// the class is declared, so they are carried until a construction names
     /// concrete arguments.
     pub(crate) contract_bounds: Vec<(usize, usize)>,
+    /// Type parameters bounded by `NonNil`, by POSITION.
+    ///
+    /// `NonNil` is not a contract, so it has no entry among the contract
+    /// bounds - but `C067` checks it at MATERIALIZATION just the same, and
+    /// `Nil` is the one argument it excludes.
+    pub(crate) non_nil_bounds: Vec<usize>,
     /// Methods written as `impl fun C::m()`, keyed by contract and selector.
     ///
     /// A QUALIFIED implementation is visible only through that contract's

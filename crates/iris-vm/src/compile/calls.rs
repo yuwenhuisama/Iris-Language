@@ -1054,11 +1054,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
     /// An argument this backend cannot RESOLVE to a declared class decides
     /// nothing, so it passes: the check exists to catch a definite violation
     /// rather than to narrow which constructions are accepted.
-    fn violates_contract_bound(
+    pub(super) fn violates_contract_bound(
         &self,
         class: usize,
         type_arguments: &[iris_syntax::TypeExpression],
     ) -> bool {
+        // `NonNil` excludes exactly one argument, so a `Nil` in a bounded
+        // position is a definite violation.
+        if self.classes[class].non_nil_bounds.iter().any(|position| {
+            matches!(
+                type_arguments.get(*position),
+                Some(iris_syntax::TypeExpression::Name(argument)) if argument == "Nil"
+            )
+        }) {
+            return true;
+        }
         self.classes[class]
             .contract_bounds
             .iter()

@@ -10356,3 +10356,33 @@ fn an_impl_cannot_contradict_its_requirement() {
         "<class>",
     );
 }
+
+/// NAMING a closed generic's Type MATERIALIZES it, so a `where` bound applies.
+///
+/// `C067` checks a bound at MATERIALIZATION, and naming the Type materializes
+/// it just as a construction does - so an argument that breaks the bound is
+/// refused rather than answering a Type the language never admits. `NonNil` is
+/// not a CONTRACT, so it names the one argument it excludes instead of being
+/// looked up among the conformances.
+#[test]
+fn naming_a_closed_generic_type_checks_its_bound() {
+    agrees_on_error(
+        "class Box<T> where T: NonNil {} Box<Nil>.type",
+        "TypeContractError",
+    );
+    agrees_on_error(
+        "contract Show { fun show() -> Symbol } class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Box<T> where T: Show {} Box<Integer>.type",
+        "TypeContractError",
+    );
+    // Control: an argument that SATISFIES the bound answers its Type.
+    agrees_on("class Box<T> where T: NonNil {} Box<String>.type", "<type>");
+    agrees_on(
+        "contract Show { fun show() -> Symbol } class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Box<T> where T: Show {} Box<Str>.type",
+        "<type>",
+    );
+    // Control: an UNBOUNDED parameter admits every argument, so the check
+    // applies to bounds rather than to naming a Type at all.
+    agrees_on("class Box<T> {} Box<Nil>.type", "<type>");
+}
