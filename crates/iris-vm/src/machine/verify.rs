@@ -163,6 +163,12 @@ pub enum MachineError {
     /// so any other answer breaks the comparison contract itself rather than
     /// being an ordinary type failure.
     ComparisonContractError,
+    /// A write was attempted against a READ-ONLY property.
+    ///
+    /// `D-159` makes an `ExceptionContext` member readable but never
+    /// assignable, so a write names the readonly property rather than a
+    /// missing setter the language never had.
+    ReadonlyProperty,
     /// A `raise ... from` whose cause edge would form a CYCLE.
     ///
     /// `D-161` forbids a cycle among cause edges, and the check runs BEFORE

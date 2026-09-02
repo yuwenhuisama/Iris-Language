@@ -765,6 +765,18 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A CONTEXT is READ-ONLY, and a CONTRACT VIEW refuses what it does not name.
+`D-159` makes an exception context readable but never assignable, so a write
+names the READONLY property rather than a setter the language never had, and
+every member is read as a bare member and as a CALL alike. `C050` makes a view
+answer only what the contract declares with NO ordinary fallback - so a
+selector the contract does not name is a contract-dispatch refusal rather than
+a message the receiver lacks, since the class may well define one and the VIEW
+is what refuses to reach it. The three KERNEL traversal contracts are
+registered before any declaration, so a program's first contract is the fourth
+identity - numbering from the declaration alone named a different contract in
+the diagnostic than the one that refused.
+
 A NAMED failure travels with a CONTEXT, and a decoder names WHERE it stopped.
 A program reads `c.value` off the context a catch binds, so a named runtime
 failure needs one of its own - binding nil left the catch holding nothing to
@@ -1324,8 +1336,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 707 agreed,
-28 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 710 agreed,
+25 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

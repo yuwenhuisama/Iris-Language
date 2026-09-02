@@ -11006,3 +11006,38 @@ fn a_named_failure_carries_a_context_and_a_decoder_diagnostic() {
         "[nil, nil, nil]",
     );
 }
+
+/// A CONTEXT is READ-ONLY, and a CONTRACT VIEW refuses what it does not name.
+///
+/// `D-159` makes an exception context readable but never assignable, so a
+/// write names the READONLY property rather than a setter the language never
+/// had, and every member is read as a bare member and as a CALL alike. `C050`
+/// makes a view answer only what the contract declares with NO ordinary
+/// fallback - so a selector the contract does not name is a contract-dispatch
+/// refusal rather than a message the receiver lacks, since the class may well
+/// define one and the VIEW is what refuses to reach it.
+#[test]
+fn a_context_is_readonly_and_a_view_refuses_by_contract() {
+    agrees_on_error(
+        "try { raise :x } catch _, c { c.value = :other }",
+        "ReadonlyProperty",
+    );
+    // The CALLED form answers the same value the bare read does.
+    agrees_on(
+        "class Probe { public fun +(other: Object) -> Integer { 7 } } module M { public fun run() -> Array { \
+           let p = Probe.new(); let result = p + Object.new(); let block = { raise p }; \
+           try { block.call() } catch value, context { [result, value.same?(p), context.value().same?(p)] } } } M.run()",
+        "[7, true, true]",
+    );
+    // Control: the BARE read still answers, so the called form was added
+    // beside it rather than replacing it.
+    agrees_on("try { raise :x } catch _, c { c.value }", ":x");
+    // A view refuses a selector the contract does not name, and the
+    // diagnostic names the CONTRACT that refused - the three kernel traversal
+    // contracts are registered first, so a program's first contract is the
+    // fourth identity.
+    agrees_on_error(
+        "contract C { } class A for C { public fun m() { :ordinary } } let a = A.new(); (a as C)..missing()",
+        "Construction(Dispatch(ContractDispatch { contract: ModuleId(3), selector: Selector(_) }))",
+    );
+}

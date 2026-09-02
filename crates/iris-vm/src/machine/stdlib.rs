@@ -688,6 +688,28 @@ impl Machine {
                     .map_err(|_| MachineError::SerializationError)?;
                 Some(Value::Integer(hash.into()))
             }
+            // `D-159` makes an exception CONTEXT readable but never
+            // assignable, so a write names the READONLY property rather than
+            // a setter the language never had.
+            Value::ExceptionContext(..) if selector.ends_with('=') => {
+                return Err(MachineError::ReadonlyProperty);
+            }
+            // A context member is read as a bare MEMBER and as a CALL alike,
+            // so the called form answers the same value rather than reporting
+            // a selector the language plainly defines.
+            Value::ExceptionContext(_, value, cause, suppressed, sites, location)
+                if arguments.is_empty() =>
+            {
+                match selector {
+                    "value" => Some((**value).clone()),
+                    "cause" => Some((**cause).clone()),
+                    "suppressed" => Some(Value::ReadonlyArray(suppressed.clone())),
+                    "re_raise_sites" => Some(Value::ReadonlyArray(sites.clone())),
+                    "original_stack" => Some(Value::ReadonlyArray(Vec::new())),
+                    "raise_location" => Some((**location).clone()),
+                    _ => None,
+                }
+            }
             // A CONTRACT is interned once per definition, so its hash is fixed
             // by identity: `C.hash() == C.hash()` holds because both name the
             // same contract.

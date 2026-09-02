@@ -2970,10 +2970,30 @@ impl Machine {
                             )
                         });
                     if !required && qualified.is_none() {
-                        return Err(MachineError::MessageNotFound {
-                            receiver_class: "ContractView".to_owned(),
-                            selector: selector.clone(),
-                        });
+                        // `C050` makes a VIEW answer only what the contract
+                        // declares, with NO ordinary fallback - so a selector
+                        // the contract does not name is a contract-dispatch
+                        // refusal rather than a message the receiver lacks:
+                        // the class may well define one, and the view is what
+                        // refuses to reach it.
+                        let selector_id = selector_id(program, selector)
+                            .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                        dispatch!(Err(MachineError::Construction(
+                            iris_runtime::DispatchError::ContractDispatch {
+                                // The three KERNEL traversal contracts -
+                                // `Iterable`, `Iterator`, `Iteration` - are
+                                // registered before any declaration, so a
+                                // program's first contract is the fourth
+                                // identity. Numbering from the declaration
+                                // alone named a different contract in the
+                                // diagnostic than the one that refused.
+                                contract: iris_runtime::ModuleId::new(
+                                    contract.raw().saturating_add(2),
+                                ),
+                                selector: selector_id,
+                            }
+                            .into(),
+                        ))?);
                     }
                     // The qualified implementation is visible only THROUGH this
                     // view, so it wins over ordinary dispatch: `(a as C)..m()`
