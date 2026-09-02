@@ -15,6 +15,9 @@ impl Machine {
     ) -> Result<Option<Value>, MachineError> {
         let result = match (selector, arguments) {
             ("length" | "count", []) => Value::Integer((values.len() as u64).into()),
+            // `C025` makes a copy INDEPENDENT of the receiver, so an array
+            // answers a fresh array rather than itself.
+            ("to_array", []) => Value::Array(ArrayRef::new(values.elements())),
             // `C017` and `C018` require an Iterator to RELEASE its source, an
             // ownership fact rather than a timing one. This answers how many
             // live references share the Array body, so a vector observes the

@@ -10789,3 +10789,35 @@ fn an_object_renders_by_package_and_a_type_hashes_publishably() {
         "[:runtime-local, true, true]",
     );
 }
+
+/// `to_array` is the ORDERED element sequence for every sequence-shaped value.
+///
+/// `C051` gives a Tuple, an Array and a byte string the same materialization a
+/// Range already had, so each answers its elements rather than a missing
+/// message, and `C025` makes an Array's copy INDEPENDENT of the receiver. A
+/// NOMINAL type answers the type ARGUMENTS it was closed over and the
+/// SELECTORS its class defines, which are the called forms of the same member
+/// reads.
+#[test]
+fn to_array_and_type_reflection_answer_their_sequences() {
+    agrees_on(
+        r#"module M { public fun run() -> Array { [(1, 2).to_array(), [1, 2].to_array(), b"\x01\x02".to_array()] } } M.run()"#,
+        "[[1, 2], [1, 2], [1, 2]]",
+    );
+    agrees_on(
+        r#"module M { public fun run() -> Object { (1, 2).to_array() } } M.run()"#,
+        "[1, 2]",
+    );
+    // A plain class was closed over NO type arguments, so the list is empty
+    // rather than absent.
+    agrees_on(
+        "class A { public fun g() -> Integer { 1 } } A.type.arguments()",
+        "[]",
+    );
+    // Control: an Array's copy is INDEPENDENT, so writing through one leaves
+    // the other unchanged.
+    agrees_on(
+        "module M { public fun run() -> Array { let a = [1, 2]; let b = a.to_array(); b[0] = 9; [a, b] } } M.run()",
+        "[[1, 2], [9, 2]]",
+    );
+}

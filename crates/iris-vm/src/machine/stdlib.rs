@@ -561,6 +561,30 @@ impl Machine {
             Value::Range(range) if selector == "to_array" && arguments.is_empty() => Some(
                 Value::Array(iris_runtime::ArrayRef::new(iteration::range_values(range)?)),
             ),
+            // `C051` makes `to_array` the ordered element sequence for every
+            // sequence-shaped receiver, so a Tuple and a byte string
+            // materialize the same way a Range does rather than answering a
+            // missing message.
+            Value::Tuple(values) if selector == "to_array" && arguments.is_empty() => {
+                Some(Value::Array(iris_runtime::ArrayRef::new(values.clone())))
+            }
+            Value::Bytes(bytes) if selector == "to_array" && arguments.is_empty() => {
+                Some(Value::Array(iris_runtime::ArrayRef::new(
+                    bytes
+                        .iter()
+                        .map(|byte| Value::Integer(u64::from(*byte).into()))
+                        .collect(),
+                )))
+            }
+            Value::ByteArray(bytes) if selector == "to_array" && arguments.is_empty() => {
+                Some(Value::Array(iris_runtime::ArrayRef::new(
+                    bytes
+                        .bytes()
+                        .iter()
+                        .map(|byte| Value::Integer(u64::from(*byte).into()))
+                        .collect(),
+                )))
+            }
             // `C038` spells the operand `range.by(step: Integer)`, so the
             // stride arrives as a KEYWORD argument rather than a bare
             // positional one.
@@ -930,6 +954,17 @@ impl Machine {
                     1,
                 )))
             }
+            // A NOMINAL type answers the type ARGUMENTS it was closed over,
+            // which is empty for a plain class - answering nothing at all made
+            // a selector the language plainly defines look absent.
+            Value::Type(_, type_arguments) if selector == "arguments" && arguments.is_empty() => {
+                Some(Value::Array(iris_runtime::ArrayRef::new(
+                    type_arguments
+                        .iter()
+                        .map(|argument| Value::Type(*argument, Vec::new()))
+                        .collect(),
+                )))
+            }
             Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
                 Some(Value::Symbol("nominal".to_owned()))
             }
@@ -941,6 +976,30 @@ impl Machine {
             // A COMPOSED type answers the atoms it was built from, so
             // `(A & (B | C)).type.members[1]` names the inner union itself
             // rather than flattening it away.
+            // A NOMINAL type answers the SELECTORS its class defines, which is
+            // the called form of the same member read - answering only for a
+            // composed type left `A.type.members()` reporting a selector the
+            // language plainly defines as present.
+            Value::Type(class, _) if selector == "members" && arguments.is_empty() => {
+                let selectors: Vec<_> = self
+                    .runtime
+                    .registry()
+                    .active(*class)
+                    .map_err(MachineError::Class)?
+                    .methods()
+                    .keys()
+                    .copied()
+                    .collect();
+                Some(Value::Array(iris_runtime::ArrayRef::new(
+                    selectors
+                        .into_iter()
+                        .map(|selector| {
+                            self.selector_name(program, selector)
+                                .map_or(Value::Nil, Value::Symbol)
+                        })
+                        .collect(),
+                )))
+            }
             Value::ComposedType(form) if selector == "members" && arguments.is_empty() => {
                 let members = match form {
                     iris_runtime::ComposedType::Never => Vec::new(),

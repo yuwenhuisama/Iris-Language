@@ -765,6 +765,14 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+`to_array` is the ORDERED element sequence for every sequence-shaped value.
+`C051` gives a Tuple, an Array and a byte string the same materialization a
+Range already had, and `C025` makes an Array's copy INDEPENDENT of the
+receiver. A NOMINAL type answers the type ARGUMENTS it was closed over and the
+SELECTORS its class defines, which are the called forms of the same member
+reads - answering only for a composed type left `A.type.members()` reporting a
+selector the language plainly defines as present.
+
 An OBJECT renders by PACKAGE and NAME, and a nominal Type hashes PUBLISHABLY.
 `D-111` renders an object whose class declares no `to_string` as its package
 and source name, which is what lets an ordinary object be printed at all.
@@ -1274,8 +1282,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 692 agreed,
-43 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 694 agreed,
+41 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 
