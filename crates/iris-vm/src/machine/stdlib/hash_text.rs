@@ -126,6 +126,10 @@ pub(super) fn text_send(text: &str, selector: &str, arguments: &[Value]) -> Opti
         // encoding is UTF-8 - so the bytes are the text's own encoding rather
         // than a host-chosen one.
         ("to_bytes", []) => Some(Value::Bytes(text.as_bytes().to_vec())),
+        // `C044` exposes the UTF-8 byte count EXPLICITLY, because `length` and
+        // indexing count SCALARS - an astral character is one scalar and four
+        // bytes, so the two measures cannot share a selector.
+        ("byte_length", []) => Some(Value::Integer((text.len() as u64).into())),
         // `C051` makes `to_array` the ordered element sequence, and `C009`
         // counts a SCALAR once - so an astral character is one element rather
         // than the several bytes that carry it.

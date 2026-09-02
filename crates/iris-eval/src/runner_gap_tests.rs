@@ -10872,3 +10872,35 @@ fn text_converts_to_bytes_and_scalars() {
         r#"["a", "b", "c"]"#,
     );
 }
+
+/// BYTES and SCALARS are measured SEPARATELY, and a `!` case op mutates.
+///
+/// `C044` exposes the UTF-8 byte count explicitly because `length` and
+/// indexing count SCALARS - an astral character is one scalar and four bytes,
+/// so the two measures cannot share a selector. `C042` pins case mapping to a
+/// fixed Unicode data version, and the PLAIN spelling answers a NEW mutable
+/// string while the `!` spelling commits atomically IN PLACE and answers the
+/// receiver itself, which is what `same?` observes.
+#[test]
+fn byte_length_and_mutating_case_operations() {
+    // Three scalars, six bytes: the astral character carries four of them.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let s = "a\u{1f600}b"; [s.length(), s[1], s.byte_length()] } } M.run()"#,
+        r#"[3, "😀", 6]"#,
+    );
+    // The plain spelling COPIES and the `!` spelling answers the receiver.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let m = m"a"; let copy = m.upcase(); let bang = m.upcase!(); [copy.to_string(), bang.same?(m)] } } M.run()"#,
+        r#"["A", true]"#,
+    );
+    // `replace` sets the whole content, so every reference sees the new text.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let m = m"abc"; m.replace("zz"); [m.to_string()] } } M.run()"#,
+        r#"["zz"]"#,
+    );
+    // Control: the plain spelling leaves the RECEIVER untouched.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let m = m"abc"; let copy = m.upcase(); [m.to_string(), copy.to_string()] } } M.run()"#,
+        r#"["abc", "ABC"]"#,
+    );
+}

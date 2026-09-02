@@ -521,6 +521,38 @@ impl Machine {
                 text.set(format!("{}{addition}", text.text()));
                 Some(receiver.clone())
             }
+            // `C042` pins case mapping to a fixed Unicode data version rather
+            // than a host locale. The PLAIN spelling answers a NEW mutable
+            // string and leaves the receiver alone, while the `!` spelling
+            // commits ATOMICALLY in place - `C058` builds the whole
+            // replacement before the receiver is touched - and answers the
+            // receiver itself, which is what `same?` observes.
+            Value::MutableString(text)
+                if matches!(selector, "upcase" | "downcase" | "upcase!" | "downcase!")
+                    && arguments.is_empty() =>
+            {
+                let current = text.text();
+                let changed = if selector.starts_with("upcase") {
+                    current.to_uppercase()
+                } else {
+                    current.to_lowercase()
+                };
+                if selector.ends_with('!') {
+                    text.set(changed);
+                    Some(receiver.clone())
+                } else {
+                    Some(Value::MutableString(iris_runtime::MutableStringRef::new(
+                        changed,
+                    )))
+                }
+            }
+            // `replace` sets the WHOLE content and answers the receiver, so
+            // every reference to the string sees the new text.
+            Value::MutableString(text) if selector == "replace" && arguments.len() == 1 => {
+                let replacement = self.text_operand(arguments[0].clone(), program, classes)?;
+                text.set(replacement);
+                Some(receiver.clone())
+            }
             // `IRIS-V1-COLLECTIONS-C042` pins normalization and case folding to
             // a fixed Unicode data version rather than a host locale, and
             // `C044` exposes GRAPHEME CLUSTERS explicitly because `length`
