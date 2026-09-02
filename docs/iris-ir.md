@@ -765,6 +765,13 @@ definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
 
+A MUTABLE STRING's cursor is a LIVE view that FAILS FAST. `C061` captures the
+content version, so ANY change to the receiver invalidates an active cursor
+rather than letting it walk a snapshot the program can no longer see, and the
+byte view is the receiver ITSELF rather than a detached Array. `clear` answers
+the receiver, which is what `same?` observes - a fresh empty string would
+compare false against the one the program still holds.
+
 BYTES and SCALARS are measured SEPARATELY, and a `!` case op MUTATES. `C044`
 exposes the UTF-8 byte count explicitly because `length` and indexing count
 SCALARS - an astral character is one scalar and four bytes, so the two measures
@@ -1302,8 +1309,8 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 700 agreed,
-35 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
+and reports how many answer alike. At the time of writing that is 703 agreed,
+32 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
 answer something the language does not say. Coverage was never a
 correctness claim, and quoting it as one overstated the machine.
 

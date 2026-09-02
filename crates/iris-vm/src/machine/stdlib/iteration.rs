@@ -48,15 +48,36 @@ impl Machine {
                 source: source.clone(),
             },
             Value::Range(range) => IteratorSource::Values(range_values(range)?),
+            // `C061` gives a MutableString cursor a LIVE view over its own
+            // content: it walks SCALARS and any change to the receiver
+            // invalidates it, rather than walking a snapshot the program can
+            // no longer see.
+            Value::MutableString(source) => IteratorSource::Text {
+                values: source
+                    .text()
+                    .chars()
+                    .map(|scalar| Value::Text(scalar.to_string()))
+                    .collect(),
+                expected_version: source.version(),
+                source: source.clone(),
+            },
+            // `C075` yields Integer byte values in source order, and Bytes is
+            // IMMUTABLE so its cursor can never fail fast.
+            Value::Bytes(bytes) => IteratorSource::Values(
+                bytes
+                    .iter()
+                    .map(|byte| Value::Integer(u64::from(*byte).into()))
+                    .collect(),
+            ),
             _ => return Ok(None),
         };
         let identity = iris_runtime::ObjectId::new(self.next_iterator);
         self.next_iterator = self.next_iterator.saturating_add(1);
         let value = match source {
             IteratorSource::Hash { .. } => Value::HashIterator(identity),
-            IteratorSource::Array { .. } | IteratorSource::Values(_) => {
-                Value::ArrayIterator(identity)
-            }
+            IteratorSource::Array { .. }
+            | IteratorSource::Values(_)
+            | IteratorSource::Text { .. } => Value::ArrayIterator(identity),
         };
         self.iterators.insert(
             identity,
@@ -165,6 +186,17 @@ impl Machine {
                     .map(|value| Value::Tuple(vec![keys[iterator.position].clone(), value]))
             }
             IteratorSource::Values(values) => values.get(iterator.position).cloned(),
+            IteratorSource::Text {
+                source,
+                values,
+                expected_version,
+            } => {
+                if source.version() != *expected_version {
+                    iterator.source = None;
+                    return Err(MachineError::ConcurrentModification);
+                }
+                values.get(iterator.position).cloned()
+            }
         };
         let Some(value) = value else {
             iterator.source = None;

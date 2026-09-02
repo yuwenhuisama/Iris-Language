@@ -46,6 +46,16 @@ enum IteratorSource {
         expected_version: u64,
     },
     Values(Vec<Value>),
+    /// A LIVE view over a MutableString's own content.
+    ///
+    /// `IRIS-V1-COLLECTIONS-C061` makes the cursor fail fast: it captures the
+    /// content version, and ANY change to the receiver invalidates it rather
+    /// than letting it walk a snapshot the program can no longer see.
+    Text {
+        source: iris_runtime::MutableStringRef,
+        values: Vec<Value>,
+        expected_version: u64,
+    },
 }
 
 #[derive(Clone, Debug)]

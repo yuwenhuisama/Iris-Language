@@ -10904,3 +10904,35 @@ fn byte_length_and_mutating_case_operations() {
         r#"["abc", "ABC"]"#,
     );
 }
+
+/// A MUTABLE STRING's cursor is a LIVE view that FAILS FAST.
+///
+/// `C061` captures the content version, so ANY change to the receiver
+/// invalidates an active cursor rather than letting it walk a snapshot the
+/// program can no longer see, and the byte view is the receiver itself rather
+/// than a detached Array. `clear` answers the RECEIVER, which is what `same?`
+/// observes - a fresh empty string would compare false against the one the
+/// program still holds.
+#[test]
+fn a_mutable_string_cursor_is_live() {
+    // `clear` answers the receiver, and `replace` sets the whole content.
+    agrees_on(
+        r#"module M { public fun run() -> Array { let m = m"ab"; [m.clear().same?(m), m.replace("x").to_string()] } } M.run()"#,
+        r#"[true, "x"]"#,
+    );
+    // Appending after a cursor was taken invalidates it.
+    agrees_on_error(
+        r#"module M { public fun run() -> Nil { let m = m"ab"; let it = m.iterator(); m.append("c"); it.next() } } M.run()"#,
+        "ConcurrentModification",
+    );
+    // The BYTE view is the receiver, so a cursor over it fails fast too.
+    agrees_on_error(
+        r#"module M { public fun run() -> Object { let m = m"é"; let view = m.bytes(); let it = view.iterator(); m.append("x"); it.next() } } M.run()"#,
+        "ConcurrentModification",
+    );
+    // Control: an UNDISTURBED cursor walks its scalars normally.
+    agrees_on(
+        r#"module M { public fun run() -> Object { let m = m"ab"; let it = m.iterator(); it.next() } } M.run()"#,
+        r#"Iteration.yield("a")"#,
+    );
+}

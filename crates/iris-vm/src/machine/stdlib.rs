@@ -363,7 +363,11 @@ impl Machine {
             Value::Task(_) if selector == "class_name" && arguments.is_empty() => {
                 Some(Value::Text("Task".to_owned()))
             }
-            Value::Array(_) | Value::Hash(_) | Value::Range(_)
+            Value::Array(_)
+            | Value::Hash(_)
+            | Value::Range(_)
+            | Value::MutableString(_)
+            | Value::Bytes(_)
                 if selector == "iterator" && arguments.is_empty() =>
             {
                 self.open_builtin_iterator(receiver)?
@@ -545,6 +549,19 @@ impl Machine {
                         changed,
                     )))
                 }
+            }
+            // `clear` empties the content and answers the RECEIVER, which is
+            // what `same?` observes - a fresh empty string would compare
+            // false against the one the program still holds.
+            Value::MutableString(text) if selector == "clear" && arguments.is_empty() => {
+                text.set(String::new());
+                Some(receiver.clone())
+            }
+            // `C061` makes the byte view a LIVE Iterable over the receiver
+            // rather than a detached Array, so a later content change
+            // invalidates an active cursor.
+            Value::MutableString(_) if selector == "bytes" && arguments.is_empty() => {
+                Some(receiver.clone())
             }
             // `replace` sets the WHOLE content and answers the receiver, so
             // every reference to the string sees the new text.
