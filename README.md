@@ -2,10 +2,61 @@
 
 **A modern object-oriented scripting language with dynamic behavior bounded by static promises.**
 
-[Website](https://yuwenhuisama.github.io/Iris-Language/) · [Tutorial](tutorial/en/README.md) · [Specification](spec/iris-v1/README.md) · [中文规范](spec/iris-v1/zh-cn/README.md)
+[Website](https://yuwenhuisama.github.io/Iris-Language/) · [Tutorial (EN)](tutorial/en/README.md) · [教程 (中文)](tutorial/zh-cn/README.md) · [Specification](spec/iris-v1/README.md) · [中文规范](spec/iris-v1/zh-cn/README.md)
 
-> **Status: frozen v1 specification with owner-approved errata; the implementation runs but is not a toolchain release.**
-> The specification is complete and frozen. The Rust reference implementation executes Iris programs through a tree-walking evaluator and a partial bytecode backend, and ships an `iris` binary with a script runner and REPL. Many language constructs are still unimplemented. Iris is not ready for production use, and no compatibility is promised until a toolchain release exists.
+> **Status: frozen v1 specification with owner-approved errata; runnable Rust engine, not a released toolchain.**
+> The language specification is frozen. The repository contains a working Rust runtime that includes a register bytecode virtual machine alongside a reference tree-walking evaluator, plus a C ABI boundary. It is an active development implementation rather than a packaged release: there is no package manager or general distribution yet.
+
+---
+
+## Quickstart
+
+Requires a stable Rust toolchain (see [`rust-toolchain.toml`](rust-toolchain.toml)).
+
+Build the CLI binary with Cargo:
+
+```bash
+cargo build -p iris-cli
+```
+
+Run code directly on the register bytecode VM:
+
+```bash
+./target/debug/iris --vm -e 'print("Hello, Iris!")'
+```
+
+Terminal output:
+
+```text
+Hello, Iris!
+```
+
+Create a script file named `hello.iris`:
+
+<!-- iris-example: {"id":"readme-hello","mode":"vm","stdout":"Hello, Iris!\n"} -->
+```iris
+print("Hello, Iris!")
+```
+
+Run the script on the VM:
+
+```bash
+./target/debug/iris --vm hello.iris
+```
+
+Terminal output:
+
+```text
+Hello, Iris!
+```
+
+Running without `--vm` uses the reference evaluator. An interactive session without arguments also starts the reference REPL (`:quit` to exit):
+
+```bash
+./target/debug/iris hello.iris        # run via reference evaluator
+./target/debug/iris -e 'print(1 + 2)'  # run source via reference evaluator
+./target/debug/iris                    # start interactive REPL session
+```
 
 ---
 
@@ -57,17 +108,40 @@ Every normative paragraph carries a clause ID such as `IRIS-V1-IDENTITY-C008`, s
 | [11](spec/iris-v1/11-migration-divergence.md) | Migration and divergence ledger |
 | [12](spec/iris-v1/12-conformance.md) | Conformance framework |
 
-A full Simplified Chinese translation is available under [`spec/iris-v1/zh-cn/`](spec/iris-v1/zh-cn/README.md) as a reference translation; the English chapters are authoritative.
+A full Simplified Chinese translation is available under [`spec/iris-v1/zh-cn/`](spec/iris-v1/zh-cn/README.md) as a reference translation. The English chapters are authoritative.
 
 ## Tutorial
 
-The specification is precise but not a starting point. The [tutorial](tutorial/en/README.md) is a guided introduction for working programmers: eleven chapters from the object model and bindings through control flow, callables, Classes, Modules and Contracts, gradual types, errors and resources, and bounded metaprogramming, ending with a map back into the spec.
+The specification is precise, but the tutorial is where most programmers start. The guided tutorial spans ten chapters plus an index in both English and Simplified Chinese:
 
-Every chapter closes with the clause IDs it simplifies, so you can move from prose to normative text at any point. It is available in [English](tutorial/en/README.md) and [简体中文](tutorial/zh-cn/README.md).
+- **English**: [tutorial/en/README.md](tutorial/en/README.md)
+- **Simplified Chinese (简体中文)**: [tutorial/zh-cn/README.md](tutorial/zh-cn/README.md)
 
-## Reference Implementation
+| Chapter | Topic | What it covers |
+| --- | --- | --- |
+| [01. What Iris Is](tutorial/en/01-getting-started.md) | Getting started | Building the CLI, running scripts on the VM, language model, honest runtime status |
+| [02. Values and Bindings](tutorial/en/02-values-and-bindings.md) | Values and names | `let`, `mut`, `const`, `shared`, annotations, literals, `nil`, truthiness |
+| [03. Control Flow](tutorial/en/03-control-flow.md) | Branches and loops | `if` expressions, `while`, `for`, `match`, `break`, `continue`, `yield` |
+| [04. Functions, Closures, Blocks](tutorial/en/04-callables-and-closures.md) | Callables | `fun`, `module fun`, parameters, `Closure<S>`, `Block<S>`, `.call`, captures |
+| [05. Classes and Objects](tutorial/en/05-classes-and-objects.md) | Object model | Classes, `self`, `@ivar`, stored properties, inheritance, construction |
+| [06. Modules and Contracts](tutorial/en/06-modules-and-contracts.md) | Composition | `module` mixins, MRO order, `contract`, `for`, `impl`, views, `..` dispatch |
+| [07. Gradual Types](tutorial/en/07-types-and-generics.md) | Type promises | Optional annotations, `Object`, unions, `?`, casts, `typeof`, generics |
+| [08. Errors and Resources](tutorial/en/08-errors-and-resources.md) | Failure and cleanup | Raising objects, `try`/`catch`, `ExceptionContext`, `using`, `Closeable`, `Task` |
+| [09. Dynamic Meets Static](tutorial/en/09-dynamic-and-static.md) | Bounded mutation | `open class`, revisions, atomic publish/rollback, `meta deny`, reflection |
+| [10. Where To Next](tutorial/en/10-where-to-next.md) | Spec handoff | Map of spec artifacts, reading path, FFI, host embedding, conformance |
 
-The v1 implementation is written in Rust and lives under [`crates/`](crates/). It now runs Iris programs: a tree-walking evaluator over a real object model, a garbage-collected heap, a partial bytecode backend that is differentially compared against the evaluator, a C ABI boundary, and an `iris` binary with a script runner and a REPL. It is not a toolchain release — there is no package manager, no standard-library distribution, and no stability promise.
+Each chapter links back directly to the relevant frozen specification clauses.
+
+Executable tutorial code snippets are verified through automated tooling, while spec-only and forward-looking snippets are explicitly excluded from execution runs. You can run the tutorial code snippet checker and its test suite:
+
+```bash
+node tools/check-tutorial.mjs
+node --test tools/check-tutorial.test.mjs
+```
+
+## Runtime Architecture
+
+The implementation lives in Rust crates under [`crates/`](crates/):
 
 | Crate | Responsibility |
 | --- | --- |
@@ -76,83 +150,55 @@ The v1 implementation is written in Rust and lives under [`crates/`](crates/). I
 | `iris-parser` | Recursive-descent declarations, Pratt expressions, static analysis |
 | `iris-runtime` | Object model: Classes, revisions, MRO, dispatch, heap, GC tracing, stable hashing |
 | `iris-eval` | Tree-walking evaluator, backend abstraction, differential observations |
-| `iris-vm` | Register-based bytecode backend and verifier; deliberately partial |
-| `iris-cli` | The `iris` command: script runner and REPL |
+| `iris-vm` | Register-based bytecode VM and verifier, running independently from the evaluator |
+| `iris-cli` | The `iris` executable: VM runner, reference runner, and interactive REPL |
 | `iris-conformance` | Conformance vector runner and milestone report |
 | `iris-abi` | The stable `extern "C"` boundary, opaque handles, and unwinding barrier |
 
-Notable properties already implemented and tested:
+Notable properties implemented and tested:
 
-- Correctly rounded `Float32` and `Float64` literal conversion with exact round-ties-to-even, independent of host locale and rounding mode, with no double rounding on the hexadecimal path (`IRIS-V1-GRAMMAR-C030`).
+- Correctly rounded `Float32` and `Float64` literal conversions with exact round-ties-to-even, independent of host locale or rounding mode (`IRIS-V1-GRAMMAR-C030`).
 - Arbitrary-precision `Integer` literals with exact round-trip.
-- Contextual tokenization resolving the frozen conflicts between range operators and Contract views, generic closers and right shift, and regex literals and division.
-- The full 17-row operator precedence table, including right-associative `**` and rejected non-associative chains.
-- Logical Class identity across revisions, Module composition and MRO ordering, Contract views and qualified dispatch, and transactional publish-or-rollback.
-- A moving collector that traces the whole object graph, with identity hashes stored rather than derived from addresses.
+- Contextual tokenization resolving conflicts between range operators and Contract views, generic closers and right shift, and regex literals and division.
+- The complete 17-row operator precedence table, including right-associative `**` and rejected non-associative chains.
+- Logical Class identity across revisions, Module composition and MRO ordering, Contract views with qualified dispatch, and transactional publish-or-rollback.
+- A moving collector that traces the whole object graph, storing identity hashes rather than deriving them from addresses.
+- A register-based bytecode VM with three-address instructions and an ahead-of-time bytecode verifier that checks operand ranges, jump targets, and definite assignment before execution.
 
-The bytecode backend is intentionally partial: it compiles what it fully understands and declines everything else, because a backend that approximates would make a differential row agree for the wrong reason.
+The bytecode VM declines unsupported language constructs explicitly rather than guessing or silently falling back to the reference evaluator.
 
-### Run it
+## Building and Verification
 
-Requires a stable Rust toolchain; see [`rust-toolchain.toml`](rust-toolchain.toml).
-
-```bash
-cargo build -p iris-cli
-./target/debug/iris script.iris        # run a script
-./target/debug/iris -e 'print(1 + 2)'  # run source from the command line
-./target/debug/iris                    # interactive session, :quit to leave
-```
-
-The language is further along than the runner: many spec constructs still report `unsupported construct`. Start from the [tutorial](tutorial/en/README.md) for what the language means, and treat the binary as a partial implementation of it.
-
-### Build and test
+Requires a stable Rust toolchain (see [`rust-toolchain.toml`](rust-toolchain.toml)).
 
 ```bash
+# Build the workspace
+cargo build
+
+# Run unit and integration tests
 cargo test --workspace
+
+# Linting and formatting
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-### Conformance
+### Conformance Suite
 
-Vectors are derived from the frozen specification tables and committed under [`conformance/iris-v1/`](conformance/iris-v1/). Run any chapter suite:
+Specification conformance vectors are kept under [`conformance/iris-v1/`](conformance/iris-v1/). You can execute conformance vectors by chapter:
 
 ```bash
 cargo run -p iris-conformance -- --chapter RUNTIME
 ```
 
-Current result at this commit, across all thirteen chapters:
-
-| Chapter | Passed | Failed | Other |
-| --- | --- | --- | --- |
-| RUNTIME | 194 | 0 | |
-| CONTROL | 180 | 3 | |
-| COLLECTIONS | 132 | 0 | 1 differential |
-| TYPES | 103 | 1 | |
-| META | 85 | 6 | 1 needs-subsystem |
-| ASYNC | 56 | 0 | |
-| FFI | 45 | 0 | |
-| GRAMMAR | 40 | 0 | 1 deferred, 5 authored-expect, 9 unrunnable-source |
-| CONFORMANCE | 40 | 0 | |
-| LIBRARY | 29 | 0 | |
-| IDENTITY | 20 | 0 | 1 needs-subsystem |
-| TRACE | 8 | 0 | |
-| MIGRATION | 6 | 0 | |
-| **Total** | **938** | **10** | |
-
-The ten failures are real and tracked, not suppressed. The runner reports non-executable vectors in their own buckets and never counts them as passing:
-
-- **authored-expect** — the frozen spec row names no stable diagnostic code, so the expectation is authored locally and is not treated as coverage.
-- **needs-subsystem** — the vector requires a subsystem this implementation does not have yet.
-- **no-fixture / unrunnable_source** — the frozen spec row supplies prose instead of an executable fixture or expectation. See the per-chapter classification files under [`conformance/iris-v1/`](conformance/iris-v1/).
-- **differential** — requires cross-backend comparison that is not yet available for that row.
+Results track passing vectors, active gaps, and vectors requiring unfinished subsystems or author-specified diagnostic expectations. Conformance vectors are evidence: they are never modified or reclassified merely to inflate passing counts.
 
 ## Repository Layout
 
 ```text
 spec/iris-v1/          Frozen v1 specification, English and Simplified Chinese
 tutorial/              Guided tutorial, English and Simplified Chinese
-crates/                Rust reference implementation
+crates/                Rust runtime implementation (VM, evaluator, runtime, CLI)
 conformance/iris-v1/   Conformance vector corpus, schema, and classification
 docs/                  Specification defect ledger, IR design, milestone status
 legacy/                Archived prior C++ implementation, frozen and unmaintained
@@ -160,9 +206,7 @@ legacy/                Archived prior C++ implementation, frozen and unmaintaine
 
 ## Contributing
 
-The specification is frozen; it is not edited to accommodate implementation convenience. If the implementation and the spec disagree, the discrepancy is recorded in [`docs/spec-defects-v1.md`](docs/spec-defects-v1.md) with both readings and the chosen behavior.
-
-Conformance vectors are evidence. They are never weakened, reclassified, or special-cased to make a result look better.
+The specification is frozen. Discrepancies between the reference implementation and specification are documented in [`docs/spec-defects-v1.md`](docs/spec-defects-v1.md) with both readings and rationale.
 
 ## License
 
