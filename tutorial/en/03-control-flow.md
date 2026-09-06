@@ -1,142 +1,152 @@
 # Control Flow
 
-This chapter shows how Iris chooses among paths. `if`, loops, and `match` are value-producing forms governed by the same object model you saw earlier. Conditions call `to_bool`, loops can produce values through `break`, `for` binds fresh per-iteration cells, and `match` uses source-order pattern arms with optional guards.
-
-```iris
-let label = match value {
-  nil => "none"
-  true => "yes"
-  _ => "other"
-}
-```
-
-This snippet is reused from `IRIS-V1-CONTROL-EX009`.
+This chapter demonstrates how Iris handles branching, looping, and iteration. The language defines value-producing control forms, but the current parser accepts `match` as a standalone form, not in a variable initializer. Conditions evaluate through the `to_bool` protocol, loops can yield return values through `break`, `for` loops bind fresh iteration variables, and `match` evaluates arms in top-to-bottom source order.
 
 ## If expressions produce values
 
-`if` is a real expression, not a statement with a value bolted on. It appears wherever a primary expression is allowed, including as a call argument or the right-hand side of an assignment. Each branch has its own lexical scope. The selected branch contributes its final expression, or `nil` if the selected body has no value-producing statement. If there is no `else` and the condition is false, the missing branch contributes `nil`.
+In Iris, `if` is an expression that yields a value rather than a bare statement. It can appear in variable initializers, return values, or method arguments. Each branch establishes its own lexical block.
 
+<!-- iris-example: {"id":"03-if","mode":"vm","stdout":"1\n"} -->
 ```iris
-let status = if user.ready? {
+let status = if true {
   :ready
 } else {
   :waiting
 }
-
 print(if status == :ready { 1 } else { 0 })
 ```
 
-An `else if` chain is just an `else` followed by another `if`. Conditions evaluate once per test and must return an actual Bool from `to_bool`. Arbitrary truthiness doesn't narrow a type by itself, so use explicit checks when the following code depends on a narrower type.
+Expected output:
 
-```iris
-let name: String? = load_name()
-
-let label = if name != nil {
-  name
-} else {
-  "anonymous"
-}
+```text
+1
 ```
+
+If the condition evaluates to `false` and there is no `else` block, the expression produces `nil`.
 
 ## While loops can return through break
 
-`while` tests before each iteration. Natural completion, including zero iterations, yields `nil`. `break expr` exits the loop and makes `expr` the loop result. `continue` starts the next iteration and has no value.
+A `while` loop tests its condition before executing each iteration. Natural completion of a loop without an explicit `break` produces `nil`. Using `break expr` immediately terminates the loop and provides the overall result value of the `while` expression.
 
+<!-- iris-example: {"id":"03-while-break","mode":"vm","stdout":"3\n"} -->
 ```iris
 mut index: Integer = 0
-let found = while index < limit {
-  if index == target { break index }
-  index += 1
+let found = while index < 10 {
+  if index == 3 { break index }
+  index = index + 1
 }
+print(found)
 ```
 
-Labels let `break` and `continue` target an outer loop. A label appears immediately before `while` or `for`. Labeled `break` uses `break label: value`; labeled `continue` uses `continue label`.
+Expected output:
 
-```iris
-outer: while keep_running {
-  while ready {
-    if done { break outer: :done }
-    continue
-  }
-}
+```text
+3
 ```
+
+The `continue` keyword advances execution to the next iteration without returning a value. Labeled loops allow `break label: value` to exit nested loops cleanly.
 
 ## For loops bind fresh iteration cells
 
-`for pattern in iterable` evaluates the iterable once and traverses it through the language iteration protocol. The loop body receives fresh immutable bindings for each iteration. That matters for Closures: an escaped Closure captures the cell for its own iteration, not one shared loop variable.
+The `for` loop iterates over any object satisfying the iteration protocol. For each step of iteration, a fresh immutable binding is introduced for the loop variable.
 
+<!-- iris-example: {"id":"03-for-loop","mode":"vm","stdout":"6\n"} -->
 ```iris
-mut callbacks: Array<Closure<() -> Integer>> = []
-for value in 1 ..= 3 {
-  callbacks.append({ || -> Integer; value })
+mut sum = 0
+for value in [1, 2, 3] {
+  sum = sum + value
 }
+print(sum)
 ```
 
-This snippet is adapted from `IRIS-V1-CONTROL-EX008`.
+Expected output:
+
+```text
+6
+```
+
+Because each iteration receives a fresh binding, closures created inside the loop capture independent variable instances.
 
 ## Generators yield a lazy iterator
 
-A callable whose body contains `yield` is a generator. Invoking it does not run the body: it returns an `Iterator<T>`. Each `next()` resumes the body until the next `yield`, answering `Iteration.yield(value)`, and answers `Iteration.done` once the body completes. That is the same protocol `for` traverses, so a generator can drive a `for` loop directly.
+Under `IRIS-V1-GRAMMAR-C072`, a callable containing `yield` statements is a generator: calling it does not execute the body immediately, but returns an `Iterator<T>`. Calling `.next()` advances to each `yield`, returning `Iteration.yield(value)`, and returns `Iteration.done` upon completion. The tree-walking reference engine executes generator callables directly.
 
-```iris
-fun counting(limit: Integer) -> Iterator<Integer> {
-  mut index = 0
-  while index < limit {
-    yield index
-    index += 1
-  }
-}
+**Reference-only example.** Save the following program as `generator.iris` and run it without `--vm`:
 
-for value in counting(3) {
-  print(value)
-}
+```bash
+./target/debug/iris generator.iris
 ```
 
-`yield` sits at the same precedence as `await`, and like `await` it is forbidden inside an open or revision transaction body, because those bodies must not suspend.
+<!-- iris-example: {"id":"03-generator-yield","mode":"reference","stdout":"10\n20\n"} -->
+```iris
+class CounterGenerator {
+  public fun steps() -> Nil {
+    yield 10
+    yield 20
+  }
+}
+let gen = CounterGenerator.new().steps()
+print(gen.next().value)
+print(gen.next().value)
+```
+
+Expected output:
+
+```text
+10
+20
+```
+
+The register machine VM supports collection iteration, but does not support this generator suspension example.
 
 ## Match arms run in source order
 
-`match` evaluates the scrutinee once, then tries arms in source order. There is no fallthrough. Dynamic or open-ended domains need an explicit `else` fallback unless the arm set is provably exhaustive.
+The standalone `match` below is supported by the current parser and VM. It evaluates its subject once and tests pattern arms sequentially in source order without fallthrough (`IRIS-V1-CONTROL-C050`). An `else =>` arm acts as the default fallback when no preceding pattern matches. Initializer syntax such as `let label = match ...` is not yet accepted by the parser; this example assigns to an existing mutable binding instead.
 
+<!-- iris-example: {"id":"03-match","mode":"vm","stdout":"two\n"} -->
 ```iris
-let result = match item {
-  nil => :missing
-  is String text if text.length() > 0 => :text
-  _ => :other
+mut label = "none"
+match 2 {
+  1 => label = "one"
+  2 => label = "two"
+  else => label = "other"
 }
+print(label)
 ```
 
-Patterns can match literals, `nil`, Bool values, nominal type tests with optional binding, alternatives, Tuple patterns, Array patterns, binding names, and `_`. Arms are separated by a newline or a comma, so a compact `match` fits on one line. A guard runs after the pattern shape succeeds and after provisional bindings exist. If the guard is false, those provisional bindings are discarded and matching continues.
+Expected output:
 
-```iris
-let kind = match pair {
-  (:ok, value) => value
-  (:error, _) => nil
-  else => nil
-}
+```text
+two
 ```
+
+Each arm can execute an expression or block, and pattern guards (`if condition`) allow additional filtering before selecting an arm.
 
 ## Static promise, dynamic freedom
 
-Control flow is dynamic because conditions, guards, and logical operators call `to_bool` at runtime. It is statically promised because branch result types, loop result types, definite assignment, match exhaustiveness, pattern bindings, and invalid control targets are still checked by the rules in the spec.
+Branch conditions and loop guards evaluate dynamically using `to_bool`. However, branch convergence types, pattern binding scopes, and jump destinations remain statically verified.
 
 ## Treat control forms as expressions
 
-The important habit is to treat control forms as expressions whose value and type matter. A branch that raises or calls a `Never` returning Method contributes no normal result. A `break value` contributes to the loop's result type. A `match` arm binding lives only in the selected arm.
+Where supported, value-producing control forms eliminate unneeded mutable temporary variables: assign the result of `if` directly to an immutable `let`, as in the first example. For `match`, retain the standalone form shown above because the current parser does not accept a `match` initializer.
+
+**Hands-on Exercise**
+
+Write a script `control_test.iris` that computes the factorial of `5` using a `while` loop: declare `mut n = 5`, `mut acc = 1`, loop while `n > 1`, multiplying `acc = acc * n` and decrementing `n = n - 1`, then print `acc`. Run with `./target/debug/iris --vm control_test.iris` to confirm output `120`.
 
 ## Read the spec
 
-This chapter simplifies these normative clauses:
+This chapter simplifies the following normative clauses:
 
-- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md): condition truthiness.
-- [`IRIS-V1-CONTROL-C040`](../../spec/iris-v1/04-bindings-callables-control-flow.md): logical operator behavior.
+- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md): condition truthiness evaluation.
+- [`IRIS-V1-CONTROL-C040`](../../spec/iris-v1/04-bindings-callables-control-flow.md): logical operator short-circuiting.
 - [`IRIS-V1-CONTROL-C041`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `if` as a value-producing form.
 - [`IRIS-V1-CONTROL-C043`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `while`, `break`, and `continue`.
-- [`IRIS-V1-CONTROL-C044`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `for` traversal.
-- [`IRIS-V1-CONTROL-C045`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `for` destructuring and per-iteration bindings.
-- [`IRIS-V1-CONTROL-C048`](../../spec/iris-v1/04-bindings-callables-control-flow.md): loop labels.
-- [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `match` selection and fallback.
-- [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md): v1 pattern vocabulary.
-- [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md): match guards.
-- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md): `if` in expression position.
-- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md): `yield` and generator callables.
+- [`IRIS-V1-CONTROL-C044`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `for` traversal protocol.
+- [`IRIS-V1-CONTROL-C045`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `for` iteration binding scoping.
+- [`IRIS-V1-CONTROL-C048`](../../spec/iris-v1/04-bindings-callables-control-flow.md): loop labels and targeted breaks.
+- [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `match` arm evaluation semantics.
+- [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md): pattern matching syntax vocabulary.
+- [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md): pattern guards.
+- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md): `if` expressions in the grammar.
+- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md): `yield` and generator semantics.

@@ -1,142 +1,152 @@
 # 控制流
 
-本章展示 Iris 如何在路径之间做选择。`if`、循环和 `match` 都是产出值的形式，并受你前面见过的同一对象模型管辖。条件调用 `to_bool`，循环可以通过 `break` 产出值，`for` 会绑定每轮迭代的新鲜单元，`match` 使用按源码顺序排列的模式分支，并可带可选 guard。
-
-```iris
-let label = match value {
-  nil => "none"
-  true => "yes"
-  _ => "other"
-}
-```
-
-这个片段复用自 `IRIS-V1-CONTROL-EX009`。
+本章展示 Iris 如何处理分支、循环和迭代。语言定义了产出值的控制形式，但当前解析器只接受独立的 `match`，不接受将它用于变量初始化。条件通过 `to_bool` 协议计算真假，循环可通过 `break` 提供返回值，`for` 循环为每次迭代绑定新的局部单元，而 `match` 按照自上而下的源码顺序依次匹配各个分支。
 
 ## If 表达式产出值
 
-`if` 是真正的表达式，不是硬接上一个值的语句。凡是允许 primary expression 的地方都可以出现它，包括作为调用实参或赋值右侧。每个分支都有自己的词法作用域。被选分支贡献它的最终表达式；如果被选主体没有产出值的语句，则贡献 `nil`。如果没有 `else` 且条件为 false，缺失分支贡献 `nil`。
+在 Iris 中，`if` 是能产出值的表达式，而不仅仅是语句。它可以出现在变量初始化、返回值或方法调用的实参中。每个分支拥有独立的词法作用域。
 
+<!-- iris-example: {"id":"03-if","mode":"vm","stdout":"1\n"} -->
 ```iris
-let status = if user.ready? {
+let status = if true {
   :ready
 } else {
   :waiting
 }
-
 print(if status == :ready { 1 } else { 0 })
 ```
 
-`else if` 链只是一个 `else` 后面跟另一个 `if`。每个测试只求值一次条件，并且 `to_bool` 必须返回实际 Bool。任意真值性本身不会收窄类型，所以当后续代码依赖更窄类型时，请使用显式检查。
+预期输出：
 
-```iris
-let name: String? = load_name()
-
-let label = if name != nil {
-  name
-} else {
-  "anonymous"
-}
+```text
+1
 ```
+
+若条件为 `false` 且省略了 `else` 块，整个表达式求值结果为 `nil`。
 
 ## While 循环可以通过 break 返回
 
-`while` 在每轮迭代前测试条件。自然完成，包括零次迭代，产出 `nil`。`break expr` 退出循环，并让 `expr` 成为循环结果。`continue` 开始下一轮迭代且没有值。
+`while` 循环在执行每轮迭代之前检查条件。若循环自然结束而未遇到显式的 `break`，其结果值为 `nil`。使用 `break expr` 会立即终止循环，并将 `expr` 作为整个 `while` 表达式的最终求值结果。
 
+<!-- iris-example: {"id":"03-while-break","mode":"vm","stdout":"3\n"} -->
 ```iris
 mut index: Integer = 0
-let found = while index < limit {
-  if index == target { break index }
-  index += 1
+let found = while index < 10 {
+  if index == 3 { break index }
+  index = index + 1
 }
+print(found)
 ```
 
-标签让 `break` 和 `continue` 可以指向外层循环。标签紧挨着出现在 `while` 或 `for` 前面。带标签的 `break` 使用 `break label: value`；带标签的 `continue` 使用 `continue label`。
+预期输出：
 
-```iris
-outer: while keep_running {
-  while ready {
-    if done { break outer: :done }
-    continue
-  }
-}
+```text
+3
 ```
+
+关键字 `continue` 直接开启下一轮迭代，不产生值。带标签的循环允许使用 `break label: value` 干净利落地跳出多层嵌套循环。
 
 ## For 循环绑定新鲜迭代单元
 
-`for pattern in iterable` 对 iterable 求值一次，并通过语言迭代协议遍历它。循环体在每轮迭代中接收新鲜的不可变绑定。这对 Closure 很重要：逃逸的 Closure 捕获它自己那轮迭代的单元，而不是一个共享循环变量。
+`for` 循环遍历满足迭代协议的任意对象。对于迭代的每一步，循环变量都会获得一个全新的不可变局部绑定。
 
+<!-- iris-example: {"id":"03-for-loop","mode":"vm","stdout":"6\n"} -->
 ```iris
-mut callbacks: Array<Closure<() -> Integer>> = []
-for value in 1 ..= 3 {
-  callbacks.append({ || -> Integer; value })
+mut sum = 0
+for value in [1, 2, 3] {
+  sum = sum + value
 }
+print(sum)
 ```
 
-这个片段改编自 `IRIS-V1-CONTROL-EX008`。
+预期输出：
+
+```text
+6
+```
+
+由于每次迭代都有独立的变量绑定，在循环体内创建的闭包能够各自捕获独立的变量实例。
 
 ## 生成器 yield 惰性迭代器
 
-主体包含 `yield` 的可调用体是生成器。调用它不会运行主体：它返回一个 `Iterator<T>`。每次 `next()` 都会恢复主体直到下一个 `yield`，回答 `Iteration.yield(value)`；主体完成后则回答 `Iteration.done`。这就是 `for` 遍历的同一协议，所以生成器可以直接驱动 `for` 循环。
+根据 `IRIS-V1-GRAMMAR-C072`，包含 `yield` 语句的可调用体属于生成器：调用它不会立即执行方法体，而是返回一个 `Iterator<T>`。调用 `.next()` 会推进执行到下一个 `yield`，返回 `Iteration.yield(value)`；在执行完毕后返回 `Iteration.done`。树遍历参考引擎能够直接执行生成器可调用体。
 
-```iris
-fun counting(limit: Integer) -> Iterator<Integer> {
-  mut index = 0
-  while index < limit {
-    yield index
-    index += 1
-  }
-}
+**仅参考引擎示例。** 将以下程序保存为 `generator.iris`，运行时不要添加 `--vm`：
 
-for value in counting(3) {
-  print(value)
-}
+```bash
+./target/debug/iris generator.iris
 ```
 
-`yield` 与 `await` 位于同一优先级，而且像 `await` 一样，它禁止出现在 open 或 revision 事务主体内部，因为那些主体不能挂起。
+<!-- iris-example: {"id":"03-generator-yield","mode":"reference","stdout":"10\n20\n"} -->
+```iris
+class CounterGenerator {
+  public fun steps() -> Nil {
+    yield 10
+    yield 20
+  }
+}
+let gen = CounterGenerator.new().steps()
+print(gen.next().value)
+print(gen.next().value)
+```
+
+预期输出：
+
+```text
+10
+20
+```
+
+寄存器机 VM 支持集合迭代，但不支持这个生成器挂起示例。
 
 ## Match 分支按源码顺序运行
 
-`match` 对 scrutinee 求值一次，然后按源码顺序尝试各个 arm。没有 fallthrough。动态或开放域需要显式 `else` fallback，除非 arm 集可证明穷尽。
+当前解析器和 VM 支持以下独立的 `match`。它对被匹配对象求值一次，然后自上而下严格按源码顺序依次匹配各个分支，没有隐式穿透（`IRIS-V1-CONTROL-C050`）。`else =>` 分支在前面的模式均未命中时作为默认回退分支执行。解析器尚不接受 `let label = match ...` 这样的初始化语法，因此本例改为给已有的可变绑定赋值。
 
+<!-- iris-example: {"id":"03-match","mode":"vm","stdout":"two\n"} -->
 ```iris
-let result = match item {
-  nil => :missing
-  is String text if text.length() > 0 => :text
-  _ => :other
+mut label = "none"
+match 2 {
+  1 => label = "one"
+  2 => label = "two"
+  else => label = "other"
 }
+print(label)
 ```
 
-模式可以匹配字面量、`nil`、Bool 值、带可选绑定的名义类型测试、alternatives、Tuple 模式、Array 模式、绑定名和 `_`。Arm 由换行或逗号分隔，所以紧凑的 `match` 可以放在一行。Guard 会在模式形状成功后、临时绑定存在后运行。如果 guard 为 false，这些临时绑定会被丢弃，匹配继续。
+预期输出：
 
-```iris
-let kind = match pair {
-  (:ok, value) => value
-  (:error, _) => nil
-  else => nil
-}
+```text
+two
 ```
+
+每个分支可以执行表达式或代码块，并且模式守卫（`if 条件`）允许在选定分支前施加额外的条件过滤。
 
 ## 静态承诺，动态自由
 
-控制流是动态的，因为条件、guard 和逻辑运算符会在运行时调用 `to_bool`。它也有静态承诺，因为分支结果类型、循环结果类型、确定赋值、match 穷尽性、模式绑定和无效控制目标仍按规范规则检查。
+分支条件与循环守卫在运行时通过 `to_bool` 动态求值。然而，分支结果类型的汇聚、模式绑定的作用域以及跳转目标均受到静态检验与约束。
 
 ## 把控制形式当作表达式
 
-关键习惯是把控制形式当成具有值和类型的表达式。会 raise 或调用返回 `Never` 的 Method 的分支不贡献正常结果。`break value` 会贡献到循环的结果类型。`match` arm 的绑定只在被选 arm 中存在。
+在实现支持的地方，产出值的控制形式可以消除不必要的可变临时变量：如第一个示例所示，将 `if` 的结果直接赋值给不可变的 `let`。对于 `match`，请保留上面展示的独立形式，因为当前解析器不接受 `match` 初始化表达式。
+
+**实战练习**
+
+编写脚本 `control_test.iris`，使用 `while` 循环计算 `5` 的阶乘：声明 `mut n = 5`，`mut acc = 1`，在 `n > 1` 的条件下循环执行 `acc = acc * n` 与 `n = n - 1`，最后打印 `acc`。使用 `./target/debug/iris --vm control_test.iris` 运行以确认输出 `120`。
 
 ## 阅读规范
 
-本章简化了以下规范性条款：
+本章内容简化并对应于以下规范性条款：
 
-- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：条件真值性。
-- [`IRIS-V1-CONTROL-C040`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：逻辑运算符行为。
-- [`IRIS-V1-CONTROL-C041`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`if` 作为产出值的形式。
-- [`IRIS-V1-CONTROL-C043`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`while`、`break` 和 `continue`。
-- [`IRIS-V1-CONTROL-C044`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`for` 遍历。
-- [`IRIS-V1-CONTROL-C045`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`for` 解构和逐迭代绑定。
-- [`IRIS-V1-CONTROL-C048`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：循环标签。
-- [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`match` 选择和 fallback。
-- [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：v1 模式词汇。
-- [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：match guards。
-- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md)：表达式位置中的 `if`。
-- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md)：`yield` 和生成器可调用体。
+- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：条件真值性求值。
+- [`IRIS-V1-CONTROL-C040`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：逻辑运算符短路特性。
+- [`IRIS-V1-CONTROL-C041`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：作为值产生形式的 `if`。
+- [`IRIS-V1-CONTROL-C043`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`while`、`break` 与 `continue`。
+- [`IRIS-V1-CONTROL-C044`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`for` 遍历协议。
+- [`IRIS-V1-CONTROL-C045`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`for` 迭代绑定作用域。
+- [`IRIS-V1-CONTROL-C048`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：循环标签与定向跳出。
+- [`IRIS-V1-CONTROL-C050`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`match` 分支求值语义。
+- [`IRIS-V1-CONTROL-C051`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：模式匹配语法词汇表。
+- [`IRIS-V1-CONTROL-C052`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：模式守卫。
+- [`IRIS-V1-GRAMMAR-C060`](../../spec/iris-v1/02-lexical-grammar.md)：文法中的 `if` 表达式。
+- [`IRIS-V1-GRAMMAR-C072`](../../spec/iris-v1/02-lexical-grammar.md)：`yield` 与生成器语义。
