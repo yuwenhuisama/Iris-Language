@@ -1,158 +1,181 @@
 # 函数、闭包与块
 
-本章解释 Iris 的可调用体。具名 `fun` 声明创建 Method，而不是独立函数对象。从接收者读取 Method 会创建 BoundMethod。Closure 字面量创建带有词法捕获的匿名可调用体。尾随块是通过专用 `&block` 通道传递的 Closure 字面量。每个可调用值都通过 `.call(...)` 调用。
-
-```iris
-class Counter {
-  property value: Integer = 0
-  fun add(delta: Integer) -> Integer { @value += delta }
-}
-
-let counter = Counter.new()
-let bound: BoundMethod<(Integer) -> Integer> = counter.add
-let closure: Closure<(Integer) -> Integer> = { |delta: Integer| -> Integer; counter.add(delta) }
-
-bound.call(1)
-closure.call(2)
-```
-
-这个片段改编自 `IRIS-V1-CONTROL-EX003`。
+本章解释 Iris 中可调用代码的组织与调用机制。具名 `fun` 声明在类或模块上定义 Method，而不是孤立的全局函数。引用方法会生成 BoundMethod。闭包字面量创建匿名可调用对象并通过引用捕获词法绑定。在所有情况下，可调用值均通过 `.call(...)` 进行调用。
 
 ## Callable Types 命名自己的种类
 
-可调用 Type 从不是裸签名。签名 `(P1, P2) -> R` 是一个组成部分，Type 会把它包在所描述的可调用种类中：
+在 Iris 中，可调用类型显式指明其具体的运行时类别：
 
-| Type | 持有 |
+| 类型 | 代表含义 |
 | --- | --- |
-| `Closure<(P) -> R>` | 一个 Closure 值 |
-| `BoundMethod<(P) -> R>` | 一个 BoundMethod 值 |
-| `Block<(P) -> R>` | 两者之一，用于块通道 |
+| `Closure<(P) -> R>` | 匿名闭包对象 |
+| `BoundMethod<(P) -> R>` | 绑定到接收者对象的方法 |
+| `Block<(P) -> R>` | 用于块参数的联合别名（`BoundMethod<S> | Closure<S>`） |
 
-`Block<S>` 是语言核心 Type alias，声明为 `type Block<S> = BoundMethod<S> | Closure<S>`。它位于 `Kernel` Module 中，而 `Kernel` 被组合进 `Object`，所以无需 import 就处处可见。
-
-Callable Type 实参是不变的，和所有其他泛型实参完全一样。`Closure<(Integer) -> Object>` 不能赋给 `Closure<(Integer) -> Symbol>`，反向也不行。兼容性在调用点根据被调用可调用体的声明签名检查，而不是通过 callable Types 之间的 variance 检查。
+与其他泛型类型一样，可调用类型的参数类型是严格不变的（invariant）。
 
 ## 具名 fun 声明创建 Method
 
-Method 声明以 `fun` 开始，前面可以有可见性、`override`、`impl`、`async`、`class` 或 `module` 等修饰符，位置必须符合语法允许处。放置位置决定所有权。在 Class 中，`fun` 创建实例 Method。`class fun` 在 Class 对象上创建单例 Method。在 Module 声明中，`module fun` 会在 Module 对象自身上安装 Method，而未修饰的 `fun` 是提供给组合该 Module 的对象的实例 Method。
+具名函数使用 `fun` 关键字声明。Class 中的普通 `fun` 定义实例 Method，而 `class fun` 安装到 Class 对象上。在 Module 声明中，`module fun` 安装到 Module 对象上，普通 `fun` 则向组合该模块的宿主提供 mixin Method（`IRIS-V1-CONTROL-C074`）。这不同于可执行 Module 体中的顶层 `fun`，后者安装到该 Module 的 `main` 接收者上（`IRIS-V1-CONTROL-C012`）。
 
+<!-- iris-example: {"id":"04-fun-declaration","mode":"vm","stdout":"36\n"} -->
 ```iris
-module Config {
-  module fun default_path() -> String { "iris.toml" }
-  fun describe() -> String { "config" }
+module Math {
+  public module fun square(n: Integer) -> Integer {
+    n * n
+  }
 }
-
-Config.default_path()
+print(Math.square(6))
 ```
 
-`class` 和 `module` 在同一个声明上互斥。
+预期输出：
+
+```text
+36
+```
+
+由于具名函数是归属于模块或类的方法，它们完全参与常规的动态方法派发。
 
 ## 参数和块有显式通道
 
-参数语法是显式的。必需位置参数写作 `name: Type`。可选位置参数添加 `= default`。位置 rest 参数使用 `*items: Type`。Keyword-only 参数以 `key` 开头。Keyword rest 使用 `**options: Type`。块通道使用 `&block: Block<(P) -> R>`，并可通过 `= nil` 变为可选。
+Iris 中的参数具有清晰的语法通道：
 
+- 必需位置参数：`name: Type`
+- 可选位置参数：`name: Type = default`
+- 剩余位置参数：`*items: Type`
+- 尾随块通道：`&block: Block<(P) -> R>`
+
+块通道为向方法传递代码执行块提供了专门的语法途径。
+
+**仅参考引擎示例。** 将此程序保存为 `blocks.iris`，运行 `./target/debug/iris blocks.iris`。当前 VM 对这个带类型注解的块示例报 `NameError`，参考引擎可以执行。尾随闭包提供的是 `&block`，而不是额外的位置参数；方法通过 `.call(n)` 调用它。
+
+<!-- iris-example: {"id":"04-trailing-block","mode":"reference","stdout":"6\n"} -->
 ```iris
-fun render(
-  title: String,
-  count: Integer = 1,
-  *items: String,
-  key path: String,
-  &block: Block<(String) -> Nil> = nil
-) -> Nil {
-  if block != nil { block.call(title) }
+module Helpers {
+  public module fun apply(n: Integer, &block: Block<(Integer) -> Integer>) -> Integer {
+    block.call(n)
+  }
 }
+print(Helpers.apply(3) { |x: Integer| -> Integer; x * 2 })
 ```
 
-省略可选块会绑定 `nil`，所以 `block != nil` 是 `block.call(...)` 前的存在性测试。
+预期输出：
 
-调用使用括号传递普通实参。关键字实参写作 `name: value`。调用后面的尾随 Closure 不是最后一个位置实参；它通过目标的 `&block` 参数提供。在一次调用中同时通过 `&saved` 和尾随块传递 Closure 是 `ArgumentError`。
-
-```iris
-render("report", path: "out.txt") { |line: String| -> Nil
-  line.to_string()
-}
+```text
+6
 ```
 
 ## Closure 字面量是匿名可调用体
 
-Closure 字面量使用 `{ |parameters| -> ReturnType body }`。单行主体在分号之后开始。多行主体在头部终止符之后开始。空参数使用 `||`。只有当预期可调用类型提供唯一闭合函数类型时，Closure 返回注解才可以省略，所以教程示例会显式写出它。
+闭包字面量使用花括号与竖线语法：`{ |params| -> ReturnType; body }`。
 
+<!-- iris-example: {"id":"04-closure-literal","mode":"vm","stdout":"21\n"} -->
 ```iris
-let identity: Closure<(String) -> String> = { |value: String| -> String; value }
-let answer: Closure<() -> Integer> = { || -> Integer; 42 }
-
-answer.call()
+let mult = { |x: Integer| -> Integer; x * 3 }
+print(mult.call(7))
 ```
+
+预期输出：
+
+```text
+21
+```
+
+闭包是完整的运行时对象，可以存入变量、作为参数传递给其他方法，并按需执行。
 
 ## 调用始终是 call
 
-`call` 是 Closure、BoundMethod 和块值的唯一调用拼写。不能把实参列表直接应用到可调用值上：`closure(1)` 不是调用。只有 Method 发送，例如 `f(1)` 或 `obj.m(1)`，才使用裸调用语法，并且普通发送始终要求括号，`f 1` 会以 `PARSE_CALL_REQUIRES_PARENTHESES` 被拒绝。
+可调用值——无论是闭包、绑定方法还是块参数——始终通过显式的 `.call(...)` 消息进行调用。
 
+对存储在变量中的可调用对象使用裸括号（例如 `mult(7)`）是非法的；不带显式选择器的圆括号仅保留给接收者上的直接方法发送。
+
+<!-- iris-example: {"id":"04-invocation-call","mode":"vm","stdout":"10\n"} -->
 ```iris
-fun apply(value: Integer, &block: Block<(Integer) -> Integer>) -> Integer {
-  block.call(value)
+class Multiplier {
+  public fun factor() -> Integer { 10 }
 }
-
-let doubled = apply(21) { |value: Integer| -> Integer; value * 2 }
+let m = Multiplier.new()
+let bound = m.factor
+print(bound.call())
 ```
 
-因为 `call` 是身份承载可调用对象上的普通选择器，它像任何其他消息一样派发，并按普通参数规则绑定实参。
+预期输出：
+
+```text
+10
+```
+
+提取 `m.factor` 会创建一个保留了 `m` 作为接收者目标的 `BoundMethod` 对象。
 
 ## Closure 捕获词法单元
 
-Closure 按引用捕获词法绑定单元。如果被捕获的绑定可变，那么 Closure 内的写入和外层作用域的写入会作用在同一个单元上。在拥有接收者的代码中创建的 Closure 还会捕获当前接收者关系，所以原始 `@name` 会继续指向那个接收者。
+闭包通过引用捕获外层作用域中的变量，而不是复制它们的值。在闭包内部所作的修改会反映在原始变量单元中，外层的改变也同样对闭包可见。
 
+<!-- iris-example: {"id":"04-lexical-capture","mode":"vm","stdout":"15\n15\n"} -->
 ```iris
-mut total: Integer = 0
-let add: Closure<(Integer) -> Integer> = { |value: Integer| -> Integer
-  total += value
-  return total
-}
+mut total = 10
+let add = { |amount: Integer| -> Integer; total = total + amount; total }
+print(add.call(5))
+print(total)
 ```
 
-这个片段改编自 `IRIS-V1-CONTROL-EX005`。
+预期输出：
 
-Method 声明不是 Closure。如果一个 Method 读取只存在于外围主体局部中的名称，它不会捕获该名称；声明会被接受，而读取会在 Method 运行时引发 `NameError`。
+```text
+15
+15
+```
 
 ## Return 留在当前可调用体内
 
-`return` 只作用于当前可调用体。在 Method 中，它退出该 Method 帧。在 Closure 中，它只退出该 Closure 调用。Closure 不能用 `break` 或 `continue` 跨过自己的调用边界跳进外层循环；那就是 `CONTROL_TARGET_CROSSES_CLOSURE`。
+在 Iris 中，`return` 的范围严格限制在直接包围它的可调用体内。
 
+在闭包内部执行 `return` 仅会终止当前闭包的调用，并将值返回给 `.call(...)` 的调用方，不会跳出外层方法栈帧。
+
+<!-- iris-example: {"id":"04-return-local","mode":"vm","stdout":"0\n8\n"} -->
 ```iris
-fun choose(value: Integer) -> Integer {
-  let normalize: Closure<(Integer) -> Integer> = { |item: Integer| -> Integer
-    if item < 0 { return 0 }
-    item
+module Checker {
+  public module fun test_val(n: Integer) -> Integer {
+    let check = { |x: Integer| -> Integer; if x < 0 { return 0 }; x }
+    check.call(n)
   }
-  normalize.call(value)
 }
+print(Checker.test_val(-5))
+print(Checker.test_val(8))
 ```
 
-当 Method 省略 `-> ReturnType` 时，它声明的返回 Contract 是 `Dynamic<Object>`。实现可以使用主体的最终表达式来做局部诊断，但绝不会发布推断出的更窄返回类型。
+预期输出：
+
+```text
+0
+8
+```
 
 ## 静态承诺，动态自由
 
-可调用 Type 描述调用形状、结果承诺，以及现在的可调用种类。背后的值只有在 Type 允许该种类时才可以是 BoundMethod 或 Closure，而实参检查、返回检查、块形状、关键字名称和元数仍遵循声明契约。
+可调用对象的签名在参数数量与类型上建立了静态边界。然而，因为可调用体本身是一等对象，它们可以在满足接口契约的前提下在运行时动态替换与传递。
 
-这个模型会引出[类与对象](05-classes-and-objects.md)：Class 安装 Method，实例产生 BoundMethod，Closure 让行为可以移动，同时让词法捕获保持显式。
+**实战练习**
+
+在 `blocks.iris` 中，将尾随闭包从乘以 `2` 改成加上 `4`，保留 `Integer` 参数和返回类型注解。运行 `./target/debug/iris blocks.iris`，确认输出 `7`。
 
 ## 阅读规范
 
-本章简化了以下规范性条款：
+本章内容简化并对应于以下规范性条款：
 
-- [`IRIS-V1-CONTROL-C014`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：Method、BoundMethod 和 Closure 是可调用运行时种类。
-- [`IRIS-V1-CONTROL-C015`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：具名 Method 语法和所有权。
-- [`IRIS-V1-CONTROL-C016`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：Closure 语法。
-- [`IRIS-V1-CONTROL-C017`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：省略 Method 和 Closure 返回注解的规则。
-- [`IRIS-V1-CONTROL-C019`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：正常返回和最终表达式值。
-- [`IRIS-V1-CONTROL-C020`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：可调用体本地 return 和跨 Closure 的无效循环转移。
+- [`IRIS-V1-CONTROL-C014`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：可调用运行时类别（Method、BoundMethod、Closure）。
+- [`IRIS-V1-CONTROL-C015`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：具名 Method 语法与归属。
+- [`IRIS-V1-CONTROL-C016`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：Closure 字面量语法。
+- [`IRIS-V1-CONTROL-C017`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：省略返回注解规则。
+- [`IRIS-V1-CONTROL-C019`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：正常返回与末尾表达式求值。
+- [`IRIS-V1-CONTROL-C020`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：局部于可调用体的 return 语义。
 - [`IRIS-V1-CONTROL-C022`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：参数声明顺序。
 - [`IRIS-V1-CONTROL-C026`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：调用实参绑定。
-- [`IRIS-V1-CONTROL-C028`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：Closure 按引用捕获。
+- [`IRIS-V1-CONTROL-C028`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：通过引用捕获 Closure 外部变量。
 - [`IRIS-V1-CONTROL-C030`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：尾随 Closure 块通道。
-- [`IRIS-V1-CONTROL-C074`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`module fun` installation。
-- [`IRIS-V1-CONTROL-C075`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：省略返回注解是 `Dynamic<Object>`。
-- [`IRIS-V1-CONTROL-C076`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`call` 作为唯一调用拼写。
-- [`IRIS-V1-TYPES-C094`](../../spec/iris-v1/05-types-contracts-generics.md)：`Closure<S>` 和 `BoundMethod<S>` callable Types。
-- [`IRIS-V1-TYPES-C095`](../../spec/iris-v1/05-types-contracts-generics.md)：`Block<S>` alias 和块通道。
-- [`IRIS-V1-TYPES-C096`](../../spec/iris-v1/05-types-contracts-generics.md)：callable Type 实参是不变的。
+- [`IRIS-V1-CONTROL-C074`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`module fun` 安装规则。
+- [`IRIS-V1-CONTROL-C075`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：省略返回类型默认为 `Dynamic<Object>`。
+- [`IRIS-V1-CONTROL-C076`](../../spec/iris-v1/04-bindings-callables-control-flow.md)：`.call` 作为唯一的调用形式。
+- [`IRIS-V1-TYPES-C094`](../../spec/iris-v1/05-types-contracts-generics.md)：`Closure<S>` 与 `BoundMethod<S>` 可调用类型。
+- [`IRIS-V1-TYPES-C095`](../../spec/iris-v1/05-types-contracts-generics.md)：`Block<S>` 类型别名。
+- [`IRIS-V1-TYPES-C096`](../../spec/iris-v1/05-types-contracts-generics.md)：可调用类型参数的不变性。
