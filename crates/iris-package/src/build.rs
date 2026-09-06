@@ -21,17 +21,13 @@ pub fn build(root: &Path, options: BuildOptions) -> Result<BuildReceipts, Packag
     let root = fs::canonicalize(root)?;
     let locked = lock::read_lock(&root)?;
     resolver::verify_lock(&root, &locked)?;
-    let work = files::safe_path(&root, Path::new(".iris/work"))?;
-    fs::create_dir_all(&work)?;
     let mut receipts = BuildReceipts {
         receipt_version: 1,
         artifacts: Vec::new(),
     };
     for package in &locked.packages {
         if package.manifest.native.is_some() {
-            receipts
-                .artifacts
-                .push(build_package(&root, &work, package)?);
+            receipts.artifacts.push(build_package(&root, package)?);
         }
     }
     resolver::verify_lock(&root, &locked)?;
@@ -40,11 +36,7 @@ pub fn build(root: &Path, options: BuildOptions) -> Result<BuildReceipts, Packag
     Ok(receipts)
 }
 
-fn build_package(
-    root: &Path,
-    work: &Path,
-    package: &LockedPackage,
-) -> Result<BuildReceipt, PackageError> {
+fn build_package(root: &Path, package: &LockedPackage) -> Result<BuildReceipt, PackageError> {
     let native = package
         .manifest
         .native
@@ -57,8 +49,21 @@ fn build_package(
             "repository must track root Cargo.lock",
         ));
     }
-    let temporary = tempfile::tempdir_in(work)?;
-    let source = temporary.path().join("source");
+    let system_temp = fs::canonicalize(std::env::temp_dir())?;
+    let mut staging_parent = system_temp.as_path();
+    for ancestor in system_temp.ancestors() {
+        if ancestor.join("Cargo.toml").try_exists()? {
+            staging_parent = ancestor.parent().ok_or_else(|| {
+                invalid(
+                    "native build",
+                    "system temporary directory must be outside Cargo workspaces",
+                )
+            })?;
+        }
+    }
+    let temporary = tempfile::tempdir_in(staging_parent)?;
+    let work = temporary.path();
+    let source = work.join("source");
     fs::create_dir(&source)?;
     for (relative, bytes) in &content {
         let path = source.join(relative.as_str());
@@ -86,7 +91,7 @@ fn build_package(
             ])
             .arg(&manifest_path)
             .arg("--target-dir")
-            .arg(temporary.path().join("target")),
+            .arg(work.join("target")),
         "cargo",
     )?;
     let mut candidates = Vec::new();
@@ -125,12 +130,12 @@ fn build_package(
         }
     };
     let relative = artifact
-        .strip_prefix(temporary.path())
+        .strip_prefix(work)
         .map_err(|_| PackageError::UnsafePath(artifact.clone()))?;
     let relative = relative
         .to_str()
         .ok_or_else(|| PackageError::UnsafePath(artifact.clone()))?;
-    let bytes = files::read_regular(temporary.path(), relative)?;
+    let bytes = files::read_regular(work, relative)?;
     let artifact_sha256 = files::digest(&bytes);
     let relative = RelativePath::try_from(format!(
         "{}/{}/{}.{}",

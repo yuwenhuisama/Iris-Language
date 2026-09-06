@@ -29,7 +29,6 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 path = "lib.rs"
-[workspace]
 "#,
     )
     .unwrap();
@@ -141,6 +140,71 @@ fn builds_and_prepares_native_artifact_when_explicitly_granted() {
         prepare(root.path(), &grants()),
         Err(PackageError::Integrity { .. })
     ));
+}
+
+#[test]
+fn builds_native_artifact_when_consumer_is_nested_in_cargo_workspace() {
+    let (repo, rev) = native_repo();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join("Cargo.toml"),
+        "[workspace]\nmembers = []\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let project = project(repo.path(), &rev);
+    let workspace_root = fs::canonicalize(workspace.path()).unwrap();
+    let root = workspace_root.join("demo/consumer");
+    fs::create_dir_all(&root).unwrap();
+    for name in ["iris.toml", "main.iris"] {
+        fs::copy(project.path().join(name), root.join(name)).unwrap();
+    }
+    install(
+        &root,
+        InstallOptions {
+            allow_local_git: true,
+        },
+    )
+    .unwrap();
+
+    let when = build(
+        &root,
+        BuildOptions {
+            allow_native_build: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(when.artifacts.len(), 1);
+    assert!(root.join(".iris/builds.toml").is_file());
+    let prepared = prepare(&root, &grants()).unwrap();
+    let native = prepared.packages[0].native.as_ref().unwrap();
+    assert!(native.artifact.is_file());
+    assert!(native.artifact.starts_with(root.join(".iris/artifacts")));
+}
+
+#[test]
+fn builds_native_artifact_when_system_temp_is_inside_cargo_workspace() {
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join("Cargo.toml"),
+        "[workspace]\nmembers = []\nresolver = \"3\"\n",
+    )
+    .unwrap();
+
+    let when = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "builds_native_artifact_when_consumer_is_nested_in_cargo_workspace",
+            "--nocapture",
+        ])
+        .env("TMPDIR", workspace.path())
+        .env("TMP", workspace.path())
+        .env("TEMP", workspace.path())
+        .current_dir(workspace.path())
+        .output()
+        .unwrap();
+
+    assert!(when.status.success(), "{when:?}");
 }
 
 #[test]
