@@ -1,121 +1,183 @@
 # Modules and Contracts
 
-This chapter shows how Iris separates behavior reuse from promises. A `module` supplies Methods that a Class or another Module can mix in. A `contract` declares an obligation surface that a Class explicitly promises with `for` and satisfies with `impl`. The two work together, but they aren't interchangeable: Modules affect lookup order, while Contracts define checked slots and views.
+This chapter explains how Iris separates behavior reuse from contract promises. A `module` supplies reusable methods that a class or another module can mix in. A `contract` declares an explicit obligation surface that a class promises with `for` and satisfies with `impl`. The two mechanisms work together, but they are never interchangeable. Modules determine runtime method lookup order, while contracts define checked requirements, views, and qualified slots.
 
+<!-- iris-example: {"id":"06-composition","mode":"vm","stdout":"B\n"} -->
 ```iris
-module A { fun trace() -> Symbol { :A } }
-module B mixin A { override fun trace() -> Symbol { :B } }
-class C extends Object mixin A, B {}
+module A {
+  public fun trace() -> String { "A" }
+}
 
-C.new().trace()           // selects B before A
+module B mixin A {
+  public override fun trace() -> String { "B" }
+}
+
+class C mixin A, B {}
+
+print(C.new().trace())
 ```
 
-The snippet comes from `IRIS-V1-RUNTIME-C047` and `IRIS-V1-RUNTIME-C053`. A Class has one superclass chain, then composed Modules. Header `mixin A, B` is applied left to right, but lookup checks the closest Module first, so the effective order is `C`, then `B`, then `A`, then the superclass MRO.
+Expected terminal output:
+
+```text
+B
+```
+
+A class has exactly one superclass chain, followed by composed modules. The header `mixin A, B` is applied left to right, but method lookup checks the closest module first. The effective search order is `C`, then `B`, then `A`, and finally the superclass chain.
 
 ## Modules add behavior
 
-A Module is a named object that can hold Methods. A Class can compose Modules in its declaration. Another Module can also compose Modules, which lets common behavior collect into reusable layers.
+A module is a named object that holds methods. Classes compose modules in their declaration headers. A module can also compose other modules, allowing shared functionality to assemble into structured layers.
 
+<!-- iris-example: {"id":"06-modules-add-behavior","mode":"vm","stdout":"Hello, Iris\n"} -->
 ```iris
-module Trace {
-  fun trace() -> Symbol { :trace }
-}
-
-class Job extends Object mixin Trace {}
-```
-
-This is not multiple inheritance. A Class still has one superclass. Modules are inserted into the Method lookup order and are deduplicated by Module identity. Re-including the same Module doesn't create a second copy or move the old one.
-
-Module Methods run with the current receiver. If a Module Method reads `@state`, it reads the receiver's slot named `@state`, not storage owned by the Module. Private Method access is different: Module composition doesn't grant private access unless the composition edge explicitly asks for it, which is written by marking that entry `private` in the mixin list.
-
-```iris
-class Job extends Object mixin Trace private, Audit {}
-```
-
-The marker sits on the individual composition edge, so `Trace` gets private authorization here and `Audit` does not. Raw `@x` access on the current receiver is a separate rule and doesn't depend on this marker.
-
-## Contracts declare promises
-
-A Contract is Iris's explicit obligation surface. A Contract body contains requirements, not executable Method bodies or storage. A requirement is a Method declaration with a signature and no body; writing a body inside a Contract is rejected as `CONTRACT_METHOD_BODY_FORBIDDEN`. A Class opts into a Contract with `for`, then marks the satisfying member with `impl`.
-
-
-```iris
-contract Printable<T> where T: Object {
-  fun print(value: T) -> String
-}
-
-class User for Printable<User> {
-  impl fun print(value: User) -> String {
-    value.name
+module Greeter {
+  public fun hello(name: String) -> String {
+    "Hello, " + name
   }
 }
 
-let view = User.new() as Printable<User>
-view..print(User.new())
+class User mixin Greeter {}
+
+let u = User.new()
+print(u.hello("Iris"))
 ```
 
-This example is reused from `IRIS-V1-TYPES-EX006`. The `for Printable<User>` declaration is a static spine fact for `User`. Later dynamic changes can replace compatible bodies, but they can't erase the fact that `User` promised `Printable<User>`.
+Expected terminal output:
 
-The `impl` marker matters. It says the Method is meant to satisfy a Contract requirement. If the Method also replaces an inherited or mixed-in Method, Iris writes both markers, for example `override impl fun draw() -> Nil { ... }`.
+```text
+Hello, Iris
+```
+
+Module mixins do not create multiple inheritance. A class retains a single superclass. Composed modules are inserted into the method resolution order (MRO) and deduplicated by module identity. Mixing in the same module more than once never creates duplicate entries or alters earlier precedence.
+
+Module methods execute in the context of the current receiver. When a module method reads `@state`, it accesses the receiver instance variable `@state`, not storage owned by the module. Private method access is strictly bounded: module composition does not grant private access unless the mixin edge explicitly requests it with a `private` marker in the mixin list.
+
+**Specification-only (not executed):** This declaration-only illustration shows private mixin authorization syntax (`IRIS-V1-GRAMMAR-C061`); it does not exercise a private call. Under `IRIS-V1-RUNTIME-C050`, the edge authorizes Module methods to access the host Class's private methods, not the reverse.
+
+<!-- iris-example: {"id":"06-mixin-private-access","mode":"spec-only","reason":"Declaration-only illustration of Module access to host Class private methods; no private call is exercised"} -->
+```iris
+module Trace {
+  fun internal_log() -> Nil { nil }
+}
+
+class Job mixin Trace private {}
+```
+
+The `private` keyword sits directly on the mixin edge. Here, `Trace` receives authorization to call `Job`'s private methods; unmarked mixins do not. Authorization is scoped to the host logical Class, closed Module identity, and edge revision.
+
+## Contracts declare promises
+
+A contract is an explicit obligation surface. A contract body contains method requirements without executable bodies or stored fields. Writing a method body inside a contract is an error. A class opts into a contract using `for`, then marks each satisfying method with `impl`.
+
+<!-- iris-example: {"id":"06-contracts-declare-promises","mode":"vm","stdout":"Beep boop\n"} -->
+```iris
+contract Speaker {
+  fun speak() -> String
+}
+
+class Robot for Speaker {
+  public impl fun speak() -> String {
+    "Beep boop"
+  }
+}
+
+let bot = Robot.new() as Speaker
+print(bot..speak())
+```
+
+Expected terminal output:
+
+```text
+Beep boop
+```
+
+The declaration `for Speaker` creates a permanent static fact on `Robot`. Dynamic updates can replace compatible method bodies later, but runtime mutation cannot erase the promise that `Robot` implements `Speaker`.
+
+The `impl` keyword indicates that a method satisfies a contract requirement. If a method replaces an inherited or mixed-in method while also fulfilling a contract, both keywords are written together, such as `override impl fun draw() -> Nil { ... }`.
 
 ## Qualified Contract slots
 
-Ordinary dispatch doesn't overload by static type. If two Contracts require the same selector with incompatible signatures, Iris doesn't guess. You write explicit qualified implementations and call them through a Contract view with `..`.
+Ordinary message sends never overload by static type. If two contracts require identical selectors with differing signatures, Iris avoids ambiguity through qualified contract slots. You implement each contract requirement explicitly and invoke them through contract views using `..`.
 
+<!-- iris-example: {"id":"06-qualified-contract-slots","mode":"vm","stdout":"parse: text\nvalidate: text\n"} -->
 ```iris
 contract Parser {
-  fun process(input: String) -> Object
+  fun process(input: String) -> String
 }
 
 contract Validator {
-  fun process(input: Object) -> Bool
+  fun process(input: String) -> String
 }
 
 class Tool for Parser, Validator {
-  impl Parser::process(input: String) -> Object { input }
-  impl Validator::process(input: Object) -> Bool { true }
+  public impl fun Parser::process(input: String) -> String {
+    "parse: " + input
+  }
+  public impl fun Validator::process(input: String) -> String {
+    "validate: " + input
+  }
 }
 
-let parser = Tool.new() as Parser
-parser..process("source")
+let tool = Tool.new()
+let p = tool as Parser
+let v = tool as Validator
+print(p..process("text"))
+print(v..process("text"))
 ```
 
-This is reused from `IRIS-V1-TYPES-EX007`. The declaration form uses `Parser::process` to name a Contract slot. The expression form uses `..process` to call the qualified slot. A single dot keeps ordinary dispatch.
+Expected terminal output:
 
-```iris
-let view = parser as ParserContract
-parser.process(input)     // ordinary selector process
-view.process(input)       // still ordinary selector process on the receiver
-view..process(input)      // qualified Contract slot ParserContract::process
+```text
+parse: text
+validate: text
 ```
 
-This snippet is reused from the runtime examples. It is the difference to remember: `as ParserContract` checks or constructs a Contract view, but `view.process(input)` is still ordinary selector lookup. Only `view..process(input)` selects the Contract-qualified namespace.
+In declarations, `Contract::selector` assigns a method to a specific contract slot. In expressions, `view..selector` dispatches directly to that qualified slot. A single dot `view.selector` remains an ordinary receiver message send.
 
 ## Static promise, dynamic freedom
 
-Dynamic freedom: a Class can mix in Modules, replace compatible Method bodies, and form Contract views at runtime. Module order can change through a validated open transaction.
+Iris balances dynamic adaptability with static consistency.
 
-Static promise: the Class has one stable superclass promise, one declared Contract set, one non-overloaded ordinary selector namespace, and one explicit Contract-qualified namespace. A later dynamic change must preserve the static spine before it can publish.
+**Dynamic freedom**
+- Classes can mix in modules at declaration or during validated open transactions.
+- Method bodies can be replaced dynamically with compatible implementations.
+- Contract views can be constructed at runtime across conforming instances.
 
-That split is why Contract dispatch is explicit. Iris lets runtime behavior move, but it refuses to hide a type-directed overload decision inside a normal call.
-
-The declared Contract set is one of the strongest static facts a Class has. A runtime attempt to remove one — spelled `remove_contract(contract)` or `Reflection::Class.remove_contract(target, contract)` — exists only so the refusal is observable: it is rejected with `TypeContractError` before publication, and the Class keeps its Contracts and its active revision. A runtime superclass change is likewise rejected when the proposed ancestry would drop an ancestor carrying a static fact the target relies on.
+**Static promises**
+- A class retains a single fixed superclass.
+- Declared contract obligations cannot be silently stripped or bypassed.
+- Ordinary selectors and contract-qualified slots occupy distinct namespaces.
+- Attempts to remove declared contracts at runtime via reflection fail immediately with `TypeContractError`.
 
 ## Kernel is always in scope
 
-`Kernel` is the language-core Module composed into `Object`. It carries the declarations that must be visible everywhere without an import, such as the `Block<S>` Type alias from chapter 04. It is an ordinary Module with ordinary composition and lookup rules, and it is not a second root Class; it may not supply or shadow `Object`'s default comparison, truthiness, missing-message, or zero-argument `initialize`.
+`Kernel` is the language core module composed into `Object`. It provides declarations that must remain visible everywhere without explicit imports, including built-in type aliases and fundamental utilities.
+
+Because `Kernel` is an ordinary module, standard composition and lookup rules apply. It is not a secondary root class. `Kernel` cannot shadow or replace `Object` primitives, including default comparison, truthiness evaluation, missing-message handling, or zero-argument initialization.
+
+**Hands-on Exercise**
+
+Create a contract `Describable` with a required method `fun describe() -> String`. Define a module `Tagged` providing `public fun tag() -> String { "[tag]" }`. Then declare a class `Item for Describable mixin Tagged` satisfying `describe`. Instantiate `Item`, cast it to `Describable`, and print both its description and its tag. Run the script with `./target/debug/iris --vm item.iris`.
+
+Expected terminal output:
+
+```text
+item-ready
+[tag]
+```
 
 ## Read the spec
 
-For exact rules, read [03-runtime-object-model.md](../../spec/iris-v1/03-runtime-object-model.md) and [05-types-contracts-generics.md](../../spec/iris-v1/05-types-contracts-generics.md):
+To study normative definitions and exact semantics, refer to [03-runtime-object-model.md](../../spec/iris-v1/03-runtime-object-model.md) and [05-types-contracts-generics.md](../../spec/iris-v1/05-types-contracts-generics.md):
 
 | Clause | Topic |
 | --- | --- |
 | `IRIS-V1-RUNTIME-C046` through `IRIS-V1-RUNTIME-C053` | Module composition and MRO ordering. |
 | `IRIS-V1-RUNTIME-C030` through `IRIS-V1-RUNTIME-C033` | Contract view dispatch and missing qualified slots. |
-| `IRIS-V1-RUNTIME-C163` | `Kernel` as the always-visible language-core Module. |
+| `IRIS-V1-RUNTIME-C163` | `Kernel` as the always-visible language core module. |
 | `IRIS-V1-TYPES-C041` through `IRIS-V1-TYPES-C053` | Contract declarations, `for`, `impl`, qualified implementations, views, equality, and hashing. |
-| `IRIS-V1-TYPES-C098` and `IRIS-V1-TYPES-C099` | Protected ancestry and the refused `remove_contract`. |
+| `IRIS-V1-TYPES-C098` and `IRIS-V1-TYPES-C099` | Protected ancestry and refused `remove_contract`. |
 | `IRIS-V1-GRAMMAR-C061` | The `private` marker on a mixin entry. |
-| `IRIS-V1-GRAMMAR-C062` | Bodyless Method declarations as Contract requirements. |
-| `IRIS-V1-IDENTITY-C009` and `IRIS-V1-IDENTITY-C010` | No static type overload dispatch. |
+| `IRIS-V1-GRAMMAR-C062` | Bodyless method declarations as contract requirements. |
+| `IRIS-V1-IDENTITY-C009` and `IRIS-V1-IDENTITY-C010` | Prohibition of static type overload dispatch. |

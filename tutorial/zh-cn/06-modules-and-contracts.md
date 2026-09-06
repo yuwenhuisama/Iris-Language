@@ -1,120 +1,183 @@
 # 模块与 Contract
 
-本章说明 Iris 如何把行为复用和承诺分开。`module` 提供 Methods，供 Class 或另一个 Module 混入。`contract` 声明一个义务表面，Class 用 `for` 显式承诺它，再用 `impl` 满足它。两者会配合使用，但不能互换：Modules 影响查找顺序，Contracts 定义会被检查的 slots 和视图。
+本章说明 Iris 如何将行为复用与契约承诺明确分离。`module` 提供可复用的方法实现，供类或其他模块混入使用。`contract` 声明明确的义务接口，类通过 `for` 显式承诺该契约，并通过 `impl` 提供具体实现。两者相互配合，但绝不可互换混淆：模块决定运行时的查找顺序，而契约定义经过检查的槽位、视图以及限定分派。
 
+<!-- iris-example: {"id":"06-composition","mode":"vm","stdout":"B\n"} -->
 ```iris
-module A { fun trace() -> Symbol { :A } }
-module B mixin A { override fun trace() -> Symbol { :B } }
-class C extends Object mixin A, B {}
+module A {
+  public fun trace() -> String { "A" }
+}
 
-C.new().trace()           // selects B before A
+module B mixin A {
+  public override fun trace() -> String { "B" }
+}
+
+class C mixin A, B {}
+
+print(C.new().trace())
 ```
 
-这段代码来自 `IRIS-V1-RUNTIME-C047` 和 `IRIS-V1-RUNTIME-C053`。一个 Class 有一条 superclass 链，然后是组合进来的 Modules。头部 `mixin A, B` 按从左到右应用，但查找会先检查最近的 Module，所以有效顺序是 `C`，然后 `B`，然后 `A`，最后是 superclass MRO。
+预期终端输出：
+
+```text
+B
+```
+
+类拥有单一超类继承链，随后是组合进来的各模块。头部 `mixin A, B` 声明按从左到右应用，但在方法查找时会优先检查距离当前类最近的模块。因此，实际的查找顺序依次为 `C`、`B`、`A`，最后进入超类继承链。
 
 ## Modules 添加行为
 
-Module 是可以持有 Methods 的命名对象。Class 可以在声明中组合 Modules。另一个 Module 也可以组合 Modules，这让公共行为可以收集成可复用的层。
+模块是容纳方法的具名对象。类可以在声明头部混入模块。模块自身也可以组合其他模块，从而将公共行为组织为结构清晰的复用层。
 
+<!-- iris-example: {"id":"06-modules-add-behavior","mode":"vm","stdout":"Hello, Iris\n"} -->
 ```iris
-module Trace {
-  fun trace() -> Symbol { :trace }
-}
-
-class Job extends Object mixin Trace {}
-```
-
-这不是多重继承。Class 仍然只有一个 superclass。Modules 会插入 Method 查找顺序，并按 Module 身份去重。再次包含同一个 Module 不会创建第二份副本，也不会移动旧副本。
-
-Module Methods 使用当前接收者运行。如果某个 Module Method 读取 `@state`，它读取的是接收者上名为 `@state` 的 slot，不是 Module 自己拥有的存储。Private Method 访问则不同：除非组合边显式请求，Module 组合不会授予 private 访问权，写法是在 mixin 列表中把该条目标记为 `private`。
-
-```iris
-class Job extends Object mixin Trace private, Audit {}
-```
-
-该标记位于单个组合边上，所以这里 `Trace` 获得 private 授权，而 `Audit` 没有。当前接收者上的原始 `@x` 访问是另一条规则，不依赖这个标记。
-
-## Contracts 声明承诺
-
-Contract 是 Iris 的显式义务表面。Contract 体包含 requirements，不包含可执行 Method body 或存储。requirement 是有签名但没有主体的 Method 声明；在 Contract 内写主体会以 `CONTRACT_METHOD_BODY_FORBIDDEN` 被拒绝。Class 用 `for` 选择一个 Contract，再用 `impl` 标记满足它的成员。
-
-```iris
-contract Printable<T> where T: Object {
-  fun print(value: T) -> String
-}
-
-class User for Printable<User> {
-  impl fun print(value: User) -> String {
-    value.name
+module Greeter {
+  public fun hello(name: String) -> String {
+    "Hello, " + name
   }
 }
 
-let view = User.new() as Printable<User>
-view..print(User.new())
+class User mixin Greeter {}
+
+let u = User.new()
+print(u.hello("Iris"))
 ```
 
-这个示例复用自 `IRIS-V1-TYPES-EX006`。`for Printable<User>` 声明是 `User` 的静态脊柱事实。之后的动态变更可以替换兼容的主体，但不能抹掉 `User` 已承诺 `Printable<User>` 这一事实。
+预期终端输出：
 
-`impl` 标记很重要。它表示这个 Method 意在满足某个 Contract requirement。如果该 Method 同时替换继承或混入来的 Method，Iris 会写出两个标记，例如 `override impl fun draw() -> Nil { ... }`。
+```text
+Hello, Iris
+```
+
+模块混入不同于多重继承。类始终只有一个直接超类。组合的模块会被插入到方法解析顺序（MRO）中，并依据模块身份完成去重。重复混入相同的模块不会创建多个副本，也不会移动已有的查找位次。
+
+模块方法在当前接收者的上下文中执行。当模块方法访问 `@state` 时，它读写的是接收者实例上的 `@state` 变量，而非模块私有的独立存储。私有方法访问受到严格约束：模块组合默认不授予私有方法访问权限，除非在混入列表中显式使用 `private` 标记。
+
+**仅规范（不执行）：** 下面仅展示私有混入授权的声明语法（`IRIS-V1-GRAMMAR-C061`），不实际调用私有方法。根据 `IRIS-V1-RUNTIME-C050`，该边授权模块方法访问宿主类的私有方法，而非反向授权。
+
+<!-- iris-example: {"id":"06-mixin-private-access","mode":"spec-only","reason":"Declaration-only illustration of Module access to host Class private methods; no private call is exercised"} -->
+```iris
+module Trace {
+  fun internal_log() -> Nil { nil }
+}
+
+class Job mixin Trace private {}
+```
+
+`private` 关键字直接声明在具体的组合边上。在本例中，`Trace` 获得调用 `Job` 私有方法的授权，而未标记的混入边不具备该权限。授权范围限定于宿主逻辑类、封闭模块身份及组合边修订版本。
+
+## Contracts 声明承诺
+
+契约是 Iris 中声明明确义务的规范接口。契约主体只包含方法签名要求，不包含具体实现体或存储字段。在契约主体内编写方法实现会触发语法错误。类使用 `for` 关键字承诺遵循契约，并使用 `impl` 标记实现方法。
+
+<!-- iris-example: {"id":"06-contracts-declare-promises","mode":"vm","stdout":"Beep boop\n"} -->
+```iris
+contract Speaker {
+  fun speak() -> String
+}
+
+class Robot for Speaker {
+  public impl fun speak() -> String {
+    "Beep boop"
+  }
+}
+
+let bot = Robot.new() as Speaker
+print(bot..speak())
+```
+
+预期终端输出：
+
+```text
+Beep boop
+```
+
+声明 `for Speaker` 构成了 `Robot` 类不可动摇的静态脊柱事实。后续的动态变更可以替换兼容的方法体，但无法抹除 `Robot` 已承诺 `Speaker` 的既定事实。
+
+`impl` 标记明确表示该方法旨在满足契约要求。如果一个方法在满足契约的同时，还重写了继承或混入的方法，两个修饰符需一并书写，例如 `override impl fun draw() -> Nil { ... }`。
 
 ## 限定 Contract slots
 
-普通派发不会按静态类型 overload。如果两个 Contracts 要求同一个 selector，但签名不兼容，Iris 不会猜测。你要写显式限定实现，并通过带 `..` 的 Contract view 调用它们。
+普通消息分派从不根据静态类型进行重载。如果两个契约定义了相同名称但签名不同的要求，Iris 通过限定契约槽位消除歧义。开发者为每个契约编写限定实现，并通过契约视图使用 `..` 运算符显式调用。
 
+<!-- iris-example: {"id":"06-qualified-contract-slots","mode":"vm","stdout":"parse: text\nvalidate: text\n"} -->
 ```iris
 contract Parser {
-  fun process(input: String) -> Object
+  fun process(input: String) -> String
 }
 
 contract Validator {
-  fun process(input: Object) -> Bool
+  fun process(input: String) -> String
 }
 
 class Tool for Parser, Validator {
-  impl Parser::process(input: String) -> Object { input }
-  impl Validator::process(input: Object) -> Bool { true }
+  public impl fun Parser::process(input: String) -> String {
+    "parse: " + input
+  }
+  public impl fun Validator::process(input: String) -> String {
+    "validate: " + input
+  }
 }
 
-let parser = Tool.new() as Parser
-parser..process("source")
+let tool = Tool.new()
+let p = tool as Parser
+let v = tool as Validator
+print(p..process("text"))
+print(v..process("text"))
 ```
 
-这复用自 `IRIS-V1-TYPES-EX007`。声明形式用 `Parser::process` 命名一个 Contract slot。表达式形式用 `..process` 调用限定 slot。单个点保留普通派发。
+预期终端输出：
 
-```iris
-let view = parser as ParserContract
-parser.process(input)     // ordinary selector process
-view.process(input)       // still ordinary selector process on the receiver
-view..process(input)      // qualified Contract slot ParserContract::process
+```text
+parse: text
+validate: text
 ```
 
-这段代码复用自运行时示例。要记住的区别是：`as ParserContract` 检查或构造 Contract view，但 `view.process(input)` 仍然是在接收者上做普通 selector 查找。只有 `view..process(input)` 会选择 Contract 限定的命名空间。
+在声明中，`Contract::selector` 将方法绑定到特定的契约限定槽位。在表达式中，`view..selector` 直接调用该限定槽位。使用单点操作符 `view.selector` 时，仍执行常规的接收者方法查找。
 
 ## 静态承诺，动态自由
 
-动态自由：Class 可以混入 Modules，替换兼容的 Method bodies，并在运行时形成 Contract views。Module 顺序可以通过已验证的 open 事务改变。
+Iris 在动态灵活性与静态保障之间保持平衡。
 
-静态承诺：Class 有一个稳定的 superclass 承诺，一个已声明的 Contract 集，一个不 overload 的普通 selector 命名空间，以及一个显式 Contract 限定命名空间。之后的动态变更必须先保留静态脊柱，才能发布。
+**动态自由**
+- 类可以在声明期或受控事务中混入新模块。
+- 方法实现体可以在运行时被动态替换为兼容版本。
+- 遵循契约的实例可以在运行时自由构建契约视图。
 
-这种分割正是 Contract 派发显式化的原因。Iris 允许运行时行为移动，但拒绝把按类型决定的 overload 选择藏在普通调用里。
-
-已声明的 Contract 集是 Class 拥有的最强静态事实之一。运行时尝试移除其中一个 Contract，拼写为 `remove_contract(contract)` 或 `Reflection::Class.remove_contract(target, contract)`，只为让拒绝可以被观察到而存在：它会在发布前以 `TypeContractError` 被拒绝，Class 保留自己的 Contracts 和活动修订。当提议的祖先关系会丢弃目标依赖的、携带静态事实的祖先时，运行时 superclass 变更同样会被拒绝。
+**静态承诺**
+- 类保持单一超类的继承骨架。
+- 已声明的契约承诺不能被动态消除或弱化。
+- 普通方法选择器与契约限定槽位属于严格隔离的命名空间。
+- 试图通过反射调用 `remove_contract` 移除已声明契约的行为，会在发布前直接抛出 `TypeContractError`。
 
 ## Kernel 始终在作用域内
 
-`Kernel` 是组合进 `Object` 的语言核心 Module。它携带必须无需 import 就处处可见的声明，例如第 04 章中的 `Block<S>` Type alias。它是普通 Module，拥有普通组合和查找规则，并且不是第二个根 Class；它不能提供或 shadow `Object` 的默认比较、真值性、缺失消息或零参数 `initialize`。
+`Kernel` 是直接组合到 `Object` 中的核心模块。它定义了全局可见的基础标识符与类型别名，无需显式导入即可使用。
+
+`Kernel` 是遵循标准规则的普通模块，并非第二根类。`Kernel` 不允许覆盖或遮盖 `Object` 预设的基础行为，包括默认相等性比较、真值判断、缺失消息处理以及无参构造器。
+
+**动手练习**
+
+编写一个契约 `Describable`，要求方法 `fun describe() -> String`。编写一个模块 `Tagged`，提供方法 `public fun tag() -> String { "[tag]" }`。接着声明类 `Item for Describable mixin Tagged` 并实现 `describe`。实例化 `Item`，将其转换为 `Describable` 视图，分别打印描述内容和标签。使用 `./target/debug/iris --vm item.iris` 运行验证。
+
+预期终端输出：
+
+```text
+item-ready
+[tag]
+```
 
 ## 阅读规范
 
-精确规则请阅读 [03-runtime-object-model.md](../../spec/iris-v1/03-runtime-object-model.md) 和 [05-types-contracts-generics.md](../../spec/iris-v1/05-types-contracts-generics.md)：
+如需查阅规范原文与形式化定义，请参考 [03-runtime-object-model.md](../../spec/iris-v1/03-runtime-object-model.md) 与 [05-types-contracts-generics.md](../../spec/iris-v1/05-types-contracts-generics.md)：
 
 | 条款 | 主题 |
 | --- | --- |
-| `IRIS-V1-RUNTIME-C046` through `IRIS-V1-RUNTIME-C053` | Module 组合与 MRO 顺序。 |
-| `IRIS-V1-RUNTIME-C030` through `IRIS-V1-RUNTIME-C033` | Contract view 派发与缺失的限定 slots。 |
-| `IRIS-V1-RUNTIME-C163` | `Kernel` 作为始终可见的语言核心 Module。 |
-| `IRIS-V1-TYPES-C041` through `IRIS-V1-TYPES-C053` | Contract 声明、`for`、`impl`、限定实现、views、相等性和哈希。 |
-| `IRIS-V1-TYPES-C098` and `IRIS-V1-TYPES-C099` | 受保护的祖先关系与被拒绝的 `remove_contract`。 |
-| `IRIS-V1-GRAMMAR-C061` | mixin 条目上的 `private` 标记。 |
-| `IRIS-V1-GRAMMAR-C062` | 作为 Contract requirements 的无主体 Method 声明。 |
-| `IRIS-V1-IDENTITY-C009` and `IRIS-V1-IDENTITY-C010` | 没有静态类型 overload 派发。 |
+| `IRIS-V1-RUNTIME-C046` 至 `IRIS-V1-RUNTIME-C053` | 模块组合与 MRO 排序规则。 |
+| `IRIS-V1-RUNTIME-C030` 至 `IRIS-V1-RUNTIME-C033` | 契约视图分派与缺失限定槽位处理。 |
+| `IRIS-V1-RUNTIME-C163` | `Kernel` 核心全局模块规范。 |
+| `IRIS-V1-TYPES-C041` 至 `IRIS-V1-TYPES-C053` | 契约声明、`for`、`impl`、限定实现、视图、相等性与哈希规则。 |
+| `IRIS-V1-TYPES-C098` 与 `IRIS-V1-TYPES-C099` | 保护继承链与禁止 `remove_contract`。 |
+| `IRIS-V1-GRAMMAR-C061` | 混入项上的 `private` 标记。 |
+| `IRIS-V1-GRAMMAR-C062` | 作为契约要求的无主体方法声明。 |
+| `IRIS-V1-IDENTITY-C009` 与 `IRIS-V1-IDENTITY-C010` | 禁止静态类型重载分派。 |
