@@ -164,5 +164,6 @@ clause distinguishes them, so this is an artefact of the reference having two
 paths rather than a fact about the language.
 
 The backend raises `IdentityError` for both, since that is what the corpus
-vectors observe. Recorded rather than imitated: reproducing the split would
-mean copying the shape of the reference's implementation into a second one.
+vectors and normative traceability rows require. The differential observation
+layer normalizes the simple evaluator's `Runtime(Identity)` spelling to that
+specification name; the VM does not imitate the evaluator-routing split.

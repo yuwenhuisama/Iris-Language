@@ -180,13 +180,14 @@ Integers are carried as **canonical decimal text** rather than a machine
 integer, because `IRIS-V1-RUNTIME-V052` requires arbitrary precision with no
 representation type split.
 
-Generic Class and Method parameters are erased by this backend. A closed
-construction such as `Box<Integer>` loads the same Class identity as `Box`, so
-construction, class methods, identity checks, instance dispatch, and `is`
-continue through the ordinary Class instructions. The closed spelling is only
-retained long enough to forbid `open`; an unknown construction such as
-`Array<Integer>` still raises `NameError` rather than making built-in Classes
-generic.
+Generic Class and Method parameters are erased for dispatch by this backend. A
+closed construction such as `Box<Integer>` loads the same Class definition as
+`Box`, so construction, class methods, identity checks, instance dispatch, and
+`is` continue through the ordinary Class instructions. The closed Class value
+still retains its argument list for Type identity, invariant assignability,
+per-closed class-property storage, and reopen-bound revalidation. An unknown
+construction such as `Array<Integer>` still raises `NameError` rather than
+making built-in Classes generic.
 
 ### 3.2 Data movement
 
@@ -295,20 +296,25 @@ points rather than ordinary receiver dispatch. The covered surface is
 runtime Method identity or nil when the slot is absent. Module method lookup
 returns the Module-owned Method for the requested declared selector. Contract
 requirement lookup returns an indexable Hash whose `:return_type` value is the
-declared nominal Type, or nil when that requirement is absent. A reflected
-Class property query returns an ordinary Array of stored-property Symbols. A
-revision query returns an ordinary Hash with `:number` and `:commit_id`; its
-number follows the active revision and therefore advances after a successful
-`open()`. These collection values retain normal indexing and iteration.
-A reflected
+declared nominal Type, or nil when that requirement is absent. Reflected Class
+properties and decorators are permission-filtered, read-only metadata views:
+they retain normal indexing, iteration and copying, but reject insertion,
+deletion, replacement and reordering rather than falling through to ordinary
+Array mutation. A revision query returns an ordinary Hash with `:number` and
+`:commit_id`; its number follows the active revision and therefore advances
+after a successful `open()`. A reflected
 Method answers `selector`, `owner`, `visibility`,
 `parameters`, `return_type`, and `source`; `bind(receiver)` produces a retained
 BoundMethod whose `call` revalidates and invokes that exact Method. The VM
 declines `Method.signature`, `Method.package`, and an unbound `Method.call`
 before emitting bytecode because the reference runtime does not currently
-implement those sends. `Reflection::Class.invoke` and
-`Reflection::Module.invoke` are declined as those exact constructs because the
-reference evaluator itself reports them unsupported. Raw ivar names accept the Symbol spelling used by the runtime selector
+implement those sends. `Reflection::Module.invoke` accepts only a retained
+Module-owned Method, never a Class-owned Method; then it accepts either the
+Method's owning Module object or an instance whose current MRO contains that
+Module as receiver; then it checks the Array argument vector before entering the
+body. That ownership, receiver, args/body order is observable, so a Class-owned
+Method is rejected before a bad receiver, bad arguments, or body work. Raw ivar
+names accept the Symbol spelling used by the runtime selector
 table, absent reads answer nil, and writes return the stored value. A machine
 with Host grants checks `reflection.inspect` and `reflection.mutate` separately
 against the target Class; a denied or out-of-scope operation raises the
@@ -638,8 +644,9 @@ value set, including catchable syntax and serialization failures; the full
 Iteration protocol, so a `for` obtains an iterator through `iterator()`, calls
 `next()` until `Iteration.done` and CLOSES on every exit path, and an iterator
 written entirely in Iris with `Iteration.yield`/`Iteration.done` drives a loop;
-`Reflection::Class.method`, `properties` and `revision`,
-`Reflection::Object.get_ivar`/`set_ivar`, `Reflection::Module.method` and
+`Reflection::Class.method`, read-only `properties` metadata and `revision`,
+`Reflection::Object.get_ivar`/`set_ivar`, `Reflection::Module.method` plus
+Module-owned `invoke` on the owning Module or a mixed-in instance, and
 `Reflection::Contract.requirement`, with an ungranted call raising a catchable
 `ReflectionAccessError`; and `Revision.subscribe`/`flush`/`event_errors` with
 `RevisionHistory.events`/`prune`, where `Class.open()` publishes a real
@@ -656,15 +663,20 @@ specification's name. Uncaught, the same failure surfaces as ITSELF rather than
 as a raised Symbol, so a program that never wrote a handler sees what the
 reference reports.
 
-Also covered: erased generics, so `Box<Integer>` and `Box<String>` are the SAME
-Class and a type argument list carries no runtime identity; `super()` through
-several levels of inheritance; `using(resource) { body }`, which closes on every
-exit including a raising body; header-less block closures, which is the form
-`define_method(:a) { 1 }` passes; top-level bindings that a method body can
-read, write and SEND to; Array `append`, `insert`, `delete` and `clear`, which
-answer nil rather than the receiver unlike `push`; and **async methods**, where
-C012 makes creating the Task and starting its initial run ONE call operation -
-the body executes at CALL time, `Host.run` and `await` observe an
+Also covered: generic Class definitions are erased to one runtime Class identity,
+so `Box<Integer>` and `Box<String>` share the same Class definition, while closed
+Class values and their nominal Types retain their argument lists. Class, Type,
+Contract and Iteration arguments are recursively reified wherever they appear in
+a closed nominal expression, including nested positions, and generic
+assignability is invariant: `Box<String>.type.subtype?(Box<Object>.type)` is
+false and persistent annotations accept only the exact closed argument;
+`super()` through several levels of inheritance; `using(resource) { body }`,
+which closes on every exit including a raising body; header-less block closures,
+which is the form `define_method(:a) { 1 }` passes; top-level bindings that a
+method body can read, write and SEND to; Array `append`, `insert`, `delete` and
+`clear`, which answer nil rather than the receiver unlike `push`; and **async
+methods**, where C012 makes creating the Task and starting its initial run ONE
+call operation, the body executes at CALL time, `Host.run` and `await` observe an
 already-computed outcome, and a failing task stays in the Diagnostics channel
 until observed.
 
@@ -760,7 +772,7 @@ cannot work for a dynamic send - which does not know the signature until
 dispatch - so `A.new().f(1)` answered nil for the unfilled parameter; defaults
 are filled in the callee now. And a CLASS-level property was stored as one
 class variable even on a generic class, where `IRIS-V1-TYPES-C064` puts a
-plain one on each closed CONSTRUCTION and only a `shared` one on the unapplied
+plain one on each closed materialization and only a `shared` one on the unapplied
 definition: the bare `C.n` answered a value the language does not have there.
 That one is declined again, which is why the count moved down by three when it
 was fixed.
@@ -865,9 +877,9 @@ noticing let the await simply succeed.
 
 A REOPEN's `where` constraint NARROWS what the class admits. `C067` checks a
 bound at MATERIALIZATION, and a class has ONE set of bounds - so a bound added
-by a reopen governs every construction the program names, including one
-written before the reopen. NAMING a closed construction materializes it just
-as constructing does, so the refusal reaches that path too.
+by a reopen revalidates every closed Class the program materializes, including
+one whose source spelling appeared before the reopen. NAMING a closed Class
+materializes it just as constructing does, so the refusal reaches that path too.
 
 A REMOVED `to_bool` reaches `method_missing` once. `C096` gives truth testing
 one last route when the selector was BLOCKED: it invokes
@@ -971,13 +983,16 @@ construction, not the one already under way - resolving afterwards let a class
 replace its own initializer mid-construction and run the replacement on the
 very object that installed it.
 
-A CLASS-LEVEL initializer RUNS on the first READ. It is an ordinary expression
-evaluated when the property is first read rather than where the class is
-defined, so a body that RAISES is retried on the next read and one that
-SUCCEEDS runs exactly once. A body that does not complete leaves the property
-without a value its declared Type admits, so the ANNOTATION is what fails. The
-frame takes the CLASS as its receiver - a receiverless one is reachable as a
-bare module function, which would run the initializer on every read.
+A CLASS-LEVEL initializer RUNS when its owning class storage is first
+MATERIALIZED. It is an ordinary expression evaluated for the class value that
+owns the slot rather than where the generic definition is declared, so the first
+closed Class materialization triggers each plain class-property initializer for
+that closed Class exactly once. A body that RAISES leaves no stored value and is
+retried by the next materialization of the same closed Class; a body that
+SUCCEEDS is not rerun by later reads. A body that completes with a value outside
+the declared Type raises at that materialization point. The frame takes the
+closed CLASS as its receiver - a receiverless one is reachable as a bare module
+function, which would run the initializer on every read.
 
 A SUPERCLASS change cannot DROP a contract the ancestry supplied. `C094`
 refuses a change that would leave a declared conformance unmet: the class still
@@ -1013,7 +1028,10 @@ return type itself and is a type failure.
 A CLOSED generic names one Type per ARGUMENT list. `Box<String>` and
 `Box<Integer>` are two Types of ONE class, so a Type carries the arguments it
 was closed over - dropping them made the two the same value and left `same?`
-unable to tell them apart.
+unable to tell them apart. The same retention applies to stored and interleaved
+closed Class values: once a closed Class value is built, it keeps the recursive
+argument tree that built it instead of falling back to the erased generic
+definition.
 
 NO ORDER is a false comparison, and EQUALITY derives from `<=>`. `C092` lets
 two values have no order at all, which `<=>` reports as nil - and a comparison
@@ -1044,10 +1062,11 @@ raised at load where the class identity it names exists.
 
 A SHARED class property lives on the UNAPPLIED generic definition. `C064` puts
 a `shared class property` on the definition itself, while a PLAIN one belongs
-to each closed construction - so the two forms reach OPPOSITE receivers, and
-answering the definition's value through a construction gave `C<String>.n` a
-slot the language does not give it. A construction still needs its own slot for
-a write to land in, which is what keeps the definition's value untouched.
+to each closed Class materialization - so the two forms reach OPPOSITE
+receivers, and answering the definition's value through a construction gave
+`C<String>.n` a slot the language does not give it. A closed Class still needs
+its own slot for a write to land in, which is what keeps the definition's value
+untouched.
 
 TWO contracts requiring one selector with CONTRADICTING signatures cannot both
 be satisfied. `D-173` holds ONE signature per selector in the static spine, so
@@ -1344,10 +1363,10 @@ COMPILING a program and AGREEING with the reference are different
 measurements, and the second is the load-bearing one. All 736 runnable corpus
 vectors compile; `measure_corpus_agreement` in
 `crates/iris-eval/src/whole_program_tests.rs` runs each one on both backends
-and reports how many answer alike. At the time of writing that is 712 agreed,
-23 disagreed, 1 held - so a quarter of the vectors the machine ACCEPTS still
-answer something the language does not say. Coverage was never a
-correctness claim, and quoting it as one overstated the machine.
+and reports how many answer alike. At the time of writing that is 736 agreed,
+0 disagreed, 0 held, with no panics. Coverage remains distinct from correctness:
+the compile count states that the machine accepts the corpus, while this
+measurement states that both backends produce the same semantic observations.
 
 A run that never terminates FAILS rather than hanging: each instruction charges
 a step against a budget the reference also uses, so a program that exhausts it
@@ -1414,14 +1433,14 @@ audit SINK a separate persistence layer that survives a prune - `recover`
 answers what it holds independently of retained history, and with no sink there
 is no zero-loss guarantee to offer.
 
-`C064` puts a plain `class property` on each closed CONSTRUCTION rather than on
-the unapplied definition, so `Cache<String>.value` and `Cache<Integer>.value`
-hold different values while the bare `Cache.value` reaches no slot at all. The
-runtime keys class state by `(ClassId, Selector)` and a generic class has one
-ClassId, so the construction is folded into the SELECTOR instead - one slot per
-construction written in the source, without a class per construction. A
-`shared` class property stays on the definition, which is what the bare name
-reaches.
+`C064` puts a plain `class property` on each closed Class materialization rather
+than on the unapplied definition, so `Cache<String>.value` and
+`Cache<Integer>.value` hold different values while the bare `Cache.value`
+reaches no slot at all. The storage key includes the closed argument list,
+including recursively reified Class, Type, Contract and Iteration arguments, so
+nested closed positions get distinct state without publishing a separate Class
+definition per construction. A `shared` class property stays on the definition,
+which is what the bare name reaches.
 
 `Reflection::Class.define_method(K, :m) { .. }` names its TARGET as the first
 argument and publishes exactly as `self.define_method(:m) { .. }` does, so the
@@ -1614,11 +1633,14 @@ validated at run time, with each spliced value ESCAPED: `/${x}/` where `x`
 holds `a+b` matches those three characters rather than reinterpreting them as
 syntax.
 
-`as?` is a CHECKED cast - the type test with a selection on top, answering nil
-where `as` would fail - and a bare-NAME hash key is an ordinary expression
-rather than a shorthand for a symbol, so `%{ a: 1 }` keys the hash by what `a`
-HOLDS. That is what lets an exception context be used as a key, and an unbound
-name there is the ordinary NameError.
+`as?` is a CHECKED cast - the same strict Type test `as` uses, but with nil on
+failure instead of a raised cast error. Closed generic arguments are invariant,
+so `Box<String>` does not pass as `Box<Object>` even though `String` itself is
+under `Object`; `Object` remains the top only for the value's own objecthood.
+A bare-NAME hash key is an ordinary expression rather than a shorthand for a
+symbol, so `%{ a: 1 }` keys the hash by what `a` HOLDS. That is what lets an
+exception context be used as a key, and an unbound name there is the ordinary
+NameError.
 
 The parameter CHANNELS came next, and they had to be bound in the callee: a
 dynamic send does not know the signature until dispatch, so the categories
