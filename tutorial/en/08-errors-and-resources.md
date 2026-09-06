@@ -1,72 +1,157 @@
 # Errors and Resources
 
-This chapter covers failure and cleanup. Iris can raise any object, not just a special error base class. The runtime keeps propagation metadata in an `ExceptionContext`. `try`, `catch`, and `finally` are value-producing control forms, `using` is an ordinary helper built around `Closeable`, and async code uses single-runtime `Task<T>` values with `await`.
+This chapter covers error handling, resource cleanup, and asynchronous operations. Iris allows programs to raise any object rather than restricting exceptions to a narrow class hierarchy. The runtime maintains propagation details inside an `ExceptionContext`. The `try`, `catch`, and `finally` forms produce expressions, deterministic cleanup centers on the `Closeable` contract, and cooperative concurrency uses single-threaded `Task<T>` instances with `await`.
 
+<!-- iris-example: {"id":"08-raising-and-catching","mode":"vm","stdout":"failed operation\nfailed operation\n"} -->
 ```iris
 try {
-  raise :failed
-} catch value: Symbol, context {
-  context.value          // :failed
-  context.suppressed     // runtime-owned ExceptionContext list
-  raise value from context
+  raise "failed operation"
+} catch val, ctx {
+  print(val)
+  print(ctx.value)
 }
 ```
 
-This snippet is reused from `IRIS-V1-CONTROL-EX010`. The raised object is the `Symbol` `:failed`. The stack, cause, re-raise sites, and suppressed cleanup failures belong to the `ExceptionContext`, not to the symbol.
+Expected terminal output:
+
+```text
+failed operation
+failed operation
+```
+
+The raised object is the string `"failed operation"`. Stack traces, origin locations, and cause links are stored in the runtime-owned `ExceptionContext` rather than polluting the raised payload.
 
 ## Raising any object
 
-`raise value` accepts any Iris object or value. Each raise creates a fresh `ExceptionContext`. Catching gives you the original raised object unchanged, and optionally the context.
+The expression `raise value` accepts any Iris value or object. Every raise creates a fresh `ExceptionContext`. When handling an exception, the `catch` clause receives the original object and an optional `ExceptionContext`.
 
+Iris supports structured causal chaining using `raise value from context`:
+
+<!-- iris-example: {"id":"08-chained-cause","mode":"vm","stdout":"outer failure\ninner failure\n"} -->
 ```iris
 try {
-  raise :tag
-} catch value: Symbol, context {
-  value
+  try {
+    raise "inner failure"
+  } catch err, first_ctx {
+    raise "outer failure" from first_ctx
+  }
+} catch err, second_ctx {
+  print(second_ctx.value)
+  print(second_ctx.cause.value)
 }
 ```
 
-A typed catch narrows before the catch body runs. Class catches accept subclasses. Contract catches require explicit nominal conformance. A catch-all must come last because catches are tested in source order.
+Expected terminal output:
 
-Bare `raise` is different from `raise value`. Bare `raise` continues the active propagation during the synchronous dynamic extent of a catch. Calling it outside that extent raises `NoActiveExceptionError`.
+```text
+outer failure
+inner failure
+```
+
+A typed catch clause narrows candidates before the catch block executes. Catches evaluate in source order. Bare `raise` re-raises the currently active propagation during the synchronous dynamic extent of a catch.
 
 ## Try, catch, and finally produce values
 
-A `try` expression takes its provisional value from the try body or from the selected catch. A normally completing `finally` runs after that and discards its own final value.
+In Iris, `try` is a value-producing expression. Its value resolves to the final expression of the `try` block or the selected `catch` arm. A normally completing `finally` block executes unconditionally and discards its evaluation result.
 
+<!-- iris-example: {"id":"08-try-finally-values","mode":"vm","stdout":"working\n"} -->
 ```iris
 let result = try {
-  "try value"
+  "working"
 } finally {
-  "ignored final value"
+  "cleanup"
 }
 
-result  // "try value"
+print(result)
 ```
 
-This is reused from `IRIS-V1-CONTROL-EX011`. If `finally` raises, returns, breaks, or continues, it overrides the pending result or exception. When cleanup fails while another exception is already primary, the cleanup context is appended to the primary context's runtime-owned suppressed list.
+Expected terminal output:
 
-An `ExceptionContext` exposes structured propagation records rather than formatted strings. `SourceLocation` has `path`, one-based `line`, and one-based `column`. `StackFrame` has `callable_name` and `location`. `RaiseSite` records where one bare `raise` continued a propagation. All three compare and hash structurally, and none of them is user-constructible; `ExceptionContext` itself stays identity-based.
+```text
+working
+```
 
+Exception interaction in `finally` follows precise rules under `IRIS-V1-CONTROL-C064`: if `finally` raises a new value while a pending exception context exists, the new propagation becomes primary and the pending context becomes its causal context (`cause`), unless an explicit `from` specifies otherwise. The pending context is not discarded or placed on a suppressed list in this case. In contrast, bare `raise` in `finally` simply continues propagating the existing pending exception.
+
+Structured records inside `ExceptionContext` provide precise diagnostic information:
+- `SourceLocation` provides `path`, 1-based `line`, and 1-based `column`.
+- `StackFrame` records `callable_name` and `location`.
+- `RaiseSite` tracks re-raise locations.
 
 ## Closeable and using
 
-The standard resource Contract is `Closeable`, with an ordinary `close() -> Nil` Method. It isn't magic syntax. The helper `using(resource) { ... }` runs the block, then closes the resource through `try/finally` equivalent control.
+The normative cleanup protocol centers on the `Closeable` contract (`IRIS-V1-ASYNC-C030`), which requires an ordinary method `close() -> Nil`. Under full normative conformance, the standard helper signature is `using(resource: Closeable, &block)` (`IRIS-V1-ASYNC-C032`). Conforming classes declare explicit nominal conformance via `class ... for Closeable` and implement the dedicated slot via `public impl fun Closeable::close() -> Nil` (refer to chapter 06 for the exact syntax and view dispatch rules).
 
+In the current implementation environment, the built-in `Closeable` contract is not yet bound in the global namespace, so referencing `Closeable` directly raises a NameError. The engine instead provides the helper as a name-based runtime cleanup convenience, dispatching to any receiver that exposes a matching `close()` method. The runnable snippet below demonstrates this convenience behavior, but it does not represent standard nominal `Closeable` contract conformance. Note that `using` remains an ordinary method or helper identifier, not a language keyword or special syntax.
+
+<!-- iris-example: {"id":"08-closeable-using","mode":"vm","stdout":"inside block\nresource closed\ndone\n"} -->
+```iris
+class ManagedResource {
+  mut closed = false
+  public fun close() -> Nil {
+    if !@closed {
+      @closed = true
+      print("resource closed")
+    }
+    nil
+  }
+}
+
+let res = ManagedResource.new()
+let outcome = using(res) { |r|
+  print("inside block")
+  "done"
+}
+print(outcome)
+```
+
+Expected terminal output:
+
+```text
+inside block
+resource closed
+done
+```
+
+Per `IRIS-V1-ASYNC-C033`, if the protected block raises an error and `close()` also raises, the block's exception remains primary while the close failure context is appended to the primary context's suppressed list. If the block completes normally and `close()` raises, the close failure becomes primary.
+
+**Specification-only (not executed):** This I/O illustration requires an external `File` implementation and a `data.txt` fixture, neither supplied here. It shows how the ordinary `using` helper pairs with a resource:
+
+<!-- iris-example: {"id":"08-using-pattern","mode":"spec-only","reason":"Specification example illustrating high-level using resource block syntax"} -->
 ```iris
 let text = using(File.open("data.txt")) { |file: File| -> String
   file.read_all()
 }
 ```
 
-This example is reused from `IRIS-V1-ASYNC-EX003`. It illustrates shape only. Because Iris has no standard library release, treat `File` here as a specified example surface rather than something to open today.
-
-If the block completes and `close()` completes, the helper returns the block value. If the block raises and `close()` also raises, the block's context stays primary and the close context becomes suppressed. If the block completes but `close()` raises, the close failure becomes primary.
-
 ## Single-threaded async
 
-Async in Iris is cooperative and single-runtime. Calling an `async fun` returns a `Task<T>`. Awaiting the Task gives the `T`, or repropagates the captured `ExceptionContext` if the Task failed.
+Asynchronous execution in Iris is cooperative, non-preemptive, and hosted on a single-runtime thread scheduler (`IRIS-V1-ASYNC-C011`). Declaring `async fun` marks a method that returns a `Task<T>`.
 
+<!-- iris-example: {"id":"08-async-task-host","mode":"vm","stdout":"42\n"} -->
+```iris
+class Worker {
+  public async fun compute() -> Integer {
+    42
+  }
+}
+
+let task = Worker.new().compute()
+let result = Host.run(task)
+print(result)
+```
+
+Expected terminal output:
+
+```text
+42
+```
+
+An async method that does not suspend completes synchronously (`IRIS-V1-ASYNC-C012`). In an asynchronous script context, applying `await` unwinds a task to its completion value or repropagates its failure.
+
+**Specification-only (not executed):** This illustration of cooperative `await` chaining (`IRIS-V1-ASYNC-C003`) requires an external asynchronous `File.read_text` implementation, a `user.ir` fixture, and an async context for the final `await`; these are not supplied here:
+
+<!-- iris-example: {"id":"08-async-await","mode":"spec-only","reason":"Specification example illustrating async fun signature, await expression, and Task result handling"} -->
 ```iris
 async fun read_name(path: String) -> String {
   return await File.read_text(path)
@@ -80,30 +165,36 @@ let task: Task<String> = read_name("user.ir")
 let name: String = await task
 ```
 
-This snippet is reused from `IRIS-V1-ASYNC-EX001`. An async no-result Method returns `Task<Nil>`, not a special empty-result form. Iris v1 has no cancellation semantics, no fire-and-forget signature, and no implicit blocking wait in Iris source.
-
-`await` binds tighter than every binary operator and looser than a postfix call, so `await f()` awaits the call's result rather than calling an awaited callee. Parenthesize when you mean something else.
-
-```iris
-async fun value() -> Integer { 7 }
-
-let task = value()
-let first = await task
-let second = await task
-first == second  // true
-```
-
-This is reused from `IRIS-V1-ASYNC-EX002`. A completed Task is immutable and can be awaited many times. A failed Task retains one captured failure context; awaiting it observes that same root context with async diagnostic links.
+The `await` operator binds tighter than binary operators and looser than postfix calls. Completed tasks become immutable and can be safely awaited multiple times without re-executing work. Iris v1 contains no implicit blocking waits in script source.
 
 ## Static promise, dynamic freedom
 
-Dynamic freedom: any object can be raised, catch selection depends on runtime Class or Contract conformance, and async Tasks complete later through the scheduler.
+Iris ensures reliable cleanup while accommodating runtime failures.
 
-Static promise: `ExceptionContext` owns propagation metadata, `finally` and `using` have fixed cleanup precedence, `Task<T>` carries an awaited result type, and async interleaving happens only at defined await or scheduler boundaries. Open transactions can't suspend.
+**Dynamic freedom**
+- Any object or value can be raised as an exception payload.
+- Catch clauses match dynamically against runtime classes or contract conformances.
+- Async tasks suspend execution cooperatively and complete later via the scheduler.
+
+**Static promises**
+- `ExceptionContext` maintains immutable propagation records and causal history.
+- `finally` cleanup guarantees deterministic execution order.
+- `Task<T>` signatures enforce the type of the yielded value upon completion.
+- Open metadata transactions cannot suspend across asynchronous await points.
+
+**Hands-on Exercise**
+
+Write a function `safe_divide(a: Integer, b: Integer) -> Integer` that raises `"zero_division"` if `b == 0`, or returns `a / b`. Wrap the call in a `try/catch` block that catches the error string and prints `"caught: zero_division"`. Verify the output with `./target/debug/iris --vm divide.iris`.
+
+Expected terminal output:
+
+```text
+caught: zero_division
+```
 
 ## Read the spec
 
-For exact rules, read [04-bindings-callables-control-flow.md](../../spec/iris-v1/04-bindings-callables-control-flow.md) and [07-async-resources-diagnostics.md](../../spec/iris-v1/07-async-resources-diagnostics.md):
+For formal execution semantics and normative grammar rules, refer to [04-bindings-callables-control-flow.md](../../spec/iris-v1/04-bindings-callables-control-flow.md) and [07-async-resources-diagnostics.md](../../spec/iris-v1/07-async-resources-diagnostics.md):
 
 | Clause | Topic |
 | --- | --- |
@@ -111,6 +202,6 @@ For exact rules, read [04-bindings-callables-control-flow.md](../../spec/iris-v1
 | `IRIS-V1-CONTROL-C079` | `SourceLocation`, `StackFrame`, and `RaiseSite` records. |
 | `IRIS-V1-GRAMMAR-C071` | `await` as a unary operator and its precedence. |
 | `IRIS-V1-ASYNC-C003` through `IRIS-V1-ASYNC-C010` | Async callable surface and `Task<T>` result typing. |
-| `IRIS-V1-ASYNC-C011` through `IRIS-V1-ASYNC-C019` | Single scheduler, suspension, and no implicit blocking wait. |
-| `IRIS-V1-ASYNC-C020` through `IRIS-V1-ASYNC-C029` | Task completion, failed Task propagation, and unobserved failure diagnostics. |
+| `IRIS-V1-ASYNC-C011` through `IRIS-V1-ASYNC-C019` | Single scheduler, suspension, and absence of implicit blocking waits. |
+| `IRIS-V1-ASYNC-C020` through `IRIS-V1-ASYNC-C029` | Task completion, failure propagation, and unobserved failure diagnostics. |
 | `IRIS-V1-ASYNC-C030` through `IRIS-V1-ASYNC-C038` | `Closeable`, `using`, idempotent close, and cleanup across async suspension. |
