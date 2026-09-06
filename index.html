@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Iris Programming Language is a modern object-oriented scripting language with dynamic behavior bounded by static promises.">
-    <meta name="theme-color" content="#070b12">
+    <meta name="description" content="Build Iris, run your first program on the bytecode VM, and learn the language through a bilingual handbook. A work-in-progress implementation, not a toolchain release.">
+    <meta name="theme-color" content="#f7f5ef">
     <meta property="og:title" content="Iris Programming Language">
-    <meta property="og:description" content="A bilingual preview of the frozen Iris Programming Language specification.">
+    <meta property="og:description" content="Build. Run. Learn. A bilingual, VM-first entrance to the Iris programming language.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://yuwenhuisama.github.io/Iris-Language/">
     <meta property="og:image" content="https://yuwenhuisama.github.io/Iris-Language/assets/og-image.png">
@@ -20,7 +20,7 @@
     <script src="assets/app.js" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Skip to content</a>
+    <a class="skip-link" href="#main" data-i18n="skipContent">Skip to content</a>
     <header class="site-header" id="site-header">
       <nav class="top-nav" aria-label="Primary navigation">
         <a class="brand" href="#/" aria-label="Iris home">
@@ -30,13 +30,14 @@
         <div class="top-actions">
           <a class="nav-link" href="#/tutorial/en/README" data-nav="tutorial" data-i18n="nav.tutorial">Tutorial</a>
           <a class="nav-link" href="#/spec/en/README" data-nav="spec" data-i18n="nav.spec">Specification</a>
-          <a class="nav-link" href="https://github.com/yuwenhuisama/Iris-Language" target="_blank" rel="noopener" data-i18n="nav.github">GitHub</a>
+          <a class="nav-link status-link" href="https://github.com/yuwenhuisama/Iris-Language#runtime-architecture" target="_blank" rel="noopener" data-i18n="nav.status">Status</a>
           <button class="ghost-button" id="lang-toggle" type="button" aria-label="Switch language">EN</button>
-          <button class="ghost-button" id="theme-toggle" type="button" aria-label="Toggle light theme">Light</button>
+          <button class="ghost-button" id="theme-toggle" type="button" aria-label="Switch to dark theme">Dark</button>
           <button class="ghost-button mobile-only" id="sidebar-toggle" type="button" aria-expanded="false" aria-controls="reader-sidebar" data-i18n="nav.chapters">Chapters</button>
         </div>
       </nav>
     </header>
     <main id="main" tabindex="-1"></main>
+    <noscript><p>This handbook needs JavaScript to render Markdown. Read the <a href="tutorial/en/README.md">English tutorial</a>, <a href="tutorial/zh-cn/README.md">中文教程</a>, or <a href="https://github.com/yuwenhuisama/Iris-Language">source repository</a>.</p></noscript>
   </body>
 </html>
