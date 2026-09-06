@@ -1,128 +1,181 @@
 # Values and Bindings
 
-This chapter teaches the basic data you can write directly in Iris source and the binding forms that hold it: `let`, `mut`, `const`, and `shared`. You'll see how annotations become static and runtime contracts, why `nil` is a real object, and how truthiness works through `to_bool` instead of hard-coded condition rules.
-
-```iris
-let name: String = "Iris"
-mut count: Integer
-count = 1
-
-mut value: String | Integer = "ready"
-value = 42
-```
-
-This snippet is reused from `IRIS-V1-CONTROL-EX001`.
+This chapter covers the basic data literals you can write in Iris source and the binding forms that store them: `let`, `mut`, `const`, and `shared`. You will learn how annotations establish fixed local contracts, how collections and `nil` behave as ordinary objects, and how truthiness evaluates through the `to_bool` protocol.
 
 ## Bindings choose the shape of a local name
 
-The binding forms are deliberately small. `let` declares an immutable local and must have an initializer. `mut` declares a mutable local. A `mut` binding can defer initialization only when it has a written type. `const` uses the same grammar production as `let` and `mut`, but it names an immutable declaration-level binding rather than a mutable local cell.
+Iris provides dedicated binding keywords:
 
+- `let` introduces an immutable local variable. It requires an immediate initializer expression.
+- `mut` introduces a mutable local variable whose value can be reassigned.
+- `const` declares an immutable constant value at declaration level.
+
+<!-- iris-example: {"id":"02-bindings","mode":"vm","stdout":"Iris\n2\n"} -->
 ```iris
 let language = "Iris"
-let answer: Integer = 42
-mut state: Symbol = :ready
-const Version: Integer = 1
+mut count = 1
+count = count + 1
+print(language)
+print(count)
 ```
+
+Expected output:
+
+```text
+Iris
+2
+```
+
+Assigning to an immutable `let` binding is rejected by the compiler.
 
 ## Shared and global storage are declared, never conjured
 
-Locals are not the only cells. A Class or Module body can declare hierarchy-anchored storage with `shared let` or `shared mut` on a `@@name`, and a package can declare `global let` or `global mut` on a `$name`. Both forms must be declared before they are used: assigning to `@@count` or `$count` that no declaration created is a `MISSING_DECLARED_STORAGE` diagnostic, not an implicit definition.
+Local variables live on the current execution stack frame. When multiple instances or methods need shared state, storage must be declared explicitly before use.
 
+Within a Class or Module, `shared mut @@name` or `shared let @@name` declares storage anchored to that type in the class hierarchy. Similarly, `global let $name` or `global mut $name` declares package-level variables. Accessing or assigning to an undeclared `@@name` or `$name` produces a `MISSING_DECLARED_STORAGE` compile-time error.
+
+<!-- iris-example: {"id":"02-shared","mode":"vm","stdout":"1\n2\n"} -->
 ```iris
-class Registry {
+class Counter {
   shared mut @@count: Integer = 0
-  shared let @@limit: Integer = 16
-
-  class fun record() -> Integer { @@count += 1 }
+  public fun bump() -> Integer {
+    @@count = @@count + 1
+  }
 }
+let c = Counter.new()
+print(c.bump())
+print(c.bump())
 ```
 
-`shared let` creates an immutable cell and `shared mut` creates an assignable one. The cell is anchored to the declaring Class or Module, so a subclass cannot shadow or redeclare it; a redeclaration is a `CLASS_VARIABLE_REDECLARATION` diagnostic and the ancestor cell is untouched.
+Expected output:
+
+```text
+1
+2
+```
 
 ## Annotations fix the local contract
 
-If you omit a type annotation on a local binding, the initializer fixes the local type. Later assignments to a `mut` binding must still fit that fixed type. If you want a wider cell, write the wider type up front.
+When you write a type annotation on a binding, that type fixes the contract for all future assignments to the slot.
 
+<!-- iris-example: {"id":"02-annotations","mode":"vm","stdout":"15\n"} -->
 ```iris
-mut exact = "ready"
-mut flexible: String | Integer = "ready"
-flexible = 42
+mut count: Integer = 10
+count = count + 5
+print(count)
 ```
+
+Expected output:
+
+```text
+15
+```
+
+If a binding omits a type annotation, its type is inferred from the initial expression and remains fixed for that binding cell.
 
 ## Literal forms create objects
 
-The common scalar literals are source forms for objects. Integer literals are arbitrary precision at the language level. Unsuffixed floating literals are `Float64`; suffixes choose `Float32` or `Float64`. Strings are immutable text values. `m"..."` creates a fresh `MutableString` identity. Symbols begin with `:` and represent immutable interned names.
+Every literal form produces an object:
 
+- **Integers**: Arbitrary precision integer values (e.g. `1000`).
+- **Floats**: `Float64` by default; suffixes like `f32` and `f64` explicitly specify width (e.g. `0.5f64`).
+- **Strings**: Immutable text values enclosed in double quotes (e.g. `"report"`).
+- **Symbols**: Interned immutable identifiers starting with a colon (e.g. `:ready`).
+
+<!-- iris-example: {"id":"02-literals","mode":"vm","stdout":"1000\n0.5\nreport\nready\n"} -->
 ```iris
-let whole = 1_000
+let count = 1000
 let ratio = 0.5f64
 let title = "report"
-let buffer = m"draft"
 let tag = :ready
+print(count)
+print(ratio)
+print(title)
+print(tag)
+```
+
+Expected output:
+
+```text
+1000
+0.5
+report
+ready
 ```
 
 ## Nil and collections are ordinary values
 
-`nil`, `true`, and `false` are not special non-objects. They are singleton objects with specified runtime behavior. `nil` has Type `Nil`. A type such as `String` does not include `nil` unless you say so with `String?` or `String | Nil`.
+`nil`, `true`, and `false` are singleton objects, not primitive sentinels. `nil` is an instance of `Nil`.
 
+Collections also produce standard objects:
+
+- Arrays use bracket notation `[...]`.
+- Maps use hash table notation `%{ ... }`.
+
+<!-- iris-example: {"id":"02-nil-collections","mode":"vm","stdout":"2\nIris\n"} -->
 ```iris
-let missing: String? = nil
-let present: String | Nil = "name"
+let items = [1, 2]
+let table = %{ :lang: "Iris" }
+print(items.length())
+print(table[:lang])
 ```
 
-Collections also have literal forms, but their detailed behavior belongs later in the spec. At this stage, read them as object-producing expressions: arrays use `[...]`, hash literals use `%{ ... }`, and ranges use `..=` or `..<`.
+Expected output:
 
-```iris
-let items = [1, 2, 3]
-let table = %{ :name: "Iris", :version: 1 }
-let closed = 1 ..= 3
-let half_open = 1 ..< 3
+```text
+2
+Iris
 ```
 
 ## Truthiness goes through to_bool
 
-Conditions use the dynamic `to_bool() -> Bool` protocol. Root `Object` is truthy by default. `nil` is falsy. `false` is falsy and `true` is truthy because Bool returns itself. The logical operators `&&` and `||` return one of their operands, not the converted Bool, and they evaluate the right side only when needed.
+Conditionals in Iris evaluate truthiness through the `to_bool() -> Bool` protocol.
 
+- `Object` is truthy by default.
+- `nil` is falsy.
+- `false` is falsy, while `true` is truthy.
+- Logical operators `||` and `&&` short-circuit and return the operand value itself rather than coercing to a boolean.
+
+<!-- iris-example: {"id":"02-truthiness","mode":"vm","stdout":"active\nyes\n"} -->
 ```iris
-let chosen = if config.ready? { "ready" } else { nil }
-let cached = value || compute_default()
-let both = label && label.length()
+let primary = nil
+let fallback = "active"
+let chosen = primary || fallback
+print(chosen)
+print(if "text" { "yes" } else { "no" })
 ```
 
-This snippet is reused from `IRIS-V1-CONTROL-EX007`.
+Expected output:
 
-That truthiness rule is dynamic, but it is not a type predicate by itself. A truth test doesn't automatically turn a `String?` into a `String`. Use an explicit nil comparison, `is`, `as`, `as?`, typed `catch`, or match type pattern when you need flow narrowing.
-
-```iris
-let name: String? = load_name()
-
-if name != nil {
-  let strong: String = name
-}
+```text
+active
+yes
 ```
 
-This snippet is adapted from `IRIS-V1-TYPES-EX003`.
+Because `primary` is `nil` (falsy), the `||` operator returns the evaluated right-hand operand `"active"`.
 
 ## Static promise, dynamic freedom
 
-A binding annotation is both a static promise and a runtime boundary guard. It doesn't freeze the object's behavior, choose an overload, or copy the value. It promises that anything stored in that cell satisfies the written type when the boundary is crossed.
+Binding annotations act as boundary guarantees. They do not alter object representation or dispatch mechanics, but they ensure that invalid values cannot cross into typed locations.
 
-Prefer `let` until you need reassignment. Reach for `mut` when the cell changes over time. Use `const` for immutable named declarations that should participate in the qualified declaration namespace.
+**Hands-on Exercise**
+
+Create a script `bindings_test.iris` that establishes an immutable binding to a mutable map `let config = %{ :port: 8080, :host: "localhost" }` (remember that `let` prevents reassigning the variable name but does not freeze map contents), declares a mutable variable `mut status: String = "starting"`, reassigns `status` to `"running"`, and prints both the `:port` from the map and `status`. Run with `./target/debug/iris --vm bindings_test.iris` to confirm output `8080` and `running`.
 
 ## Read the spec
 
-This chapter simplifies these normative clauses:
+This chapter simplifies the following normative clauses:
 
 - [`IRIS-V1-GRAMMAR-C024`](../../spec/iris-v1/02-lexical-grammar.md): integer literal forms.
-- [`IRIS-V1-GRAMMAR-C029`](../../spec/iris-v1/02-lexical-grammar.md): float suffixes.
+- [`IRIS-V1-GRAMMAR-C029`](../../spec/iris-v1/02-lexical-grammar.md): float literal formats and suffixes.
 - [`IRIS-V1-GRAMMAR-C037`](../../spec/iris-v1/02-lexical-grammar.md): `MutableString` literal creation.
 - [`IRIS-V1-GRAMMAR-C040`](../../spec/iris-v1/02-lexical-grammar.md): array, hash, tuple, and range literal syntax.
 - [`IRIS-V1-CONTROL-C003`](../../spec/iris-v1/04-bindings-callables-control-flow.md): `let` and `mut` binding declarations.
-- [`IRIS-V1-CONTROL-C004`](../../spec/iris-v1/04-bindings-callables-control-flow.md): definite assignment and deferred `mut` rules.
+- [`IRIS-V1-CONTROL-C004`](../../spec/iris-v1/04-bindings-callables-control-flow.md): definite assignment rules.
 - [`IRIS-V1-CONTROL-C005`](../../spec/iris-v1/04-bindings-callables-control-flow.md): binding annotations as fixed local contracts.
-- [`IRIS-V1-CONTROL-C009`](../../spec/iris-v1/04-bindings-callables-control-flow.md): assignment to undeclared shared or global storage fails.
-- [`IRIS-V1-GRAMMAR-C059`](../../spec/iris-v1/02-lexical-grammar.md): the `shared let` and `shared mut` declaration form.
-- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): shared cell creation, immutability, and duplicate rejection.
-- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md): truthiness through `to_bool`.
+- [`IRIS-V1-CONTROL-C009`](../../spec/iris-v1/04-bindings-callables-control-flow.md): undeclared shared or global storage failure.
+- [`IRIS-V1-GRAMMAR-C059`](../../spec/iris-v1/02-lexical-grammar.md): `shared let` and `shared mut` declarations.
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): shared cell creation and immutability.
+- [`IRIS-V1-CONTROL-C039`](../../spec/iris-v1/04-bindings-callables-control-flow.md): truthiness evaluation through `to_bool`.
 - [`IRIS-V1-TYPES-C011`](../../spec/iris-v1/05-types-contracts-generics.md): `Nil` and nilability.
-- [`IRIS-V1-TYPES-C012`](../../spec/iris-v1/05-types-contracts-generics.md): `T?` as `T | Nil`.
+- [`IRIS-V1-TYPES-C012`](../../spec/iris-v1/05-types-contracts-generics.md): `T?` as syntactic sugar for `T | Nil`.
