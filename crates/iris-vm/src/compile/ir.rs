@@ -281,6 +281,12 @@ pub enum Instruction {
     /// rather than recomputed. `resource` registers a payload whose release
     /// counter stays behind the ABI, which is what makes `C030`'s idempotence
     /// observable rather than asserted.
+    NativeCall {
+        destination: Register,
+        name: String,
+        first: Register,
+        count: u16,
+    },
     NativeFixture {
         destination: Register,
         selector: String,
@@ -824,6 +830,7 @@ impl Instruction {
     pub(crate) const fn destination(&self) -> Option<Register> {
         match self {
             Self::LoadInteger { destination, .. }
+            | Self::NativeCall { destination, .. }
             | Self::LoadFloat64 { destination, .. }
             | Self::LoadFloat32 { destination, .. }
             | Self::LoadText { destination, .. }
@@ -998,6 +1005,7 @@ pub struct Function {
 /// A compiled program.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
+    pub(crate) package: Option<crate::native::PackageIdentity>,
     pub(crate) source: String,
     pub(crate) instructions: Vec<Instruction>,
     /// How many registers the top-level frame uses.

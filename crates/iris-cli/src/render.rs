@@ -64,7 +64,7 @@ pub fn render(value: &Value) -> String {
         Value::ArrayIterator(_) | Value::HashIterator(_) | Value::ByteIterator(_) => {
             "<iterator>".to_owned()
         }
-        Value::NativeResource(_) => "<native-resource>".to_owned(),
+        Value::NativeResource(_) | Value::ExternalResource(_) => "<native-resource>".to_owned(),
         Value::Transformation { .. } => "<transformation>".to_owned(),
         Value::ExceptionContext(..) => "<exception-context>".to_owned(),
         Value::StackFrame(..) | Value::RaiseSite(_) | Value::SourceLocation(..) => {

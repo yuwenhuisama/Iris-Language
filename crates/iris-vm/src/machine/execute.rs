@@ -416,6 +416,21 @@ impl Machine {
                     println!("{}", rendered.join(" "));
                     Value::Nil
                 }
+                Instruction::NativeCall {
+                    name, first, count, ..
+                } => {
+                    let start = usize::from(*first);
+                    let arguments = &registers[start..start + usize::from(*count)];
+                    let registry = self
+                        .natives
+                        .as_ref()
+                        .ok_or(MachineError::UnsupportedConstruct)?;
+                    dispatch!(
+                        registry
+                            .call(name, arguments)
+                            .map_err(super::operations::native_error)?
+                    )
+                }
                 Instruction::NativeFixture {
                     selector,
                     first,
@@ -856,8 +871,10 @@ impl Machine {
                             "cause" => (**cause).clone(),
                             "suppressed" => Value::ReadonlyArray(suppressed.clone()),
                             "re_raise_sites" => Value::ReadonlyArray(sites.clone()),
-                            "original_stack" => Value::ReadonlyArray(Vec::new()),
-                            "raise_location" => (**location).clone(),
+                            "original_stack" => {
+                                Value::ReadonlyArray(location.original_stack.clone())
+                            }
+                            "raise_location" => location.location.clone(),
                             // `C036` names the decoder, the offset and the
                             // construct it expected, so a caught failure says
                             // WHERE the document stopped being readable.
@@ -1726,7 +1743,7 @@ impl Machine {
                         Box::new(cause),
                         Vec::new(),
                         Vec::new(),
-                        Box::new(source_location(&program.source, *offset)),
+                        Box::new(source_location(&program.source, *offset).into()),
                     );
                     self.next_context = self.next_context.saturating_add(1);
                     let Some((handler, exception, context_register)) = handlers.pop() else {
@@ -2616,6 +2633,17 @@ impl Machine {
                     let start = *first as usize;
                     let arguments = &registers[start..start + *count as usize];
                     match (namespace.as_str(), selector.as_str(), arguments) {
+                        (_, _, [Value::Symbol(target), ..])
+                            if self
+                                .natives
+                                .as_ref()
+                                .is_some_and(|registry| registry.is_native_module(target)) =>
+                        {
+                            Err(MachineError::Raised(Box::new((
+                                Value::Symbol("ReflectionPermissionError".to_owned()),
+                                Value::Nil,
+                            ))))?
+                        }
                         // `C119` makes the two entry points ONE implementation,
                         // so this defers to the direct send rather than
                         // repeating the rule and risking them drifting apart.
@@ -3750,7 +3778,7 @@ impl Machine {
             Box::new(Value::Nil),
             Vec::new(),
             Vec::new(),
-            Box::new(Value::Nil),
+            Box::new(Value::Nil.into()),
         )
     }
 }

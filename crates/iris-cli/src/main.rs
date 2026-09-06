@@ -1,5 +1,6 @@
 //! The `iris` command: runs a script file, or an interactive session.
 
+mod package;
 mod render;
 mod repl;
 
@@ -8,6 +9,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     match arguments.as_slice() {
+        [command, rest @ ..] if command == "package" => package::run(rest),
         [] => repl::run(),
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
@@ -37,7 +39,10 @@ Usage:
   iris -e <source>     Run source given on the command line
   iris --vm <file>     Run a script on the register machine
   iris --help          Show this message
-  iris --version       Show the version";
+  iris --version       Show the version
+  iris package install <dir> [--allow-local-git]
+  iris package build <dir> --allow-native-build
+  iris package run <dir> [--vm] [--allow <comma-separated permissions>]";
 
 /// Which engine runs the program.
 ///

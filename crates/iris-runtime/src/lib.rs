@@ -4,6 +4,8 @@ mod class_registry;
 mod class_revision;
 mod decorator;
 mod dispatch;
+mod exception;
+mod external_resource;
 mod heap;
 mod identity;
 mod kernel;
@@ -26,6 +28,8 @@ pub use class_revision::{
 };
 pub use decorator::{AppliedDecorator, DecoratorTransform, DecoratorViolation};
 pub use dispatch::{DispatchContext, DispatchError, DispatchOutcome};
+pub use exception::{ExceptionOrigin, NativeBridge};
+pub use external_resource::ExternalResource;
 pub use heap::{HeapObject, HeapPayload, RuntimeError, RuntimeHeap};
 pub use identity::{ClassId, ContractId, MethodId, ModuleId, ObjectId, RevisionId, Selector};
 pub use kernel::{Kernel, KernelError, NativeSelector};

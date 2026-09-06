@@ -378,8 +378,11 @@ impl Machine {
                     .get(contract_index)
                     .map(|contract| contract.name.as_str())
                     .ok_or(MachineError::InvalidKeyError)?;
-                let contract_hash =
-                    iris_runtime::contract_type_hash("runtime-local", contract_name, 1);
+                let contract_hash = iris_runtime::contract_type_hash(
+                    program.package_id(),
+                    contract_name,
+                    program.api_major(),
+                );
                 let (Some(receiver_hash), Some(contract_hash)) =
                     (receiver_hash.to_u64(), contract_hash.to_u64())
                 else {
@@ -786,8 +789,8 @@ impl Machine {
                     "cause" => Some((**cause).clone()),
                     "suppressed" => Some(Value::ReadonlyArray(suppressed.clone())),
                     "re_raise_sites" => Some(Value::ReadonlyArray(sites.clone())),
-                    "original_stack" => Some(Value::ReadonlyArray(Vec::new())),
-                    "raise_location" => Some((**location).clone()),
+                    "original_stack" => Some(Value::ReadonlyArray(location.original_stack.clone())),
+                    "raise_location" => Some(location.location.clone()),
                     _ => None,
                 }
             }
@@ -795,7 +798,17 @@ impl Machine {
             // by identity: `C.hash() == C.hash()` holds because both name the
             // same contract.
             Value::Contract(contract, _) if selector == "hash" && arguments.is_empty() => {
-                Some(Value::Integer(contract.raw().into()))
+                let index = usize::try_from(contract.raw().saturating_sub(1))
+                    .map_err(|_| MachineError::UnsupportedConstruct)?;
+                let declaration = program
+                    .contracts
+                    .get(index)
+                    .ok_or(MachineError::UnsupportedConstruct)?;
+                Some(Value::Integer(iris_runtime::contract_type_hash(
+                    program.package_id(),
+                    &declaration.name,
+                    program.api_major(),
+                )))
             }
             // A MutableString answers its CURRENT content, so a read after a
             // write sees the replacement rather than the text the value was
@@ -1102,7 +1115,7 @@ impl Machine {
                         .active(owner)
                         .map_err(MachineError::Class)?;
                     Some(Value::Array(iris_runtime::ArrayRef::new(vec![
-                        Value::Symbol("runtime-local".to_owned()),
+                        Value::Symbol(program.package_id().to_owned()),
                         Value::Integer(revision.number().into()),
                         Value::Integer(revision.commit_id().into()),
                         Value::Symbol(
@@ -1138,8 +1151,11 @@ impl Machine {
             },
             // `IDENTITY-C030` gives a script RUNTIME-LOCAL package identity, so
             // a Type names that package rather than a publishable one.
-            Value::Type(..) if selector == "package" && arguments.is_empty() => {
-                Some(Value::Symbol("runtime-local".to_owned()))
+            Value::Type(class, _) if selector == "package" && arguments.is_empty() => {
+                if program.package_identity().is_some() && !classes.contains(class) {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                Some(Value::Symbol(program.package_id().to_owned()))
             }
             // `C078` derives a nominal Type's PUBLISHABLE identity hash from
             // the package, the qualified name and the major API version, so
@@ -1147,6 +1163,9 @@ impl Machine {
             // one between packages changes its identity. An identity hash
             // would answer a fresh number per read instead.
             Value::Type(class, _) if selector == "hash" && arguments.is_empty() => {
+                if program.package_identity().is_some() && !classes.contains(class) {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
                 let name = classes
                     .iter()
                     .position(|known| known == class)
@@ -1154,9 +1173,9 @@ impl Machine {
                     .map(|declaration| declaration.name.clone())
                     .unwrap_or_default();
                 Some(Value::Integer(iris_runtime::contract_type_hash(
-                    "runtime-local",
+                    program.package_id(),
                     &name,
-                    1,
+                    program.api_major(),
                 )))
             }
             // A NOMINAL type answers the type ARGUMENTS it was closed over,
@@ -2229,7 +2248,7 @@ impl Machine {
                     Box::new(Value::Nil),
                     Vec::new(),
                     Vec::new(),
-                    Box::new(Value::Nil),
+                    Box::new(Value::Nil.into()),
                 );
                 Err(MachineError::Raised(Box::new((raised, context))))
             }
@@ -2452,7 +2471,10 @@ impl Machine {
                 .and_then(|index| program.classes.get(index))
                 .map(|declaration| declaration.name.clone())
                 .unwrap_or_default();
-            return Ok(Some(Value::Text(format!("<runtime-local::{name}>"))));
+            return Ok(Some(Value::Text(format!(
+                "<{}::{name}>",
+                program.package_id()
+            ))));
         }
         let Some(slot) = selector_id(program, "method_missing") else {
             return Ok(None);

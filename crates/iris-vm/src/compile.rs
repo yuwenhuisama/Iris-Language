@@ -17,7 +17,15 @@ mod calls;
 mod expressions_lowering;
 mod ir;
 pub(crate) mod lowering;
+mod native;
+mod return_scopes;
 mod statements;
+
+#[derive(Clone, Copy)]
+pub(crate) enum CompilationMode {
+    Script,
+    Package,
+}
 
 pub(crate) use ir::{
     Class, ClassReopen, ClassVariable, Contract, ContractRequirement, Function, LiteralValue,
@@ -48,7 +56,23 @@ impl CompileError {
 /// # Errors
 /// Returns the uncovered construct, or a parse rejection.
 pub fn compile(source: &str) -> Result<Program, CompileError> {
-    let parsed = iris_parser::parse(source);
+    compile_with_natives(source, &iris_native_host::NativeRegistry::new())
+}
+
+pub fn compile_with_natives(
+    source: &str,
+    natives: &iris_native_host::NativeRegistry,
+) -> Result<Program, CompileError> {
+    compile_in_mode(source, natives, CompilationMode::Script)
+}
+
+pub(crate) fn compile_in_mode(
+    source: &str,
+    natives: &iris_native_host::NativeRegistry,
+    mode: CompilationMode,
+) -> Result<Program, CompileError> {
+    let mut parsed = iris_parser::parse(source);
+    let native_names = native::prepare(&mut parsed.program, natives)?;
     // A source the PARSER refuses is a program error the reference raises when
     // the program runs, so the backend answers a program that raises it rather
     // than declining - both refuse it either way, but only one of those can
@@ -56,6 +80,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     if !parsed.program_accepted {
         return Ok(Program {
             source: source.to_owned(),
+            package: None,
             instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
             registers: 1,
             result: 0,
@@ -72,6 +97,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     {
         return Ok(Program {
             source: source.to_owned(),
+            package: None,
             instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
             registers: 1,
             result: 0,
@@ -111,6 +137,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         };
         return Ok(Program {
             source: source.to_owned(),
+            package: None,
             instructions: vec![raise],
             registers: 1,
             result: 0,
@@ -150,7 +177,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         })
         .collect();
     for signature in &signatures {
-        functions.push(lower_function(
+        let mut function = lower_function(
             signature,
             lowering::Declarations {
                 signatures: &signatures,
@@ -161,7 +188,9 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             signatures.len(),
             &mut closures,
             &program_bindings,
-        )?);
+        )?;
+        native::bind(&mut function, &native_names)?;
+        functions.push(function);
     }
 
     let declarations = lowering::Declarations {
@@ -322,15 +351,17 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         }
     }
     let result = match produced.as_slice() {
-        // A program of only declarations, or only bindings, answers no value.
-        // The reference raises UnsupportedConstruct when it RUNS, so refusing
-        // at compile time made both backends refuse the same program while
-        // describing it differently - which holds the row rather than agreeing.
         [] => {
             let destination = lowering.allocate()?;
-            lowering
-                .instructions
-                .push(Instruction::RaiseUnsupported { destination });
+            let completion = match mode {
+                CompilationMode::Package if parsed.program.statements.is_empty() => {
+                    Instruction::LoadNil { destination }
+                }
+                CompilationMode::Script | CompilationMode::Package => {
+                    Instruction::RaiseUnsupported { destination }
+                }
+            };
+            lowering.instructions.push(completion);
             destination
         }
         [single] => *single,
@@ -390,6 +421,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     }
     Ok(Program {
         source: source.to_owned(),
+        package: None,
         instructions,
         registers,
         result,

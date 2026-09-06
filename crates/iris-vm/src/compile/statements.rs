@@ -163,21 +163,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination
                     }
                 };
-                // A return bypasses the exception handlers that protect loop
-                // bodies, so active iterators must be closed explicitly here.
-                for iterator in self.loops.iter().rev().filter_map(|loop_| loop_.iterator) {
-                    self.instructions.push(Instruction::IteratorClose {
-                        iterator,
-                        context: None,
-                    });
-                }
-                // `C004` guards the return boundary on the EXPLICIT path too,
-                // not only where the body falls off its end.
-                if let Some(annotation) = self.return_annotation.clone() {
-                    self.instructions
-                        .push(Instruction::CheckReturn { value, annotation });
-                }
-                self.instructions.push(Instruction::Return { value });
+                self.return_value(value)?;
                 Ok(value)
             }
             // A LABELLED break unwinds to the loop that name belongs to rather
@@ -447,10 +433,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
             label: label.map(str::to_owned),
             continue_target: top,
             breaks: Vec::new(),
-            iterator: Some(iterator),
             value: Some(destination),
         });
+        self.return_scopes
+            .push(super::return_scopes::ReturnScope::Iterator(iterator));
         self.body(body)?;
+        self.return_scopes.pop();
         let Some(loop_context) = self.loops.pop() else {
             return Err(CompileError::new("loop context"));
         };
@@ -516,7 +504,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
             exception,
             context,
         });
+        self.enter_return_scope(finally.as_deref().unwrap_or_default());
         let value = self.body(body)?;
+        self.return_scopes.pop();
         self.instructions.push(Instruction::LeaveTry);
         self.instructions.push(Instruction::Move {
             destination,
@@ -552,6 +542,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 exception,
                 context,
             });
+            self.enter_return_scope(finally.as_deref().unwrap_or_default());
             let outer = self.names.len();
             if let Some(iris_syntax::CatchBinding::Name(name)) = &catch.binding {
                 self.names.push(Binding::value(name.clone(), exception));
@@ -561,6 +552,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             self.exception_contexts.push((exception, context));
             let caught = self.body(&catch.body)?;
+            self.return_scopes.pop();
             self.exception_contexts.pop();
             self.names.truncate(outer);
             self.instructions.push(Instruction::LeaveTry);
@@ -778,7 +770,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
             label: label.map(str::to_owned),
             continue_target: top,
             breaks: Vec::new(),
-            iterator: None,
             value: Some(destination),
         });
         self.body(body)?;

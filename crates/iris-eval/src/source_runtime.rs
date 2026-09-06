@@ -12,6 +12,8 @@ use iris_syntax::{
 };
 
 use crate::EvaluationError;
+pub(crate) mod native;
+mod package_identity;
 use crate::source_method::{builtin, literal, visibility};
 
 /// The package identity a manifestless local script runs under.
@@ -373,6 +375,8 @@ struct SuspendedTask {
 }
 
 pub(super) struct SourceEvaluator {
+    natives: Option<std::rc::Rc<iris_native_host::NativeRegistry>>,
+    native_bodies: HashMap<u64, String>,
     runtime: Runtime,
     kernel: Kernel,
     /// Remaining evaluation steps before the run is abandoned.
@@ -495,6 +499,7 @@ pub(super) struct SourceEvaluator {
     /// runtime-local package identity only, and `IRIS-V1-IDENTITY-C030` makes
     /// that identity runtime-local rather than publishable.
     package: String,
+    package_contexts: package_identity::PackageContexts,
     /// The Class object naming `ExceptionContext`, once source has named it.
     ///
     /// `IRIS-V1-CONTROL-C080` makes it a NAMEABLE built-in Class so the getter
@@ -827,6 +832,8 @@ impl SourceEvaluator {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
         let mut evaluator = Self {
+            natives: None,
+            native_bodies: HashMap::new(),
             runtime,
             kernel,
             remaining_steps: STEP_BUDGET,
@@ -856,6 +863,7 @@ impl SourceEvaluator {
             bodies: HashMap::new(),
             globals: HashMap::new(),
             package: package.to_owned(),
+            package_contexts: package_identity::PackageContexts::default(),
             api_major: 1,
             exception_context_class: None,
             decoder_diagnostic: None,
@@ -1347,6 +1355,9 @@ impl SourceEvaluator {
                 declaration.name.clone(),
                 Binding::immutable(Value::Class(class)),
             );
+            self.package_contexts
+                .classes
+                .insert(class, (self.package.clone(), self.api_major));
             self.static_superclasses.insert(class, superclass);
             self.class_mixins.insert(class, class_mixins);
             // IRIS-V1-TYPES-C044: only a Class declares instance Contract
@@ -3190,6 +3201,9 @@ impl SourceEvaluator {
             }
         }
         self.contract_requirements.insert(contract, requirements);
+        self.package_contexts
+            .contracts
+            .insert(contract, (self.package.clone(), self.api_major));
         self.names.insert(
             declaration.name.clone(),
             Binding::immutable(Value::Contract(contract, Vec::new())),
@@ -3198,6 +3212,16 @@ impl SourceEvaluator {
     }
 
     fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
+        if self.natives.as_ref().is_some_and(|registry| {
+            registry.metadata().iter().any(|metadata| {
+                metadata
+                    .modules
+                    .iter()
+                    .any(|module| module.name == declaration.name)
+            })
+        }) {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
         let mut components = Vec::new();
         for mixin in &declaration.mixins {
             match &mixin.target {
@@ -3663,7 +3687,7 @@ impl SourceEvaluator {
                     Box::new(cause),
                     Vec::new(),
                     Vec::new(),
-                    Box::new(location),
+                    Box::new(location.into()),
                 ));
                 Err(EvaluationError::Raised(value))
             }
@@ -5646,7 +5670,7 @@ impl SourceEvaluator {
                         Box::new(Value::Nil),
                         Vec::new(),
                         Vec::new(),
-                        Box::new(cleanup_location),
+                        Box::new(cleanup_location.into()),
                     ));
                     self.active_context = Some(Value::ExceptionContext(
                         identity, value, cause, suppressed, sites, location,
@@ -5913,7 +5937,7 @@ impl SourceEvaluator {
                         Box::new(cause),
                         Vec::new(),
                         Vec::new(),
-                        Box::new(location),
+                        Box::new(location.into()),
                     ));
                 }
             }
@@ -5987,7 +6011,7 @@ impl SourceEvaluator {
                             Box::new(Value::Nil),
                             Vec::new(),
                             Vec::new(),
-                            Box::new(location),
+                            Box::new(location.into()),
                         )
                     }
                 };
@@ -8051,7 +8075,9 @@ impl SourceEvaluator {
             // C097 fixes the minimal Class reflection view. Each member reads
             // the ACTIVE revision, so what a transaction staged stays
             // invisible until it commits. V424 reflects the whole surface.
-            Value::Class(_) if selector == "package" => Ok(Value::Symbol(self.package.clone())),
+            Value::Class(class) if selector == "package" => {
+                Ok(Value::Symbol(self.class_identity(class).0.to_owned()))
+            }
             Value::Class(class) if selector == "static_spine" => Ok(Value::Integer(
                 self.runtime
                     .registry()
@@ -8300,7 +8326,7 @@ impl SourceEvaluator {
                     .active(owner)
                     .map_err(EvaluationError::Class)?;
                 Ok(Value::Array(ArrayRef::new(vec![
-                    Value::Symbol(self.package.clone()),
+                    Value::Symbol(self.class_identity(owner).0.to_owned()),
                     Value::Integer(revision.number().into()),
                     Value::Integer(revision.commit_id().into()),
                     Value::Symbol(if dynamic { "dynamic-only" } else { "static" }.into()),
@@ -8398,7 +8424,9 @@ impl SourceEvaluator {
             // name alone, member shape, or allocation order. The same helper
             // the Contract path uses supplies exactly those three facts.
             Value::Type(class, _) if selector == "hash" => self.type_identity_hash(class),
-            Value::Type(..) if selector == "package" => Ok(Value::Symbol(self.package.clone())),
+            Value::Type(class, _) if selector == "package" => {
+                Ok(Value::Symbol(self.class_identity(class).0.to_owned()))
+            }
             Value::Type(left, left_arguments) if selector == "subtype?" => {
                 let [Value::Type(right, right_arguments)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -8689,6 +8717,17 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if namespace.starts_with("Reflection::")
+            && let Some(Value::Symbol(target)) = arguments.first()
+            && self
+                .natives
+                .as_ref()
+                .is_some_and(|registry| registry.is_native_module(target))
+        {
+            return Err(EvaluationError::Raised(Value::Symbol(
+                "ReflectionPermissionError".to_owned(),
+            )));
+        }
         match (namespace, selector) {
             // C097 gives a package a reflection view, and C006 makes the
             // dependency selection exact. V420 reads the resolved identity and
@@ -9286,7 +9325,7 @@ impl SourceEvaluator {
                     Box::new(Value::Nil),
                     Vec::new(),
                     Vec::new(),
-                    Box::new(location),
+                    Box::new(location.into()),
                 ));
                 Err(EvaluationError::Raised(raised))
             }
@@ -9931,10 +9970,9 @@ impl SourceEvaluator {
     #[inline(never)]
     fn type_identity_hash(&self, class: ClassId) -> Result<Value, EvaluationError> {
         let name = self.class_display_name(class);
+        let (package, major) = self.class_identity(class);
         Ok(Value::Integer(iris_runtime::contract_type_hash(
-            &self.package,
-            &name,
-            self.api_major,
+            package, &name, major,
         )))
     }
 
@@ -9959,11 +9997,11 @@ impl SourceEvaluator {
             .iter()
             .find_map(|(name, known)| (*known == contract).then(|| name.clone()))
             .ok_or(EvaluationError::UnsupportedConstruct)?;
-        Ok(iris_runtime::contract_type_hash(
-            &self.package,
-            &name,
-            self.api_major,
-        ))
+        let (package, major) = self.package_contexts.contracts.get(&contract).map_or(
+            (self.package.as_str(), self.api_major),
+            |(package, major)| (package.as_str(), *major),
+        );
+        Ok(iris_runtime::contract_type_hash(package, &name, major))
     }
 
     fn ancestors(&self, target: ClassId) -> Result<Value, EvaluationError> {
@@ -10389,6 +10427,9 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Value::ExternalResource(resource) = &receiver {
+            return self.native_resource_send(resource, selector, arguments);
+        }
         if let Some(result) = self.authored_text_send(&receiver, selector, arguments)? {
             return Ok(result);
         }
@@ -10429,12 +10470,10 @@ impl SourceEvaluator {
                 // C065 lists `re_raise_sites` among the get-only properties,
                 // and D-155 makes it ordered by occurrence.
                 "re_raise_sites" => return Ok(Value::ReadonlyArray(sites.clone())),
-                // C065 exposes both get-only. C079 types `original_stack` as
-                // `ReadonlyArray<StackFrame>`; this evaluator keeps no call
-                // stack, so it is EMPTY rather than fabricated, which C066
-                // forbids. `raise_location` is the initial raise position.
-                "original_stack" => return Ok(Value::ReadonlyArray(Vec::new())),
-                "raise_location" => return Ok((**location).clone()),
+                "original_stack" => {
+                    return Ok(Value::ReadonlyArray(location.original_stack.clone()));
+                }
+                "raise_location" => return Ok(location.location.clone()),
                 // `IRIS-V1-CONTROL-V300` reads `class_name` on the context
                 // itself, which names the context's own Class rather than the
                 // Class of the value it carries.
@@ -11346,6 +11385,7 @@ impl SourceEvaluator {
                         | Value::Match(_)
                         | Value::Library(_)
                         | Value::NativeResource(_)
+                        | Value::ExternalResource(_)
                         | Value::Gate(_)
                         | Value::Tuple(_)
                         | Value::Hash(_)
@@ -11407,6 +11447,7 @@ impl SourceEvaluator {
             | Value::Match(_)
             | Value::Library(_)
             | Value::NativeResource(_)
+            | Value::ExternalResource(_)
             | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
@@ -11641,6 +11682,7 @@ impl SourceEvaluator {
             | Value::Match(_)
             | Value::Library(_)
             | Value::NativeResource(_)
+            | Value::ExternalResource(_)
             | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)
@@ -12460,15 +12502,23 @@ impl SourceEvaluator {
         // A Module method body resolves names as ITS package, so an observing
         // probe's exemption does not follow the call into package code.
         let restore = self.owning_package(method).map(|owner| {
-            let previous = (self.package.clone(), self.observing);
+            let previous = (
+                self.package.clone(),
+                self.observing,
+                self.api_major,
+                self.package_version.clone(),
+            );
             self.package = owner;
+            self.select_package_metadata();
             self.observing = false;
             previous
         });
         let result = self.invoke_method_body(method, receiver, arguments);
-        if let Some((package, observing)) = restore {
+        if let Some((package, observing, major, version)) = restore {
             self.package = package;
             self.observing = observing;
+            self.api_major = major;
+            self.package_version = version;
         }
         self.invocation_depth -= 1;
         result
@@ -12497,6 +12547,14 @@ impl SourceEvaluator {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Some(name) = self.native_bodies.get(&method.body().raw()) {
+            return self
+                .natives
+                .as_ref()
+                .ok_or(EvaluationError::UnsupportedConstruct)?
+                .call(name, arguments)
+                .map_err(|error| self.native_error(error));
+        }
         let Some(declaration) = self.bodies.get(&method.body().raw()) else {
             return Err(EvaluationError::Execution(
                 iris_runtime::ExecutionError::Raised(Value::Nil),
@@ -12775,7 +12833,7 @@ fn meta_capabilities(names: &[String]) -> Result<MetaCapabilities, EvaluationErr
     Ok(MetaCapabilities::denying(&denied))
 }
 
-fn receiver_class_name(value: &Value) -> &'static str {
+fn receiver_class_name(value: &Value) -> &str {
     match value {
         Value::ComposedType(_) => "Type",
         Value::Nil => "Nil",
@@ -12794,6 +12852,7 @@ fn receiver_class_name(value: &Value) -> &'static str {
         // Iris object at the script boundary, so it names a Class like any
         // other value rather than exposing the payload behind it.
         Value::NativeResource(_) => "FFI::Resource",
+        Value::ExternalResource(resource) => resource.type_name(),
         Value::Gate(_) => "Gate",
         Value::Hash(_) => "Hash",
         Value::Tuple(_) => "Tuple",

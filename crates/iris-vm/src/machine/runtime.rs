@@ -285,6 +285,9 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<(), MachineError> {
+        if let Value::ExternalResource(_) = &resource {
+            return self.send("close", resource, &[]).map(|_| ());
+        }
         let Value::Object(object) = resource else {
             return Err(MachineError::MessageNotFound {
                 receiver_class: super::value_class_name(&resource).to_owned(),

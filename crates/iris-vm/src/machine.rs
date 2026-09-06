@@ -79,6 +79,7 @@ pub use verify::{MachineError, VerifyError, verify};
 
 /// A register machine over runtime values.
 pub struct Machine {
+    natives: Option<std::rc::Rc<iris_native_host::NativeRegistry>>,
     /// Owns the class registry, the heap and the ivar tables together.
     ///
     /// A bare registry could describe classes but not INSTANTIATE them: there
@@ -215,6 +216,13 @@ pub(super) struct SuspendedTask {
 }
 
 impl Machine {
+    pub fn with_natives(
+        natives: std::rc::Rc<iris_native_host::NativeRegistry>,
+    ) -> Result<Self, KernelError> {
+        let mut machine = Self::new()?;
+        machine.natives = Some(natives);
+        Ok(machine)
+    }
     /// Builds a machine with a fresh runtime.
     ///
     /// # Errors
@@ -223,6 +231,7 @@ impl Machine {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut())?;
         Ok(Self {
+            natives: None,
             runtime,
             kernel,
             closures: std::collections::HashMap::new(),

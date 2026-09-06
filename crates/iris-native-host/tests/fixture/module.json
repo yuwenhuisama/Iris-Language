@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "package_id": "test/native",
+  "version": "1.0.0",
+  "api_major": 1,
+  "iris_major": 1,
+  "abi": {"major": 1, "minimum_minor": 0, "required_features": 0},
+  "permissions": {"required":[], "optional": []},
+  "reflection_policy": "deny",
+  "modules": [{
+    "name": "NativeTest",
+    "functions": [
+      {"name":"nil_value","parameters":[{"name":"value","type":"Nil"}],"returns":"Nil"},
+      {"name":"boolean","parameters":[{"name":"value","type":"Bool"}],"returns":"Bool"},
+      {"name":"integer","parameters":[{"name":"value","type":"Integer"}],"returns":"Integer"},
+      {"name":"text","parameters":[{"name":"value","type":"String"}],"returns":"String"},
+      {"name":"bytes","parameters":[{"name":"value","type":"Bytes"}],"returns":"Bytes"},
+      {"name":"fail","parameters":[],"returns":"Nil"},
+      {"name":"create","parameters":[],"returns":"resource:Socket"},
+      {"name":"closes","parameters":[],"returns":"Integer"},
+      {"name":"available","parameters":[{"name":"resource","type":"resource:Socket"}],"returns":"Bool"}
+    ],
+    "resources": [{"name":"Socket","contracts":["Closeable"],"managed_roots":false,"storage":"external-cookie-v1"}]
+  }]
+}

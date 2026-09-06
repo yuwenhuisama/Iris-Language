@@ -289,6 +289,7 @@ fn render_value(value: &RuntimeValue) -> String {
         RuntimeValue::Text(value) => format!("{{\"string\":{}}}", render_json_string(value)),
         RuntimeValue::Symbol(value) => format!("{{\"symbol\":\"{value}\"}}"),
         RuntimeValue::Class(_)
+        | RuntimeValue::ExternalResource(_)
         | RuntimeValue::ClosedClass(..)
         | RuntimeValue::Type(..)
         | RuntimeValue::ComposedType(_)
@@ -330,6 +331,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
         RuntimeValue::NativeResource(_) => "FFI::Resource",
+        RuntimeValue::ExternalResource(_) => "Native::Resource",
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",

@@ -1,0 +1,15 @@
+[package]
+name = "iris-native-test-module"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+iris-native-sdk = { path = "../../../iris-native-sdk" }
+
+[build-dependencies]
+sha2 = "0.10"
+
+[workspace]

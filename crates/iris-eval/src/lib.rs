@@ -2,6 +2,8 @@
 
 mod source_method;
 mod source_runtime;
+pub use source_runtime::native::evaluate_package_tree_with_natives;
+pub use source_runtime::native::{evaluate_packages_with_natives, evaluate_with_natives};
 
 pub mod backend;
 
@@ -1384,6 +1386,7 @@ impl Evaluator {
             | RuntimeValue::Match(_)
             | RuntimeValue::Library(_)
             | RuntimeValue::NativeResource(_)
+            | RuntimeValue::ExternalResource(_)
             | RuntimeValue::Gate(_)
             | RuntimeValue::Tuple(_)
             | RuntimeValue::Hash(_)
@@ -1433,7 +1436,7 @@ impl Evaluator {
     }
 }
 
-fn receiver_class_name(value: &RuntimeValue) -> &'static str {
+fn receiver_class_name(value: &RuntimeValue) -> &str {
     match value {
         RuntimeValue::Nil => "Nil",
         RuntimeValue::Bool(_) => "Bool",
@@ -1448,6 +1451,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Match(_) => "Match",
         RuntimeValue::Library(_) => "FFI::Library",
         RuntimeValue::NativeResource(_) => "FFI::Resource",
+        RuntimeValue::ExternalResource(resource) => resource.type_name(),
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
         RuntimeValue::Hash(_) => "Hash",

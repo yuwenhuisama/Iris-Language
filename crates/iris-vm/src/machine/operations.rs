@@ -4,6 +4,10 @@ use iris_runtime::{BuiltinClass, ClassId, KernelError, NativeSelector, Value};
 
 use super::{Machine, MachineError, resolve_index, value_class_name};
 
+pub(super) fn native_error(error: iris_native_host::NativeError) -> MachineError {
+    MachineError::Raised(Box::new(error.into_propagation()))
+}
+
 impl Machine {
     pub(super) fn builtin_class(&self, name: &str) -> Result<ClassId, MachineError> {
         let kind = match name {
@@ -99,6 +103,21 @@ impl Machine {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, MachineError> {
+        if let Value::ExternalResource(resource) = &receiver {
+            return match (selector, arguments) {
+                ("close", []) => self
+                    .natives
+                    .as_ref()
+                    .ok_or(MachineError::UnsupportedConstruct)?
+                    .close(resource)
+                    .map_err(native_error),
+                ("closed?", []) => Ok(Value::Bool(!resource.is_open())),
+                ("same?" | "==", [Value::ExternalResource(other)]) => {
+                    Ok(Value::Bool(resource == other))
+                }
+                _ => Err(MachineError::UnknownSelector(selector.to_owned())),
+            };
+        }
         match (&receiver, selector, arguments) {
             (Value::Bytes(bytes), "length", []) => {
                 return Ok(Value::Integer((bytes.len() as u64).into()));

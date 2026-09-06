@@ -173,7 +173,10 @@ impl Walker<'_> {
                 for entry in suppressed.iter().chain(sites) {
                     self.walk(entry);
                 }
-                self.walk(location);
+                self.walk(&location.location);
+                for frame in &location.original_stack {
+                    self.walk(frame);
+                }
             }
 
             Value::Transformation { staged, .. } => {
@@ -207,6 +210,7 @@ impl Walker<'_> {
             | Value::SourceLocation(..)
             | Value::Range(_)
             | Value::NativeResource(_)
+            | Value::ExternalResource(_)
             | Value::Regex(_)
             | Value::Match(_)
             | Value::MutableString(_)

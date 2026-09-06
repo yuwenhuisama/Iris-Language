@@ -822,6 +822,7 @@ pub enum Value {
     /// so this carries no state of its own: every operation goes to the real C
     /// ABI, which is where the release counter that proves idempotence lives.
     NativeResource(u64),
+    ExternalResource(crate::ExternalResource),
     /// An immutable Iris `Regex`.
     ///
     /// `IRIS-V1-COLLECTIONS-C077` makes Regex an immutable identity-LESS core
@@ -930,15 +931,14 @@ pub enum Value {
     /// The trailing `Vec` is `re_raise_sites`, which `IRIS-V1-CONTROL-D-155`
     /// makes an ORDERED sequence appended to by each bare `raise` without
     /// replacing the root stack, so multiple sites retain occurrence order.
-    /// The trailing `Box<Value>` is `raise_location`, the `SourceLocation` of
-    /// the INITIAL raise, which `IRIS-V1-CONTROL-C065` exposes get-only.
+    /// The trailing origin retains the initial location, stack, and native diagnostics.
     ExceptionContext(
         ObjectId,
         Box<Value>,
         Box<Value>,
         Vec<Value>,
         Vec<Value>,
-        Box<Value>,
+        Box<crate::ExceptionOrigin>,
     ),
     /// An identity-bearing Closure object.
     ///

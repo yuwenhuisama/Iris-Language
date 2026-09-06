@@ -556,6 +556,7 @@ impl Kernel {
             | Value::Match(_)
             | Value::Library(_)
             | Value::NativeResource(_)
+            | Value::ExternalResource(_)
             | Value::Gate(_)
             | Value::Tuple(_)
             | Value::Hash(_)

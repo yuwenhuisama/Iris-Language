@@ -344,6 +344,7 @@ fn verify_body(
             }
             Instruction::BuildArray { first, count, .. }
             | Instruction::BuildTuple { first, count, .. }
+            | Instruction::NativeCall { first, count, .. }
             | Instruction::New { first, count, .. }
             | Instruction::Send { first, count, .. }
             | Instruction::SendSuper { first, count, .. }
@@ -574,6 +575,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::BuildArray { first, count, .. }
         | Instruction::BuildTuple { first, count, .. }
         | Instruction::Call { first, count, .. }
+        | Instruction::NativeCall { first, count, .. }
         | Instruction::MakeClosure { first, count, .. }
         | Instruction::New { first, count, .. } => {
             (0..*count).map(|offset| first + offset).collect()

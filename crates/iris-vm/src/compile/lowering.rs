@@ -266,6 +266,7 @@ pub(crate) struct Lowering<'a, 'b> {
     pub(super) closures: &'a mut Vec<Function>,
     pub(super) loops: Vec<LoopContext>,
     pub(super) exception_contexts: Vec<(Register, Register)>,
+    pub(super) return_scopes: Vec<super::return_scopes::ReturnScope>,
     pub(super) method_values: Vec<Register>,
     pub(super) program_bindings: &'a [ProgramBinding],
     pub(super) top_level: bool,
@@ -352,7 +353,6 @@ pub(super) struct LoopContext {
     pub(super) label: Option<String>,
     pub(super) continue_target: usize,
     pub(super) breaks: Vec<usize>,
-    pub(super) iterator: Option<Register>,
     /// The register holding the loop's VALUE.
     ///
     /// `IRIS-V1-CONTROL-C023` gives a normal loop completion no value of its
@@ -410,6 +410,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             closures,
             loops: Vec::new(),
             exception_contexts: Vec::new(),
+            return_scopes: Vec::new(),
             method_values: Vec::new(),
             program_bindings,
             top_level,

@@ -20,7 +20,11 @@
 
 mod compile;
 mod machine;
+mod native;
+pub use native::{PackageIdentity, compile_package_tree_with_natives};
+pub use native::{compile_packages_with_natives, compile_with_native, run_with_natives};
 
+pub use compile::compile_with_natives;
 pub use compile::{CompileError, FloatWidth, Instruction, Program, Register, compile};
 pub use machine::{Machine, MachineError, VerifyError, run, verify};
 

@@ -12,8 +12,14 @@ name = "iris"
 path = "src/main.rs"
 
 [dependencies]
+iris-native-host = { path = "../iris-native-host" }
+iris-package = { path = "../iris-package" }
+thiserror = "2"
 iris-eval = { path = "../iris-eval" }
 iris-parser = { path = "../iris-parser" }
 iris-syntax = { path = "../iris-syntax" }
 iris-runtime = { path = "../iris-runtime" }
 iris-vm = { path = "../iris-vm" }
+
+[dev-dependencies]
+tempfile = "3"

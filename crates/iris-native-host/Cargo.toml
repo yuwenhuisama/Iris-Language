@@ -1,0 +1,19 @@
+[package]
+name = "iris-native-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+iris-native-sdk = { path = "../iris-native-sdk" }
+iris-runtime = { path = "../iris-runtime" }
+iris-parser = { path = "../iris-parser" }
+iris-syntax = { path = "../iris-syntax" }
+libloading = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"

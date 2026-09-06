@@ -8,6 +8,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+iris-native-host = { path = "../iris-native-host" }
 # IRIS-V1-FFI-C018 lets native code raise ONLY through an ABI operation that
 # creates an ExceptionContext, so the native raise a script catches has to come
 # from the real C ABI rather than from a raise fabricated in the interpreter.
@@ -33,3 +34,6 @@ iris-parser = { path = "../iris-parser" }
 iris-runtime = { path = "../iris-runtime" }
 iris-vm = { path = "../iris-vm" }
 iris-syntax = { path = "../iris-syntax" }
+
+[dev-dependencies]
+libloading = "0.8"

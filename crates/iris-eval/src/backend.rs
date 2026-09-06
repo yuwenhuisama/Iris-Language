@@ -419,6 +419,7 @@ fn kind_of(value: &iris_runtime::Value) -> &'static str {
         Value::Library(_) => "library",
         Value::ArrayIterator(_) | Value::HashIterator(_) | Value::ByteIterator(_) => "iterator",
         Value::NativeResource(_) => "native-resource",
+        Value::ExternalResource(_) => "external-resource",
         Value::Transformation { .. } => "transformation",
         Value::ExceptionContext(..) => "exception-context",
         Value::StackFrame(..) | Value::RaiseSite(_) | Value::SourceLocation(..) => "trace",
