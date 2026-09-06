@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "languages": ["en", "zh-cn"],
+  "routes": [
+    {
+      "stem": "README",
+      "headings": {
+        "en": ["# Iris Tutorial", "## Chapters", "## How to read this tutorial"],
+        "zh-cn": ["# 教程索引", "## 章节", "## 如何阅读本教程"]
+      }
+    },
+    {
+      "stem": "01-getting-started",
+      "headings": {
+        "en": ["# What Iris Is", "## Every value is an object", "## Operators are message sends", "## Identity is explicit", "## Static promises bound dynamic behavior", "## Static promise, dynamic freedom", "## Where the next chapters go", "## Try it", "## Read the spec"],
+        "zh-cn": ["# Iris 是什么", "## 每个值都是对象", "## 运算符是消息发送", "## 身份是显式的", "## 静态承诺约束动态行为", "## 静态承诺，动态自由", "## 后续章节会讲什么", "## 试试看", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "02-values-and-bindings",
+      "headings": {
+        "en": ["# Values and Bindings", "## Bindings choose the shape of a local name", "## Shared and global storage are declared, never conjured", "## Annotations fix the local contract", "## Literal forms create objects", "## Nil and collections are ordinary values", "## Truthiness goes through to_bool", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 值与绑定", "## 绑定决定局部名称的形状", "## 共享和全局存储必须声明，不会凭空出现", "## 注解固定局部契约", "## 字面量形式创建对象", "## Nil 和集合都是普通值", "## 真值性通过 to_bool", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "03-control-flow",
+      "headings": {
+        "en": ["# Control Flow", "## If expressions produce values", "## While loops can return through break", "## For loops bind fresh iteration cells", "## Generators yield a lazy iterator", "## Match arms run in source order", "## Static promise, dynamic freedom", "## Treat control forms as expressions", "## Read the spec"],
+        "zh-cn": ["# 控制流", "## If 表达式产出值", "## While 循环可以通过 break 返回", "## For 循环绑定新鲜迭代单元", "## 生成器 yield 惰性迭代器", "## Match 分支按源码顺序运行", "## 静态承诺，动态自由", "## 把控制形式当作表达式", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "04-callables-and-closures",
+      "headings": {
+        "en": ["# Functions, Closures, Blocks", "## Callable Types name their kind", "## Named fun declarations create Methods", "## Parameters and blocks have explicit channels", "## Closure literals are anonymous callables", "## Invocation is always call", "## Closures capture lexical cells", "## Return stays inside the current callable", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 函数、闭包与块", "## Callable Types 命名自己的种类", "## 具名 fun 声明创建 Method", "## 参数和块有显式通道", "## Closure 字面量是匿名可调用体", "## 调用始终是 call", "## Closure 捕获词法单元", "## Return 留在当前可调用体内", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "05-classes-and-objects",
+      "headings": {
+        "en": ["# Classes and Objects", "## Stored properties declare typed slots", "## Classes are objects with a new message", "## Raw instance variables live on the current receiver", "## Self and super make receiver roles explicit", "## Equality is separate from identity", "## Open classes keep logical identity", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 类与对象", "## 已存储属性声明类型化槽位", "## Class 是带有 new 消息的对象", "## 原始实例变量位于当前接收者", "## Self 和 super 让接收者角色显式", "## 相等性不同于身份", "## Open Class 保持逻辑身份", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "06-modules-and-contracts",
+      "headings": {
+        "en": ["# Modules and Contracts", "## Modules add behavior", "## Contracts declare promises", "## Qualified Contract slots", "## Static promise, dynamic freedom", "## Kernel is always in scope", "## Read the spec"],
+        "zh-cn": ["# 模块与 Contract", "## Modules 添加行为", "## Contracts 声明承诺", "## 限定 Contract slots", "## 静态承诺，动态自由", "## Kernel 始终在作用域内", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "07-types-and-generics",
+      "headings": {
+        "en": ["# Gradual Types", "## Optional annotations still mean something", "## Object, Nil, and nilable types", "## Tests and casts", "## Typeof copies a static type", "## Types are values", "## Generics are reified and invariant", "## Never marks paths with no value", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 渐进类型", "## 可选注解仍然有意义", "## Object、Nil 与可 nil 类型", "## 测试与 casts", "## Typeof 复制静态类型", "## Types 是值", "## 泛型是 reified 且不变的", "## Never 标记没有值的路径", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "08-errors-and-resources",
+      "headings": {
+        "en": ["# Errors and Resources", "## Raising any object", "## Try, catch, and finally produce values", "## Closeable and using", "## Single-threaded async", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 错误与资源", "## 抛出任意对象", "## Try、catch 与 finally 产生值", "## Closeable 与 using", "## 单线程 async", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "09-dynamic-and-static",
+      "headings": {
+        "en": ["# Dynamic Meets Static", "## Open transactions", "## Active revisions and retained Methods", "## MetaCapabilities", "## Imports name a package explicitly", "## Decorators transform candidates", "## ReflectionPolicy, not reflection tokens", "## Why bounded dynamism matters", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 动态与静态的交汇", "## Open 事务", "## Active revisions 与保留的 Methods", "## MetaCapabilities", "## 导入显式命名包", "## 装饰器转换候选", "## ReflectionPolicy，不是 reflection tokens", "## 为什么有界动态重要", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    },
+    {
+      "stem": "10-where-to-next",
+      "headings": {
+        "en": ["# Where To Next", "## The 14 spec artifacts", "## Suggested reading paths", "## FFI and host embedding", "## Conformance", "## Static promise, dynamic freedom", "## Read the spec"],
+        "zh-cn": ["# 下一步", "## 14 个规范产物", "## 建议阅读路径", "## FFI 与 Host 嵌入", "## 一致性", "## 静态承诺，动态自由", "## 阅读规范"]
+      }
+    }
+  ]
+}
