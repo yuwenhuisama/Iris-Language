@@ -35,19 +35,37 @@ impl Observation {
     pub fn of(outcome: Result<iris_runtime::Value, EvaluationError>) -> Self {
         match outcome {
             Ok(value) => Self::Value(render_value(&value)),
-            Err(error) => Self::Error(normalize_error(&format!("{error:?}"))),
+            Err(error) => Self::Error(normalize_evaluation_error(&error)),
         }
     }
 }
 
-/// Drops an interned selector NUMBER from a rendered failure.
+fn normalize_evaluation_error(error: &EvaluationError) -> String {
+    if let EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+        iris_runtime::DispatchError::ContractDispatch {
+            contract_name: Some(contract_name),
+            selector,
+            ..
+        },
+    )) = error
+    {
+        return format!(
+            "Construction(Dispatch(ContractDispatch {{ contract: {contract_name}, selector: {} }}))",
+            normalize_error(&format!("{selector:?}"))
+        );
+    }
+    normalize_error(&format!("{error:?}"))
+}
+
+/// Drops backend-local Selector identity numbers from a rendered failure.
 ///
-/// A selector id is assigned as each backend interns names, and the two
-/// backends intern a different set in a different order, so the same refusal
-/// renders as `Selector(1000)` in one and `Selector(10000)` in the other.
-/// Neither number is promised to a program, and comparing them would report a
-/// disagreement where both backends refused identically for the same reason.
+/// Selectors are assigned as each backend registers names, and the two backends
+/// register different built-ins first. Contract identities are normalized from
+/// typed semantic names before this rendered-error normalization runs.
 fn normalize_error(rendered: &str) -> String {
+    if rendered == "Runtime(Identity)" {
+        return "IdentityError".to_owned();
+    }
     let mut out = String::with_capacity(rendered.len());
     let mut rest = rendered;
     while let Some(at) = rest.find("Selector(") {
@@ -130,13 +148,12 @@ impl Backend for Bytecode {
                 // A kernel failure is a real observation: a row may assert
                 // that both backends REJECT a program the same way.
                 Err(iris_vm::MachineError::Kernel(error)) => Support::Ran(Observation::Error(
-                    normalize_error(&format!("{:?}", EvaluationError::Runtime(error))),
+                    normalize_evaluation_error(&EvaluationError::Runtime(error)),
                 )),
                 Err(iris_vm::MachineError::Construction(error)) => {
-                    Support::Ran(Observation::Error(normalize_error(&format!(
-                        "{:?}",
-                        EvaluationError::Construction(error)
-                    ))))
+                    Support::Ran(Observation::Error(normalize_evaluation_error(
+                        &EvaluationError::Construction(error),
+                    )))
                 }
                 Err(iris_vm::MachineError::NameError) => Support::Ran(Observation::Error(format!(
                     "{:?}",
@@ -255,7 +272,7 @@ impl Backend for Bytecode {
                 // reference spells the same way, so it is reported rather than
                 // treated as a defect in the machine.
                 Err(iris_vm::MachineError::Class(error)) => Support::Ran(Observation::Error(
-                    normalize_error(&format!("{:?}", EvaluationError::Class(error))),
+                    normalize_evaluation_error(&EvaluationError::Class(error)),
                 )),
                 Err(iris_vm::MachineError::UnsupportedConstruct) => {
                     Support::Ran(Observation::Error("UnsupportedConstruct".to_owned()))
@@ -388,10 +405,10 @@ fn kind_of(value: &iris_runtime::Value) -> &'static str {
     use iris_runtime::Value;
     match value {
         Value::Object(_) => "object",
-        Value::Class(_) => "class",
+        Value::Class(_) | Value::ClosedClass(..) => "class",
         Value::Closure(_) => "closure",
         Value::Method(_) | Value::BoundMethod(_) => "method",
-        Value::Contract(_) | Value::ContractView(..) => "contract",
+        Value::Contract(..) | Value::ContractView(..) => "contract",
         Value::Type(..) | Value::ComposedType(_) => "type",
         Value::Range(_) => "range",
         Value::Regex(_) => "regex",
@@ -416,6 +433,58 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_contract_dispatch_compares_equal_across_backends() {
+        let source = "contract C { } class A for C { } let a = A.new(); (a as C)..missing()";
+
+        let Support::Ran(interpreter) = Interpreter.execute(source) else {
+            unreachable!("the interpreter must run the Contract-view scenario")
+        };
+        let Support::Ran(bytecode) = Bytecode.execute(source) else {
+            unreachable!("the bytecode backend must run the Contract-view scenario")
+        };
+
+        assert_eq!(interpreter, bytecode);
+        assert_eq!(
+            interpreter,
+            Observation::Error(
+                "Construction(Dispatch(ContractDispatch { contract: C, selector: Selector(_) }))"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn different_contract_dispatches_compare_unequal() {
+        let first =
+            "contract First { } class A for First { } let a = A.new(); (a as First)..missing()";
+        let second =
+            "contract Second { } class A for Second { } let a = A.new(); (a as Second)..missing()";
+
+        let Support::Ran(first) = Interpreter.execute(first) else {
+            unreachable!("the interpreter must run the first Contract-view scenario")
+        };
+        let Support::Ran(second) = Interpreter.execute(second) else {
+            unreachable!("the interpreter must run the second Contract-view scenario")
+        };
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn error_observations_preserve_non_contract_runtime_ids() {
+        assert_eq!(
+            normalize_error("Class(UnknownClassId(ClassId(7)))"),
+            "Class(UnknownClassId(ClassId(7)))"
+        );
+    }
+
+    #[test]
+    fn identity_refusals_use_the_specification_name() {
+        assert_eq!(normalize_error("Runtime(Identity)"), "IdentityError");
+        assert_eq!(normalize_error("Runtime(Type)"), "Runtime(Type)");
+    }
 
     /// A backend that answers a fixed observation, for testing the harness.
     struct Fixed(&'static str, Observation);
@@ -733,7 +802,7 @@ M.r()"#;
     }
 
     #[test]
-    fn backends_agree_on_erased_generic_classes_and_methods() {
+    fn backends_agree_on_recursive_generic_classes_and_methods() {
         let cases = [
             (
                 "class Box<T> { public fun initialize(v: T) -> Nil { @v = v; nil } public fun get() -> T { @v } } module M { public fun r() -> Object { Box<Integer>.new(7).get() } } M.r()",
@@ -744,7 +813,7 @@ M.r()"#;
             (
                 "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Box<String>) } } M.r()",
                 "class Box<T> { } class Other<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Other<String>) } } M.r()",
-                "true",
+                "false",
                 "false",
             ),
             (
@@ -756,7 +825,7 @@ M.r()"#;
             (
                 "class Pair<A, B> { } module M { public fun r() -> Object { Pair<Integer, String>.same?(Pair<String, Integer>) } } M.r()",
                 "class Pair<A, B> { } class Other<A, B> { } module M { public fun r() -> Object { Pair<Integer, String>.same?(Other<String, Integer>) } } M.r()",
-                "true",
+                "false",
                 "false",
             ),
             (
@@ -4073,6 +4142,98 @@ M.r()"#;
     }
 
     #[test]
+    fn backends_agree_on_open_class_candidate_properties_and_rollback() {
+        // Given: an open Class transaction stages a stored property and a
+        // mutable outer binding captures the transaction-local reflection.
+        let rolled_back = "class A { public property x: Integer = 1 } mut inner = []; try { A.open() { |t| t.define_property(:y) { 2 }; inner = t.properties; raise :boom } } catch e { 0 }; [inner, A.properties]";
+        // Given: a successful open is the negative control: its candidate is
+        // published, so the ordinary Class view includes the new property.
+        let committed = "class A { public property x: Integer = 1 } A.open() { |t| t.define_property(:y) { 2 }; t.properties }; A.properties";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        // When: both backends execute the transaction body and its outcome.
+        for (source, expected, wrong) in [
+            (
+                rolled_back,
+                "[0, [[:@x, :@y], [:@x]]]",
+                "[0, [[:@x, :@y], [:@x, :@y]]]",
+            ),
+            (committed, "[[:@x, :@y], [:@x, :@y]]", "[[:@x, :@y], [:@x]]"),
+        ] {
+            let agreement = compare_backends(source, &backends);
+
+            // Then: candidate reflection is visible only during the open, and
+            // rollback preserves the published revision.
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!("both backends must run open-property transactions: {agreement:?}")
+            };
+            assert_ne!(
+                observation,
+                Observation::Value(wrong.to_owned()),
+                "{source}"
+            );
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_initialize_published_stored_properties_on_new_instances() {
+        // Given: a successful transaction publishes a property whose initializer
+        // is a closure body rather than a declaration-time literal.
+        let committed = "class A { }; module M { public fun run() -> Object { A.open() { |t| t.define_property(:y) { 2 } }; A.new().y } } M.run()";
+        // Given: the same staged property is discarded when its transaction
+        // rolls back, so construction cannot initialize or publish it.
+        let rolled_back = "class A { }; module M { public fun run() -> Object { try { A.open() { |t| t.define_property(:y) { 2 }; raise :boom } } catch e { nil }; A.properties } } M.run()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        // When: each backend constructs an instance after the transaction.
+        for (source, expected) in [(committed, "2"), (rolled_back, "[]")] {
+            let agreement = compare_backends(source, &backends);
+
+            // Then: only the successfully published initializer runs.
+            let Agreement::Agreed { observation, .. } = agreement else {
+                unreachable!(
+                    "both backends must construct with published properties: {source}: {agreement:?}"
+                )
+            };
+            assert_eq!(
+                observation,
+                Observation::Value(expected.to_owned()),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn backends_share_dynamic_stored_property_slots_with_raw_ivars() {
+        // Given: a reflected property, a static-property control, and methods
+        // that read their respective raw ivar backing slots.
+        let source = "class A { property x: Integer = 1; public fun raw_y() -> Object { @y }; public fun raw_x() -> Integer { @x } }; module M { public fun run() -> Object { A.open() { |t| t.define_property(:y) { 2 } }; let a = A.new(); [[a.y, a.raw_y()], [a.x, a.raw_x()]] } } M.run()";
+        let (interpreter, bytecode) = both();
+        let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
+
+        // When: both property and raw-ivar paths observe initialized values on
+        // one instance.
+        let agreement = compare_backends(source, &backends);
+
+        // Then: dynamic and static stored properties both use their raw slots.
+        let Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!("both backends must share stored-property backing slots: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Value("[[2, 2], [1, 1]]".to_owned()),
+            "{source}"
+        );
+    }
+
+    #[test]
     fn backends_agree_on_nested_closure_literals() {
         let source = "module M { public fun r() -> Object { let outer = { |x|; { |y|; x + y } }; outer.call(3).call(4) } } M.r()";
         let (interpreter, bytecode) = both();
@@ -4591,6 +4752,60 @@ M.r()"#;
             };
             assert_ne!(observation, Observation::Value(negative.to_owned()));
             assert_eq!(observation, Observation::Value(expected.to_owned()));
+        }
+    }
+
+    #[test]
+    fn backends_preserve_closed_type_arguments_on_stored_class_values() {
+        // Given
+        let cases = [
+            "class Box<T> { } module M { public fun r() -> Object { let ctor = Box<String>; let value = ctor.new(); [value is Box<String>, value is Box<Integer>] } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { let strings = Box<String>; let integers = Box<Integer>; let first = strings.new(); let second = integers.new(); [first is Box<String>, first is Box<Integer>, second is Box<Integer>, second is Box<String>] } } M.r()",
+        ];
+
+        // When / Then
+        for source in cases {
+            let Agreement::Agreed { observation, .. } =
+                compare_backends(source, &[&Interpreter, &Bytecode])
+            else {
+                unreachable!("both backends must preserve each stored closed Class: {source}")
+            };
+            assert_eq!(
+                observation,
+                if source.contains("let strings") {
+                    Observation::Value("[true, false, true, false]".to_owned())
+                } else {
+                    Observation::Value("[true, false]".to_owned())
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn backends_preserve_recursive_closed_type_identity_and_strict_casts() {
+        // Given
+        let nested = "class Inner<T> { } class Outer<T> { } module M { public fun r() -> Object { let ctor = Outer<Inner<String>>; let value = ctor.new(); [value is Outer<Inner<String>>, value is Outer<Inner<Integer>>] } } M.r()";
+        let exact = "class Box<T> { } module M { public fun r() -> Object { let value = Box<String>.new(); (value as Box<String>) same? value } } M.r()";
+        let mismatch = "class Box<T> { } module M { public fun r() -> Object { Box<String>.new() as Box<Integer> } } M.r()";
+
+        // When / Then
+        for (source, expected) in [
+            (nested, Observation::Value("[true, false]".to_owned())),
+            (exact, Observation::Value("true".to_owned())),
+            (
+                mismatch,
+                Observation::Error(format!(
+                    "{:?}",
+                    EvaluationError::Runtime(iris_runtime::KernelError::Type)
+                )),
+            ),
+        ] {
+            let Agreement::Agreed { observation, .. } =
+                compare_backends(source, &[&Interpreter, &Bytecode])
+            else {
+                unreachable!("both backends must execute recursive closed nominal checks: {source}")
+            };
+            assert_eq!(observation, expected);
         }
     }
 }

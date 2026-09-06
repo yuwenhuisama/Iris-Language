@@ -23,7 +23,12 @@ impl Parser {
                 BinaryOperator::Is | BinaryOperator::As | BinaryOperator::AsOptional
             ) {
                 let target = self.type_expression()?;
-                Expression::Name(type_expression_name(&target)?)
+                let name = type_expression_name(&target)?;
+                if matches!(target, iris_syntax::TypeExpression::Generic { .. }) {
+                    Expression::ReifiedType(target)
+                } else {
+                    Expression::Name(name)
+                }
             } else {
                 self.expression(next)?
             };

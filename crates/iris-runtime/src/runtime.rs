@@ -96,6 +96,8 @@ pub struct Runtime {
     raw_ivars: HashMap<ObjectId, HashMap<Selector, Value>>,
     class_raw_ivars: HashMap<ClassId, HashMap<Selector, Value>>,
     class_vars: HashMap<(ClassId, Selector), Value>,
+    /// Normalized closed-generic arguments carried by each ordinary instance.
+    instance_type_arguments: HashMap<ObjectId, Vec<crate::NominalType>>,
 }
 
 impl Runtime {
@@ -116,17 +118,44 @@ impl Runtime {
 
     /// Allocates a complete ordinary instance.
     pub fn allocate(&mut self, class: ClassId) -> Result<ObjectId, ConstructionError> {
+        self.allocate_closed(class, Vec::new())
+    }
+
+    /// Allocates an instance while preserving its normalized closed Type arguments.
+    pub fn allocate_closed(
+        &mut self,
+        class: ClassId,
+        type_arguments: Vec<crate::NominalType>,
+    ) -> Result<ObjectId, ConstructionError> {
         self.registry.class(class)?;
-        self.heap
+        let instance = self
+            .heap
             .alloc(class, HeapPayload::InstanceFields(Vec::new()))
             .map_err(ExecutionError::from)
-            .map_err(ConstructionError::from)
+            .map_err(ConstructionError::from)?;
+        self.instance_type_arguments
+            .insert(instance, type_arguments);
+        Ok(instance)
     }
 
     /// Constructs against the revision active when construction began.
     pub fn construct<F>(
         &mut self,
         class: ClassId,
+        arguments: &[Value],
+        invoke: F,
+    ) -> Result<ObjectId, ConstructionError>
+    where
+        F: FnMut(&mut Self, Method, ObjectId, &[Value]) -> Result<Value, ExecutionError>,
+    {
+        self.construct_closed(class, Vec::new(), arguments, invoke)
+    }
+
+    /// Constructs an instance carrying normalized closed-generic arguments.
+    pub fn construct_closed<F>(
+        &mut self,
+        class: ClassId,
+        type_arguments: Vec<crate::NominalType>,
         arguments: &[Value],
         mut invoke: F,
     ) -> Result<ObjectId, ConstructionError>
@@ -147,7 +176,7 @@ impl Runtime {
                     .map(|revision| (owner, revision.clone()))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
-        let instance = self.allocate(class)?;
+        let instance = self.allocate_closed(class, type_arguments)?;
         for entry in snapshot.mro().iter().rev() {
             if let crate::MroEntry::Class(owner) = entry {
                 let revision = revisions
@@ -162,7 +191,8 @@ impl Runtime {
                         body,
                         Visibility::Public,
                     );
-                    invoke(self, initializer, instance, &[])?;
+                    let value = invoke(self, initializer, instance, &[])?;
+                    self.assign_raw_ivar(instance, property.selector(), value)?;
                 }
             }
         }
@@ -285,6 +315,7 @@ impl Runtime {
             // The identity came from `live_ids`, so the free cannot fail; an
             // error here would mean the heap disagreed with itself.
             drop(self.heap.free(dead));
+            self.instance_type_arguments.remove(&dead);
         }
         (freed, self.heap.compact())
     }
@@ -405,19 +436,16 @@ impl Runtime {
         name: Selector,
         value: Value,
     ) -> Result<Value, ConstructionError> {
-        let declared = self.registry.active(class)?.class_vars().contains(&name);
-        if !declared {
-            return Err(ConstructionError::MissingDeclaredClassVariable { class, name });
-        }
+        let owner = self.class_var_owner(class, name)?;
         if self
             .registry
-            .active(class)?
+            .active(owner)?
             .immutable_class_vars()
             .contains(&name)
         {
-            return Err(ConstructionError::ImmutableClassVariable { class, name });
+            return Err(ConstructionError::ImmutableClassVariable { class: owner, name });
         }
-        self.class_vars.insert((class, name), value.clone());
+        self.class_vars.insert((owner, name), value.clone());
         Ok(value)
     }
 
@@ -427,11 +455,24 @@ impl Runtime {
         class: ClassId,
         name: Selector,
     ) -> Result<Option<Value>, ConstructionError> {
-        let declared = self.registry.active(class)?.class_vars().contains(&name);
-        if !declared {
-            return Err(ConstructionError::MissingDeclaredClassVariable { class, name });
+        let owner = self.class_var_owner(class, name)?;
+        Ok(self.class_vars.get(&(owner, name)).cloned())
+    }
+
+    fn class_var_owner(
+        &self,
+        class: ClassId,
+        name: Selector,
+    ) -> Result<ClassId, ConstructionError> {
+        for entry in self.registry.active(class)?.mro() {
+            let crate::MroEntry::Class(owner) = entry else {
+                continue;
+            };
+            if self.registry.active(*owner)?.class_vars().contains(&name) {
+                return Ok(*owner);
+            }
         }
-        Ok(self.class_vars.get(&(class, name)).cloned())
+        Err(ConstructionError::MissingDeclaredClassVariable { class, name })
     }
 
     /// Returns an instance's stable logical Class.
@@ -441,6 +482,19 @@ impl Runtime {
             .map(|object| object.class_id())
             .map_err(ExecutionError::from)
             .map_err(ConstructionError::from)
+    }
+
+    /// Returns the normalized arguments of an instance's closed generic Type.
+    pub fn type_arguments_of(
+        &self,
+        instance: ObjectId,
+    ) -> Result<&[crate::NominalType], ConstructionError> {
+        self.class_of(instance)?;
+        Ok(self
+            .instance_type_arguments
+            .get(&instance)
+            .map(Vec::as_slice)
+            .unwrap_or_default())
     }
 
     fn dispatch_snapshot(

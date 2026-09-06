@@ -543,7 +543,7 @@ impl Kernel {
             Value::Float32(_) => self.class(BuiltinClass::Float32),
             Value::Float64(_) => self.class(BuiltinClass::Float64),
             Value::Text(_) => self.class(BuiltinClass::String),
-            Value::Class(class) => Ok(*class),
+            Value::Class(class) | Value::ClosedClass(class, _) => Ok(*class),
             // IRIS-V1-RUNTIME-C005 makes `Object` the single root, and C094
             // gives it a `to_bool` returning `true`. A value with no dedicated
             // builtin Class is therefore an ordinary `Object` rather than an
@@ -562,7 +562,7 @@ impl Kernel {
             | Value::Symbol(_)
             | Value::Type(..)
             | Value::ComposedType(_)
-            | Value::Contract(_)
+            | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)

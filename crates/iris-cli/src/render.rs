@@ -49,10 +49,10 @@ pub fn render(value: &Value) -> String {
         // is more useful to a reader than a debug dump of runtime identity, and
         // it keeps output stable across runs.
         Value::Object(_) => "<object>".to_owned(),
-        Value::Class(_) => "<class>".to_owned(),
+        Value::Class(_) | Value::ClosedClass(..) => "<class>".to_owned(),
         Value::Closure(_) => "<closure>".to_owned(),
         Value::Method(_) | Value::BoundMethod(_) => "<method>".to_owned(),
-        Value::Contract(_) | Value::ContractView(..) => "<contract>".to_owned(),
+        Value::Contract(..) | Value::ContractView(..) => "<contract>".to_owned(),
         Value::Type(..) | Value::ComposedType(_) => "<type>".to_owned(),
         Value::Range(_) => "<range>".to_owned(),
         Value::Regex(_) => "<regex>".to_owned(),

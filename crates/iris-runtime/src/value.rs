@@ -889,7 +889,7 @@ pub enum Value {
     /// `IRIS-V1-TYPES-C076` requires Class, Module, Contract and Type objects to
     /// stay mutually distinct, so a Contract carries its own identity rather
     /// than reusing `ClassId` or `ModuleId`.
-    Contract(ContractId),
+    Contract(ContractId, Vec<NominalType>),
     /// A decorator `Transformation`, the candidate transformation C125 fixes.
     ///
     /// `IRIS-V1-META-C125` gives it a MINIMAL surface: `empty`, `kind` and
@@ -959,7 +959,8 @@ pub enum Value {
     /// Types of one definition. The arguments therefore travel with the
     /// ClassId; dropping them made every construction of a definition one
     /// interned Type.
-    Type(ClassId, Vec<ClassId>),
+    Type(ClassId, Vec<NominalType>),
+    ClosedClass(ClassId, Vec<NominalType>),
     /// An interned COMPOSED Type: a union or intersection reduced to its
     /// normal form.
     ///
@@ -988,15 +989,20 @@ pub enum ComposedType {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeAtom {
     /// A nominal Class, with the generic arguments D-206 interns it by.
-    Nominal(ClassId, Vec<ClassId>),
+    Nominal(ClassId, Vec<NominalType>),
     /// `NonNil`, which C011 makes a Type rather than a declared Class.
     NonNil,
-    /// A named Contract used as a Type.
+    /// A named Contract used as a Type, with normalized ordered arguments.
     ///
     /// `IRIS-V1-TYPES-V002` states intersection commutativity over two
     /// CONTRACTS, so a Contract is an irreducible constituent alongside a
     /// nominal Class.
-    Contract(crate::ContractId),
+    Contract(crate::ContractId, Vec<NominalType>),
+    /// The built-in generic traversal result value Type.
+    ///
+    /// D-466 makes `Iteration<T>` a reified value Type, rather than a Contract
+    /// whose arguments could be erased with its requirement metadata.
+    Iteration(Vec<NominalType>),
     /// A nested UNION kept as ONE constituent of an intersection.
     ///
     /// `IRIS-V1-TYPES-V016` keeps `A & (B | C)` a COMPACT intersection
@@ -1004,6 +1010,29 @@ pub enum TypeAtom {
     /// reflects exactly those two members. Flattening the union into the
     /// enclosing intersection would lose that structure entirely.
     Union(Vec<TypeAtom>),
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NominalType {
+    class: ClassId,
+    arguments: Vec<Self>,
+}
+
+impl NominalType {
+    #[must_use]
+    pub fn new(class: ClassId, arguments: Vec<Self>) -> Self {
+        Self { class, arguments }
+    }
+
+    #[must_use]
+    pub const fn class(&self) -> ClassId {
+        self.class
+    }
+
+    #[must_use]
+    pub fn arguments(&self) -> &[Self] {
+        &self.arguments
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use iris_runtime::{ComposedType, TypeAtom, Value};
+use iris_runtime::{ComposedType, NominalType, TypeAtom, Value};
 use iris_syntax::TypeExpression;
 
 use super::{Machine, MachineError};
@@ -15,21 +15,34 @@ impl Machine {
         // `Box<Integer>` are two Types of one class, so the arguments are
         // carried rather than dropped - without them the two are the same
         // value and `same?` cannot tell them apart.
-        if let TypeExpression::Generic { name, arguments } = expression
-            && let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)?
-        {
-            let mut reified = Vec::with_capacity(arguments.len());
-            for argument in arguments {
-                let TypeExpression::Name(argument) = argument else {
-                    return Err(MachineError::UnsupportedConstruct);
-                };
-                let TypeAtom::Nominal(argument, _) = self.type_atom(argument, program, classes)?
-                else {
-                    return Err(MachineError::UnsupportedConstruct);
-                };
-                reified.push(argument);
+        if let TypeExpression::Generic { name, arguments } = expression {
+            if name == "Iteration" {
+                return Ok(Value::ComposedType(ComposedType::Intersection(vec![
+                    TypeAtom::Iteration(self.nominal_arguments(arguments, program, classes)?),
+                ])));
             }
-            return Ok(Value::Type(class, reified));
+            match self.type_atom(name, program, classes)? {
+                TypeAtom::Nominal(class, _) => {
+                    return Ok(Value::Type(
+                        class,
+                        self.nominal_arguments(arguments, program, classes)?,
+                    ));
+                }
+                TypeAtom::Contract(contract, _) => {
+                    let arguments = self.nominal_arguments(arguments, program, classes)?;
+                    return Ok(Value::ComposedType(ComposedType::Intersection(vec![
+                        TypeAtom::Contract(contract, arguments),
+                    ])));
+                }
+                TypeAtom::Iteration(arguments) => {
+                    return Ok(Value::ComposedType(ComposedType::Intersection(vec![
+                        TypeAtom::Iteration(arguments),
+                    ])));
+                }
+                TypeAtom::NonNil | TypeAtom::Union(_) => {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+            }
         }
         let form = self.normalize_type(expression, program, classes)?;
         Ok(match form {
@@ -38,7 +51,10 @@ impl Machine {
             {
                 match &members[0] {
                     TypeAtom::Nominal(class, arguments) => Value::Type(*class, arguments.clone()),
-                    TypeAtom::NonNil | TypeAtom::Contract(_) | TypeAtom::Union(_) => {
+                    TypeAtom::NonNil
+                    | TypeAtom::Contract(_, _)
+                    | TypeAtom::Iteration(_)
+                    | TypeAtom::Union(_) => {
                         Value::ComposedType(ComposedType::Intersection(members))
                     }
                 }
@@ -57,6 +73,9 @@ impl Machine {
             TypeExpression::Name(name) if name == "Never" => Ok(ComposedType::Never),
             TypeExpression::Name(name) if name == "NonNil" => {
                 Ok(ComposedType::Intersection(vec![TypeAtom::NonNil]))
+            }
+            TypeExpression::Name(name) if name == "Iteration" => {
+                Ok(ComposedType::Union(vec![TypeAtom::Iteration(Vec::new())]))
             }
             TypeExpression::Name(name) => Ok(ComposedType::Union(vec![
                 self.type_atom(name, program, classes)?,
@@ -95,6 +114,11 @@ impl Machine {
                 }
                 Ok(Self::canonical(ComposedType::Intersection, atoms))
             }
+            TypeExpression::Generic { name, arguments } if name == "Iteration" => {
+                Ok(ComposedType::Intersection(vec![TypeAtom::Iteration(
+                    self.nominal_arguments(arguments, program, classes)?,
+                )]))
+            }
             TypeExpression::Typeof(_)
             | TypeExpression::Generic { .. }
             | TypeExpression::Function { .. } => Err(MachineError::UnsupportedConstruct),
@@ -117,14 +141,91 @@ impl Machine {
         if let Some(index) = program
             .contracts
             .iter()
-            .position(|contract| contract.name == name)
+            .rposition(|contract| contract.name == name)
         {
-            return Ok(TypeAtom::Contract(iris_runtime::ContractId::new(
-                index as u64 + 1,
-            )));
+            return Ok(TypeAtom::Contract(
+                iris_runtime::ContractId::new(index as u64 + 1),
+                Vec::new(),
+            ));
         }
         self.builtin_class(name)
             .map(|class| TypeAtom::Nominal(class, Vec::new()))
+    }
+
+    pub(super) fn nominal_arguments(
+        &self,
+        arguments: &[TypeExpression],
+        program: &Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<Vec<NominalType>, MachineError> {
+        let mut reified = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            reified.push(self.nominal_type(argument, program, classes)?);
+        }
+        Ok(reified)
+    }
+
+    fn nominal_type(
+        &self,
+        expression: &TypeExpression,
+        program: &Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<NominalType, MachineError> {
+        match expression {
+            TypeExpression::Name(name) => {
+                let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                Ok(NominalType::new(class, Vec::new()))
+            }
+            TypeExpression::Generic { name, arguments } => {
+                let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
+                    return Err(MachineError::UnsupportedConstruct);
+                };
+                Ok(NominalType::new(
+                    class,
+                    self.nominal_arguments(arguments, program, classes)?,
+                ))
+            }
+            TypeExpression::Typeof(_)
+            | TypeExpression::Intersection(_)
+            | TypeExpression::Union(_)
+            | TypeExpression::Function { .. } => Err(MachineError::UnsupportedConstruct),
+        }
+    }
+
+    pub(super) fn reify_contract_requirement_type(
+        &self,
+        expression: &TypeExpression,
+        arguments: &[NominalType],
+        program: &Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<Value, MachineError> {
+        let TypeExpression::Generic {
+            name,
+            arguments: parameters,
+        } = expression
+        else {
+            return self.reify_type(expression, program, classes);
+        };
+        if !matches!(parameters.as_slice(), [TypeExpression::Name(parameter)] if parameter == "T") {
+            return self.reify_type(expression, program, classes);
+        }
+        let argument = arguments
+            .first()
+            .cloned()
+            .ok_or(MachineError::UnsupportedConstruct)?;
+        if name == "Iteration" {
+            return Ok(Value::ComposedType(ComposedType::Intersection(vec![
+                TypeAtom::Iteration(vec![argument]),
+            ])));
+        }
+        let TypeAtom::Contract(contract, _) = self.type_atom(name, program, classes)? else {
+            return Err(MachineError::UnsupportedConstruct);
+        };
+        Ok(Value::ComposedType(ComposedType::Intersection(vec![
+            TypeAtom::Contract(contract, vec![argument]),
+        ])))
     }
 
     fn absorb(&self, mut atoms: Vec<TypeAtom>, union: bool) -> Result<Vec<TypeAtom>, MachineError> {
@@ -262,6 +363,11 @@ impl Machine {
             {
                 self.annotation_admits(value, argument, program, classes)
             }
+            TypeExpression::Generic { arguments, .. }
+                if arguments.iter().any(contains_placeholder) =>
+            {
+                Err(MachineError::NameError)
+            }
             // A `BoundMethod<..>` names a Method BOUND to a receiver, and a
             // `Closure<..>` names a closure: neither admits the other, however
             // alike their call signatures look. Admitting every generic left
@@ -272,9 +378,50 @@ impl Machine {
             TypeExpression::Generic { name, .. } if name == "Closure" => {
                 Ok(matches!(value, Value::Closure(_)))
             }
-            TypeExpression::Typeof(_)
-            | TypeExpression::Generic { .. }
-            | TypeExpression::Function { .. } => Ok(true),
+            TypeExpression::Generic { name, arguments } => {
+                let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
+                    return Ok(true);
+                };
+                let target_arguments = self.nominal_arguments(arguments, program, classes)?;
+                self.instance_admits(value, class, &target_arguments)
+            }
+            TypeExpression::Typeof(_) | TypeExpression::Function { .. } => Ok(true),
         }
+    }
+
+    pub(super) fn instance_admits(
+        &self,
+        value: &Value,
+        target: iris_runtime::ClassId,
+        target_arguments: &[NominalType],
+    ) -> Result<bool, MachineError> {
+        let Value::Object(object) = value else {
+            return Ok(false);
+        };
+        let class = self
+            .runtime
+            .class_of(*object)
+            .map_err(MachineError::Construction)?;
+        if class == target && !target_arguments.is_empty() {
+            return self
+                .runtime
+                .type_arguments_of(*object)
+                .map(|arguments| arguments == target_arguments)
+                .map_err(MachineError::Construction);
+        }
+        self.is_subtype(class, target)
+    }
+}
+
+fn contains_placeholder(expression: &TypeExpression) -> bool {
+    match expression {
+        TypeExpression::Name(name) => name == "_",
+        TypeExpression::Generic { arguments, .. }
+        | TypeExpression::Union(arguments)
+        | TypeExpression::Intersection(arguments) => arguments.iter().any(contains_placeholder),
+        TypeExpression::Function { parameters, result } => {
+            parameters.iter().any(contains_placeholder) || contains_placeholder(result)
+        }
+        TypeExpression::Typeof(_) => false,
     }
 }

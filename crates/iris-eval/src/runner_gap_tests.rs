@@ -6,6 +6,43 @@ use iris_runtime::{
 use super::{EvaluationError, evaluate};
 
 #[test]
+fn for_iteration_closures_capture_their_own_immutable_bindings() {
+    // Given: an iterator yields two values and each iteration stores closures
+    // that read its immutable loop binding.
+    let separate_iterations = "mut n = 0; class It { public fun next() { n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } public fun close() { nil } } class Src { public fun iterator() { It.new() } } mut first = nil; mut second = nil; for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; [first.call(), second.call()]";
+    // The negative control creates both closures during one iteration, so both
+    // must continue to read that iteration's one immutable binding.
+    let same_iteration = "mut first = nil; mut second = nil; for x in [1] { first = { x }; second = { x } }; [first.call(), second.call()]";
+
+    for (source, expected) in [
+        (separate_iterations, "[nil, [1, 2]]"),
+        (same_iteration, "[nil, [1, 1]]"),
+    ] {
+        // When: both execution engines run the program.
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+
+        // Then: they agree on the iteration-scoped captured values.
+        let crate::backend::Agreement::Agreed { observation, .. } = agreement else {
+            unreachable!(
+                "both backends must agree: {source}: {agreement:?}: {:?}",
+                <crate::backend::Bytecode as crate::backend::Backend>::execute(
+                    &crate::backend::Bytecode,
+                    source,
+                )
+            );
+        };
+        assert_eq!(
+            observation,
+            crate::backend::Observation::Value(expected.to_owned()),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn authored_array_convenience_methods_answer_their_documented_results() {
     // A length-only assertion would pass even if every method answered nil,
     // so each result is pinned to its VALUE. The receiver is restored to
@@ -3167,10 +3204,10 @@ fn c094_reflects_decorator_arguments_and_phase_participation() {
     // Ordered identity is preserved, which already worked.
     assert_eq!(
         evaluate(&format!("{base} Box.decorators")),
-        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+        Ok(RuntimeValue::ReadonlyArray(vec![
             RuntimeValue::Symbol("First".into()),
             RuntimeValue::Symbol("Second".into()),
-        ])))
+        ]))
     );
 
     // Each applied decorator reports its own arguments IN ORDER, and one
@@ -3752,14 +3789,86 @@ fn c013_reflects_traversal_contract_requirement_types() {
             // C061 interns one Contract per generic definition, so the closed
             // and bare forms normalize to the SAME Contract.
             RuntimeValue::ComposedType(iris_runtime::ComposedType::Intersection(vec![
-                iris_runtime::TypeAtom::Contract(iris_runtime::ContractId::new(1)),
+                iris_runtime::TypeAtom::Contract(
+                    iris_runtime::ContractId::new(1),
+                    vec![iris_runtime::NominalType::new(
+                        iris_runtime::ClassId::new(3),
+                        Vec::new(),
+                    )],
+                ),
             ])),
             RuntimeValue::ComposedType(iris_runtime::ComposedType::Intersection(vec![
-                iris_runtime::TypeAtom::Contract(iris_runtime::ContractId::new(2)),
+                iris_runtime::TypeAtom::Iteration(vec![iris_runtime::NominalType::new(
+                    iris_runtime::ClassId::new(3),
+                    Vec::new(),
+                )]),
             ])),
             // `close` promises Nil, which is an ordinary nominal Type.
             RuntimeValue::Type(iris_runtime::ClassId::new(1), Vec::new()),
         ])))
+    );
+}
+
+#[test]
+fn d466_reflection_preserves_closed_traversal_type_arguments() {
+    // Given: D-466's built-in traversal Contracts and their reified Iteration
+    // value Type. These comparisons observe canonical identity directly rather
+    // than relying on the opaque `<type>` renderer.
+    let source = "module Q { public fun run() -> Object { \
+        let integer_iterator = Iterator<Integer>; \
+        let string_iterator = Iterator<String>; \
+        let integer_next = Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type]; \
+        let string_next = Reflection::Contract.requirement(Iterator<String>, :next)[:return_type]; \
+        let repeated_integer_next = Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type]; \
+        let integer_close = Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]; \
+        [integer_iterator same? string_iterator, \
+         integer_iterator same? Iterator<Integer>, \
+         integer_next same? string_next, \
+         integer_next same? repeated_integer_next, \
+         integer_close same? Nil.type] } } Q.run()";
+
+    // When
+    let result = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+
+    // Then
+    let crate::backend::Agreement::Agreed { observation, .. } = result else {
+        unreachable!("both backends must preserve closed traversal Type identity: {result:?}")
+    };
+    assert_eq!(
+        observation,
+        crate::backend::Observation::Value("[false, true, false, true, true]".to_owned())
+    );
+}
+
+#[test]
+fn recursive_generic_contract_identity_and_iteration_reflection_agree() {
+    let source = "class Box<T> { } module Q { public fun run() -> Object { \
+        let string_iterator = Iterator<Box<String>>; \
+        let integer_iterator = Iterator<Box<Integer>>; \
+        let string_next = Reflection::Contract.requirement(Iterator<Box<String>>, :next)[:return_type]; \
+        let integer_next = Reflection::Contract.requirement(Iterator<Box<Integer>>, :next)[:return_type]; \
+        [string_iterator same? string_iterator, \
+         string_iterator same? integer_iterator, \
+         string_next same? integer_next, \
+          string_next same? Reflection::Contract.requirement(Iterator<Box<String>>, :next)[:return_type]] \
+    } } Q.run()";
+
+    // When
+    let result = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+
+    // Then
+    let crate::backend::Agreement::Agreed { observation, .. } = result else {
+        unreachable!("both backends must preserve recursive generic arguments: {result:?}")
+    };
+    assert_eq!(
+        observation,
+        crate::backend::Observation::Value("[true, false, false, true]".to_owned())
     );
 }
 
@@ -3992,7 +4101,7 @@ fn c161_replacement_creates_no_second_backing_slot() {
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("replaced".into()),
             RuntimeValue::Symbol("written".into()),
-            RuntimeValue::Array(ArrayRef::new(Vec::new())),
+            RuntimeValue::ReadonlyArray(Vec::new()),
         ])))
     );
 
@@ -4006,9 +4115,9 @@ fn c161_replacement_creates_no_second_backing_slot() {
              module Q { public fun run() -> Object { \
                Reflection::Class.properties(A) } } Q.run()"
         ),
-        Ok(RuntimeValue::Array(ArrayRef::new(vec![
-            RuntimeValue::Symbol("@tag".into())
-        ])))
+        Ok(RuntimeValue::ReadonlyArray(vec![RuntimeValue::Symbol(
+            "@tag".into()
+        )]))
     );
 }
 
@@ -6342,6 +6451,51 @@ fn a_module_function_is_reachable_bare() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn v225_module_private_function_local_call_stays_lexical() {
+    // Given a private function in a Module body, when its name is read into a
+    // local and called through that local, then the call retains module access.
+    let source = "mut result: Object = 0; module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; result = f(\"x\") } result";
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {source}: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Value("\"ok\"".to_owned()),
+        "{source}"
+    );
+
+    // Control: forwarding the local preserves a real BoundMethod value rather
+    // than relying on the original binding name at the call site.
+    agrees_on(
+        "mut result: Object = 0; module M { fun accept(x: Object) -> String { \"ok\" } \
+         let f = accept; let g = f; result = [g.class_name, g.call(\"x\")] } result",
+        "[:BoundMethod, \"ok\"]",
+    );
+
+    // Given the same private function, when it is sent from outside the
+    // Module, then private authorization still denies that external call.
+    let source = "module M { fun accept(x: Object) -> String { \"ok\" } } M.accept(\"x\")";
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must agree: {source}: {agreement:?}")
+    };
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error(
+            "Construction(Dispatch(VisibilityDenied { selector: Selector(_) }))".to_owned(),
+        ),
+        "{source}"
+    );
 }
 
 /// A DECLARED contract cannot be dropped, through either entry point.
@@ -9128,6 +9282,284 @@ fn negative_infinity_is_spelled_not_evaluated() {
     }
 }
 
+#[test]
+fn vm_reflects_user_and_traversal_contract_requirement_types() {
+    // Given: a user requirement plus the built-in generic traversal contracts.
+    // When: their reflected return types are read through the VM.
+    // Then: each backend reports the canonical Type values in declaration order.
+    agrees_on(
+        "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } \
+         module Q { public fun run() -> Object { [ \
+           Reflection::Contract.requirement(Numbers, :iterator)[:return_type], \
+           Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type], \
+           Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]] } } Q.run()",
+        "[<type>, <type>, <type>]",
+    );
+
+    // Control: an absent requirement stays nil rather than borrowing metadata
+    // from a similarly-shaped built-in requirement.
+    agrees_on(
+        "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } \
+         Reflection::Contract.requirement(Numbers, :absent)",
+        "nil",
+    );
+}
+
+#[test]
+fn vm_reflection_prefers_current_user_iterator_contract_over_traversal_prelude() {
+    // Given: user Contracts that shadow the traversal prelude's `Iterator`.
+    // When: reflection resolves a newly named requirement and a replacement for
+    // the prelude's `next` requirement through closed generic constructions.
+    // Then: both backends expose the current user declaration's `String` return
+    // Type rather than the prelude requirement metadata.
+    agrees_on(
+        "contract Iterator<T> { fun own() -> String } \
+         Reflection::Contract.requirement(Iterator<Integer>, :own)[:return_type] same? String.type",
+        "true",
+    );
+    agrees_on(
+        "contract Iterator<T> { fun next() -> String } \
+         Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type] same? String.type",
+        "true",
+    );
+
+    // Control: without a shadowing declaration, the traversal prelude still
+    // exposes its `next` requirement; D-466 below covers its reification.
+    agrees_on(
+        "Reflection::Contract.requirement(Iterator<Integer>, :next) same? nil",
+        "false",
+    );
+}
+
+#[test]
+fn vm_preserves_decorator_identities_across_an_undecorated_open() {
+    // Given: a class declared with two decorators.
+    // When: an undecorated transaction reopens it.
+    // Then: the same ordered metadata remains visible before and after commit.
+    agrees_on(
+        "@one() @two() class A { }; let before = A.decorators; \
+         A.open() { |t| t.define_method(:x) { 1 } }; [before, A.decorators]",
+        "[nil, [[:one, :two], [:one, :two]]]",
+    );
+
+    // Control: a class with no decorators remains empty after the same open.
+    agrees_on(
+        "class Plain { }; Plain.open() { |t| t.define_method(:x) { 1 } }; Plain.decorators",
+        "[nil, []]",
+    );
+}
+
+#[test]
+fn vm_commits_nested_opens_only_at_the_outermost_boundary() {
+    // Given: two Classes join one nested open transaction.
+    // When: the outer callback raises after the inner callback succeeds.
+    // Then: neither candidate publishes independently.
+    agrees_on(
+        "class A { } class B { } module Q { public fun run() -> Object { \
+         try { A.open() { |a| a.define_method(:m) { 1 }; \
+         B.open() { |b| b.define_method(:n) { 2 } }; raise :boom } } catch e { 0 }; \
+         [A.active_revision, B.active_revision] } } Q.run()",
+        "[1, 1]",
+    );
+
+    // Control: normal completion publishes both candidates as one group.
+    agrees_on(
+        "class A { } class B { } module Q { public fun run() -> Object { \
+         A.open() { |a| a.define_method(:m) { 1 }; \
+         B.open() { |b| b.define_method(:n) { 2 } } }; \
+         [A.active_revision, B.active_revision] } } Q.run()",
+        "[2, 2]",
+    );
+}
+
+#[test]
+fn vm_aborts_nested_open_group_when_an_inner_failure_is_caught() {
+    // Given: an outer candidate and an inner candidate whose open raises.
+    // When: the outer callback catches the inner failure and completes normally.
+    // Then: the entire group remains unpublished rather than committing either candidate.
+    agrees_on(
+        "class A { } class B { } module Q { public fun run() -> Object { \
+         A.open() { |a| a.define_method(:m) { 1 }; \
+         try { B.open() { |b| b.define_method(:n) { 2 }; raise :boom } } catch e { 0 } }; \
+         [A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(B, :n)] } } Q.run()",
+        "[1, 1, nil, nil]",
+    );
+}
+
+#[test]
+fn vm_aborts_nested_open_group_when_a_caught_inner_failure_precedes_another_mutation() {
+    // Given: an inner open that fails and an outer callback that mutates afterwards.
+    // When: the outer callback catches that inner failure before completing normally.
+    // Then: no pre- or post-failure candidate publishes outside the aborted group.
+    agrees_on(
+        "class A { } class B { } module Q { public fun run() -> Object { \
+         A.open() { |a| a.define_method(:m) { 1 }; \
+         try { B.open() { |b| b.define_method(:n) { 2 }; raise :boom } } catch e { 0 }; \
+         a.define_method(:after) { 3 } }; \
+         [A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(A, :after), Reflection::Class.method(B, :n)] } } Q.run()",
+        "[1, 1, nil, nil, nil]",
+    );
+}
+
+#[test]
+fn vm_reflects_immutable_decorator_arguments_and_phases() {
+    let base = "contract ClassDecorator { fun transform(declaration, arguments, context) } \
+                class First for ClassDecorator { \
+                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                class Second for ClassDecorator { \
+                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                @First(1, :two) @Second() class Box { } ";
+
+    // Given: ordered decorator applications including an empty argument list.
+    // When: metadata and a mutation refusal are observed through the VM.
+    // Then: values retain source order and the views reject append.
+    agrees_on(
+        &format!(
+            "{base} module M {{ public fun run() -> Object {{ let refused = try {{ Box.decorator_arguments.append([9]) }} catch e {{ e }}; [Box.decorators, Box.decorator_arguments, Box.decorator_phases, refused] }} }} M.run()"
+        ),
+        "[[:First, :Second], [[1, :two], []], [:runtime, :runtime], :ReadonlyMutationError]",
+    );
+
+    // Control: a separate empty metadata view is still readonly, proving the
+    // refusal is a view guarantee rather than a non-empty special case.
+    agrees_on(
+        "class Plain { } module M { public fun run() -> Object { try { Plain.decorator_phases.append(:x) } catch e { e } } } M.run()",
+        ":ReadonlyMutationError",
+    );
+}
+
+#[test]
+fn vm_validates_a_reflected_module_method_before_its_arguments() {
+    // Given: a retained Module Method and an unrelated object receiver.
+    // When: the reflective call also supplies the wrong argument count.
+    // Then: receiver binding fails before the method body's parameter checks.
+    agrees_on(
+        "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; class A { }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         [Reflection::Module.invoke(m, Mo, [4]), \
+          try { Reflection::Module.invoke(m, A.new(), []) } catch e { e }]",
+        "[5, :MethodBindingError]",
+    );
+
+    // Control: the same Method remains callable with its owning Module and a
+    // valid argument, so binding validation does not reject Module receivers.
+    agrees_on(
+        "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         Reflection::Module.invoke(m, Mo, [4])",
+        "5",
+    );
+
+    // Controls: an unknown Module receiver and malformed argument-vector
+    // shapes are rejected before the retained Method body can run.
+    for source in [
+        "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         Reflection::Module.invoke(m, :Unknown, [4])",
+        "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         Reflection::Module.invoke(m, Mo, 4)",
+        "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         Reflection::Module.invoke(m, Mo, [4], [5])",
+    ] {
+        agrees_on_error(source, "UnsupportedConstruct");
+    }
+}
+
+#[test]
+fn reflection_module_invoke_requires_a_module_owned_method() {
+    // Given: a Class-owned Method and a valid Module receiver.
+    // When: Module.invoke receives that Method with malformed call arguments.
+    // Then: endpoint ownership rejects it before receiver, argument, or body work.
+    agrees_on(
+        "class A { public fun h(x: Integer) -> Integer { x + 1 } }; module Mo { }; \
+         let m = Reflection::Class.method(A, :h); \
+         try { Reflection::Module.invoke(m, Mo, []) } catch e { e }",
+        ":MethodBindingError",
+    );
+
+    // Given: a Module-owned Method.
+    // When: invoked through its owning Module name or an instance whose current
+    // MRO contains the Module.
+    // Then: both valid Module receiver forms enter the retained body.
+    agrees_on(
+        "module Mo { public fun h() -> Integer { 8 } }; class A mixin Mo { }; \
+         let m = Reflection::Module.method(Mo, :h); \
+         [Reflection::Module.invoke(m, Mo, []), Reflection::Module.invoke(m, A.new(), [])]",
+        "[8, 8]",
+    );
+}
+
+#[test]
+fn vm_compares_every_nominal_identity_family() {
+    // Given: aliases, distinct definitions, and repeated reads for each nominal family.
+    // When: identity is compared through the VM.
+    // Then: definition identity wins over body equality or spelling.
+    agrees_on(
+        "class A { public fun f() { :a } } class B { public fun f() { :a } } \
+         module M { } module N { } contract C { } contract D { } \
+         let aliased = A.alias_method(:g, :f); \
+         let original = Reflection::Class.method(A, :f); \
+         let alias = Reflection::Class.method(A, :g); \
+         let sameBody = Reflection::Class.method(B, :f); \
+         [original same? alias, original same? sameBody, A same? A, A same? B, \
+          M same? M, M same? N, C same? C, C same? D, \
+          A.type same? A.type, A.type same? B.type]",
+        "[true, false, true, false, true, false, true, false, true, false]",
+    );
+}
+
+#[test]
+fn vm_rejects_a_generic_placeholder_only_in_persistent_annotations() {
+    // Given: the corpus uses inference at construction but persists `_` in a
+    // later binding annotation.
+    // When: both backends execute the complete program.
+    // Then: the persistent placeholder is rejected as a NameError.
+    agrees_on_error(
+        "class Box<T> { fun initialize(value: T) -> Nil {} } \
+         let b: Box<String> = Box<_>.new(\"x\"); let bad: Box<_> = b; bad",
+        "NameError",
+    );
+
+    // Control: replacing both placeholders with the concrete Type leaves a
+    // valid construction and persistent annotation.
+    agrees_on(
+        "class Box<T> { fun initialize(value: T) -> Nil {} } \
+         let b: Box<String> = Box<String>.new(\"x\"); \
+         let ok: Box<String> = b; ok",
+        "<object>",
+    );
+
+    // Control: placeholder rejection is recursive through nested persistent
+    // generic arguments rather than limited to the annotation's first level.
+    agrees_on_error(
+        "class Box<T> { }; let b: Box<Box<String>> = Box<Box<String>>.new(); \
+         let bad: Box<Box<_>> = b; bad",
+        "NameError",
+    );
+    agrees_on(
+        "class Box<T> { }; let b: Box<Box<String>> = Box<Box<String>>.new(); \
+         let ok: Box<Box<String>> = b; ok",
+        "<object>",
+    );
+}
+
+#[test]
+fn vm_keeps_class_metadata_views_readonly() {
+    // Given: stored-property and decorator identity metadata are runtime-owned views.
+    // When: user code attempts to append to either view.
+    // Then: both reject mutation without changing the reflected metadata.
+    agrees_on(
+        "@one() class A { public property x: Integer = 1 }; \
+         let properties = A.properties; let decorators = A.decorators; \
+         let property_error = try { properties.append(:fake) } catch e { e }; \
+         let decorator_error = try { decorators.append(:fake) } catch e { e }; \
+         [properties, decorators, property_error, decorator_error]",
+        "[[:@x], [:one], :ReadonlyMutationError, :ReadonlyMutationError]",
+    );
+}
+
 /// Asserts both backends AGREE, and on the stated value.
 fn agrees_on(source: &str, expected: &str) {
     let agreement = crate::backend::compare_backends(
@@ -11032,13 +11464,12 @@ fn a_context_is_readonly_and_a_view_refuses_by_contract() {
     // Control: the BARE read still answers, so the called form was added
     // beside it rather than replacing it.
     agrees_on("try { raise :x } catch _, c { c.value }", ":x");
-    // A view refuses a selector the contract does not name, and the
-    // diagnostic names the CONTRACT that refused - the three kernel traversal
-    // contracts are registered first, so a program's first contract is the
-    // fourth identity.
+    // A view refuses a selector the contract does not name, and the diagnostic
+    // names the semantic CONTRACT that refused rather than either backend's
+    // local numeric identity.
     agrees_on_error(
         "contract C { } class A for C { public fun m() { :ordinary } } let a = A.new(); (a as C)..missing()",
-        "Construction(Dispatch(ContractDispatch { contract: ModuleId(3), selector: Selector(_) }))",
+        "Construction(Dispatch(ContractDispatch { contract: C, selector: Selector(_) }))",
     );
 }
 
@@ -11076,5 +11507,334 @@ fn class_metadata_is_filtered_readonly_and_spine_is_fixed() {
     agrees_on(
         "class A { public fun f() -> Nil {} } module M { public fun run() -> Object { A.static_spine } } M.run()",
         "1",
+    );
+}
+/// An ExceptionContext names its own runtime Class.
+///
+/// A catch binds a first-class context value, so `class_name` must be
+/// available just as it is on the other runtime value families. Omitting the
+/// selector made the VM decline the last held corpus vector as a machine
+/// defect instead of participating in the differential comparison.
+#[test]
+fn an_exception_context_names_its_runtime_class() {
+    agrees_on(
+        "try { raise :x } catch error: Symbol, context { \
+         [error, context.value, context.class_name] }",
+        "[:x, :x, :ExceptionContext]",
+    );
+    // Control: the called form names the same Class as the bare member read.
+    agrees_on(
+        "try { raise :x } catch _, context { context.class_name() }",
+        ":ExceptionContext",
+    );
+}
+
+/// Runtime callable values name their actual callable kind.
+///
+/// `class_name` returns a Symbol for callable kinds. A Task returning Text and
+/// a BoundMethod refusing the selector made two values on the same public
+/// surface disagree about both the representation and the name.
+#[test]
+fn callable_values_name_their_runtime_kind() {
+    agrees_on(
+        "class A { public async fun value() -> Integer { 7 } } \
+         let t = A.new().value(); [t.class_name, Host.run(t), Host.run(t)]",
+        "[:Task, 7, 7]",
+    );
+    agrees_on(
+        "class A { public fun f(x: Integer) -> Integer { x } } \
+         let m = Reflection::Class.method(A, :f); \
+         let bound: BoundMethod<(Integer) -> Integer> = m.bind(A.new()); \
+         bound.class_name",
+        ":BoundMethod",
+    );
+    // Control: a Closure remains a Closure rather than borrowing either name.
+    agrees_on("let f = { 1 }; f.class_name", ":Closure");
+}
+
+/// A ByteArray scalar write accepts exactly one byte.
+///
+/// The written value must be an Integer in 0..255, while the position follows
+/// the ordinary negative-index and out-of-range rules. Treating the operation
+/// as a missing selector hid both the byte-domain and index failures.
+#[test]
+fn a_byte_array_scalar_write_checks_value_and_position() {
+    agrees_on(
+        r#"module M { public fun run() -> Object { let bytes = mb"abc"; bytes[1] = 120; bytes.to_bytes() } } M.run()"#,
+        "bytes:617863",
+    );
+    agrees_on_error(
+        r#"module M { public fun run() -> Nil { let bytes = mb"abc"; bytes[0] = 256 } } M.run()"#,
+        "RangeError",
+    );
+    // Control: a position outside the ByteArray is an IndexError, not a value
+    // range failure.
+    agrees_on_error(
+        r#"module M { public fun run() -> Nil { let bytes = mb"abc"; bytes[9] = 1 } } M.run()"#,
+        "IndexError",
+    );
+}
+
+/// A read before definite assignment is a named, catchable language failure.
+///
+/// Exposing the VM's internal `DefiniteAssignment` variant bypassed the
+/// handler even though the language names `DefiniteAssignmentError` for this
+/// exact boundary.
+#[test]
+fn a_definite_assignment_failure_is_catchable() {
+    agrees_on(
+        "module M { public fun run() -> Object { \
+         mut x: Integer; try { x } catch error { error } } } M.run()",
+        ":DefiniteAssignmentError",
+    );
+    // Control: assigning before the read leaves no failure to catch.
+    agrees_on(
+        "module M { public fun run() -> Object { \
+         mut x: Integer; x = 3; try { x } catch error { error } } } M.run()",
+        "3",
+    );
+}
+
+/// An undeclared Host ABI name fails during name resolution.
+///
+/// `HostABI` is not a language service receiver, so evaluating it must produce
+/// NameError before `load` can be dispatched. Treating every capitalized name
+/// as a nominal receiver incorrectly changed that boundary to MessageNotFound.
+#[test]
+fn an_undeclared_host_abi_is_a_name_error() {
+    agrees_on_error(
+        r#"module M { public fun run() -> Object { HostABI.load("fixtures/ffi/libfixture") } } M.run()"#,
+        "NameError",
+    );
+    // Control: a generic undeclared nominal receiver still names the missing
+    // message, preserving the distinct `Foo.bar()` rule.
+    agrees_on_error(
+        "Foo.bar()",
+        r#"MessageNotFound { receiver_class: "Foo", selector: "bar" }"#,
+    );
+}
+
+#[test]
+fn closed_generic_arguments_are_invariant_in_both_backends() {
+    // Given: String is an Object, but the closed Box argument differs.
+    // When: each backend evaluates the Type relations and a persistent annotation.
+    // Then: only the exact closed argument is accepted.
+    agrees_on(
+        "class Box<T> {} Box<String>.type.subtype?(Box<Object>.type)",
+        "false",
+    );
+    agrees_on(
+        "class Box<T> {} Box<Object>.type.assignable?(Box<String>.type)",
+        "false",
+    );
+    agrees_on_error(
+        "class Box<T> {} let target: Box<Object> = Box<String>.new(); target",
+        "ParseDiagnostic",
+    );
+    agrees_on(
+        "class Box<T> {} let target: Box<String> = Box<String>.new(); target",
+        "<object>",
+    );
+    agrees_on_error(
+        "class Box<T> {} let source = Box<String>.new(); let target: Box<Object> = source; target",
+        "TypeContractError",
+    );
+    agrees_on(
+        "class Box<T> {} let source = Box<String>.new(); let target: Box<String> = source; target",
+        "<object>",
+    );
+    agrees_on_error(
+        "class Box<T> {} module M { public fun accept(value: Box<Object>) -> Object { value } } M.accept(Box<String>.new())",
+        "TypeContractError",
+    );
+    agrees_on(
+        "class Box<T> {} module M { public fun accept(value: Box<String>) -> Object { value } } M.accept(Box<String>.new())",
+        "<object>",
+    );
+    agrees_on("class Box<T> {} Box<String>.new() is Box<Object>", "false");
+    agrees_on("class Box<T> {} Box<String>.new() is Box<String>", "true");
+    agrees_on("class Box<T> {} Box<String>.new() as? Box<Object>", "nil");
+    agrees_on(
+        "class Box<T> {} Box<String>.new() as? Box<String>",
+        "<object>",
+    );
+    agrees_on(
+        "class Box<T> {} Box<String>.type.subtype?(Object.type)",
+        "true",
+    );
+    agrees_on(
+        "class Box<T> {} Object.type.assignable?(Box<String>.type)",
+        "true",
+    );
+}
+
+/// A class variable is anchored at the ancestor that declares it.
+///
+/// Reading through a subclass must find that same cell rather than looking for
+/// a second declaration on the child. Otherwise parent and child instances do
+/// not observe the shared hierarchy state required by the declaration.
+#[test]
+fn an_inherited_class_variable_uses_its_declaring_cell() {
+    agrees_on(
+        "class A { shared mut @@x = 1 public fun get() { @@x } \
+         class fun set(v) { @@x = v } }; class B extends A {}; \
+         let ignored = A.set(2); [A.new().get(), B.new().get()]",
+        "[2, 2]",
+    );
+    // Control: unrelated classes keep distinct cells even when both declare
+    // the same name.
+    agrees_on(
+        "class A { shared mut @@x = 1 public fun get() { @@x } } \
+         class B { shared mut @@x = 2 public fun get() { @@x } } \
+         [A.new().get(), B.new().get()]",
+        "[1, 2]",
+    );
+    // Control: changing B's runtime superclass does not retarget the static
+    // lexical cell used by B's already-declared Methods.
+    agrees_on(
+        "class A { shared mut @@x = 1 public class fun get() { @@x } } \
+         class Other { shared mut @@x = 9 public class fun get() { @@x } } \
+         class B extends A { public fun read() { @@x } public fun write() { @@x = 2 } }; \
+         Reflection::Class.set_superclass(B, Other); \
+         [B.new().read(), B.new().write(), A.get(), Other.get()]",
+        "[nil, [1, 2, 2, 9]]",
+    );
+}
+
+/// A reopened built-in property overrides its native constant surface.
+///
+/// The authored getter and setter must run before the kernel's `infinity`
+/// fallback, while reflection still reports no stored-property slot because
+/// these are explicit property methods rather than backing storage.
+#[test]
+fn a_reopened_builtin_property_overrides_the_native_constant() {
+    agrees_on(
+        "mut recorded = :none; open class Float64 { \
+         public override property fun infinity() -> Symbol { :replaced } \
+         public property fun infinity=(v) -> Object { recorded = v; nil } } \
+         module Q { public fun run() -> Object { \
+         let read = Float64.infinity; let wrote = Float64.infinity = :written; \
+         [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()",
+        "[:replaced, :written, []]",
+    );
+    // Control: without a reopen, the native constant remains available.
+    agrees_on("Float64.infinity", "f64:0x7ff0000000000000");
+}
+
+/// A zero-argument initializer counts only source arguments, not hidden self.
+///
+/// Construction prepends the receiver internally, but that register is not an
+/// argument written at the call site. Counting it against a fixed arity of
+/// zero rejects a valid initializer before its body can run.
+#[test]
+fn a_zero_argument_initializer_ignores_hidden_self_for_arity() {
+    agrees_on(
+        "mut log = []; class A { public fun initialize() { log.append(:init) } } \
+         class B {}; let a = A.new(); let b = B.new(); \
+         [a same? a, b.to_bool(), log]",
+        "[true, true, [:init]]",
+    );
+    // Control: source arguments are still checked, so passing one to the same
+    // initializer remains an ArgumentError.
+    agrees_on(
+        "class A { public fun initialize() { nil } } \
+         try { A.new(1) } catch error { error }",
+        ":ArgumentError",
+    );
+}
+
+/// A close failure after normal iteration is the primary caught exception.
+///
+/// With no body exception in flight, `close` supplies the only failure and its
+/// context has no suppressed cleanup failures. Returning it directly from the
+/// VM frame bypassed the outer handler that must receive it.
+#[test]
+fn a_normal_iteration_close_failure_reaches_the_outer_handler() {
+    agrees_on(
+        "mut n = 0; class It { \
+         public fun next() { n = n + 1; if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+         public fun close() { raise :close } } \
+         class S { public fun iterator() { It.new() } } \
+         try { for x in S.new() { nil } } catch _, context { \
+         [context.value, context.suppressed] }",
+        "[:close, []]",
+    );
+    // Control: a successful close leaves normal loop completion unchanged.
+    agrees_on(
+        "mut n = 0; class It { \
+         public fun next() { n = n + 1; if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
+         public fun close() { nil } } \
+         class S { public fun iterator() { It.new() } } \
+         for x in S.new() { nil }",
+        "nil",
+    );
+}
+
+/// Reflective invocation validates a retained Method against the current MRO.
+///
+/// Changing a superclass publishes a new revision before a retained Method is
+/// invoked. If its lexical owner is no longer reachable, binding fails before
+/// the body can run or produce any side effect.
+#[test]
+fn a_superclass_change_invalidates_a_retained_method_binding() {
+    agrees_on_error(
+        "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; \
+         class B extends A { }; class Other { }; \
+         let method = Reflection::Class.method(A, :m); \
+         Reflection::Class.set_superclass(B, Other); \
+         Reflection::Class.invoke(method, B.new(), [])",
+        "Construction(Dispatch(MethodBinding { selector: Selector(_) }))",
+    );
+    // Control: before the superclass changes, the same retained Method remains
+    // valid and its body runs.
+    agrees_on(
+        "class A { public fun m() -> Integer { 7 } }; class B extends A { }; \
+         let method = Reflection::Class.method(A, :m); \
+         Reflection::Class.invoke(method, B.new(), [])",
+        "7",
+    );
+}
+
+/// Built-in values carry no instance state for reopened methods to mutate.
+///
+/// A raw ivar write from a reopened value-class method names that Class's
+/// instance-state refusal. Treating every non-object receiver as a generic Type
+/// failure loses which runtime capability the write attempted to use.
+#[test]
+fn a_builtin_value_raw_ivar_write_reports_instance_state() {
+    agrees_on_error(
+        "open class Integer { \
+         public property fun px=(value: Integer) -> Integer { @x = value } }; \
+         let n = 1; n.px = 2",
+        "Construction(InstanceState { class: ClassId(3) })",
+    );
+    // Control: an ordinary object still materializes and reads its raw ivar.
+    agrees_on(
+        "class A { public fun set(value) { @x = value } public fun get() { @x } }; \
+         module M { public fun run() { let a = A.new(); a.set(2); a.get() } } M.run()",
+        "2",
+    );
+}
+
+/// A ContractView has its own public hash composed from both identities.
+///
+/// Ordinary view messages forward to the receiver, but forwarding `hash`
+/// would discard the Contract component and make distinct views indistinguish-
+/// able from their underlying object.
+#[test]
+fn a_contract_view_hash_composes_receiver_and_contract() {
+    agrees_on(
+        "contract C { fun m() } class A for C { \
+         public impl fun m() -> Nil { nil } public fun hash() -> Integer { 1 } } \
+         let view = A.new() as C; \
+         [view.hash(), view.hash() == view.hash(), view.hash() != A.new().hash()]",
+        "[3192709805854531430, true, true]",
+    );
+    // Control: an ordinary unqualified view message still forwards.
+    agrees_on(
+        "contract C { fun m() } class A for C { \
+         public impl fun m() -> Nil { nil } public fun value() { 7 } } \
+         let view = A.new() as C; view.value()",
+        "7",
     );
 }

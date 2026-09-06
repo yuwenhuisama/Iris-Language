@@ -61,6 +61,17 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
+                if let Some(module) = self.enclosing_module.clone()
+                    && self.resolve(&module, name).is_some()
+                {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BindModuleMethod {
+                        destination,
+                        module,
+                        selector: name.clone(),
+                    });
+                    return Ok(destination);
+                }
                 if let Some(binding) = self
                     .program_bindings
                     .iter()
@@ -140,6 +151,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 self.instructions.push(Instruction::GetClassVar {
                     destination,
                     receiver,
+                    owner: self.class_variable_owner(name),
                     name: name.clone(),
                 });
                 Ok(destination)
@@ -227,6 +239,58 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     });
                     return Ok(destination);
                 }
+                if *operator == BinaryOperator::As
+                    && !matches!(right.as_ref(), Expression::Name(name) if self.contract_index(name).is_some())
+                {
+                    let value = self.expression(left)?;
+                    let target = match right.as_ref() {
+                        Expression::ClosedGeneric { name, arguments } => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: iris_syntax::TypeExpression::Generic {
+                                    name: name.clone(),
+                                    arguments: arguments.clone(),
+                                },
+                            });
+                            destination
+                        }
+                        Expression::ReifiedType(expression) => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: expression.clone(),
+                            });
+                            destination
+                        }
+                        expression => self.expression(expression)?,
+                    };
+                    let matches = self.allocate()?;
+                    self.instructions.push(Instruction::TypeTest {
+                        destination: matches,
+                        value,
+                        target,
+                    });
+                    let branch = self.instructions.len();
+                    self.instructions.push(Instruction::JumpUnless {
+                        condition: matches,
+                        target: 0,
+                    });
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::Move {
+                        destination,
+                        source: value,
+                    });
+                    let skip = self.instructions.len();
+                    self.instructions.push(Instruction::Jump { target: 0 });
+                    let failure = self.instructions.len();
+                    self.instructions
+                        .push(Instruction::RaiseType { destination });
+                    let after = self.instructions.len();
+                    self.patch(branch, failure)?;
+                    self.patch(skip, after)?;
+                    return Ok(destination);
+                }
                 if *operator == BinaryOperator::Identity {
                     let left = self.expression(left)?;
                     let right = self.expression(right)?;
@@ -246,7 +310,28 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         Expression::Name(name) if self.contract_index(name).is_some())
                 {
                     let value = self.expression(left)?;
-                    let target = self.expression(right)?;
+                    let target = match right.as_ref() {
+                        Expression::ClosedGeneric { name, arguments } => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: iris_syntax::TypeExpression::Generic {
+                                    name: name.clone(),
+                                    arguments: arguments.clone(),
+                                },
+                            });
+                            destination
+                        }
+                        Expression::ReifiedType(expression) => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: expression.clone(),
+                            });
+                            destination
+                        }
+                        expression => self.expression(expression)?,
+                    };
                     let matches = self.allocate()?;
                     self.instructions.push(Instruction::TypeTest {
                         destination: matches,
@@ -278,7 +363,28 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         return Err(CompileError::new("operator Is contract"));
                     }
                     let value = self.expression(left)?;
-                    let target = self.expression(right)?;
+                    let target = match right.as_ref() {
+                        Expression::ClosedGeneric { name, arguments } => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: iris_syntax::TypeExpression::Generic {
+                                    name: name.clone(),
+                                    arguments: arguments.clone(),
+                                },
+                            });
+                            destination
+                        }
+                        Expression::ReifiedType(expression) => {
+                            let destination = self.allocate()?;
+                            self.instructions.push(Instruction::BuildType {
+                                destination,
+                                expression: expression.clone(),
+                            });
+                            destination
+                        }
+                        expression => self.expression(expression)?,
+                    };
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::TypeTest {
                         destination,
@@ -473,14 +579,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // apart and made them the same value.
                 if selector == "type"
                     && let Expression::ClosedGeneric { name, arguments } = receiver.as_ref()
-                    && let Some(class) = self.class_index(name)
+                    && (self.class_index(name).is_some() || self.contract_index(name).is_some())
                 {
                     // `C067` checks a `where` bound at MATERIALIZATION, and
                     // naming the Type materializes it just as a construction
                     // does - so a closed generic whose argument breaks the
                     // bound is refused here too rather than answering a Type
                     // the language never admits.
-                    if self.violates_contract_bound(class, arguments) {
+                    if let Some(class) = self.class_index(name)
+                        && self.violates_contract_bound(class, arguments)
+                    {
                         let destination = self.allocate()?;
                         self.instructions
                             .push(Instruction::RaiseTypeContract { destination });
@@ -593,13 +701,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
-            Expression::ReifiedType(iris_syntax::TypeExpression::Generic { name, .. }) => {
-                let class = self
-                    .class_index(name)
-                    .ok_or_else(|| CompileError::new("expression reified type"))?;
+            Expression::ReifiedType(
+                expression @ iris_syntax::TypeExpression::Generic { name, .. },
+            ) => {
+                if self.contract_index(name).is_some() || name == "Iteration" {
+                    let destination = self.allocate()?;
+                    self.instructions.push(Instruction::BuildType {
+                        destination,
+                        expression: expression.clone(),
+                    });
+                    return Ok(destination);
+                }
                 let destination = self.allocate()?;
-                self.instructions
-                    .push(Instruction::LoadType { destination, class });
+                self.instructions.push(Instruction::BuildType {
+                    destination,
+                    expression: expression.clone(),
+                });
                 Ok(destination)
             }
             Expression::ReifiedType(
@@ -626,12 +743,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
                             .push(Instruction::RaiseTypeContract { destination });
                         return Ok(destination);
                     }
-                    self.instructions
-                        .push(Instruction::LoadClass { destination, class });
-                } else if let Some(contract) = self.contract_index(name) {
-                    self.instructions.push(Instruction::LoadContract {
+                    self.instructions.push(Instruction::LoadClosedClass {
                         destination,
-                        contract,
+                        class,
+                        arguments: arguments.clone(),
+                    });
+                } else if self.contract_index(name).is_some() {
+                    self.instructions.push(Instruction::BuildType {
+                        destination,
+                        expression: iris_syntax::TypeExpression::Generic {
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        },
                     });
                 } else {
                     self.instructions.push(Instruction::LoadGlobal {
@@ -671,6 +794,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     self.instructions.push(Instruction::SetClassVar {
                         destination,
                         receiver,
+                        owner: self.class_variable_owner(name),
                         name: name.clone(),
                         value,
                     });
@@ -780,7 +904,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // IMMUTABLE, so only a `mut` binding may be written. A
                 // DEFERRED binding is the exception: it is declared without a
                 // value and its first write is what supplies one.
-                if !binding.shared && binding.assigned.is_none() {
+                if !binding.writable && binding.assigned.is_none() {
                     let destination = self.allocate()?;
                     self.instructions
                         .push(Instruction::RaiseImmutableBinding { destination });
@@ -824,8 +948,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let Some(binding) = self.lookup_binding(name).cloned() else {
                     return Err(CompileError::new("name assignment unbound"));
                 };
-                if binding.assigned.is_some() {
-                    return Err(CompileError::new("assignment"));
+                if !binding.writable || binding.assigned.is_some() {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseImmutableBinding { destination });
+                    return Ok(destination);
                 }
                 // Every `mut` binding is a shared CELL, so the target is read
                 // and written through the cell rather than as a register.
@@ -912,8 +1039,11 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 let Some(binding) = self.lookup_binding(name).cloned() else {
                     return Err(CompileError::new("name assignment unbound"));
                 };
-                if binding.assigned.is_some() {
-                    return Err(CompileError::new("assignment"));
+                if !binding.writable || binding.assigned.is_some() {
+                    let destination = self.allocate()?;
+                    self.instructions
+                        .push(Instruction::RaiseImmutableBinding { destination });
+                    return Ok(destination);
                 }
                 let right = self.expression(right)?;
                 let current = self.read_binding(&binding)?;
@@ -985,8 +1115,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
         );
         for capture in &captures {
             let register = lowering.allocate()?;
-            lowering.names.push(if capture.shared {
+            lowering.names.push(if capture.shared && capture.writable {
                 super::lowering::Binding::shared(capture.name.clone(), register)
+            } else if capture.shared {
+                super::lowering::Binding::captured_value(capture.name.clone(), register)
             } else {
                 super::lowering::Binding::value(capture.name.clone(), register)
             });

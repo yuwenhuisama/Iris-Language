@@ -45,6 +45,6 @@ pub use stable_hash::{
 pub use trace::{Reachable, reachable_from};
 pub use value::{
     ArrayBody, ArrayRef, ByteArrayBody, ByteArrayRef, ComposedType, HashBody, HashRef,
-    IntegerValue, LibraryValue, MatchValue, MutableStringRef, RangeValue, RegexValue, TypeAtom,
-    Value,
+    IntegerValue, LibraryValue, MatchValue, MutableStringRef, NominalType, RangeValue, RegexValue,
+    TypeAtom, Value,
 };

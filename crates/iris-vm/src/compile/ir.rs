@@ -72,6 +72,11 @@ pub enum Instruction {
         destination: Register,
         class: usize,
     },
+    LoadClosedClass {
+        destination: Register,
+        class: usize,
+        arguments: Vec<iris_syntax::TypeExpression>,
+    },
     LoadType {
         destination: Register,
         class: usize,
@@ -79,6 +84,12 @@ pub enum Instruction {
     LoadContract {
         destination: Register,
         contract: usize,
+    },
+    /// Binds a Module Method as a first-class receiverless callable value.
+    BindModuleMethod {
+        destination: Register,
+        module: String,
+        selector: String,
     },
     LoadBuiltinType {
         destination: Register,
@@ -442,6 +453,9 @@ pub enum Instruction {
     RaiseTypeContract {
         destination: Register,
     },
+    RaiseType {
+        destination: Register,
+    },
     StoreGlobal {
         destination: Register,
         name: String,
@@ -686,6 +700,7 @@ pub enum Instruction {
     New {
         destination: Register,
         class: usize,
+        type_arguments: Vec<iris_syntax::TypeExpression>,
         first: Register,
         count: u16,
     },
@@ -780,11 +795,13 @@ pub enum Instruction {
     GetClassVar {
         destination: Register,
         receiver: Register,
+        owner: Option<usize>,
         name: String,
     },
     SetClassVar {
         destination: Register,
         receiver: Register,
+        owner: Option<usize>,
         name: String,
         value: Register,
     },
@@ -819,8 +836,10 @@ impl Instruction {
             | Self::LoadIterationDone { destination }
             | Self::BuildIterationYield { destination, .. }
             | Self::LoadClass { destination, .. }
+            | Self::LoadClosedClass { destination, .. }
             | Self::LoadType { destination, .. }
             | Self::LoadContract { destination, .. }
+            | Self::BindModuleMethod { destination, .. }
             | Self::LoadBuiltinType { destination, .. }
             | Self::BuildType { destination, .. }
             | Self::LoadBuiltinClass { destination, .. }
@@ -902,6 +921,7 @@ impl Instruction {
             Self::RaiseParseDiagnostic { destination }
             | Self::RaiseLoopTransfer { destination } => Some(*destination),
             Self::RaiseTypeContract { destination }
+            | Self::RaiseType { destination }
             | Self::RaiseImmutableBinding { destination }
             | Self::RaiseVisibilityDenied { destination, .. }
             | Self::RaiseArgumentError { destination } => Some(*destination),
@@ -1048,7 +1068,7 @@ pub(crate) struct Contract {
 pub(crate) struct ContractRequirement {
     pub(crate) selector: String,
     pub(crate) arity: usize,
-    pub(crate) return_type: Option<String>,
+    pub(crate) return_type: Option<iris_syntax::TypeExpression>,
     /// The written Type of each parameter, by position.
     ///
     /// `D-173` puts the contract-visible SIGNATURE in the static spine, so a
@@ -1091,6 +1111,7 @@ pub(crate) struct Class {
     pub(crate) generic: bool,
     pub(crate) superclass: Option<usize>,
     pub(crate) methods: Vec<(String, usize)>,
+    pub(crate) decorators: Vec<(String, Vec<String>)>,
     pub(crate) class_methods: Vec<(String, usize)>,
     pub(crate) reopens: Vec<ClassReopen>,
     pub(crate) contracts: Vec<usize>,

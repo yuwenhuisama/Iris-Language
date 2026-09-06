@@ -95,6 +95,8 @@ pub enum BoundReceiver {
     Class(ClassId),
     /// A runtime object receiver.
     Object(ObjectId),
+    /// A Module receiver whose callable frame is receiverless.
+    Module(ModuleId),
 }
 
 /// Identity-bearing pairing of a receiver and one exact Method.

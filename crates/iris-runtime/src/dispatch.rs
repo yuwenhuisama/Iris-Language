@@ -21,6 +21,7 @@ pub enum DispatchError {
     /// A qualified Contract slot is unavailable and never falls back to ordinary lookup.
     ContractDispatch {
         contract: ModuleId,
+        contract_name: Option<String>,
         selector: Selector,
     },
     /// Binding cannot create a BoundMethod for an absent ordinary selector.
@@ -551,6 +552,24 @@ impl crate::ClassRegistry {
         ))
     }
 
+    /// Pairs a retained Module Method with its lexical Module receiver.
+    pub fn bind_retained_module(
+        &mut self,
+        module: ModuleId,
+        method: Method,
+    ) -> Result<BoundMethod, DispatchError> {
+        if method.owner() != MethodOwner::Module(module) {
+            return Err(DispatchError::MethodBinding {
+                selector: method.selector(),
+            });
+        }
+        Ok(BoundMethod::new(
+            self.next_bound_method()?,
+            BoundReceiver::Module(module),
+            method,
+        ))
+    }
+
     /// Binds a Method for one receiver under an explicit dispatch context.
     ///
     /// `IRIS-V1-CONTROL-C012` makes a top-level helper PRIVATE by default, so
@@ -637,7 +656,11 @@ impl crate::ClassRegistry {
         selector: Selector,
     ) -> Result<DispatchOutcome, DispatchError> {
         self.active(class).map_err(DispatchError::Class)?;
-        Err(DispatchError::ContractDispatch { contract, selector })
+        Err(DispatchError::ContractDispatch {
+            contract,
+            contract_name: None,
+            selector,
+        })
     }
 
     /// Resolves the same selector after a Method's lexical owner in current receiver MRO.

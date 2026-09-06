@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use iris_runtime::{
     ArrayRef, Capability, ClassError, ClassId, ClassRevision, ComparisonSlot, CompositionEdge,
     DispatchContext, DispatchError, DispatchOutcome, HashRef, Kernel, MetaCapabilities, Method,
-    MethodBody, MethodOwner, ModuleId, Runtime, Selector, StaticSpine, Truthiness, TruthinessError,
-    TruthinessMethod, Value,
+    MethodBody, MethodOwner, ModuleId, NominalType, Runtime, Selector, StaticSpine, Truthiness,
+    TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
@@ -579,7 +579,7 @@ pub(super) struct SourceEvaluator {
     /// constructions already ran so a repeat request does not rerun it.
     pending_class_properties: HashMap<ClassId, Vec<(String, Expression)>>,
     /// The closed constructions whose per-closed initializers already ran.
-    materialized_constructions: std::collections::HashSet<(ClassId, Vec<ClassId>)>,
+    materialized_constructions: std::collections::HashSet<(ClassId, Vec<NominalType>)>,
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
@@ -718,6 +718,12 @@ pub(super) struct SourceEvaluator {
     /// group and requires all its candidates to publish together or all roll
     /// back, so the group's membership must be known at the outermost commit.
     open_group: Vec<ClassId>,
+    /// Whether the current same-thread open group can still publish.
+    ///
+    /// An inner failure aborts the whole group even when Iris code catches it;
+    /// only the outermost open clears this state after committing or rolling
+    /// back every staged candidate.
+    open_group_state: Option<OpenGroupState>,
     /// The Classes declared with type parameters.
     ///
     /// `IRIS-V1-META-C033` forbids programmatic open from targeting a Contract
@@ -754,6 +760,12 @@ struct Binding {
     /// distinguishable from one holding nil: reading it is
     /// `DefiniteAssignmentError` rather than a nil read.
     deferred: bool,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum OpenGroupState {
+    Active,
+    Aborted,
 }
 
 impl Binding {
@@ -900,6 +912,7 @@ impl SourceEvaluator {
             async_depth: 0,
             closure_depth: 0,
             open_group: Vec::new(),
+            open_group_state: None,
             generic_definitions: Vec::new(),
             active_exception: None,
             active_context: None,
@@ -923,8 +936,29 @@ impl SourceEvaluator {
         // is a built-in VALUE kind rather than a requirement-bearing Contract,
         // so it is registered with no requirements of its own.
         for (name, requirements) in [
-            ("Iterable", vec![("iterator", "Iterator")]),
-            ("Iterator", vec![("next", "Iteration"), ("close", "Nil")]),
+            (
+                "Iterable",
+                vec![(
+                    "iterator",
+                    iris_syntax::TypeExpression::Generic {
+                        name: "Iterator".to_owned(),
+                        arguments: vec![iris_syntax::TypeExpression::Name("T".to_owned())],
+                    },
+                )],
+            ),
+            (
+                "Iterator",
+                vec![
+                    (
+                        "next",
+                        iris_syntax::TypeExpression::Generic {
+                            name: "Iteration".to_owned(),
+                            arguments: vec![iris_syntax::TypeExpression::Name("T".to_owned())],
+                        },
+                    ),
+                    ("close", iris_syntax::TypeExpression::Name("Nil".to_owned())),
+                ],
+            ),
             ("Iteration", Vec::new()),
         ] {
             let contract = iris_runtime::ContractId::new(self.next_contract);
@@ -935,7 +969,7 @@ impl SourceEvaluator {
             // Contract reachable by reflection but not as an expression.
             self.names.insert(
                 name.to_owned(),
-                Binding::immutable(Value::Contract(contract)),
+                Binding::immutable(Value::Contract(contract, Vec::new())),
             );
             self.contract_parents.insert(contract, Vec::new());
             self.contract_requirements.insert(
@@ -946,10 +980,8 @@ impl SourceEvaluator {
                     .collect(),
             );
             for (selector, returns) in requirements {
-                self.contract_requirement_returns.insert(
-                    (contract, selector.to_owned()),
-                    iris_syntax::TypeExpression::Name((*returns).to_owned()),
-                );
+                self.contract_requirement_returns
+                    .insert((contract, selector.to_owned()), returns);
             }
         }
     }
@@ -1368,20 +1400,15 @@ impl SourceEvaluator {
                     declaration.constraints.clone(),
                 ),
             );
-            let existing: Vec<Vec<ClassId>> = self
+            let existing: Vec<Vec<NominalType>> = self
                 .materialized_constructions
                 .iter()
                 .filter(|(target, _)| *target == class)
                 .map(|(_, arguments)| arguments.clone())
                 .collect();
             for arguments in existing {
-                let written: Vec<iris_syntax::TypeExpression> = arguments
-                    .iter()
-                    .map(|argument| {
-                        iris_syntax::TypeExpression::Name(self.class_source_name(*argument))
-                    })
-                    .collect();
-                if let Err(error) = self.check_generic_bounds(&declaration.name, &written) {
+                if let Err(error) = self.check_nominal_generic_bounds(&declaration.name, &arguments)
+                {
                     // The whole open fails, so the definition's bounds revert
                     // and every closed revision is left exactly as published.
                     match previous {
@@ -1972,14 +1999,19 @@ impl SourceEvaluator {
 
     /// The normalized Type of a generic annotation naming a Contract.
     ///
-    /// `IRIS-V1-TYPES-C061` interns one Contract per generic definition, so
-    /// `Iterator<Integer>` is the same Contract as bare `Iterator`.
-    fn generic_contract_type(&self, name: &str) -> Option<iris_runtime::ComposedType> {
-        self.contract_names.get(name).copied().map(|contract| {
-            iris_runtime::ComposedType::Intersection(vec![iris_runtime::TypeAtom::Contract(
-                contract,
-            )])
-        })
+    /// Closed Contract Types preserve normalized ordered arguments.
+    fn generic_contract_type(
+        &mut self,
+        name: &str,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<Option<iris_runtime::ComposedType>, EvaluationError> {
+        let Some(contract) = self.contract_names.get(name).copied() else {
+            return Ok(None);
+        };
+        let normalized = self.nominal_arguments(arguments)?;
+        Ok(Some(iris_runtime::ComposedType::Intersection(vec![
+            iris_runtime::TypeAtom::Contract(contract, normalized),
+        ])))
     }
 
     /// One Contract requirement's reflected metadata.
@@ -1990,6 +2022,7 @@ impl SourceEvaluator {
     fn contract_requirement(
         &mut self,
         contract: iris_runtime::ContractId,
+        arguments: &[NominalType],
         name: &str,
     ) -> Result<Value, EvaluationError> {
         let declared = self
@@ -2004,7 +2037,7 @@ impl SourceEvaluator {
             .get(&(contract, name.to_owned()))
             .cloned();
         let return_type = match annotation {
-            Some(annotation) => self.reify_type(&annotation)?,
+            Some(annotation) => self.reify_requirement_type(&annotation, arguments)?,
             // A requirement written with no return annotation states no Type,
             // so there is none to report.
             None => Value::Nil,
@@ -2013,6 +2046,46 @@ impl SourceEvaluator {
             Value::Symbol("return_type".to_owned()),
             return_type,
         )])))
+    }
+
+    fn reify_requirement_type(
+        &mut self,
+        annotation: &iris_syntax::TypeExpression,
+        arguments: &[NominalType],
+    ) -> Result<Value, EvaluationError> {
+        let iris_syntax::TypeExpression::Generic {
+            name,
+            arguments: parameters,
+        } = annotation
+        else {
+            return self.reify_type(annotation);
+        };
+        if !matches!(parameters.as_slice(), [iris_syntax::TypeExpression::Name(parameter)] if parameter == "T")
+        {
+            return self.reify_type(annotation);
+        }
+        let argument = arguments
+            .first()
+            .cloned()
+            .ok_or(EvaluationError::UnsupportedConstruct)?;
+        if name == "Iteration" {
+            return Ok(Value::ComposedType(
+                iris_runtime::ComposedType::Intersection(vec![iris_runtime::TypeAtom::Iteration(
+                    vec![argument],
+                )]),
+            ));
+        }
+        let contract = self
+            .contract_names
+            .get(name)
+            .copied()
+            .ok_or(EvaluationError::NameError)?;
+        Ok(Value::ComposedType(
+            iris_runtime::ComposedType::Intersection(vec![iris_runtime::TypeAtom::Contract(
+                contract,
+                vec![argument],
+            )]),
+        ))
     }
 
     /// Which failure an unresolved bare name reports.
@@ -2346,16 +2419,21 @@ impl SourceEvaluator {
             return Err(EvaluationError::ClosedGenericOpenForbidden);
         }
         let block = *block;
-        self.runtime
-            .registry_mut()
-            .begin_transaction(class)
-            .map_err(EvaluationError::Class)?;
         // C038 makes a same-thread NESTED open join the outermost transaction
         // group: only the outermost commits, and a reopen of a target already
         // in the group reuses that target's candidate. An inner open that
         // committed on its own left its target published even when the outer
         // transaction later failed.
         let outermost = self.open_target.is_none();
+        if let Err(error) = self.runtime.registry_mut().begin_transaction(class) {
+            if !outermost {
+                self.open_group_state = Some(OpenGroupState::Aborted);
+            }
+            return Err(EvaluationError::Class(error));
+        }
+        if outermost {
+            self.open_group_state = Some(OpenGroupState::Active);
+        }
         self.open_group.push(class);
         let previous = self.open_target.replace(class);
         let outcome = self
@@ -2364,12 +2442,20 @@ impl SourceEvaluator {
             // same Contract check the declarative form runs applies here.
             .and_then(|value| self.validate_candidate_contracts(class).map(|()| value));
         self.open_target = previous;
+        if outcome.is_err() {
+            self.open_group_state = Some(OpenGroupState::Aborted);
+        }
         if !outermost {
             // An inner open NEVER commits independently, so its result travels
             // to the outermost transaction unchanged.
             return outcome;
         }
         let group = std::mem::take(&mut self.open_group);
+        let group_state = self.open_group_state.take();
+        if group_state == Some(OpenGroupState::Aborted) {
+            self.runtime.registry_mut().roll_back_group();
+            return outcome;
+        }
         match outcome {
             Ok(value) => {
                 // C038 validates every candidate in the group before any of
@@ -2471,7 +2557,7 @@ impl SourceEvaluator {
                     .map_or(Value::Nil, Value::Symbol)
             })
             .collect();
-        Ok(Value::Array(names))
+        Ok(Value::ReadonlyArray(names))
     }
 
     /// Stages a stored property on the Class through a meta message.
@@ -2599,16 +2685,7 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[iris_syntax::TypeExpression],
     ) -> Result<(), EvaluationError> {
-        let mut normalized = Vec::new();
-        for argument in arguments {
-            let iris_syntax::TypeExpression::Name(argument) = argument else {
-                return Ok(());
-            };
-            normalized.push(
-                self.class_name(argument)?
-                    .ok_or(EvaluationError::NameError)?,
-            );
-        }
+        let normalized = self.nominal_arguments(arguments)?;
         // D-207 revalidates every already-interned closed construction when the
         // definition is opened, so interning is recorded for EVERY closed
         // construction rather than only for one carrying per-closed
@@ -2623,10 +2700,7 @@ impl SourceEvaluator {
         if !first {
             return Ok(());
         }
-        let mut suffix = String::new();
-        for argument in &normalized {
-            suffix.push_str(&format!("<{}>", argument.raw()));
-        }
+        let suffix = Self::type_expression_selector(arguments)?;
         let mut written = Vec::new();
         for (name, initializer) in pending {
             let outcome = self.expression(&initializer, &HashMap::new(), Some(Value::Class(class)));
@@ -3118,7 +3192,7 @@ impl SourceEvaluator {
         self.contract_requirements.insert(contract, requirements);
         self.names.insert(
             declaration.name.clone(),
-            Binding::immutable(Value::Contract(contract)),
+            Binding::immutable(Value::Contract(contract, Vec::new())),
         );
         Ok(())
     }
@@ -5944,6 +6018,9 @@ impl SourceEvaluator {
         value: &Value,
         annotation: &iris_syntax::TypeExpression,
     ) -> Result<(), EvaluationError> {
+        if type_contains_placeholder(annotation) {
+            return Err(EvaluationError::NameError);
+        }
         if self.annotation_admits(value, annotation)? {
             return Ok(());
         }
@@ -6021,12 +6098,68 @@ impl SourceEvaluator {
                     _ => true,
                 })
             }
-            // `typeof`, other generic, and callable annotations are static
-            // concerns this evaluator does not decide, so they never raise here.
+            iris_syntax::TypeExpression::Generic { arguments, .. }
+                if arguments.iter().any(type_contains_placeholder) =>
+            {
+                Err(EvaluationError::NameError)
+            }
+            iris_syntax::TypeExpression::Generic { name, arguments } => {
+                if arguments.iter().any(type_contains_placeholder) {
+                    return Err(EvaluationError::NameError);
+                }
+                let Some(class) = self.class_name(name)? else {
+                    return Ok(true);
+                };
+                let normalized = self.normalized_type_arguments(arguments)?;
+                self.instance_admits(value, class, &normalized)
+            }
             iris_syntax::TypeExpression::Typeof(_)
-            | iris_syntax::TypeExpression::Generic { .. }
             | iris_syntax::TypeExpression::Function { .. } => Ok(true),
         }
+    }
+
+    fn normalized_type_arguments(
+        &mut self,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<Vec<NominalType>, EvaluationError> {
+        if arguments.iter().any(type_contains_placeholder) {
+            return Err(EvaluationError::NameError);
+        }
+        arguments
+            .iter()
+            .map(|argument| self.nominal_type(argument))
+            .collect()
+    }
+
+    fn instance_admits(
+        &self,
+        value: &Value,
+        target: ClassId,
+        target_arguments: &[NominalType],
+    ) -> Result<bool, EvaluationError> {
+        let Value::Object(object) = value else {
+            return Ok(false);
+        };
+        let class = self
+            .runtime
+            .class_of(*object)
+            .map_err(EvaluationError::Construction)?;
+        if class == target && !target_arguments.is_empty() {
+            return self
+                .runtime
+                .type_arguments_of(*object)
+                .map(|arguments| arguments == target_arguments)
+                .map_err(EvaluationError::Construction);
+        }
+        self.runtime
+            .registry()
+            .active(class)
+            .map(|revision| {
+                revision.mro().iter().any(
+                    |entry| matches!(entry, iris_runtime::MroEntry::Class(held) if *held == target),
+                )
+            })
+            .map_err(EvaluationError::Class)
     }
 
     fn catch_matches(&self, value: &Value, filter: &iris_syntax::TypeExpression) -> bool {
@@ -6109,6 +6242,24 @@ impl SourceEvaluator {
         locals: &HashMap<String, Value>,
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
+        if selector == "new"
+            && let Expression::ClosedGeneric {
+                name,
+                arguments: type_arguments,
+            } = target
+        {
+            self.check_generic_bounds(name, type_arguments)?;
+            let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
+            self.materialize_closed(class, type_arguments)?;
+            let normalized = self.normalized_type_arguments(type_arguments)?;
+            let arguments = arguments
+                .iter()
+                .map(|argument| self.expression(argument, locals, receiver.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+            return self
+                .construct_closed(class, normalized, &arguments)
+                .map(Value::Object);
+        }
         let target = self.expression(target, locals, receiver.clone())?;
         let arguments = arguments
             .iter()
@@ -6511,7 +6662,8 @@ impl SourceEvaluator {
                 // outright, which is the form a Contract requirement's Type is
                 // written in.
                 if let Some(contract) = self.contract_names.get(name).copied() {
-                    return Ok(Value::Contract(contract));
+                    let normalized = self.nominal_arguments(arguments)?;
+                    return Ok(Value::Contract(contract, normalized));
                 }
                 // C067: materializing a closed generic validates every
                 // normalized constraint BEFORE interning or publishing, and a
@@ -6522,7 +6674,10 @@ impl SourceEvaluator {
                 // the closed Class is FIRST materialized, so the construction
                 // itself is what triggers it.
                 self.materialize_closed(class, arguments)?;
-                Ok(Value::Class(class))
+                Ok(Value::ClosedClass(
+                    class,
+                    self.nominal_arguments(arguments)?,
+                ))
             }
             Expression::KeywordArgument { name, value } => {
                 let value = self.expression(value, locals, receiver)?;
@@ -6777,17 +6932,7 @@ impl SourceEvaluator {
                 // at all. V242 observes exactly that.
                 self.check_generic_bounds(name, arguments)?;
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
-                let mut normalized = Vec::new();
-                for argument in arguments {
-                    let iris_syntax::TypeExpression::Name(argument) = argument else {
-                        return Err(EvaluationError::UnsupportedConstruct);
-                    };
-                    normalized.push(
-                        self.class_name(argument)?
-                            .ok_or(EvaluationError::NameError)?,
-                    );
-                }
-                Ok(Value::Type(class, normalized))
+                Ok(Value::Type(class, self.nominal_arguments(arguments)?))
             }
             // C064 gives ordinary generic class-level storage INDEPENDENT
             // storage per closed construction. v1 interns one Class per generic
@@ -6799,7 +6944,7 @@ impl SourceEvaluator {
             } if matches!(target.as_ref(), Expression::ClosedGeneric { .. }) => {
                 let qualified = self.closed_construction_slot(target, selector)?;
                 let target = self.expression(target, locals, receiver)?;
-                let Value::Class(class) = target else {
+                let (Value::Class(class) | Value::ClosedClass(class, _)) = target else {
                     return self.member_read(target, selector);
                 };
                 // C064 puts a `shared class property` on the UNAPPLIED generic
@@ -6856,11 +7001,36 @@ impl SourceEvaluator {
                 // INSIDE the bound. It yields the same value, so it is resolved
                 // before the right side is evaluated as an ordinary name.
                 if matches!(operator, BinaryOperator::As)
-                    && matches!(right.as_ref(), Expression::Name(name) if name == "Dynamic")
+                    && (matches!(right.as_ref(), Expression::Name(name) if name == "Dynamic")
+                        || matches!(right.as_ref(), Expression::ReifiedType(
+                            iris_syntax::TypeExpression::Generic { name, .. }
+                        ) if name == "Dynamic"))
                 {
                     return Ok(left);
                 }
-                let right = self.expression(right, locals, receiver)?;
+                let right = match right.as_ref() {
+                    Expression::ClosedGeneric { name, arguments }
+                        if matches!(
+                            operator,
+                            BinaryOperator::Is | BinaryOperator::As | BinaryOperator::AsOptional
+                        ) =>
+                    {
+                        self.reify_type(&iris_syntax::TypeExpression::Generic {
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        })?
+                    }
+                    Expression::ReifiedType(
+                        annotation @ iris_syntax::TypeExpression::Generic { .. },
+                    ) if matches!(
+                        operator,
+                        BinaryOperator::Is | BinaryOperator::As | BinaryOperator::AsOptional
+                    ) =>
+                    {
+                        self.reify_type(annotation)?
+                    }
+                    expression => self.expression(expression, locals, receiver)?,
+                };
                 let selector = match operator {
                     BinaryOperator::Power => "**",
                     BinaryOperator::Multiply => "*",
@@ -7152,7 +7322,7 @@ impl SourceEvaluator {
                 if matches!(target.as_ref(), Expression::ClosedGeneric { .. }) {
                     let qualified = self.closed_construction_slot(target, selector)?;
                     let class_target = self.expression(target, locals, receiver.clone())?;
-                    if let Value::Class(class) = class_target {
+                    if let Value::Class(class) | Value::ClosedClass(class, _) = class_target {
                         let value = self.expression(right, locals, receiver)?;
                         let slot = self.selector(&qualified);
                         return self
@@ -7451,6 +7621,9 @@ impl SourceEvaluator {
                 match bound.receiver() {
                     iris_runtime::BoundReceiver::Class(class) => Value::Class(class),
                     iris_runtime::BoundReceiver::Object(object) => Value::Object(object),
+                    iris_runtime::BoundReceiver::Module(_) => {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    }
                 },
                 arguments,
             ),
@@ -7469,6 +7642,16 @@ impl SourceEvaluator {
                 .runtime
                 .class_of(object)
                 .map_err(EvaluationError::Construction)?,
+            iris_runtime::BoundReceiver::Module(module) => {
+                return (bound.method().owner() == MethodOwner::Module(module))
+                    .then_some(bound.method())
+                    .ok_or(EvaluationError::Construction(
+                        iris_runtime::DispatchError::MethodBinding {
+                            selector: bound.method().selector(),
+                        }
+                        .into(),
+                    ));
+            }
         };
         self.runtime
             .registry()
@@ -7483,27 +7666,77 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
+        self.construct_closed(class, Vec::new(), arguments)
+    }
+
+    fn construct_closed(
+        &mut self,
+        class: ClassId,
+        type_arguments: Vec<NominalType>,
+        arguments: &[Value],
+    ) -> Result<iris_runtime::ObjectId, EvaluationError> {
         let mut runtime = std::mem::take(&mut self.runtime);
         let mut invocation_error = None;
-        let result = runtime.construct(class, arguments, |runtime, method, receiver, arguments| {
-            let previous = std::mem::replace(&mut self.runtime, std::mem::take(runtime));
-            let result = match self.invoke_method(method, Value::Object(receiver), arguments) {
-                Ok(value) => Ok(value),
-                Err(EvaluationError::Raised(value)) => {
-                    Err(iris_runtime::ExecutionError::Raised(value))
-                }
-                Err(error) => {
-                    invocation_error = Some(error);
-                    Err(iris_runtime::ExecutionError::Raised(Value::Nil))
-                }
-            };
-            *runtime = std::mem::replace(&mut self.runtime, previous);
-            result
-        });
+        let result = runtime.construct_closed(
+            class,
+            type_arguments,
+            arguments,
+            |runtime, method, receiver, arguments| {
+                let previous = std::mem::replace(&mut self.runtime, std::mem::take(runtime));
+                let result = match self.invoke_method(method, Value::Object(receiver), arguments) {
+                    Ok(value) => Ok(value),
+                    Err(EvaluationError::Raised(value)) => {
+                        Err(iris_runtime::ExecutionError::Raised(value))
+                    }
+                    Err(error) => {
+                        invocation_error = Some(error);
+                        Err(iris_runtime::ExecutionError::Raised(Value::Nil))
+                    }
+                };
+                *runtime = std::mem::replace(&mut self.runtime, previous);
+                result
+            },
+        );
         self.runtime = runtime;
         match invocation_error {
             Some(error) => Err(error),
             None => result.map_err(construction_error),
+        }
+    }
+
+    fn nominal_arguments(
+        &mut self,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<Vec<NominalType>, EvaluationError> {
+        arguments
+            .iter()
+            .map(|argument| self.nominal_type(argument))
+            .collect()
+    }
+
+    fn nominal_type(
+        &mut self,
+        expression: &iris_syntax::TypeExpression,
+    ) -> Result<NominalType, EvaluationError> {
+        match expression {
+            iris_syntax::TypeExpression::Name(name) => self
+                .class_name(name)?
+                .map(|class| NominalType::new(class, Vec::new()))
+                .ok_or(EvaluationError::NameError),
+            iris_syntax::TypeExpression::Generic { name, arguments } => self
+                .class_name(name)?
+                .map(|class| {
+                    self.nominal_arguments(arguments)
+                        .map(|arguments| NominalType::new(class, arguments))
+                })
+                .transpose()?
+                .ok_or(EvaluationError::NameError),
+            iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Intersection(_)
+            | iris_syntax::TypeExpression::Union(_)
+            | iris_syntax::TypeExpression::Function { .. } => {
+                Err(EvaluationError::UnsupportedConstruct)
+            }
         }
     }
 
@@ -7588,6 +7821,29 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Value::ClosedClass(class, type_arguments) = receiver {
+            match selector {
+                "same?" => {
+                    let [other] = arguments else {
+                        return Err(EvaluationError::IdentityError);
+                    };
+                    return match other {
+                        Value::ClosedClass(other, other_arguments) => Ok(Value::Bool(
+                            class == *other && type_arguments == *other_arguments,
+                        )),
+                        Value::Class(_) => Ok(Value::Bool(false)),
+                        _ => Err(EvaluationError::IdentityError),
+                    };
+                }
+                "new" => {
+                    return self
+                        .construct_closed(class, type_arguments, arguments)
+                        .map(Value::Object);
+                }
+                "open" => return Err(EvaluationError::ClosedGenericOpenForbidden),
+                _ => return self.send(Value::Class(class), selector, arguments),
+            }
+        }
         if let Some(result) = self.authored_text_send(&receiver, selector, arguments)? {
             return Ok(result);
         }
@@ -7648,9 +7904,12 @@ impl SourceEvaluator {
                 );
                 Ok(Value::Bool(responds))
             }
-            Value::Class(class) if selector == "new" => {
-                self.construct(class, arguments).map(Value::Object)
-            }
+            Value::Class(class) if selector == "new" => self
+                .construct_closed(class, Vec::new(), arguments)
+                .map(Value::Object),
+            Value::ClosedClass(class, type_arguments) if selector == "new" => self
+                .construct_closed(class, type_arguments, arguments)
+                .map(Value::Object),
             Value::Class(class) if selector == "alias_method" => {
                 let [Value::Symbol(alias), Value::Symbol(original)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -7740,7 +7999,7 @@ impl SourceEvaluator {
                 Ok(Value::Symbol(actual))
             }
             Value::Class(class) if selector == "remove_contract" => {
-                let [Value::Contract(contract)] = arguments else {
+                let [Value::Contract(contract, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 let declared = self
@@ -7889,7 +8148,7 @@ impl SourceEvaluator {
                     .iter()
                     .map(|decorator| decorator.identity().to_owned())
                     .collect();
-                Ok(Value::Array(
+                Ok(Value::ReadonlyArray(
                     identities.into_iter().map(Value::Symbol).collect(),
                 ))
             }
@@ -7908,7 +8167,7 @@ impl SourceEvaluator {
                     .get(&class)
                     .into_iter()
                     .flatten()
-                    .map(|contract| Value::Contract(*contract))
+                    .map(|contract| Value::Contract(*contract, Vec::new()))
                     .collect(),
             )),
             // C097 lists `active_revision` as a Revision view whose members
@@ -7929,7 +8188,7 @@ impl SourceEvaluator {
             // `respond_to_contract?`, and forbids merging the ordinary and
             // qualified namespaces. Its receiver is a Contract VIEW, so the
             // Contract answers `view(Class)` to produce one. V425 observes both.
-            Value::Contract(contract) if selector == "view" => {
+            Value::Contract(contract, _) if selector == "view" => {
                 let [Value::Class(class)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
@@ -7961,12 +8220,12 @@ impl SourceEvaluator {
             // one: the dispatch function is recursive, and each extra arm
             // widens its frame enough to overflow the stack on a deliberately
             // deep program. The work itself is done out of line.
-            Value::Contract(contract) if selector == "parents" => Ok(Value::Array(
+            Value::Contract(contract, _) if selector == "parents" => Ok(Value::Array(
                 self.contract_parents
                     .get(&contract)
                     .into_iter()
                     .flatten()
-                    .map(|parent| Value::Contract(*parent))
+                    .map(|parent| Value::Contract(*parent, Vec::new()))
                     .collect(),
             )),
             // C081 fixes the capability vocabulary and V360 observes a target's
@@ -8074,6 +8333,9 @@ impl SourceEvaluator {
             // A bare Class name carries no generic arguments, so its Type is
             // the unapplied definition's.
             Value::Class(class) if selector == "type" => Ok(Value::Type(class, Vec::new())),
+            Value::ClosedClass(class, arguments) if selector == "type" => {
+                Ok(Value::Type(class, arguments))
+            }
             // C032: an ordinary `view.member()` is an UNQUALIFIED message
             // FORWARDED to the receiver. Only `..member()` selects the
             // Contract-qualified slot, so this must not report a missing
@@ -8137,20 +8399,26 @@ impl SourceEvaluator {
             // the Contract path uses supplies exactly those three facts.
             Value::Type(class, _) if selector == "hash" => self.type_identity_hash(class),
             Value::Type(..) if selector == "package" => Ok(Value::Symbol(self.package.clone())),
-            Value::Type(left, _) if selector == "subtype?" => {
-                let [Value::Type(right, _)] = arguments else {
+            Value::Type(left, left_arguments) if selector == "subtype?" => {
+                let [Value::Type(right, right_arguments)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                if left == *right && left_arguments != *right_arguments {
+                    return Ok(Value::Bool(false));
+                }
                 self.subtype(left, *right)
             }
             // `IRIS-V1-TYPES-C079` gives `assignable?` the same rules as the
             // compiler's guards, and assignment runs the subtype test in the
             // opposite direction: a target accepts a value whose Type is a
             // subtype of it.
-            Value::Type(target, _) if selector == "assignable?" => {
-                let [Value::Type(source, _)] = arguments else {
+            Value::Type(target, target_arguments) if selector == "assignable?" => {
+                let [Value::Type(source, source_arguments)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                if target == *source && target_arguments != *source_arguments {
+                    return Ok(Value::Bool(false));
+                }
                 self.subtype(*source, target)
             }
             // `D-206` interns a closed generic identity by definition AND
@@ -8160,7 +8428,9 @@ impl SourceEvaluator {
                 Ok(Value::Array(ArrayRef::new(
                     arguments
                         .iter()
-                        .map(|argument| Value::Type(*argument, Vec::new()))
+                        .map(|argument| {
+                            Value::Type(argument.class(), argument.arguments().to_vec())
+                        })
                         .collect(),
                 )))
             }
@@ -8333,38 +8603,83 @@ impl SourceEvaluator {
         let Expression::ClosedGeneric { arguments, .. } = target else {
             return Ok(selector.to_owned());
         };
-        let mut qualified = String::from(selector);
-        for argument in arguments {
-            let iris_syntax::TypeExpression::Name(argument) = argument else {
-                return Err(EvaluationError::UnsupportedConstruct);
-            };
-            let class = self
-                .class_name(argument)?
-                .ok_or(EvaluationError::NameError)?;
-            qualified.push_str(&format!("<{}>", class.raw()));
+        Ok(format!(
+            "{selector}{}",
+            Self::type_expression_selector(arguments)?
+        ))
+    }
+
+    fn type_expression_selector(
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> Result<String, EvaluationError> {
+        fn render(
+            expression: &iris_syntax::TypeExpression,
+            output: &mut String,
+        ) -> Result<(), EvaluationError> {
+            match expression {
+                iris_syntax::TypeExpression::Name(name) => output.push_str(name),
+                iris_syntax::TypeExpression::Generic { name, arguments } => {
+                    output.push_str(name);
+                    output.push('<');
+                    for (position, argument) in arguments.iter().enumerate() {
+                        if position > 0 {
+                            output.push(',');
+                        }
+                        render(argument, output)?;
+                    }
+                    output.push('>');
+                }
+                iris_syntax::TypeExpression::Typeof(_)
+                | iris_syntax::TypeExpression::Intersection(_)
+                | iris_syntax::TypeExpression::Union(_)
+                | iris_syntax::TypeExpression::Function { .. } => {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
+            }
+            Ok(())
         }
-        Ok(qualified)
+
+        let mut output = String::new();
+        for argument in arguments {
+            output.push('<');
+            render(argument, &mut output)?;
+            output.push('>');
+        }
+        Ok(output)
     }
 
     fn member_read(&mut self, receiver: Value, selector: &str) -> Result<Value, EvaluationError> {
         let Value::Object(object) = receiver else {
             return self.send(receiver, selector, &[]);
         };
+        let property_selector = self.selector(&format!("@{selector}"));
         let selector = self.selector(selector);
-        let method = self.resolve_instance_method(object, selector)?;
-        if self.property_methods.get(&method.id()) == Some(&true) {
-            self.invoke_method(method, Value::Object(object), &[])
-        } else {
-            let class = self
-                .runtime
-                .class_of(object)
-                .map_err(EvaluationError::Construction)?;
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        if self
+            .runtime
+            .registry()
+            .visible_properties(class)
+            .map_err(EvaluationError::Class)?
+            .contains(&property_selector)
+        {
             self.runtime
-                .registry_mut()
-                .bind_instance(object, class, selector)
-                .map(Value::BoundMethod)
-                .map_err(iris_runtime::ConstructionError::from)
+                .raw_ivar(object, property_selector)
                 .map_err(EvaluationError::Construction)
+        } else {
+            let method = self.resolve_instance_method(object, selector)?;
+            if self.property_methods.get(&method.id()) == Some(&true) {
+                self.invoke_method(method, Value::Object(object), &[])
+            } else {
+                self.runtime
+                    .registry_mut()
+                    .bind_instance(object, class, selector)
+                    .map(Value::BoundMethod)
+                    .map_err(iris_runtime::ConstructionError::from)
+                    .map_err(EvaluationError::Construction)
+            }
         }
     }
 
@@ -9199,9 +9514,23 @@ impl SourceEvaluator {
                 };
                 self.reflection_method(target, name)
             }
-            ("Reflection::Class", "invoke") | ("Reflection::Module", "invoke") => {
+            ("Reflection::Class", "invoke") => {
                 let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.reflective_invoke(*method, receiver.clone(), &args.elements())
+            }
+            ("Reflection::Module", "invoke") => {
+                let [Value::Method(method), receiver, Value::Array(args)] = arguments else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let MethodOwner::Module(_) = method.owner() else {
+                    return Err(EvaluationError::Construction(
+                        iris_runtime::DispatchError::MethodBinding {
+                            selector: method.selector(),
+                        }
+                        .into(),
+                    ));
                 };
                 self.reflective_invoke(*method, receiver.clone(), &args.elements())
             }
@@ -9216,14 +9545,14 @@ impl SourceEvaluator {
                 self.recompose(*class, module, false).map(|()| Value::Nil)
             }
             ("Reflection::Class", "remove_contract") => {
-                let [Value::Class(target), Value::Contract(contract)] = arguments else {
+                let [Value::Class(target), Value::Contract(contract, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 // C119 makes the two entry points ONE implementation.
                 self.send(
                     Value::Class(*target),
                     "remove_contract",
-                    &[Value::Contract(*contract)],
+                    &[Value::Contract(*contract, Vec::new())],
                 )
             }
             ("Reflection::Class", "set_superclass") => {
@@ -9259,11 +9588,16 @@ impl SourceEvaluator {
             // more arm there overflows the stack on a deliberately deep
             // program, which bisection confirmed.
             ("Reflection::Contract", "requirement") => {
-                let [Value::Contract(contract), Value::Symbol(name)] = arguments else {
+                let [
+                    Value::Contract(contract, type_arguments),
+                    Value::Symbol(name),
+                ] = arguments
+                else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
-                let (contract, name) = (*contract, name.clone());
-                self.contract_requirement(contract, &name)
+                let (contract, type_arguments, name) =
+                    (*contract, type_arguments.clone(), name.clone());
+                self.contract_requirement(contract, &type_arguments, &name)
             }
             ("Reflection::Class", "revision") => {
                 let [Value::Class(target)] = arguments else {
@@ -9674,7 +10008,8 @@ impl SourceEvaluator {
                     // A `NonNil` or a Contract has no nominal Class to collapse
                     // to, so the composed form is kept.
                     iris_runtime::TypeAtom::NonNil
-                    | iris_runtime::TypeAtom::Contract(_)
+                    | iris_runtime::TypeAtom::Contract(_, _)
+                    | iris_runtime::TypeAtom::Iteration(_)
                     | iris_runtime::TypeAtom::Union(_) => {
                         Value::ComposedType(iris_runtime::ComposedType::Intersection(members))
                     }
@@ -9701,7 +10036,10 @@ impl SourceEvaluator {
                 // V002 states intersection commutativity over two CONTRACTS, so
                 // a Contract name is a Type constituent as much as a Class is.
                 if let Some(contract) = self.contract_names.get(name) {
-                    return Ok(ComposedType::Union(vec![TypeAtom::Contract(*contract)]));
+                    return Ok(ComposedType::Union(vec![TypeAtom::Contract(
+                        *contract,
+                        Vec::new(),
+                    )]));
                 }
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
                 Ok(ComposedType::Union(vec![TypeAtom::Nominal(
@@ -9715,20 +10053,17 @@ impl SourceEvaluator {
                 // normalizes to that Contract exactly as its bare form does.
                 // Resolved through a helper: `normalize_type` is recursive and
                 // widening its frame overflows the stack on a deep program.
-                if let Some(normalized) = self.generic_contract_type(name) {
+                if name == "Iteration" {
+                    let normalized = self.nominal_arguments(arguments)?;
+                    return Ok(ComposedType::Intersection(vec![TypeAtom::Iteration(
+                        normalized,
+                    )]));
+                }
+                if let Some(normalized) = self.generic_contract_type(name, arguments)? {
                     return Ok(normalized);
                 }
                 let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
-                let mut normalized = Vec::new();
-                for argument in arguments {
-                    let iris_syntax::TypeExpression::Name(argument) = argument else {
-                        return Err(EvaluationError::UnsupportedConstruct);
-                    };
-                    normalized.push(
-                        self.class_name(argument)?
-                            .ok_or(EvaluationError::NameError)?,
-                    );
-                }
+                let normalized = self.nominal_arguments(arguments)?;
                 Ok(ComposedType::Union(vec![TypeAtom::Nominal(
                     class, normalized,
                 )]))
@@ -10578,6 +10913,9 @@ impl SourceEvaluator {
                         match bound.receiver() {
                             iris_runtime::BoundReceiver::Class(class) => Value::Class(class),
                             iris_runtime::BoundReceiver::Object(object) => Value::Object(object),
+                            iris_runtime::BoundReceiver::Module(_) => {
+                                return Err(EvaluationError::UnsupportedConstruct);
+                            }
                         },
                         arguments,
                     );
@@ -10798,7 +11136,7 @@ impl SourceEvaluator {
         // answers it directly rather than through structural member shape.
         if selector == "hash"
             && arguments.is_empty()
-            && let Value::Contract(contract) = &receiver
+            && let Value::Contract(contract, _) = &receiver
         {
             return Ok(Value::Integer(self.contract_type_hash(*contract)?));
         }
@@ -11014,9 +11352,10 @@ impl SourceEvaluator {
                         | Value::Text(_)
                         | Value::Symbol(_)
                         | Value::Class(_)
+                        | Value::ClosedClass(..)
                         | Value::Type(..)
                         | Value::ComposedType(_)
-                        | Value::Contract(_)
+                        | Value::Contract(..)
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
                         | Value::IterationYield(_)
@@ -11074,9 +11413,10 @@ impl SourceEvaluator {
             | Value::Text(_)
             | Value::Symbol(_)
             | Value::Class(_)
+            | Value::ClosedClass(..)
             | Value::Type(..)
             | Value::ComposedType(_)
-            | Value::Contract(_)
+            | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
@@ -11237,21 +11577,34 @@ impl SourceEvaluator {
     /// forbids it from sending `to_bool` or converting the value. `C009` makes
     /// `Object` the top Type, so every value answers true for it.
     fn type_test(&mut self, value: &Value, target: &Value) -> Result<Value, EvaluationError> {
-        let Value::Class(target) = target else {
-            return Err(EvaluationError::UnsupportedConstruct);
+        let (target, target_arguments) = match target {
+            Value::Class(target) => (*target, &[][..]),
+            Value::ClosedClass(target, arguments) => (*target, arguments.as_slice()),
+            Value::Type(target, arguments) => (*target, arguments.as_slice()),
+            _ => return Err(EvaluationError::UnsupportedConstruct),
         };
         if self
             .kernel
             .class(iris_runtime::BuiltinClass::Object)
-            .is_ok_and(|root| root == *target)
+            .is_ok_and(|root| root == target)
         {
             return Ok(Value::Bool(true));
         }
         let class = match value {
-            Value::Object(object) => self
-                .runtime
-                .class_of(*object)
-                .map_err(EvaluationError::Construction)?,
+            Value::Object(object) => {
+                let class = self
+                    .runtime
+                    .class_of(*object)
+                    .map_err(EvaluationError::Construction)?;
+                if class == target && !target_arguments.is_empty() {
+                    return self
+                        .runtime
+                        .type_arguments_of(*object)
+                        .map(|arguments| Value::Bool(arguments == target_arguments))
+                        .map_err(EvaluationError::Construction);
+                }
+                class
+            }
             Value::Nil => self
                 .kernel
                 .class(iris_runtime::BuiltinClass::Nil)
@@ -11272,7 +11625,7 @@ impl SourceEvaluator {
                 .kernel
                 .class(iris_runtime::BuiltinClass::Float64)
                 .map_err(EvaluationError::Runtime)?,
-            Value::Class(class) => *class,
+            Value::Class(class) | Value::ClosedClass(class, _) => *class,
             // C041 makes a String a value with its own builtin Class, so `is
             // String` must resolve it like the numeric value Classes rather
             // than falling through to the ordinary-object arm.
@@ -11294,7 +11647,7 @@ impl SourceEvaluator {
             | Value::Symbol(_)
             | Value::Type(..)
             | Value::ComposedType(_)
-            | Value::Contract(_)
+            | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
             | Value::IterationYield(_)
@@ -11324,7 +11677,7 @@ impl SourceEvaluator {
             .map_err(EvaluationError::Class)?
             .mro()
             .iter()
-            .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if entry == target));
+            .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if *entry == target));
         Ok(Value::Bool(ancestry))
     }
 
@@ -11417,6 +11770,56 @@ impl SourceEvaluator {
         Ok(())
     }
 
+    fn check_nominal_generic_bounds(
+        &self,
+        name: &str,
+        arguments: &[NominalType],
+    ) -> Result<(), EvaluationError> {
+        let Some((parameters, constraints)) = self.generic_bounds.get(name) else {
+            return Ok(());
+        };
+        for constraint in constraints {
+            let Some(position) = parameters
+                .iter()
+                .position(|parameter| *parameter == constraint.parameter)
+            else {
+                continue;
+            };
+            let Some(argument) = arguments.get(position) else {
+                continue;
+            };
+            let bound = match &constraint.bound {
+                iris_syntax::TypeExpression::Generic { name, .. }
+                | iris_syntax::TypeExpression::Name(name) => name,
+                _ => continue,
+            };
+            if bound == "NonNil" {
+                let nil = self
+                    .kernel
+                    .class(iris_runtime::BuiltinClass::Nil)
+                    .map_err(EvaluationError::Runtime)?;
+                if argument.class() == nil {
+                    return Err(EvaluationError::TypeContractError);
+                }
+                continue;
+            }
+            if bound == "Never" {
+                return Err(EvaluationError::TypeContractError);
+            }
+            let Some(contract) = self.contract_names.get(bound) else {
+                continue;
+            };
+            let conforms = self
+                .class_contracts
+                .get(&argument.class())
+                .is_some_and(|declared| declared.contains(contract));
+            if !conforms {
+                return Err(EvaluationError::TypeContractError);
+            }
+        }
+        Ok(())
+    }
+
     /// Renders one Type constituent for reflection.
     ///
     /// A nested union stays ONE member, which is what `IRIS-V1-TYPES-V214`
@@ -11428,7 +11831,14 @@ impl SourceEvaluator {
                 Value::Type(*class, arguments.clone())
             }
             iris_runtime::TypeAtom::NonNil => Value::Symbol("NonNil".to_owned()),
-            iris_runtime::TypeAtom::Contract(contract) => Value::Contract(*contract),
+            iris_runtime::TypeAtom::Contract(contract, arguments) => {
+                Value::Contract(*contract, arguments.clone())
+            }
+            iris_runtime::TypeAtom::Iteration(arguments) => {
+                Value::ComposedType(iris_runtime::ComposedType::Intersection(vec![
+                    iris_runtime::TypeAtom::Iteration(arguments.clone()),
+                ]))
+            }
             iris_runtime::TypeAtom::Union(nested) => {
                 Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
             }
@@ -11481,7 +11891,7 @@ impl SourceEvaluator {
     }
 
     fn contract_view(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
-        let Value::Contract(contract) = target else {
+        let Value::Contract(contract, _) = target else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
         // C050 defines view equality over IDENTITY-LESS receivers too, so a
@@ -11511,7 +11921,7 @@ impl SourceEvaluator {
     /// expression; inlining this overflowed the non-termination test.
     #[inline(never)]
     fn checked_cast(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
-        if matches!(target, Value::Contract(_)) {
+        if matches!(target, Value::Contract(..)) {
             return self.contract_view(value, target);
         }
         match self.type_test(&value, target)? {
@@ -11589,6 +11999,9 @@ impl SourceEvaluator {
                     iris_runtime::ConstructionError::Dispatch(
                         iris_runtime::DispatchError::ContractDispatch {
                             contract: iris_runtime::ModuleId::new(contract.raw()),
+                            contract_name: self.contract_names.iter().find_map(|(name, known)| {
+                                (*known == contract).then(|| name.clone())
+                            }),
                             selector: selector_id,
                         },
                     ),
@@ -12324,6 +12737,21 @@ impl SourceEvaluator {
     }
 }
 
+fn type_contains_placeholder(expression: &iris_syntax::TypeExpression) -> bool {
+    match expression {
+        iris_syntax::TypeExpression::Name(name) => name == "_",
+        iris_syntax::TypeExpression::Generic { arguments, .. }
+        | iris_syntax::TypeExpression::Union(arguments)
+        | iris_syntax::TypeExpression::Intersection(arguments) => {
+            arguments.iter().any(type_contains_placeholder)
+        }
+        iris_syntax::TypeExpression::Function { parameters, result } => {
+            parameters.iter().any(type_contains_placeholder) || type_contains_placeholder(result)
+        }
+        iris_syntax::TypeExpression::Typeof(_) => false,
+    }
+}
+
 fn meta_capabilities(names: &[String]) -> Result<MetaCapabilities, EvaluationError> {
     let mut denied = Vec::with_capacity(names.len());
     for name in names {
@@ -12375,9 +12803,9 @@ fn receiver_class_name(value: &Value) -> &'static str {
         Value::RaiseSite(_) => "RaiseSite",
         Value::Text(_) => "String",
         Value::Symbol(_) => "Symbol",
-        Value::Class(_) => "Class",
+        Value::Class(_) | Value::ClosedClass(..) => "Class",
         Value::Type(..) => "Type",
-        Value::Contract(_) => "Contract",
+        Value::Contract(..) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
         Value::ArrayIterator(..)

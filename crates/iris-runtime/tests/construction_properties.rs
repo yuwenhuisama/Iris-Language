@@ -3,6 +3,36 @@ use iris_runtime::{
     StaticSpine, Value, Visibility,
 };
 
+#[test]
+fn closed_generic_metadata_survives_compaction_and_dead_instances_are_swept()
+-> Result<(), ConstructionError> {
+    // Given
+    let mut runtime = Runtime::new();
+    let outer = define_class(&mut runtime, None)?;
+    let inner = define_class(&mut runtime, None)?;
+    let string = define_class(&mut runtime, None)?;
+    let integer = define_class(&mut runtime, None)?;
+    let live_type = iris_runtime::NominalType::new(
+        inner,
+        vec![iris_runtime::NominalType::new(string, Vec::new())],
+    );
+    let dead_type = iris_runtime::NominalType::new(
+        inner,
+        vec![iris_runtime::NominalType::new(integer, Vec::new())],
+    );
+    let live = runtime.allocate_closed(outer, vec![live_type.clone()])?;
+    let dead = runtime.allocate_closed(outer, vec![dead_type])?;
+
+    // When
+    let (freed, _) = runtime.collect_garbage([&Value::Object(live)]);
+
+    // Then
+    assert_eq!(freed, 1);
+    assert_eq!(runtime.type_arguments_of(live)?, [live_type]);
+    assert!(runtime.type_arguments_of(dead).is_err());
+    Ok(())
+}
+
 const INITIALIZE: Selector = Selector::INITIALIZE;
 const LATER_SEND: Selector = Selector::new(2);
 const PROPERTY: Selector = Selector::new(3);

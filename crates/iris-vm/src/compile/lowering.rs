@@ -247,7 +247,7 @@ fn reflected_type(annotation: Option<&iris_syntax::TypeExpression>) -> String {
     }
 }
 
-pub(super) struct Lowering<'a, 'b> {
+pub(crate) struct Lowering<'a, 'b> {
     pub(super) instructions: Vec<Instruction>,
     pub(super) next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
@@ -296,6 +296,7 @@ pub(super) struct Binding {
     pub(super) name: String,
     pub(super) register: Register,
     pub(super) shared: bool,
+    pub(super) writable: bool,
     /// Register holding whether a DEFERRED binding has been assigned yet.
     pub(super) assigned: Option<Register>,
 }
@@ -306,6 +307,7 @@ impl Binding {
             name,
             register,
             shared: false,
+            writable: false,
             assigned: None,
         }
     }
@@ -315,6 +317,7 @@ impl Binding {
             name,
             register,
             shared: false,
+            writable: true,
             assigned: Some(assigned),
         }
     }
@@ -324,6 +327,17 @@ impl Binding {
             name,
             register,
             shared: true,
+            writable: true,
+            assigned: None,
+        }
+    }
+
+    pub(super) const fn captured_value(name: String, register: Register) -> Self {
+        Self {
+            name,
+            register,
+            shared: true,
+            writable: false,
             assigned: None,
         }
     }
@@ -433,17 +447,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         if !self.classes[class].generic {
             return None;
         }
-        let mut mangled = format!("{selector}<");
-        for (position, argument) in arguments.iter().enumerate() {
-            if position > 0 {
-                mangled.push(',');
-            }
-            match argument {
-                iris_syntax::TypeExpression::Name(name) => mangled.push_str(name),
-                _ => return None,
-            }
-        }
-        mangled.push('>');
+        let mangled = format!("{selector}<{}>", Self::type_selector(arguments)?);
         // Only a slot the declaration REGISTERED is addressed this way, so an
         // ordinary member on a closed generic still dispatches normally.
         self.classes[class]
@@ -464,6 +468,37 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // receiver is dispatched elsewhere.
                 && !signature.receiver
         })
+    }
+
+    pub(crate) fn type_selector(arguments: &[iris_syntax::TypeExpression]) -> Option<String> {
+        let mut rendered = String::new();
+        for (position, argument) in arguments.iter().enumerate() {
+            if position > 0 {
+                rendered.push(',');
+            }
+            Self::append_type_selector(&mut rendered, argument)?;
+        }
+        Some(rendered)
+    }
+
+    fn append_type_selector(
+        rendered: &mut String,
+        expression: &iris_syntax::TypeExpression,
+    ) -> Option<()> {
+        match expression {
+            iris_syntax::TypeExpression::Name(name) => rendered.push_str(name),
+            iris_syntax::TypeExpression::Generic { name, arguments } => {
+                rendered.push_str(name);
+                rendered.push('<');
+                rendered.push_str(&Self::type_selector(arguments)?);
+                rendered.push('>');
+            }
+            iris_syntax::TypeExpression::Typeof(_)
+            | iris_syntax::TypeExpression::Intersection(_)
+            | iris_syntax::TypeExpression::Union(_)
+            | iris_syntax::TypeExpression::Function { .. } => return None,
+        }
+        Some(())
     }
     /// The tables this frame resolves names against.
     pub(super) const fn declarations(&self) -> Declarations<'a, 'b> {
@@ -491,6 +526,20 @@ impl<'a, 'b> Lowering<'a, 'b> {
 
     pub(super) fn lookup_binding(&self, name: &str) -> Option<&Binding> {
         self.names.iter().rev().find(|binding| binding.name == name)
+    }
+
+    pub(super) fn class_variable_owner(&self, name: &str) -> Option<usize> {
+        let mut class = self.current_method.as_ref().map(|(owner, _)| *owner)?;
+        loop {
+            if self.classes[class]
+                .class_variables
+                .iter()
+                .any(|variable| variable.name == name)
+            {
+                return Some(class);
+            }
+            class = self.classes[class].superclass?;
+        }
     }
 
     /// Answers a register holding the TRUTH of `value`, per `C022`.

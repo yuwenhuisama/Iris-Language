@@ -215,8 +215,9 @@ impl Walker<'_> {
             | Value::Text(_)
             | Value::Symbol(_)
             | Value::Class(_)
+            | Value::ClosedClass(..)
             | Value::Method(_)
-            | Value::Contract(_)
+            | Value::Contract(..)
             | Value::IterationDone
             | Value::Type(..)
             | Value::ComposedType(_) => {}

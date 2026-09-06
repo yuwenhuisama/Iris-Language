@@ -218,7 +218,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if let Expression::Name(name) = callee {
-            let callee = self.lookup(name);
+            let binding = self.lookup_binding(name).cloned();
+            let callee = binding.map(|binding| binding.register);
             // A bare call inside a method with a receiver is a send to SELF:
             // `property tag: Symbol = arm()` calls the object's own `arm`.
             // Only a name no binding claims is treated this way, so a local
@@ -685,8 +686,48 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.instructions.push(Instruction::New {
                 destination,
                 class,
+                type_arguments: type_arguments.clone(),
                 first,
                 count,
+            });
+            return Ok(destination);
+        }
+        if selector == "new" {
+            if let Expression::Name(name) = receiver.as_ref()
+                && name.chars().next().is_some_and(char::is_uppercase)
+                && !is_builtin_receiver(name)
+                && self.lookup(name).is_none()
+                && self.class_index(name).is_none()
+                && self.contract_index(name).is_none()
+                && !self.modules.iter().any(|module| module.name == *name)
+                && !self
+                    .signatures
+                    .iter()
+                    .any(|signature| signature.module == name)
+                && !self
+                    .program_bindings
+                    .iter()
+                    .any(|binding| binding.name == *name)
+            {
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::RaiseMessageNotFound {
+                    destination,
+                    receiver_class: name.clone(),
+                    selector: selector.clone(),
+                });
+                return Ok(destination);
+            }
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Send {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
+                caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                caller_module: self.enclosing_module.clone(),
             });
             return Ok(destination);
         }
@@ -800,6 +841,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.instructions.push(Instruction::New {
                 destination,
                 class,
+                type_arguments: Vec::new(),
                 first,
                 count,
             });
@@ -1010,6 +1052,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         // an ordinary binding read and keeps the `NameError` it already had.
         if let Expression::Name(name) = receiver.as_ref()
             && name.chars().next().is_some_and(char::is_uppercase)
+            && name != "HostABI"
             // A BUILT-IN class is the kernel's and has no declaration entry,
             // so it is a legitimate receiver even though nothing declares it.
             && !is_builtin_receiver(name)
@@ -1098,7 +1141,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
     pub(super) fn contract_index(&self, name: &str) -> Option<usize> {
         self.contracts
             .iter()
-            .position(|contract| contract.name == name)
+            .rposition(|contract| contract.name == name)
     }
 
     pub(super) fn argument_window(

@@ -77,6 +77,70 @@ Bank.run()
     );
 }
 
+#[test]
+fn nested_closed_class_properties_are_independent_and_materialize_once() {
+    agrees(
+        r#"
+        mut starts = 0
+        class Inner<T> {}
+        class Outer<T> {
+          class property value: Integer = { starts = starts + 1; starts }.call()
+        }
+        Outer<Inner<String>>.value = 10
+        Outer<Inner<Integer>>.value = 20
+        [Outer<Inner<String>>.value, Outer<Inner<Integer>>.value, starts]
+        "#,
+        "[10, 20, [10, 20, 2]]",
+    );
+}
+
+#[test]
+fn nested_closed_constructions_in_statement_try_and_property_initializers_are_registered() {
+    agrees(
+        r#"
+        class Inner<T> {};
+        class Seed<T> { class property seed: Integer = 1 };
+        class Outer<T> { class property value: Integer = Seed<Inner<String>>.seed };
+        try { raise :x } catch e: Symbol { Outer<Inner<Integer>>.value } finally { Seed<Inner<String>>.seed }
+        "#,
+        "1",
+    );
+}
+
+#[test]
+fn closed_construction_and_nested_property_initializer_materialize_once_before_reads() {
+    agrees(
+        r#"
+        mut count = 0
+        class Outer<T> { class property token: Integer = { count = count + 1; count }.call() }
+        class Holder<T> { property held: Object = Outer<Holder<String>>.new() }
+        Outer<String>.new()
+        Holder<Integer>.new()
+        [count, Outer<String>.token, Outer<Holder<String>>.token]
+        "#,
+        "[<object>, <object>, [2, 1, 2]]",
+    );
+}
+
+#[test]
+fn reopening_a_generic_revalidates_nested_closed_constructions() {
+    let source = r#"
+        contract Show { fun show() -> Symbol };
+        class Inner<T> {};
+        class Outer<T> {}; let existing = Outer<Inner<String>>;
+        open class Outer<T> where T: Show {};
+        existing.new()
+        "#;
+    let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
+    let Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must run this program: {agreement:?}\n{source}")
+    };
+    assert_eq!(
+        observation,
+        &Observation::Error("TypeContractError".to_owned())
+    );
+}
+
 /// An object GRAPH built in a loop and walked in another.
 #[test]
 fn an_object_graph_is_built_and_traversed() {
@@ -426,6 +490,14 @@ module Main {
 Main.run()
 "#,
         "[2, 7, \"text\", 42]",
+    );
+}
+
+#[test]
+fn closed_generic_class_values_are_recursive_and_nominally_strict() {
+    agrees(
+        "class Box<T> {} Box<String>.new(); Box<Integer>.new(); Box<String>.type same? Box<Integer>.type",
+        "[<object>, <object>, false]",
     );
 }
 

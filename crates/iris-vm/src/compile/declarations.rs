@@ -45,35 +45,267 @@ pub(super) struct CollectedDeclarations<'a> {
     pub(super) contracts: Vec<Contract>,
 }
 
-/// Every `Name<Args>` construction the SOURCE writes, as rendered arguments.
-///
-/// A plain `class property` belongs to each closed construction, so the set of
-/// constructions decides how many slots a generic class needs. They are read
-/// from the source text rather than from the AST because a construction may
-/// appear in any expression position, and only its spelling matters here.
-fn written_constructions(source: &str, class: &str) -> Vec<String> {
+fn written_constructions(
+    declarations: &[iris_syntax::Declaration],
+    top_level: &[Statement],
+    class: &str,
+) -> Vec<Vec<TypeExpression>> {
     let mut found = Vec::new();
-    let mut rest = source;
-    while let Some(at) = rest.find(&format!("{class}<")) {
-        rest = &rest[at + class.len() + 1..];
-        let Some(end) = rest.find('>') else {
-            break;
-        };
-        let arguments = rest[..end].trim().to_owned();
-        if !arguments.is_empty() && !found.contains(&arguments) {
-            found.push(arguments);
+    fn visit_expression(
+        expression: &iris_syntax::Expression,
+        class: &str,
+        found: &mut Vec<Vec<TypeExpression>>,
+    ) {
+        match expression {
+            iris_syntax::Expression::ClosedGeneric { name, arguments } => {
+                if name == class
+                    && crate::compile::lowering::Lowering::type_selector(arguments).is_some()
+                    && !found.contains(arguments)
+                {
+                    found.push(arguments.clone());
+                }
+            }
+            iris_syntax::Expression::Member { receiver, .. }
+            | iris_syntax::Expression::ContractView { receiver, .. }
+            | iris_syntax::Expression::Await(receiver)
+            | iris_syntax::Expression::Grouped(receiver)
+            | iris_syntax::Expression::Unary {
+                operand: receiver, ..
+            }
+            | iris_syntax::Expression::KeywordArgument {
+                value: receiver, ..
+            } => visit_expression(receiver, class, found),
+            iris_syntax::Expression::Call {
+                callee, arguments, ..
+            } => {
+                visit_expression(callee, class, found);
+                for argument in arguments {
+                    visit_expression(argument, class, found);
+                }
+            }
+            iris_syntax::Expression::Index { receiver, index } => {
+                visit_expression(receiver, class, found);
+                visit_expression(index, class, found);
+            }
+            iris_syntax::Expression::Array(values) | iris_syntax::Expression::Tuple(values) => {
+                for value in values {
+                    visit_expression(value, class, found);
+                }
+            }
+            iris_syntax::Expression::Hash(entries) => {
+                for (key, value) in entries {
+                    visit_expression(key, class, found);
+                    visit_expression(value, class, found);
+                }
+            }
+            iris_syntax::Expression::Binary { left, right, .. }
+            | iris_syntax::Expression::Assignment { left, right, .. } => {
+                visit_expression(left, class, found);
+                visit_expression(right, class, found);
+            }
+            iris_syntax::Expression::Closure { body, .. } => visit_statements(body, class, found),
+            iris_syntax::Expression::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                visit_expression(condition, class, found);
+                visit_statements(then_body, class, found);
+                if let Some(body) = else_body {
+                    visit_statements(body, class, found);
+                }
+            }
+            iris_syntax::Expression::While {
+                condition, body, ..
+            } => {
+                visit_expression(condition, class, found);
+                visit_statements(body, class, found);
+            }
+            iris_syntax::Expression::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                visit_statements(body, class, found);
+                for catch in catches {
+                    visit_type(catch.filter.as_ref(), class, found);
+                    visit_statements(&catch.body, class, found);
+                }
+                if let Some(body) = finally {
+                    visit_statements(body, class, found);
+                }
+            }
+            iris_syntax::Expression::Yield(Some(value)) => visit_expression(value, class, found),
+            iris_syntax::Expression::ReifiedType(expression) => {
+                visit_type(Some(expression), class, found)
+            }
+            iris_syntax::Expression::Yield(None)
+            | iris_syntax::Expression::Name(_)
+            | iris_syntax::Expression::Literal(_)
+            | iris_syntax::Expression::Symbol(_)
+            | iris_syntax::Expression::RawIvar(_)
+            | iris_syntax::Expression::ClassVar(_)
+            | iris_syntax::Expression::GlobalVar(_) => {}
         }
     }
+    fn visit_type(
+        expression: Option<&TypeExpression>,
+        class: &str,
+        found: &mut Vec<Vec<TypeExpression>>,
+    ) {
+        let Some(expression) = expression else { return };
+        match expression {
+            TypeExpression::Typeof(value) => visit_expression(value, class, found),
+            TypeExpression::Intersection(values) | TypeExpression::Union(values) => {
+                for value in values {
+                    visit_type(Some(value), class, found);
+                }
+            }
+            TypeExpression::Generic { arguments, .. } => {
+                for value in arguments {
+                    visit_type(Some(value), class, found);
+                }
+            }
+            TypeExpression::Function { parameters, result } => {
+                for parameter in parameters {
+                    visit_type(Some(parameter), class, found);
+                }
+                visit_type(Some(result), class, found);
+            }
+            TypeExpression::Name(_) => {}
+        }
+    }
+    fn visit_statements(values: &[Statement], class: &str, found: &mut Vec<Vec<TypeExpression>>) {
+        for statement in values {
+            match statement {
+                Statement::Binding { value, .. }
+                | Statement::SharedBinding { value, .. }
+                | Statement::GlobalBinding { value, .. }
+                | Statement::Expression(value) => visit_expression(value, class, found),
+                Statement::DeferredBinding { .. } | Statement::Continue(_) => {}
+                Statement::StoredProperty {
+                    annotation,
+                    initializer,
+                    ..
+                } => {
+                    visit_type(Some(annotation), class, found);
+                    visit_expression(initializer, class, found);
+                }
+                Statement::Method(method) => {
+                    visit_type(method.return_type.as_ref(), class, found);
+                    for parameter in &method.parameters {
+                        visit_type(parameter.annotation.as_ref(), class, found);
+                        if let Some(value) = &parameter.default {
+                            visit_expression(value, class, found);
+                        }
+                    }
+                    if let Some(body) = &method.body {
+                        visit_statements(body, class, found);
+                    }
+                }
+                Statement::If {
+                    condition,
+                    then_body,
+                    else_body,
+                } => {
+                    visit_expression(condition, class, found);
+                    visit_statements(then_body, class, found);
+                    if let Some(body) = else_body {
+                        visit_statements(body, class, found);
+                    }
+                }
+                Statement::While {
+                    condition, body, ..
+                } => {
+                    visit_expression(condition, class, found);
+                    visit_statements(body, class, found);
+                }
+                Statement::For { iterable, body, .. } => {
+                    visit_expression(iterable, class, found);
+                    visit_statements(body, class, found);
+                }
+                Statement::Return(Some(value))
+                | Statement::Break {
+                    value: Some(value), ..
+                } => visit_expression(value, class, found),
+                Statement::Return(None) | Statement::Break { value: None, .. } => {}
+                Statement::Match {
+                    subject,
+                    arms,
+                    fallback,
+                } => {
+                    visit_expression(subject, class, found);
+                    for arm in arms {
+                        if let Some(guard) = &arm.guard {
+                            visit_expression(guard, class, found);
+                        }
+                        match &arm.body {
+                            iris_syntax::MatchBody::Expression(value) => {
+                                visit_expression(value, class, found)
+                            }
+                            iris_syntax::MatchBody::Block(body) => {
+                                visit_statements(body, class, found)
+                            }
+                        }
+                    }
+                    if let Some(body) = fallback {
+                        match body {
+                            iris_syntax::MatchBody::Expression(value) => {
+                                visit_expression(value, class, found)
+                            }
+                            iris_syntax::MatchBody::Block(body) => {
+                                visit_statements(body, class, found)
+                            }
+                        }
+                    }
+                }
+                Statement::Raise(Some(raise)) => {
+                    visit_expression(&raise.value, class, found);
+                    if let Some(cause) = &raise.cause {
+                        visit_expression(cause, class, found);
+                    }
+                }
+                Statement::Raise(None) => {}
+                Statement::Try {
+                    body,
+                    catches,
+                    finally,
+                    ..
+                } => {
+                    visit_statements(body, class, found);
+                    for catch in catches {
+                        visit_type(catch.filter.as_ref(), class, found);
+                        visit_statements(&catch.body, class, found);
+                    }
+                    if let Some(body) = finally {
+                        visit_statements(body, class, found);
+                    }
+                }
+            }
+        }
+    }
+    for declaration in declarations {
+        match declaration {
+            iris_syntax::Declaration::Class(declaration) => {
+                visit_statements(&declaration.body, class, &mut found)
+            }
+            iris_syntax::Declaration::Module(declaration) => {
+                visit_statements(&declaration.body, class, &mut found)
+            }
+            _ => {}
+        }
+    }
+    visit_statements(top_level, class, &mut found);
     found
 }
 
 pub(super) fn collect_signatures<'a>(
     declarations: &'a [iris_syntax::Declaration],
-    source: &str,
+    statements: &[Statement],
 ) -> Result<CollectedDeclarations<'a>, CompileError> {
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
-    let mut contracts = Vec::new();
+    let mut contracts = traversal_contracts();
     let mut modules = Vec::new();
     let mut builtin_reopens = Vec::new();
     // A REOPEN is collected after every origin declaration, because it names a
@@ -126,7 +358,7 @@ pub(super) fn collect_signatures<'a>(
             };
             collect_class(
                 declarations,
-                source,
+                statements,
                 class,
                 &contracts,
                 &mut signatures,
@@ -381,6 +613,35 @@ pub(super) fn collect_signatures<'a>(
             }
         }
     }
+    for class in &classes {
+        if class.reopens.is_empty() {
+            continue;
+        }
+        for arguments in written_constructions(declarations, statements, &class.name) {
+            for position in &class.non_nil_bounds {
+                if matches!(arguments.get(*position), Some(TypeExpression::Name(name)) if name == "Nil")
+                {
+                    return Err(CompileError::new("closed construction bound"));
+                }
+            }
+            for (position, contract) in &class.contract_bounds {
+                let Some(argument) = arguments.get(*position) else {
+                    continue;
+                };
+                let name = match argument {
+                    TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => name,
+                    _ => continue,
+                };
+                if !classes
+                    .iter()
+                    .find(|candidate| candidate.name == *name)
+                    .is_some_and(|candidate| candidate.contracts.contains(contract))
+                {
+                    return Err(CompileError::new("closed construction bound"));
+                }
+            }
+        }
+    }
     Ok(CollectedDeclarations {
         signatures,
         classes,
@@ -414,7 +675,7 @@ fn collect_contract(
         let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = parent else {
             return Err(CompileError::new("contract declaration form"));
         };
-        let Some(parent) = contracts.iter().find(|known| known.name == *name) else {
+        let Some(parent) = contracts.iter().rfind(|known| known.name == *name) else {
             // `Iterable` and `Iterator` are KERNEL contracts rather than
             // program declarations, so a child extending one inherits nothing
             // this backend records - the reference runs the declaration, and a
@@ -440,7 +701,7 @@ fn collect_contract(
         // body is not lowered, because a class satisfying the requirement
         // supplies its own - only the requirement's SHAPE is recorded.
         if method.kind != iris_syntax::MethodKind::Instance
-            || method.impl_contract.is_some()
+            || matches!(method.impl_contract, Some(Some(_)))
             || method.is_async
             || !method.decorators.is_empty()
             || !method.type_parameters.is_empty()
@@ -465,13 +726,7 @@ fn collect_contract(
                     _ => None,
                 })
                 .collect(),
-            return_type: method
-                .return_type
-                .as_ref()
-                .and_then(|annotation| match annotation {
-                    TypeExpression::Name(name) => Some(name.clone()),
-                    _ => None,
-                }),
+            return_type: method.return_type.clone(),
         });
     }
     contracts.push(Contract {
@@ -482,9 +737,53 @@ fn collect_contract(
     Ok(())
 }
 
+fn traversal_contracts() -> Vec<Contract> {
+    vec![
+        Contract {
+            name: "Iterable".to_owned(),
+            requirements: vec![ContractRequirement {
+                selector: "iterator".to_owned(),
+                arity: 0,
+                return_type: Some(TypeExpression::Generic {
+                    name: "Iterator".to_owned(),
+                    arguments: vec![TypeExpression::Name("T".to_owned())],
+                }),
+                parameter_types: Vec::new(),
+            }],
+            meta_deny: Vec::new(),
+        },
+        Contract {
+            name: "Iterator".to_owned(),
+            requirements: vec![
+                ContractRequirement {
+                    selector: "next".to_owned(),
+                    arity: 0,
+                    return_type: Some(TypeExpression::Generic {
+                        name: "Iteration".to_owned(),
+                        arguments: vec![TypeExpression::Name("T".to_owned())],
+                    }),
+                    parameter_types: Vec::new(),
+                },
+                ContractRequirement {
+                    selector: "close".to_owned(),
+                    arity: 0,
+                    return_type: Some(TypeExpression::Name("Nil".to_owned())),
+                    parameter_types: Vec::new(),
+                },
+            ],
+            meta_deny: Vec::new(),
+        },
+        Contract {
+            name: "Iteration".to_owned(),
+            requirements: Vec::new(),
+            meta_deny: Vec::new(),
+        },
+    ]
+}
+
 fn collect_class<'a>(
     declarations: &'a [iris_syntax::Declaration],
-    source: &str,
+    statements: &[Statement],
     class: &'a iris_syntax::ClassDeclaration,
     contracts: &[Contract],
     signatures: &mut Vec<Signature<'a>>,
@@ -545,7 +844,7 @@ fn collect_class<'a>(
             }
             continue;
         }
-        let Some(contract) = contracts.iter().position(|known| known.name == *bound) else {
+        let Some(contract) = contracts.iter().rposition(|known| known.name == *bound) else {
             continue;
         };
         let Some(position) = class
@@ -691,7 +990,10 @@ fn collect_class<'a>(
                     // land in: `C<String>.n = 3` answers 3 while leaving the
                     // definition's `C.n` untouched, so the two must not share
                     // one slot.
-                    for construction in written_constructions(source, &class.name) {
+                    for arguments in written_constructions(declarations, statements, &class.name) {
+                        let construction =
+                            crate::compile::lowering::Lowering::type_selector(&arguments)
+                                .ok_or_else(|| CompileError::new("class property construction"))?;
                         class_variables.push(ClassVariable {
                             name: format!("{name}<{construction}>"),
                             mutable: true,
@@ -707,7 +1009,10 @@ fn collect_class<'a>(
                     initializer_function,
                 });
             } else {
-                for construction in written_constructions(source, &class.name) {
+                for arguments in written_constructions(declarations, statements, &class.name) {
+                    let construction =
+                        crate::compile::lowering::Lowering::type_selector(&arguments)
+                            .ok_or_else(|| CompileError::new("class property construction"))?;
                     class_variables.push(ClassVariable {
                         name: format!("{name}<{construction}>"),
                         mutable: true,
@@ -766,7 +1071,7 @@ fn collect_class<'a>(
         let Some(Some(qualifier)) = method.impl_contract.as_ref() else {
             continue;
         };
-        let Some(contract) = contracts.iter().position(|known| known.name == *qualifier) else {
+        let Some(contract) = contracts.iter().rposition(|known| known.name == *qualifier) else {
             return Err(CompileError::new("contract implementation undeclared"));
         };
         qualified_impls.push((contract, method.selector.clone(), function));
@@ -810,6 +1115,16 @@ fn collect_class<'a>(
         generic: !class.parameters.is_empty(),
         superclass,
         methods,
+        decorators: class
+            .decorators
+            .iter()
+            .map(|decorator| {
+                (
+                    decorator.name.clone(),
+                    decorator.arguments.iter().map(decorator_literal).collect(),
+                )
+            })
+            .collect(),
         class_methods,
         reopens: Vec::new(),
         contracts: conformances,
@@ -821,6 +1136,14 @@ fn collect_class<'a>(
         stored_properties,
     });
     Ok(())
+}
+
+fn decorator_literal(argument: &iris_syntax::Expression) -> String {
+    match argument {
+        iris_syntax::Expression::Literal(text) => text.clone(),
+        iris_syntax::Expression::Symbol(name) => format!(":{name}"),
+        _ => String::new(),
+    }
 }
 
 fn collect_reopen<'a>(
@@ -914,7 +1237,7 @@ fn collect_reopen<'a>(
             }
             continue;
         }
-        let Some(contract) = contracts.iter().position(|known| known.name == *bound) else {
+        let Some(contract) = contracts.iter().rposition(|known| known.name == *bound) else {
             continue;
         };
         if !classes[target]
@@ -971,12 +1294,10 @@ fn collect_reopen<'a>(
                 continue;
             };
             let clashes = class.body.iter().any(|statement| match statement {
-                Statement::Method(method) if method.selector == requirement.selector => {
-                    matches!(
-                        method.return_type.as_ref(),
-                        Some(TypeExpression::Name(actual)) if actual != required
-                    )
-                }
+                Statement::Method(method) if method.selector == requirement.selector => method
+                    .return_type
+                    .as_ref()
+                    .is_some_and(|actual| actual != required),
                 _ => false,
             });
             if clashes {
@@ -1007,7 +1328,7 @@ fn contract_indices(
             };
             contracts
                 .iter()
-                .position(|contract| contract.name == *name)
+                .rposition(|contract| contract.name == *name)
                 .ok_or_else(|| CompileError::new("class contract unbound"))
         })
         .collect()

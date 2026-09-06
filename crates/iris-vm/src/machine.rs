@@ -89,6 +89,7 @@ pub struct Machine {
     closures: std::collections::HashMap<iris_runtime::ObjectId, ClosureRecord>,
     globals: std::collections::HashMap<String, Value>,
     bindings: std::collections::HashMap<String, Value>,
+    dynamic_methods: std::collections::HashSet<iris_runtime::MethodId>,
     iterators: std::collections::HashMap<iris_runtime::ObjectId, IteratorRecord>,
     reflection_grants: Vec<(String, String)>,
     revision_subscribers: Vec<RevisionSubscriber>,
@@ -131,6 +132,8 @@ pub struct Machine {
     modules: Vec<(String, iris_runtime::ModuleId)>,
     next_commit: u64,
     next_closure: u64,
+    dynamic_selectors: std::collections::HashMap<String, iris_runtime::Selector>,
+    next_dynamic_selector: u64,
     next_context: u64,
     next_iterator: u64,
     tasks: std::collections::HashMap<iris_runtime::ObjectId, TaskOutcome>,
@@ -154,6 +157,11 @@ pub struct Machine {
     /// `await` inside one is refused rather than parking a frame the
     /// transaction would have to publish or roll back around.
     open_depth: usize,
+    /// Whether the current same-thread open group can still publish.
+    ///
+    /// An inner failure aborts the whole group even when bytecode catches it;
+    /// the outermost open alone clears this after cleanup.
+    open_group_state: Option<OpenGroupState>,
     /// Class-level initializers that have not RUN yet, by class and selector.
     ///
     /// A class-level initializer is an ordinary EXPRESSION evaluated the first
@@ -183,6 +191,16 @@ pub(super) struct PendingFrame {
     pub(super) counter: usize,
     pub(super) destination: Option<Register>,
     pub(super) handlers: Vec<(usize, Register, Register)>,
+    /// Resource whose `using` cleanup remains pending across this suspension.
+    pub(super) cleanup: Option<iris_runtime::Value>,
+    pub(super) function: Option<usize>,
+    pub(super) continuations: Vec<PendingFrame>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum OpenGroupState {
+    Active,
+    Aborted,
 }
 
 /// An async frame paused at an `await`, and everything needed to resume it.
@@ -210,6 +228,7 @@ impl Machine {
             closures: std::collections::HashMap::new(),
             globals: std::collections::HashMap::new(),
             bindings: std::collections::HashMap::new(),
+            dynamic_methods: std::collections::HashSet::new(),
             iterators: std::collections::HashMap::new(),
             reflection_grants: Vec::new(),
             revision_subscribers: Vec::new(),
@@ -223,6 +242,8 @@ impl Machine {
             modules: Vec::new(),
             next_commit: 1,
             next_closure: 1,
+            dynamic_selectors: std::collections::HashMap::new(),
+            next_dynamic_selector: 2_000_000,
             next_context: 900_000,
             next_iterator: 1_000_000,
             tasks: std::collections::HashMap::new(),
@@ -233,6 +254,7 @@ impl Machine {
             decoder_diagnostic: None,
             discarded_contexts: Vec::new(),
             open_depth: 0,
+            open_group_state: None,
             pending_class_initializers: std::collections::HashMap::new(),
             suspended: Vec::new(),
             pending_frame: None,
@@ -324,6 +346,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         MachineError::ConcurrentModification => Some("ConcurrentModificationError"),
         MachineError::TypeContractError => Some("TypeContractError"),
         MachineError::InvalidKeyError => Some("InvalidKeyError"),
+        MachineError::DefiniteAssignment => Some("DefiniteAssignmentError"),
         // `fetch` REFUSES an absent key, which is what makes it an assertion
         // that the key is present - and that refusal is catchable by name.
         MachineError::KeyError => Some("KeyError"),
@@ -402,7 +425,7 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         Value::Bool(_) => "Bool",
         Value::Nil => "Nil",
         Value::Symbol(_) => "Symbol",
-        Value::Class(_) => "Class",
+        Value::Class(_) | Value::ClosedClass(..) => "Class",
         Value::Type(..) => "Type",
         Value::Object(_) => "Object",
         Value::Closure(_) => "Closure",
@@ -417,7 +440,7 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         // program, and they describe the rejection differently.
         Value::ReadonlyArray(_) => "ReadonlyArray",
         Value::ContractView(..) => "ContractView",
-        Value::Contract(_) => "Contract",
+        Value::Contract(..) => "Contract",
         Value::SourceLocation(..) => "SourceLocation",
         Value::StackFrame(..) => "StackFrame",
         Value::RaiseSite(_) => "RaiseSite",
@@ -476,14 +499,19 @@ pub fn run(program: &Program) -> Result<Value, MachineError> {
 /// writes `@n` for it, so the sigil is stripped when a property of that name
 /// exists. An ivar the class never declared keeps its written spelling, which
 /// is what lets `@z = 5` work in a class with no such property.
-pub(super) fn ivar_slot_name(program: &Program, name: &str) -> String {
+pub(super) fn ivar_slot_name(
+    program: &Program,
+    dynamic_selectors: &std::collections::HashMap<String, Selector>,
+    name: &str,
+) -> String {
     let bare = name.trim_start_matches('@');
-    let declared = program.classes.iter().any(|class| {
-        class
-            .stored_properties
-            .iter()
-            .any(|property| property.name == bare)
-    });
+    let declared = dynamic_selectors.contains_key(bare)
+        || program.classes.iter().any(|class| {
+            class
+                .stored_properties
+                .iter()
+                .any(|property| property.name == bare)
+        });
     if declared {
         bare.to_owned()
     } else {

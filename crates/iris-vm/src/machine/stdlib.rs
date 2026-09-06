@@ -359,9 +359,45 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Option<Value>, MachineError> {
+        if matches!(receiver, Value::Class(_))
+            && let Some(value) =
+                self.reopened_builtin_send(receiver, selector, arguments, program, classes)?
+        {
+            return Ok(Some(value));
+        }
         let result = match receiver {
+            Value::ContractView(inner, contract) if selector == "hash" && arguments.is_empty() => {
+                let receiver_hash = self.key_hash(inner, program, classes)?;
+                let Value::Integer(receiver_hash) = receiver_hash else {
+                    return Err(MachineError::InvalidKeyError);
+                };
+                let contract_index = usize::try_from(contract.raw().saturating_sub(1))
+                    .map_err(|_| MachineError::InvalidKeyError)?;
+                let contract_name = program
+                    .contracts
+                    .get(contract_index)
+                    .map(|contract| contract.name.as_str())
+                    .ok_or(MachineError::InvalidKeyError)?;
+                let contract_hash =
+                    iris_runtime::contract_type_hash("runtime-local", contract_name, 1);
+                let (Some(receiver_hash), Some(contract_hash)) =
+                    (receiver_hash.to_u64(), contract_hash.to_u64())
+                else {
+                    return Err(MachineError::InvalidKeyError);
+                };
+                Some(Value::Integer(iris_runtime::contract_view_hash(
+                    receiver_hash,
+                    contract_hash,
+                )))
+            }
             Value::Task(_) if selector == "class_name" && arguments.is_empty() => {
-                Some(Value::Text("Task".to_owned()))
+                Some(Value::Symbol("Task".to_owned()))
+            }
+            Value::BoundMethod(_) if selector == "class_name" && arguments.is_empty() => {
+                Some(Value::Symbol("BoundMethod".to_owned()))
+            }
+            Value::Closure(_) if selector == "class_name" && arguments.is_empty() => {
+                Some(Value::Symbol("Closure".to_owned()))
             }
             Value::Array(_)
             | Value::Hash(_)
@@ -456,6 +492,31 @@ impl Machine {
                 let [value] = arguments else {
                     return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
                 };
+                self.force_class_initializer(*class, slot, program, classes)?;
+                self.runtime
+                    .assign_class_var(*class, slot, value.clone())
+                    .map_err(MachineError::Construction)?;
+                Some(value.clone())
+            }
+            Value::ClosedClass(class, _)
+                if selector.ends_with('=')
+                    && arguments.len() == 1
+                    && selector_id(program, selector.trim_end_matches('=')).is_some_and(
+                        |slot| {
+                            self.runtime
+                                .class_var(*class, slot)
+                                .is_ok_and(|held| held.is_some())
+                        },
+                    ) =>
+            {
+                let name = selector.trim_end_matches('=');
+                let Some(slot) = selector_id(program, name) else {
+                    return Err(MachineError::UnknownSelector(name.to_owned()));
+                };
+                let [value] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                self.force_class_initializer(*class, slot, program, classes)?;
                 self.runtime
                     .assign_class_var(*class, slot, value.clone())
                     .map_err(MachineError::Construction)?;
@@ -721,6 +782,7 @@ impl Machine {
             {
                 match selector {
                     "value" => Some((**value).clone()),
+                    "class_name" => Some(Value::Symbol("ExceptionContext".to_owned())),
                     "cause" => Some((**cause).clone()),
                     "suppressed" => Some(Value::ReadonlyArray(suppressed.clone())),
                     "re_raise_sites" => Some(Value::ReadonlyArray(sites.clone())),
@@ -732,7 +794,7 @@ impl Machine {
             // A CONTRACT is interned once per definition, so its hash is fixed
             // by identity: `C.hash() == C.hash()` holds because both name the
             // same contract.
-            Value::Contract(contract) if selector == "hash" && arguments.is_empty() => {
+            Value::Contract(contract, _) if selector == "hash" && arguments.is_empty() => {
                 Some(Value::Integer(contract.raw().into()))
             }
             // A MutableString answers its CURRENT content, so a read after a
@@ -806,6 +868,49 @@ impl Machine {
                     revision.number(),
                 )))
             }
+            Value::Class(class) if selector == "properties" && arguments.is_empty() => {
+                let properties = self
+                    .runtime
+                    .registry()
+                    .visible_properties(*class)
+                    .map_err(MachineError::Class)?
+                    .into_iter()
+                    .map(|selector| {
+                        self.selector_name(program, selector)
+                            .map(|name| Value::Symbol(format!("@{name}")))
+                            .unwrap_or(Value::Nil)
+                    })
+                    .collect();
+                Some(Value::ReadonlyArray(properties))
+            }
+            Value::Class(class)
+                if selector == "define_property"
+                    && matches!(arguments, [Value::Symbol(_), Value::Closure(_)]) =>
+            {
+                let [Value::Symbol(name), Value::Closure(initializer)] = arguments else {
+                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
+                };
+                let closure = self
+                    .closures
+                    .get(initializer)
+                    .cloned()
+                    .ok_or(MachineError::Kernel(iris_runtime::KernelError::Type))?;
+                let selector = self.dynamic_selector(name);
+                let function = u64::try_from(closure.function).map_err(|_| {
+                    MachineError::Invalid(super::VerifyError::UnknownFunction {
+                        function: usize::MAX,
+                    })
+                })?;
+                self.runtime
+                    .registry_mut()
+                    .publish_stored_property(
+                        *class,
+                        selector,
+                        iris_runtime::MethodBody::new(function),
+                    )
+                    .map_err(MachineError::Class)?;
+                Some(Value::Nil)
+            }
             // A class RECOMPOSES its module edges: `add_module` includes one
             // and `remove_module` drops it, both against the transaction
             // candidate rather than the published revision.
@@ -832,7 +937,7 @@ impl Machine {
             // removing one it never declared changes no such fact, so that is
             // a no-op rather than a refusal.
             Value::Class(class) if selector == "remove_contract" => {
-                let [Value::Contract(contract)] = arguments else {
+                let [Value::Contract(contract, _)] = arguments else {
                     return Err(MachineError::UnsupportedConstruct);
                 };
                 let declared =
@@ -924,7 +1029,10 @@ impl Machine {
                             .contracts
                             .iter()
                             .map(|contract| {
-                                Value::Contract(iris_runtime::ContractId::new(*contract as u64 + 1))
+                                Value::Contract(
+                                    iris_runtime::ContractId::new(*contract as u64 + 1),
+                                    Vec::new(),
+                                )
                             })
                             .collect()
                     })
@@ -997,7 +1105,14 @@ impl Machine {
                         Value::Symbol("runtime-local".to_owned()),
                         Value::Integer(revision.number().into()),
                         Value::Integer(revision.commit_id().into()),
-                        Value::Symbol("static".to_owned()),
+                        Value::Symbol(
+                            if self.dynamic_methods.contains(&method.id()) {
+                                "dynamic-only"
+                            } else {
+                                "static"
+                            }
+                            .to_owned(),
+                        ),
                     ])))
                 }
                 "bind" => {
@@ -1051,7 +1166,9 @@ impl Machine {
                 Some(Value::Array(iris_runtime::ArrayRef::new(
                     type_arguments
                         .iter()
-                        .map(|argument| Value::Type(*argument, Vec::new()))
+                        .map(|argument| {
+                            Value::Type(argument.class(), argument.arguments().to_vec())
+                        })
                         .collect(),
                 )))
             }
@@ -1110,17 +1227,23 @@ impl Machine {
                     .to_owned(),
                 ))
             }
-            Value::Type(left, _) if selector == "subtype?" => {
-                let [Value::Type(right, _)] = arguments else {
+            Value::Type(left, left_arguments) if selector == "subtype?" => {
+                let [Value::Type(right, right_arguments)] = arguments else {
                     return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
                 };
-                Some(Value::Bool(self.is_subtype(*left, *right)?))
+                Some(Value::Bool(
+                    (left != right || left_arguments == right_arguments)
+                        && self.is_subtype(*left, *right)?,
+                ))
             }
-            Value::Type(target, _) if selector == "assignable?" => {
-                let [Value::Type(source, _)] = arguments else {
+            Value::Type(target, target_arguments) if selector == "assignable?" => {
+                let [Value::Type(source, source_arguments)] = arguments else {
                     return Err(MachineError::Kernel(iris_runtime::KernelError::Type));
                 };
-                Some(Value::Bool(self.is_subtype(*source, *target)?))
+                Some(Value::Bool(
+                    (target != source || target_arguments == source_arguments)
+                        && self.is_subtype(*source, *target)?,
+                ))
             }
             _ => None,
         };
@@ -1550,7 +1673,7 @@ impl Machine {
     /// The kernel's built-in classes carry no user methods until a reopen
     /// publishes one, so this is consulted only when a reopen exists and the
     /// native surface answered nothing.
-    fn reopened_builtin_send(
+    pub(super) fn reopened_builtin_send(
         &mut self,
         receiver: &Value,
         selector: &str,
@@ -1560,7 +1683,15 @@ impl Machine {
     ) -> Result<Option<Value>, MachineError> {
         // Only a class the reopens actually NAMED can answer, so a value of
         // any other family is left to the ordinary refusal.
-        let name = value_class_name(receiver);
+        let name = match receiver {
+            Value::Class(class) => [
+                "Object", "Nil", "Bool", "Integer", "Float32", "Float64", "String",
+            ]
+            .into_iter()
+            .find(|name| self.builtin_class(name).is_ok_and(|known| known == *class))
+            .unwrap_or("Class"),
+            _ => value_class_name(receiver),
+        };
         if !program
             .builtin_reopens
             .iter()
@@ -2377,7 +2508,14 @@ fn reflect_atom(atom: &iris_runtime::TypeAtom) -> Value {
     match atom {
         iris_runtime::TypeAtom::Nominal(class, arguments) => Value::Type(*class, arguments.clone()),
         iris_runtime::TypeAtom::NonNil => Value::Symbol("NonNil".to_owned()),
-        iris_runtime::TypeAtom::Contract(contract) => Value::Contract(*contract),
+        iris_runtime::TypeAtom::Contract(contract, arguments) => {
+            Value::Contract(*contract, arguments.clone())
+        }
+        iris_runtime::TypeAtom::Iteration(arguments) => {
+            Value::ComposedType(iris_runtime::ComposedType::Intersection(vec![
+                iris_runtime::TypeAtom::Iteration(arguments.clone()),
+            ]))
+        }
         iris_runtime::TypeAtom::Union(nested) => {
             Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
         }

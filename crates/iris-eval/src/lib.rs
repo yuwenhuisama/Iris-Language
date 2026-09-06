@@ -291,6 +291,12 @@ pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
     if !parsed.program_accepted {
         return Err(EvaluationError::ParseDiagnostic);
     }
+    if iris_parser::analyze(&parsed.program)
+        .iter()
+        .any(|diagnostic| diagnostic.code == "GENERIC_ARGUMENT_INVARIANCE")
+    {
+        return Err(EvaluationError::ParseDiagnostic);
+    }
     if !parsed.program.declarations.is_empty()
         || parsed
             .program
@@ -1384,9 +1390,10 @@ impl Evaluator {
             | RuntimeValue::Text(_)
             | RuntimeValue::Symbol(_)
             | RuntimeValue::Class(_)
+            | RuntimeValue::ClosedClass(..)
             | RuntimeValue::Type(..)
             | RuntimeValue::ComposedType(_)
-            | RuntimeValue::Contract(_)
+            | RuntimeValue::Contract(..)
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
             | RuntimeValue::IterationYield(_)
@@ -1450,9 +1457,9 @@ fn receiver_class_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::RaiseSite(_) => "RaiseSite",
         RuntimeValue::Text(_) => "String",
         RuntimeValue::Symbol(_) => "Symbol",
-        RuntimeValue::Class(_) => "Class",
+        RuntimeValue::Class(_) | RuntimeValue::ClosedClass(..) => "Class",
         RuntimeValue::Type(..) | RuntimeValue::ComposedType(_) => "Type",
-        RuntimeValue::Contract(_) => "Contract",
+        RuntimeValue::Contract(..) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
         RuntimeValue::ArrayIterator(..)

@@ -16,7 +16,7 @@ use lowering::{ProgramBinding, lower_function};
 mod calls;
 mod expressions_lowering;
 mod ir;
-mod lowering;
+pub(crate) mod lowering;
 mod statements;
 
 pub(crate) use ir::{
@@ -66,6 +66,22 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             builtin_reopens: Vec::new(),
         });
     }
+    if iris_parser::analyze(&parsed.program)
+        .iter()
+        .any(|diagnostic| diagnostic.code == "GENERIC_ARGUMENT_INVARIANCE")
+    {
+        return Ok(Program {
+            source: source.to_owned(),
+            instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
+            registers: 1,
+            result: 0,
+            functions: Vec::new(),
+            classes: Vec::new(),
+            contracts: Vec::new(),
+            modules: Vec::new(),
+            builtin_reopens: Vec::new(),
+        });
+    }
 
     // A declaration naming a target that does not EXIST - a reopen of an
     // undeclared class, a contract inheriting an undeclared parent - is a
@@ -73,18 +89,22 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
     // parse rejection is. Declining made both backends refuse the same program
     // while describing it differently, which holds the row rather than
     // agreeing, so the backend answers a program that raises instead.
-    if let Err(error) = collect_signatures(&parsed.program.declarations, source)
+    if let Err(error) = collect_signatures(&parsed.program.declarations, &parsed.program.statements)
         && matches!(
             error.construct.as_str(),
             "class reopen target"
                 | "contract parent unbound"
                 | "module mixin unbound"
                 | "contract signature clash"
+                | "closed construction bound"
         )
     {
         // A contract SIGNATURE clash is a type failure rather than a missing
         // construct, so it raises the error the reference raises for it.
-        let raise = if error.construct == "contract signature clash" {
+        let raise = if matches!(
+            error.construct.as_str(),
+            "contract signature clash" | "closed construction bound"
+        ) {
             Instruction::RaiseTypeContract { destination: 0 }
         } else {
             Instruction::RaiseUnsupported { destination: 0 }
@@ -113,7 +133,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
         contracts,
         modules,
         builtin_reopens,
-    } = collect_signatures(&parsed.program.declarations, source)?;
+    } = collect_signatures(&parsed.program.declarations, &parsed.program.statements)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
     let mut closures = Vec::new();
@@ -349,7 +369,7 @@ pub fn compile(source: &str) -> Result<Program, CompileError> {
             name: "to_bool".to_owned(),
             parameters: 1,
             captures: 0,
-            fixed_arity: Some(1),
+            fixed_arity: Some(0),
             parameter_types: vec![String::new()],
             return_type: String::new(),
             is_async: false,

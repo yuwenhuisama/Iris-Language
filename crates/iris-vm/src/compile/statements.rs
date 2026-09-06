@@ -412,11 +412,18 @@ impl<'a, 'b> Lowering<'a, 'b> {
             exhausted: 0,
         });
         let outer = self.names.len();
-        // A single name takes the item ITSELF; a destructuring binding takes
-        // its elements by index, which is what makes `for [a, b] in source`
-        // bind two names from one yielded array.
+        // Each iteration creates immutable binding storage. Closures retain
+        // the storage they captured, while the loop body reads its current item.
         match names {
-            [name] => self.names.push(Binding::value(name.clone(), item)),
+            [name] => {
+                let binding = self.allocate()?;
+                self.instructions.push(Instruction::MakeCell {
+                    destination: binding,
+                    source: item,
+                });
+                self.names
+                    .push(Binding::captured_value(name.clone(), binding));
+            }
             names => {
                 for (position, name) in names.iter().enumerate() {
                     let element = self.allocate()?;
@@ -426,7 +433,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         position,
                         arity: names.len(),
                     });
-                    self.names.push(Binding::value(name.clone(), element));
+                    let binding = self.allocate()?;
+                    self.instructions.push(Instruction::MakeCell {
+                        destination: binding,
+                        source: element,
+                    });
+                    self.names
+                        .push(Binding::captured_value(name.clone(), binding));
                 }
             }
         }

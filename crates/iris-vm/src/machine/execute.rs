@@ -1,13 +1,16 @@
 //! Register-frame instruction execution.
 
 use iris_runtime::{
-    BoundReceiver, ClassError, ClassId, ConstructionError, ContractId, KernelError, NumericError,
-    Selector, Value,
+    BoundReceiver, ClassError, ClassId, ComposedType, ConstructionError, ContractId, KernelError,
+    MethodOwner, NumericError, Selector, TypeAtom, Value,
 };
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
 
-use super::{ClosureRecord, Machine, MachineError, PendingFrame, VerifyError, selector_id, truthy};
+use super::{
+    ClosureRecord, Machine, MachineError, OpenGroupState, PendingFrame, VerifyError, selector_id,
+    truthy,
+};
 
 impl Machine {
     /// Runs ONE frame to completion, answering its register file.
@@ -193,6 +196,18 @@ impl Machine {
                     };
                     Value::Class(class)
                 }
+                Instruction::LoadClosedClass {
+                    class, arguments, ..
+                } => {
+                    let Some(class) = classes.get(*class).copied() else {
+                        return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
+                    };
+                    run_frame!(
+                        'frame,
+                        self.materialize_closed_class(class, arguments, program, classes)
+                    );
+                    Value::ClosedClass(class, self.nominal_arguments(arguments, program, classes)?)
+                }
                 Instruction::LoadType { class, .. } => {
                     let Some(class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
@@ -200,7 +215,33 @@ impl Machine {
                     Value::Type(class, Vec::new())
                 }
                 Instruction::LoadContract { contract, .. } => {
-                    Value::Contract(ContractId::new(*contract as u64 + 1))
+                    Value::Contract(ContractId::new(*contract as u64 + 1), Vec::new())
+                }
+                Instruction::BindModuleMethod {
+                    module, selector, ..
+                } => {
+                    let module_id = self
+                        .modules
+                        .iter()
+                        .find_map(|(name, id)| (name == module).then_some(*id))
+                        .ok_or(MachineError::NameError)?;
+                    let selector_id = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let method = self
+                        .runtime
+                        .registry()
+                        .module_method(module_id, selector_id)
+                        .ok_or_else(|| MachineError::MessageNotFound {
+                            receiver_class: "Module".to_owned(),
+                            selector: selector.clone(),
+                        })?;
+                    Value::BoundMethod(
+                        self.runtime
+                            .registry_mut()
+                            .bind_retained_module(module_id, method)
+                            .map_err(ConstructionError::from)
+                            .map_err(MachineError::Construction)?,
+                    )
                 }
                 Instruction::LoadGlobal { name, .. } => self
                     .globals
@@ -269,7 +310,7 @@ impl Machine {
                     value, assigned, ..
                 } => {
                     if !truthy(&registers[*assigned as usize]) {
-                        return Err(MachineError::DefiniteAssignment);
+                        dispatch!(Err(MachineError::DefiniteAssignment)?);
                     }
                     registers[*value as usize].clone()
                 }
@@ -528,6 +569,9 @@ impl Machine {
                 Instruction::RaiseTypeContract { .. } => {
                     dispatch!(Err(MachineError::TypeContractError)?)
                 }
+                Instruction::RaiseType { .. } => {
+                    dispatch!(Err(MachineError::Kernel(KernelError::Type))?)
+                }
                 Instruction::RaiseArgumentError { .. } => {
                     dispatch!(Err(MachineError::ArgumentError)?)
                 }
@@ -726,6 +770,31 @@ impl Machine {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
+                    if let Value::ClosedClass(class, arguments) = &registers[*receiver as usize] {
+                        if selector == "type" {
+                            Value::Type(*class, arguments.clone())
+                        } else {
+                            let Some(slot) = selector_id(program, selector) else {
+                                return Err(MachineError::MessageNotFound {
+                                    receiver_class: "Class".to_owned(),
+                                    selector: selector.clone(),
+                                });
+                            };
+                            run_frame!(
+                                'frame,
+                                self.force_class_initializer(*class, slot, program, classes)
+                            );
+                            match self.runtime.class_var(*class, slot) {
+                                Ok(Some(value)) => value,
+                                Ok(None) | Err(_) => {
+                                    return Err(MachineError::MessageNotFound {
+                                        receiver_class: "Class".to_owned(),
+                                        selector: selector.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    } else
                     // A TYPE answers `kind` and `members` as bare MEMBERS, and
                     // a Method answers its own metadata the same way - both
                     // live on the authored surface, which a member read has to
@@ -733,7 +802,10 @@ impl Machine {
                     // language plainly defines as absent.
                     if matches!(
                         registers[*receiver as usize],
-                        Value::Method(_) | Value::Type(..) | Value::ComposedType(_)
+                        Value::Method(_)
+                            | Value::Type(..)
+                            | Value::ComposedType(_)
+                            | Value::ClosedClass(..)
                     ) && let Some(value) = run_frame!(
                         'frame,
                         self.authored_send(
@@ -780,6 +852,7 @@ impl Machine {
                     {
                         match selector.as_str() {
                             "value" => (**value).clone(),
+                            "class_name" => Value::Symbol("ExceptionContext".to_owned()),
                             "cause" => (**cause).clone(),
                             "suppressed" => Value::ReadonlyArray(suppressed.clone()),
                             "re_raise_sites" => Value::ReadonlyArray(sites.clone()),
@@ -839,6 +912,19 @@ impl Machine {
                                     .map_err(MachineError::Class)?;
                                 Value::Integer(iris_runtime::IntegerValue::from(revision.number()))
                             }
+                            "properties" => Value::ReadonlyArray(
+                                self.runtime
+                                    .registry()
+                                    .visible_properties(class)
+                                    .map_err(MachineError::Class)?
+                                    .into_iter()
+                                    .map(|property| {
+                                        self.selector_name(program, property)
+                                            .map(|name| Value::Symbol(format!("@{name}")))
+                                            .unwrap_or(Value::Nil)
+                                    })
+                                    .collect(),
+                            ),
                             // `C081` fixes the capability VOCABULARY, and a
                             // target's EFFECTIVE deny set is read as a bare
                             // member: a subclass inherits it and an open
@@ -875,6 +961,69 @@ impl Machine {
                                         .collect(),
                                 )
                             }
+                            "decorators" => Value::ReadonlyArray(
+                                self.runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?
+                                    .decorators()
+                                    .iter()
+                                    .map(|decorator| Value::Symbol(decorator.identity().to_owned()))
+                                    .collect(),
+                            ),
+                            "decorator_arguments" => Value::ReadonlyArray(
+                                self.runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?
+                                    .decorators()
+                                    .iter()
+                                    .map(|decorator| {
+                                        Value::ReadonlyArray(
+                                            decorator
+                                                .arguments()
+                                                .iter()
+                                                .map(|argument| decorator_argument_value(argument))
+                                                .collect(),
+                                        )
+                                    })
+                                    .collect(),
+                            ),
+                            "decorator_phases" => Value::ReadonlyArray(
+                                self.runtime
+                                    .registry()
+                                    .active(class)
+                                    .map_err(MachineError::Class)?
+                                    .decorators()
+                                    .iter()
+                                    .map(|decorator| {
+                                        let phase = program
+                                            .classes
+                                            .iter()
+                                            .find(|declaration| {
+                                                declaration.name == decorator.identity()
+                                            })
+                                            .map_or("none", |declaration| {
+                                                match (
+                                                    declaration
+                                                        .methods
+                                                        .iter()
+                                                        .any(|(name, _)| name == "plan"),
+                                                    declaration
+                                                        .methods
+                                                        .iter()
+                                                        .any(|(name, _)| name == "transform"),
+                                                ) {
+                                                    (true, true) => "static-and-runtime",
+                                                    (true, false) => "static",
+                                                    (false, true) => "runtime",
+                                                    (false, false) => "none",
+                                                }
+                                            });
+                                        Value::Symbol(phase.to_owned())
+                                    })
+                                    .collect(),
+                            ),
                             // The STATIC SPINE is the declaration's own
                             // identity, so a meta operation that adds a method
                             // leaves it unchanged - that is what makes it the
@@ -918,9 +1067,12 @@ impl Machine {
                                             .contracts
                                             .iter()
                                             .map(|contract| {
-                                                Value::Contract(iris_runtime::ContractId::new(
-                                                    *contract as u64 + 1,
-                                                ))
+                                                Value::Contract(
+                                                    iris_runtime::ContractId::new(
+                                                        *contract as u64 + 1,
+                                                    ),
+                                                    Vec::new(),
+                                                )
                                             })
                                             .collect::<Vec<_>>()
                                     })
@@ -963,6 +1115,21 @@ impl Machine {
                                         selector: selector.clone(),
                                     });
                                 };
+                                if let Some(value) = run_frame!(
+                                    'frame,
+                                    self.reopened_builtin_send(
+                                        &Value::Class(class),
+                                        selector,
+                                        &[],
+                                        program,
+                                        classes,
+                                    )
+                                ) {
+                                    if let Some(destination) = instruction.destination() {
+                                        registers[destination as usize] = value;
+                                    }
+                                    continue;
+                                }
                                 // A BUILT-IN class answers its own constants -
                                 // `Float64.nan`, `Float32.infinity` - which the
                                 // kernel decides. They are read as bare MEMBERS
@@ -1057,12 +1224,15 @@ impl Machine {
                             }
                             continue;
                         };
-                        let bound_selector = selector_id(program, selector).ok_or_else(|| {
-                            MachineError::MessageNotFound {
+                        let bound_selector = self
+                            .dynamic_selectors
+                            .get(selector)
+                            .copied()
+                            .or_else(|| selector_id(program, selector))
+                            .ok_or_else(|| MachineError::MessageNotFound {
                                 receiver_class: "Object".to_owned(),
                                 selector: selector.clone(),
-                            }
-                        })?;
+                            })?;
                         let class = self
                             .runtime
                             .class_of(object)
@@ -1071,15 +1241,15 @@ impl Machine {
                             .iter()
                             .position(|known| *known == class)
                             .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?;
-                        if program.classes[class_index]
-                            .stored_properties
-                            .iter()
-                            .any(|property| property.name == *selector)
+                        if self
+                            .runtime
+                            .registry()
+                            .visible_properties(class)
+                            .map_err(MachineError::Class)?
+                            .contains(&bound_selector)
                         {
-                            let selector = selector_id(program, selector)
-                                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                             self.runtime
-                                .raw_ivar(object, selector)
+                                .raw_ivar(object, bound_selector)
                                 .map_err(MachineError::Construction)?
                         } else if program.classes[class_index]
                             .property_methods
@@ -1180,6 +1350,9 @@ impl Machine {
                                     counter,
                                     destination: instruction.destination(),
                                     handlers: handlers.clone(),
+                                    cleanup: None,
+                                    function: None,
+                                    continuations: Vec::new(),
                                 });
                                 return Err(MachineError::Suspended(identity));
                             }
@@ -1475,7 +1648,10 @@ impl Machine {
                                 );
                             }
                         }
-                        (_, Err(error)) => return Err(error),
+                        (None, Err(error)) => {
+                            run_frame!('frame, Result::<(), MachineError>::Err(error));
+                        }
+                        (Some(_), Err(error)) => return Err(error),
                         (_, Ok(())) => {}
                     }
                     continue;
@@ -1699,20 +1875,35 @@ impl Machine {
                     let Value::BoundMethod(bound) = registers[*callee as usize].clone() else {
                         return Err(MachineError::UnsupportedConstruct);
                     };
-                    let (class, receiver) = match bound.receiver() {
+                    let receiver = match bound.receiver() {
                         BoundReceiver::Object(object) => (
-                            self.runtime
-                                .class_of(object)
-                                .map_err(MachineError::Construction)?,
-                            Value::Object(object),
+                            Some(
+                                self.runtime
+                                    .class_of(object)
+                                    .map_err(MachineError::Construction)?,
+                            ),
+                            Some(Value::Object(object)),
                         ),
-                        BoundReceiver::Class(class) => (class, Value::Class(class)),
+                        BoundReceiver::Class(class) => (Some(class), Some(Value::Class(class))),
+                        BoundReceiver::Module(module) => {
+                            if bound.method().owner() != MethodOwner::Module(module) {
+                                return Err(MachineError::Construction(
+                                    iris_runtime::DispatchError::MethodBinding {
+                                        selector: bound.method().selector(),
+                                    }
+                                    .into(),
+                                ));
+                            }
+                            (None, None)
+                        }
                     };
-                    self.runtime
-                        .registry()
-                        .validate_method_binding(class, bound.method())
-                        .map_err(ConstructionError::from)
-                        .map_err(MachineError::Construction)?;
+                    if let (Some(class), _) = receiver {
+                        self.runtime
+                            .registry()
+                            .validate_method_binding(class, bound.method())
+                            .map_err(ConstructionError::from)
+                            .map_err(MachineError::Construction)?;
+                    }
                     let function = usize::try_from(bound.method().body().raw()).map_err(|_| {
                         MachineError::Invalid(VerifyError::UnknownFunction {
                             function: usize::MAX,
@@ -1720,7 +1911,9 @@ impl Machine {
                     })?;
                     let start = *first as usize;
                     let mut passed = Vec::with_capacity(*count as usize + 1);
-                    passed.push(receiver);
+                    if let (_, Some(receiver)) = receiver {
+                        passed.push(receiver);
+                    }
                     passed.extend_from_slice(&registers[start..start + *count as usize]);
                     let callee =
                         program
@@ -1744,17 +1937,36 @@ impl Machine {
                 }
                 Instruction::Using {
                     resource, block, ..
-                } => run_frame!(
-                    'frame,
-                    self.invoke_using(
-                        registers[*resource as usize].clone(),
-                        registers[*block as usize].clone(),
-                        program,
-                        classes,
-                    )
-                ),
+                } => match self.invoke_using(
+                    registers[*resource as usize].clone(),
+                    registers[*block as usize].clone(),
+                    program,
+                    classes,
+                ) {
+                    Ok(value) => value,
+                    Err(MachineError::Suspended(gate)) => {
+                        if let Some(mut frame) = self.pending_frame.take() {
+                            frame.continuations.push(PendingFrame {
+                                gate,
+                                registers: registers.clone(),
+                                counter,
+                                destination: instruction.destination(),
+                                handlers: handlers.clone(),
+                                cleanup: None,
+                                function: None,
+                                continuations: Vec::new(),
+                            });
+                            self.pending_frame = Some(frame);
+                        }
+                        return Err(MachineError::Suspended(gate));
+                    }
+                    Err(error) => {
+                        run_frame!('frame, Result::<Value, MachineError>::Err(error))
+                    }
+                },
                 Instruction::New {
                     class,
+                    type_arguments,
                     first,
                     count,
                     ..
@@ -1764,9 +1976,17 @@ impl Machine {
                     };
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
+                    let argument_count = arguments.len();
+                    run_frame!(
+                        'frame,
+                        self.materialize_closed_class(class, type_arguments, program, classes)
+                    );
                     let object = self
                         .runtime
-                        .allocate(class)
+                        .allocate_closed(
+                            class,
+                            self.nominal_arguments(type_arguments, program, classes)?,
+                        )
                         .map_err(MachineError::Construction)?;
                     // The construction resolves `initialize` BEFORE the
                     // property initializers run: a body that REDEFINES the
@@ -1790,6 +2010,12 @@ impl Machine {
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
+                        if callee
+                            .fixed_arity
+                            .is_some_and(|arity| argument_count != arity)
+                        {
+                            dispatch!(Err(MachineError::ArgumentError)?);
+                        }
                         let _ = run_frame!('frame, self.run_body(
                             &callee.instructions,
                             callee.registers,
@@ -1812,13 +2038,14 @@ impl Machine {
                     let receiver = registers[*receiver as usize].clone();
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
+                    let argument_count = arguments.len();
                     // A cast produces a ContractView at RUN time, so a send to
                     // one arrives here rather than through `SendContract`,
                     // whose receiver the compiler could name statically. It
                     // unwraps to the underlying object, which is what makes
                     // `(x as C).m()` dispatch the object's own `m`.
                     let receiver = match receiver {
-                        Value::ContractView(inner, _) => *inner,
+                        Value::ContractView(inner, _) if selector != "hash" => *inner,
                         other => other,
                     };
                     if let Some(value) = run_frame!(
@@ -1833,6 +2060,26 @@ impl Machine {
                     ) {
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = value;
+                        }
+                        continue;
+                    }
+                    if let (Value::Class(class), "properties") = (&receiver, selector.as_str())
+                        && arguments.is_empty()
+                    {
+                        let properties = self
+                            .runtime
+                            .registry()
+                            .visible_properties(*class)
+                            .map_err(MachineError::Class)?
+                            .into_iter()
+                            .map(|property| {
+                                self.selector_name(program, property)
+                                    .map(|name| Value::Symbol(format!("@{name}")))
+                                    .unwrap_or(Value::Nil)
+                            })
+                            .collect();
+                        if let Some(destination) = instruction.destination() {
+                            registers[destination as usize] = Value::ReadonlyArray(properties);
                         }
                         continue;
                     }
@@ -1855,20 +2102,37 @@ impl Machine {
                                 (callee, passed)
                             }
                             Value::BoundMethod(bound) => {
-                                let (class, receiver) = match bound.receiver() {
+                                let receiver = match bound.receiver() {
                                     BoundReceiver::Object(object) => (
-                                        self.runtime
-                                            .class_of(object)
-                                            .map_err(MachineError::Construction)?,
-                                        Value::Object(object),
+                                        Some(
+                                            self.runtime
+                                                .class_of(object)
+                                                .map_err(MachineError::Construction)?,
+                                        ),
+                                        Some(Value::Object(object)),
                                     ),
-                                    BoundReceiver::Class(class) => (class, Value::Class(class)),
+                                    BoundReceiver::Class(class) => {
+                                        (Some(class), Some(Value::Class(class)))
+                                    }
+                                    BoundReceiver::Module(module) => {
+                                        if bound.method().owner() != MethodOwner::Module(module) {
+                                            return Err(MachineError::Construction(
+                                                iris_runtime::DispatchError::MethodBinding {
+                                                    selector: bound.method().selector(),
+                                                }
+                                                .into(),
+                                            ));
+                                        }
+                                        (None, None)
+                                    }
                                 };
-                                self.runtime
-                                    .registry()
-                                    .validate_method_binding(class, bound.method())
-                                    .map_err(ConstructionError::from)
-                                    .map_err(MachineError::Construction)?;
+                                if let (Some(class), _) = receiver {
+                                    self.runtime
+                                        .registry()
+                                        .validate_method_binding(class, bound.method())
+                                        .map_err(ConstructionError::from)
+                                        .map_err(MachineError::Construction)?;
+                                }
                                 let function = usize::try_from(bound.method().body().raw())
                                     .map_err(|_| {
                                         MachineError::Invalid(VerifyError::UnknownFunction {
@@ -1881,7 +2145,9 @@ impl Machine {
                                     ));
                                 };
                                 let mut passed = Vec::with_capacity(arguments.len() + 1);
-                                passed.push(receiver);
+                                if let (_, Some(receiver)) = receiver {
+                                    passed.push(receiver);
+                                }
                                 passed.extend(arguments);
                                 (callee, passed)
                             }
@@ -1911,10 +2177,12 @@ impl Machine {
                                     .runtime
                                     .allocate(class)
                                     .map_err(MachineError::Construction)?;
+                                let resolved = self
+                                    .runtime
+                                    .dispatch_instance(object, Selector::INITIALIZE)
+                                    .ok();
                                 self.initialize_properties(program, classes, class, object)?;
-                                if let Ok(method) =
-                                    self.runtime.dispatch_instance(object, Selector::INITIALIZE)
-                                {
+                                if let Some(method) = resolved {
                                     let function =
                                         usize::try_from(method.body().raw()).map_err(|_| {
                                             MachineError::Invalid(VerifyError::UnknownFunction {
@@ -1929,6 +2197,56 @@ impl Machine {
                                             function,
                                         }),
                                     )?;
+                                    if callee
+                                        .fixed_arity
+                                        .is_some_and(|arity| argument_count != arity)
+                                    {
+                                        dispatch!(Err(MachineError::ArgumentError)?);
+                                    }
+                                    let _ = run_frame!('frame, self.run_body(
+                                        &callee.instructions,
+                                        callee.registers,
+                                        passed,
+                                        program,
+                                        classes,
+                                    ));
+                                }
+                                if let Some(destination) = instruction.destination() {
+                                    registers[destination as usize] = Value::Object(object);
+                                }
+                                continue;
+                            }
+                            Value::ClosedClass(class, type_arguments) if selector == "new" => {
+                                let object = self
+                                    .runtime
+                                    .allocate_closed(class, type_arguments)
+                                    .map_err(MachineError::Construction)?;
+                                let resolved = self
+                                    .runtime
+                                    .dispatch_instance(object, Selector::INITIALIZE)
+                                    .ok();
+                                self.initialize_properties(program, classes, class, object)?;
+                                if let Some(method) = resolved {
+                                    let function =
+                                        usize::try_from(method.body().raw()).map_err(|_| {
+                                            MachineError::Invalid(VerifyError::UnknownFunction {
+                                                function: usize::MAX,
+                                            })
+                                        })?;
+                                    let mut passed = Vec::with_capacity(arguments.len() + 1);
+                                    passed.push(Value::Object(object));
+                                    passed.extend(arguments);
+                                    let callee = program.functions.get(function).cloned().ok_or(
+                                        MachineError::Invalid(VerifyError::UnknownFunction {
+                                            function,
+                                        }),
+                                    )?;
+                                    if callee
+                                        .fixed_arity
+                                        .is_some_and(|arity| argument_count != arity)
+                                    {
+                                        dispatch!(Err(MachineError::ArgumentError)?);
+                                    }
                                     let _ = run_frame!('frame, self.run_body(
                                         &callee.instructions,
                                         callee.registers,
@@ -1943,6 +2261,25 @@ impl Machine {
                                 continue;
                             }
                             Value::Class(class) => {
+                                if selector == "properties" && arguments.is_empty() {
+                                    let properties = self
+                                        .runtime
+                                        .registry()
+                                        .visible_properties(class)
+                                        .map_err(MachineError::Class)?
+                                        .into_iter()
+                                        .map(|property| {
+                                            self.selector_name(program, property)
+                                                .map(|name| Value::Symbol(format!("@{name}")))
+                                                .unwrap_or(Value::Nil)
+                                        })
+                                        .collect();
+                                    if let Some(destination) = instruction.destination() {
+                                        registers[destination as usize] =
+                                            Value::ReadonlyArray(properties);
+                                    }
+                                    continue;
+                                }
                                 let selector_id =
                                     selector_id(program, selector).ok_or_else(|| {
                                         MachineError::UnknownSelector(selector.clone())
@@ -2338,9 +2675,9 @@ impl Machine {
                         // through reflection, on a receiver it names, so the
                         // dispatch that selected the Method is not repeated.
                         (
-                            "Reflection::Class" | "Reflection::Module",
+                            "Reflection::Class",
                             "invoke",
-                            [Value::Method(method), receiver, rest @ ..],
+                            [Value::Method(method), receiver, Value::Array(extra)],
                         ) => {
                             // `C015` binds a REFLECTED Method against the
                             // receiver's CURRENT MRO: a module removed since
@@ -2362,6 +2699,21 @@ impl Machine {
                                     .map_err(iris_runtime::ConstructionError::from)
                                     .map_err(MachineError::Construction)?;
                             }
+                            if let Value::Symbol(name) = receiver {
+                                let Some((_, module)) =
+                                    self.modules.iter().find(|(known, _)| known == name)
+                                else {
+                                    return Err(MachineError::UnsupportedConstruct);
+                                };
+                                if method.owner() != MethodOwner::Module(*module) {
+                                    Err(MachineError::Construction(
+                                        iris_runtime::DispatchError::MethodBinding {
+                                            selector: method.selector(),
+                                        }
+                                        .into(),
+                                    ))?;
+                                }
+                            }
                             let function = usize::try_from(method.body().raw()).map_err(|_| {
                                 MachineError::Invalid(VerifyError::UnknownFunction {
                                     function: usize::MAX,
@@ -2370,10 +2722,11 @@ impl Machine {
                             let callee = program.functions.get(function).cloned().ok_or(
                                 MachineError::Invalid(VerifyError::UnknownFunction { function }),
                             )?;
-                            let mut passed = vec![receiver.clone()];
-                            if let Some(Value::Array(extra)) = rest.first() {
-                                passed.extend(extra.elements().iter().cloned());
+                            let mut passed = Vec::new();
+                            if !matches!(receiver, Value::Symbol(_)) {
+                                passed.push(receiver.clone());
                             }
+                            passed.extend(extra.elements().iter().cloned());
                             let returned = self.run_body(
                                 &callee.instructions,
                                 callee.registers,
@@ -2382,6 +2735,79 @@ impl Machine {
                                 classes,
                             )?;
                             returned.into_iter().next().unwrap_or(Value::Nil)
+                        }
+                        (
+                            "Reflection::Module",
+                            "invoke",
+                            [Value::Method(method), receiver, Value::Array(extra)],
+                        ) => {
+                            let MethodOwner::Module(_) = method.owner() else {
+                                Err(MachineError::Construction(
+                                    iris_runtime::DispatchError::MethodBinding {
+                                        selector: method.selector(),
+                                    }
+                                    .into(),
+                                ))?
+                            };
+                            // `C015` binds a REFLECTED Method against the
+                            // receiver's CURRENT MRO: a module removed since
+                            // the Method was taken no longer supplies it, so
+                            // invoking it is a binding failure rather than a
+                            // call that quietly still works.
+                            if let Some(class) = match receiver {
+                                Value::Object(object) => Some(
+                                    self.runtime
+                                        .class_of(*object)
+                                        .map_err(MachineError::Construction)?,
+                                ),
+                                Value::Class(class) => Some(*class),
+                                _ => None,
+                            } {
+                                self.runtime
+                                    .registry()
+                                    .validate_method_binding(class, *method)
+                                    .map_err(iris_runtime::ConstructionError::from)
+                                    .map_err(MachineError::Construction)?;
+                            }
+                            if let Value::Symbol(name) = receiver {
+                                let Some((_, module)) =
+                                    self.modules.iter().find(|(known, _)| known == name)
+                                else {
+                                    return Err(MachineError::UnsupportedConstruct);
+                                };
+                                if method.owner() != MethodOwner::Module(*module) {
+                                    Err(MachineError::Construction(
+                                        iris_runtime::DispatchError::MethodBinding {
+                                            selector: method.selector(),
+                                        }
+                                        .into(),
+                                    ))?;
+                                }
+                            }
+                            let function = usize::try_from(method.body().raw()).map_err(|_| {
+                                MachineError::Invalid(VerifyError::UnknownFunction {
+                                    function: usize::MAX,
+                                })
+                            })?;
+                            let callee = program.functions.get(function).cloned().ok_or(
+                                MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                            )?;
+                            let mut passed = Vec::new();
+                            if !matches!(receiver, Value::Symbol(_)) {
+                                passed.push(receiver.clone());
+                            }
+                            passed.extend(extra.elements().iter().cloned());
+                            let returned = self.run_body(
+                                &callee.instructions,
+                                callee.registers,
+                                passed,
+                                program,
+                                classes,
+                            )?;
+                            returned.into_iter().next().unwrap_or(Value::Nil)
+                        }
+                        ("Reflection::Class" | "Reflection::Module", "invoke", _) => {
+                            Err(MachineError::UnsupportedConstruct)?
                         }
                         // `C094` denies a superclass change the target's meta
                         // policy forbids, and a BUILT-IN class denies it, so
@@ -2449,6 +2875,16 @@ impl Machine {
                                     Value::Nil,
                                 ))));
                             }
+                            let mut candidate = self
+                                .runtime
+                                .registry_mut()
+                                .open(*class)
+                                .map_err(MachineError::Class)?;
+                            candidate.replace_runtime_superclass(Some(*parent));
+                            self.runtime
+                                .registry_mut()
+                                .publish(candidate)
+                                .map_err(MachineError::Class)?;
                             Value::Nil
                         }
                         ("Reflection::Class", "properties", [Value::Class(class)]) => {
@@ -2464,7 +2900,7 @@ impl Machine {
                                         .unwrap_or(Value::Nil)
                                 })
                                 .collect();
-                            Value::Array(iris_runtime::ArrayRef::new(properties))
+                            Value::ReadonlyArray(properties)
                         }
                         ("Reflection::Class", "revision", [Value::Class(class)]) => {
                             let revision = self
@@ -2502,7 +2938,7 @@ impl Machine {
                         (
                             "Reflection::Contract",
                             "requirement",
-                            [Value::Contract(contract), Value::Symbol(name)],
+                            [Value::Contract(contract, arguments), Value::Symbol(name)],
                         ) => {
                             let Some(index) = contract
                                 .raw()
@@ -2517,13 +2953,57 @@ impl Machine {
                             match contract
                                 .requirements
                                 .iter()
+                                .rev()
                                 .find(|requirement| requirement.selector == *name)
                             {
                                 Some(requirement) => {
                                     let return_type = match &requirement.return_type {
-                                        Some(name) => {
-                                            Value::Type(self.builtin_class(name)?, Vec::new())
-                                        }
+                                        Some(expression) => self.reify_contract_requirement_type(
+                                            expression, arguments, program, classes,
+                                        )?,
+                                        None => Value::Nil,
+                                    };
+                                    Value::Hash(iris_runtime::HashRef::new(vec![(
+                                        Value::Symbol("return_type".to_owned()),
+                                        return_type,
+                                    )]))
+                                }
+                                None => Value::Nil,
+                            }
+                        }
+                        (
+                            "Reflection::Contract",
+                            "requirement",
+                            [
+                                Value::ComposedType(ComposedType::Intersection(members)),
+                                Value::Symbol(name),
+                            ],
+                        ) if matches!(members.as_slice(), [TypeAtom::Contract(_, _)]) => {
+                            let [TypeAtom::Contract(contract, arguments)] = members.as_slice()
+                            else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            let Some(index) = contract
+                                .raw()
+                                .checked_sub(1)
+                                .and_then(|raw| usize::try_from(raw).ok())
+                            else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            let Some(contract) = program.contracts.get(index) else {
+                                return Err(MachineError::Kernel(KernelError::Type));
+                            };
+                            match contract
+                                .requirements
+                                .iter()
+                                .rev()
+                                .find(|requirement| requirement.selector == *name)
+                            {
+                                Some(requirement) => {
+                                    let return_type = match &requirement.return_type {
+                                        Some(expression) => self.reify_contract_requirement_type(
+                                            expression, arguments, program, classes,
+                                        )?,
                                         None => Value::Nil,
                                     };
                                     Value::Hash(iris_runtime::HashRef::new(vec![(
@@ -2817,10 +3297,17 @@ impl Machine {
                     // transaction at all, so an open queued its event while
                     // `active_revision` stayed on the origin - the backend
                     // reported 1 where the reference reports 2.
-                    self.runtime
-                        .registry_mut()
-                        .begin_transaction(runtime_class)
-                        .map_err(MachineError::Class)?;
+                    let outermost = self.open_depth == 0;
+                    if let Err(error) = self.runtime.registry_mut().begin_transaction(runtime_class)
+                    {
+                        if !outermost {
+                            self.open_group_state = Some(OpenGroupState::Aborted);
+                        }
+                        return Err(MachineError::Class(error));
+                    }
+                    if outermost {
+                        self.open_group_state = Some(OpenGroupState::Active);
+                    }
                     // `C037` makes the body NON-SUSPENDING, so an `await`
                     // inside it is refused rather than parking a frame the
                     // transaction would have to publish or roll back around.
@@ -2832,16 +3319,17 @@ impl Machine {
                         classes,
                     );
                     self.open_depth = self.open_depth.saturating_sub(1);
-                    let value = match outcome {
-                        Ok(value) => value,
-                        // C034 rolls the candidate back on failure and
-                        // publishes nothing, so a body that raised must not
-                        // leave a revision behind.
-                        Err(error) => {
-                            self.runtime.registry_mut().roll_back_group();
-                            return Err(error);
-                        }
-                    };
+                    if outcome.is_err() {
+                        self.open_group_state = Some(OpenGroupState::Aborted);
+                    }
+                    if self.open_depth > 0 {
+                        return outcome;
+                    }
+                    if self.open_group_state.take() == Some(OpenGroupState::Aborted) {
+                        self.runtime.registry_mut().roll_back_group();
+                        return outcome;
+                    }
+                    let value = outcome?;
                     self.runtime
                         .registry_mut()
                         .commit_group()
@@ -2892,7 +3380,8 @@ impl Machine {
                             function: *function,
                         })
                     })?;
-                    self.runtime
+                    let method = self
+                        .runtime
                         .registry_mut()
                         .publish_method(
                             class,
@@ -2901,6 +3390,7 @@ impl Machine {
                             iris_runtime::Visibility::Public,
                         )
                         .map_err(MachineError::Class)?;
+                    self.dynamic_methods.insert(method.id());
                     Value::Nil
                 }),
                 Instruction::Json {
@@ -3034,6 +3524,10 @@ impl Machine {
                                 contract: iris_runtime::ModuleId::new(
                                     contract.raw().saturating_add(2),
                                 ),
+                                contract_name: program
+                                    .contracts
+                                    .get(contract_index)
+                                    .map(|contract| contract.name.clone()),
                                 selector: selector_id,
                             }
                             .into(),
@@ -3087,9 +3581,13 @@ impl Machine {
                     // while the source writes `@n` for it - so the sigil is
                     // stripped or `@n` would read a slot the property never
                     // filled, answering nil where the value is.
-                    let name = &super::ivar_slot_name(program, name);
-                    let selector = selector_id(program, name)
-                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    let slot_name = super::ivar_slot_name(program, &self.dynamic_selectors, name);
+                    let selector = self
+                        .dynamic_selectors
+                        .get(&slot_name)
+                        .copied()
+                        .or_else(|| selector_id(program, &slot_name))
+                        .ok_or_else(|| MachineError::UnknownSelector(slot_name.clone()))?;
                     self.runtime
                         .raw_ivar(object, selector)
                         .map_err(MachineError::Construction)?
@@ -3100,18 +3598,39 @@ impl Machine {
                     value,
                     ..
                 } => {
-                    let Value::Object(object) = registers[*receiver as usize] else {
-                        return Err(MachineError::Kernel(KernelError::Type));
+                    let receiver = registers[*receiver as usize].clone();
+                    let Value::Object(object) = receiver else {
+                        let class = self
+                            .builtin_class(super::value_class_name(&receiver))
+                            .map_err(|_| MachineError::Kernel(KernelError::Type))?;
+                        return Err(MachineError::Construction(
+                            ConstructionError::InstanceState { class },
+                        ));
                     };
-                    let name = &super::ivar_slot_name(program, name);
-                    let selector = selector_id(program, name)
-                        .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
+                    let slot_name = super::ivar_slot_name(program, &self.dynamic_selectors, name);
+                    let selector = self
+                        .dynamic_selectors
+                        .get(&slot_name)
+                        .copied()
+                        .or_else(|| selector_id(program, &slot_name))
+                        .ok_or_else(|| MachineError::UnknownSelector(slot_name.clone()))?;
                     self.runtime
                         .assign_raw_ivar(object, selector, registers[*value as usize].clone())
                         .map_err(MachineError::Construction)?
                 }
-                Instruction::GetClassVar { receiver, name, .. } => {
-                    let class = self.receiver_class(&registers[*receiver as usize])?;
+                Instruction::GetClassVar {
+                    receiver,
+                    owner,
+                    name,
+                    ..
+                } => {
+                    let class = match owner {
+                        Some(owner) => classes
+                            .get(*owner)
+                            .copied()
+                            .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?,
+                        None => self.receiver_class(&registers[*receiver as usize])?,
+                    };
                     let selector = selector_id(program, name)
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
                     self.runtime
@@ -3121,11 +3640,18 @@ impl Machine {
                 }
                 Instruction::SetClassVar {
                     receiver,
+                    owner,
                     name,
                     value,
                     ..
                 } => {
-                    let class = self.receiver_class(&registers[*receiver as usize])?;
+                    let class = match owner {
+                        Some(owner) => classes
+                            .get(*owner)
+                            .copied()
+                            .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?,
+                        None => self.receiver_class(&registers[*receiver as usize])?,
+                    };
                     let selector = selector_id(program, name)
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
                     self.runtime
@@ -3138,6 +3664,24 @@ impl Machine {
             }
         }
         Ok(registers)
+    }
+}
+
+fn decorator_argument_value(argument: &str) -> Value {
+    if argument.is_empty() {
+        return Value::Nil;
+    }
+    if let Some(symbol) = argument.strip_prefix(':') {
+        return Value::Symbol(symbol.to_owned());
+    }
+    if let Ok(integer) = argument.parse::<u64>() {
+        return Value::Integer(integer.into());
+    }
+    match argument {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        "nil" => Value::Nil,
+        _ => Value::Text(argument.trim_matches('"').to_owned()),
     }
 }
 

@@ -1,7 +1,8 @@
 //! Runtime class registration and exception matching.
 
 use iris_runtime::{
-    BuiltinClass, ClassError, ClassId, KernelError, MethodBody, StaticSpine, Value, Visibility,
+    BuiltinClass, ClassError, ClassId, DecoratorTransform, KernelError, MethodBody, StaticSpine,
+    Value, Visibility,
 };
 
 use crate::compile::Program;
@@ -75,7 +76,10 @@ impl Machine {
         // on a Gate. The Task is answered now, and the outcome is recorded
         // only when the Gate completes and the frame runs to its end.
         if let Err(MachineError::Suspended(_)) = outcome {
-            if let Some(frame) = self.pending_frame.take() {
+            if let Some(mut frame) = self.pending_frame.take() {
+                if frame.function.is_none() {
+                    frame.function = Some(function);
+                }
                 self.suspended.push(super::SuspendedTask {
                     identity,
                     frame,
@@ -137,39 +141,60 @@ impl Machine {
         }
         self.suspended = held;
         for task in ready {
-            let Some(callee) = program.functions.get(task.function).cloned() else {
-                return Err(MachineError::Invalid(super::VerifyError::UnknownFunction {
-                    function: task.function,
-                }));
-            };
+            let super::SuspendedTask {
+                identity,
+                mut frame,
+                function,
+            } = task;
+            let cleanup = frame.cleanup.clone();
+            let mut frames = std::mem::take(&mut frame.continuations);
+            frames.reverse();
+            frames.push(frame);
+            self.pending_frame = None;
             self.async_depth += 1;
-            let outcome = self
-                .run_frame_from(
+            let outcome = frames.into_iter().try_fold(posted.clone(), |value, frame| {
+                let function = frame.function.unwrap_or(function);
+                let callee =
+                    program
+                        .functions
+                        .get(function)
+                        .cloned()
+                        .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
+                            function,
+                        }))?;
+                self.run_frame_from(
                     &callee.instructions,
                     callee.registers,
                     Vec::new(),
                     program,
                     classes,
-                    Some((task.frame, posted.clone())),
+                    Some((frame, value)),
                 )
-                .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil));
+                .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil))
+            });
             self.async_depth -= 1;
+            let outcome = match cleanup {
+                Some(resource) if !matches!(outcome, Err(MachineError::Suspended(_))) => {
+                    self.close_after(resource, outcome, program, classes)
+                }
+                _ => outcome,
+            };
             // A resumed frame may await AGAIN, on another Gate, so it parks
             // once more under the same Task identity rather than completing.
             if let Err(MachineError::Suspended(_)) = outcome {
                 if let Some(frame) = self.pending_frame.take() {
                     self.suspended.push(super::SuspendedTask {
-                        identity: task.identity,
+                        identity,
                         frame,
-                        function: task.function,
+                        function,
                     });
                 }
                 continue;
             }
             if outcome.is_err() {
-                self.unobserved_failures.push(task.identity);
+                self.unobserved_failures.push(identity);
             }
-            self.tasks.insert(task.identity, outcome.map_err(Box::new));
+            self.tasks.insert(identity, outcome.map_err(Box::new));
         }
         Ok(())
     }
@@ -212,8 +237,21 @@ impl Machine {
         // open. Closing here would run cleanup once on the way out and again
         // on the replayed re-entry, which is the double close `V084` forbids.
         if matches!(outcome, Err(MachineError::Suspended(_))) {
+            if let Some(frame) = self.pending_frame.as_mut() {
+                frame.cleanup = Some(resource);
+            }
             return outcome;
         }
+        self.close_after(resource, outcome, program, classes)
+    }
+
+    pub(super) fn close_after(
+        &mut self,
+        resource: Value,
+        outcome: Result<Value, MachineError>,
+        program: &Program,
+        classes: &[ClassId],
+    ) -> Result<Value, MachineError> {
         let closed = self.close_resource(resource, program, classes);
         match (outcome, closed) {
             (Ok(value), Ok(())) => Ok(value),
@@ -312,8 +350,23 @@ impl Machine {
             classes,
         );
         self.closure_depth -= 1;
+        if returned.is_err()
+            && let Some(frame) = self.pending_frame.as_mut()
+        {
+            frame.function = Some(closure.function);
+        }
         let returned = returned?;
         Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+    }
+
+    pub(super) fn dynamic_selector(&mut self, name: &str) -> iris_runtime::Selector {
+        if let Some(selector) = self.dynamic_selectors.get(name) {
+            return *selector;
+        }
+        let selector = iris_runtime::Selector::new(self.next_dynamic_selector);
+        self.next_dynamic_selector = self.next_dynamic_selector.saturating_add(1);
+        self.dynamic_selectors.insert(name.to_owned(), selector);
+        selector
     }
 
     pub(super) fn selector_name(
@@ -321,32 +374,34 @@ impl Machine {
         program: &Program,
         selector: iris_runtime::Selector,
     ) -> Option<String> {
-        program
-            .classes
+        self.dynamic_selectors
             .iter()
-            .flat_map(|class| {
-                class.methods.iter().chain(&class.class_methods).chain(
-                    class
-                        .reopens
-                        .iter()
-                        .flat_map(|reopen| reopen.methods.iter().chain(&reopen.class_methods)),
-                )
-            })
-            .map(|(name, _)| name.as_str())
-            .chain(
+            .find_map(|(name, known)| (*known == selector).then(|| name.clone()))
+            .or_else(|| {
                 program
                     .classes
                     .iter()
-                    .flat_map(|class| class.stored_properties.iter())
-                    .map(|property| property.name.as_str()),
-            )
-            .chain(
-                program.functions.iter().filter_map(|function| {
-                    function.name.split_once('.').map(|(_, selector)| selector)
-                }),
-            )
-            .find(|name| selector_id(program, name).is_some_and(|known| known == selector))
-            .map(str::to_owned)
+                    .flat_map(|class| {
+                        class.methods.iter().chain(&class.class_methods).chain(
+                            class.reopens.iter().flat_map(|reopen| {
+                                reopen.methods.iter().chain(&reopen.class_methods)
+                            }),
+                        )
+                    })
+                    .map(|(name, _)| name.as_str())
+                    .chain(
+                        program
+                            .classes
+                            .iter()
+                            .flat_map(|class| class.stored_properties.iter())
+                            .map(|property| property.name.as_str()),
+                    )
+                    .chain(program.functions.iter().filter_map(|function| {
+                        function.name.split_once('.').map(|(_, selector)| selector)
+                    }))
+                    .find(|name| selector_id(program, name).is_some_and(|known| known == selector))
+                    .map(str::to_owned)
+            })
     }
 
     pub(super) fn require_reflection(
@@ -546,6 +601,15 @@ impl Machine {
             self.runtime
                 .registry_mut()
                 .begin_origin_transaction(class)
+                .map_err(MachineError::Class)?;
+            self.runtime
+                .registry_mut()
+                .stage_decorators(
+                    class,
+                    declaration.decorators.iter().map(|(identity, arguments)| {
+                        DecoratorTransform::metadata(identity, arguments)
+                    }),
+                )
                 .map_err(MachineError::Class)?;
             // `C024` forbids an OVERLOAD SET, so a second declaration of one
             // selector replaces the first and must write `override`. The
@@ -812,6 +876,48 @@ impl Machine {
                 };
                 self.runtime
                     .assign_raw_ivar(object, selector, value)
+                    .map_err(MachineError::Construction)?;
+            }
+            let declared = program.classes[index]
+                .stored_properties
+                .iter()
+                .map(|property| selector_id(program, &property.name))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| MachineError::UnknownSelector("stored property".to_owned()))?;
+            let runtime_properties = self
+                .runtime
+                .registry()
+                .active(classes[index])
+                .map_err(MachineError::Class)?
+                .properties()
+                .to_vec();
+            for property in runtime_properties {
+                if declared.contains(&property.selector()) {
+                    continue;
+                }
+                let function = usize::try_from(property.initializer().raw()).map_err(|_| {
+                    MachineError::Invalid(VerifyError::UnknownFunction {
+                        function: usize::MAX,
+                    })
+                })?;
+                let callee =
+                    program
+                        .functions
+                        .get(function)
+                        .cloned()
+                        .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
+                            function,
+                        }))?;
+                let returned = self.run_body(
+                    &callee.instructions,
+                    callee.registers,
+                    vec![Value::Object(object)],
+                    program,
+                    classes,
+                )?;
+                let value = returned.into_iter().next().unwrap_or(Value::Nil);
+                self.runtime
+                    .assign_raw_ivar(object, property.selector(), value)
                     .map_err(MachineError::Construction)?;
             }
         }
@@ -1090,6 +1196,35 @@ impl Machine {
             .assign_class_var(class, selector, value)
             .map_err(MachineError::Construction)?;
         self.pending_class_initializers.remove(&(class, selector));
+        Ok(())
+    }
+
+    pub(super) fn materialize_closed_class(
+        &mut self,
+        class: iris_runtime::ClassId,
+        arguments: &[iris_syntax::TypeExpression],
+        program: &Program,
+        classes: &[iris_runtime::ClassId],
+    ) -> Result<(), MachineError> {
+        let Some(rendered) = crate::compile::lowering::Lowering::type_selector(arguments) else {
+            return Ok(());
+        };
+        let suffix = format!("<{rendered}>");
+        let Some(declaration) = classes
+            .iter()
+            .position(|known| *known == class)
+            .and_then(|index| program.classes.get(index))
+        else {
+            return Ok(());
+        };
+        for variable in &declaration.class_variables {
+            if !variable.name.ends_with(&suffix) {
+                continue;
+            }
+            let selector = selector_id(program, &variable.name)
+                .ok_or_else(|| MachineError::UnknownSelector(variable.name.clone()))?;
+            self.force_class_initializer(class, selector, program, classes)?;
+        }
         Ok(())
     }
 }

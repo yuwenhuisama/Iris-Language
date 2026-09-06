@@ -20,10 +20,13 @@ impl Machine {
     }
 
     pub(super) fn type_test(&self, value: &Value, target: &Value) -> Result<Value, MachineError> {
-        let Value::Class(target) = target else {
-            return Err(MachineError::Kernel(KernelError::Type));
+        let (target, target_arguments) = match target {
+            Value::Class(target) => (*target, &[][..]),
+            Value::ClosedClass(target, arguments) => (*target, arguments.as_slice()),
+            Value::Type(target, arguments) => (*target, arguments.as_slice()),
+            _ => return Err(MachineError::Kernel(KernelError::Type)),
         };
-        if *target
+        if target
             == self
                 .kernel
                 .class(BuiltinClass::Object)
@@ -32,6 +35,11 @@ impl Machine {
             return Ok(Value::Bool(true));
         }
         let class = match value {
+            Value::Object(_) if !target_arguments.is_empty() => {
+                return self
+                    .instance_admits(value, target, target_arguments)
+                    .map(Value::Bool);
+            }
             Value::Object(object) => self
                 .runtime
                 .class_of(*object)
@@ -60,10 +68,10 @@ impl Machine {
                 .kernel
                 .class(BuiltinClass::String)
                 .map_err(MachineError::Kernel)?,
-            Value::Class(class) => *class,
+            Value::Class(class) | Value::ClosedClass(class, _) => *class,
             _ => return Ok(Value::Bool(false)),
         };
-        self.is_subtype(class, *target).map(Value::Bool)
+        self.is_subtype(class, target).map(Value::Bool)
     }
 
     pub(super) fn is_subtype(&self, class: ClassId, target: ClassId) -> Result<bool, MachineError> {
@@ -115,7 +123,7 @@ impl Machine {
         if matches!(selector, "==" | "!=")
             && matches!(
                 receiver,
-                Value::Object(_) | Value::Class(_) | Value::Method(_)
+                Value::Object(_) | Value::Class(_) | Value::ClosedClass(..) | Value::Method(_)
             )
             && let [other] = arguments
         {
@@ -201,9 +209,31 @@ impl Machine {
             // A TYPE and the Class it reifies are different values, so the
             // question has an answer and that answer is no - refusing it
             // reported no comparison where the language makes one.
-            (Value::Type(..), Value::Class(_)) | (Value::Class(_), Value::Type(..)) => false,
+            (Value::Type(..), Value::Class(_) | Value::ClosedClass(..))
+            | (Value::Class(_) | Value::ClosedClass(..), Value::Type(..)) => false,
+            (Value::ClosedClass(..), Value::Class(_))
+            | (Value::Class(_), Value::ClosedClass(..)) => false,
             (Value::Object(left), Value::Object(right)) => left == right,
             (Value::Class(left), Value::Class(right)) => left == right,
+            (
+                Value::ClosedClass(left, left_arguments),
+                Value::ClosedClass(right, right_arguments),
+            ) => left == right && left_arguments == right_arguments,
+            (Value::Contract(left, left_arguments), Value::Contract(right, right_arguments)) => {
+                left == right && left_arguments == right_arguments
+            }
+            (Value::Symbol(left), Value::Symbol(right))
+                if self.modules.iter().any(|(name, _)| name == left)
+                    && self.modules.iter().any(|(name, _)| name == right) =>
+            {
+                self.modules
+                    .iter()
+                    .find_map(|(name, module)| (name == left).then_some(module))
+                    == self
+                        .modules
+                        .iter()
+                        .find_map(|(name, module)| (name == right).then_some(module))
+            }
             (Value::Type(left, left_arguments), Value::Type(right, right_arguments)) => {
                 left == right && left_arguments == right_arguments
             }
@@ -410,6 +440,22 @@ impl Machine {
                 bytes.mutate(|bytes| *bytes = rebuilt);
                 Ok(Value::Nil)
             }
+            Value::ByteArray(bytes) => {
+                let Value::Integer(position) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let Value::Integer(byte) = value else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                let Some(byte) = byte.to_u64().and_then(|byte| u8::try_from(byte).ok()) else {
+                    return Err(MachineError::RangeError);
+                };
+                let Some(position) = super::resolve_index(&position, bytes.bytes().len()) else {
+                    return Err(MachineError::IndexError);
+                };
+                bytes.mutate(|bytes| bytes[position] = byte);
+                Ok(Value::Nil)
+            }
             // `C054` reads use SCALAR indexing, and a scalar write requires a
             // ONE-SCALAR replacement, raises IndexError out of range and
             // mutates in place. A RANGE write accepts any text and may change
@@ -472,6 +518,7 @@ fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
         (Value::Float64(left), Value::Float64(right)) => Some(left == right),
         (Value::Nil, Value::Nil) => Some(true),
         (Value::Bool(left), Value::Bool(right)) => Some(left == right),
+        (Value::Nil | Value::Bool(_), _) | (_, Value::Nil | Value::Bool(_)) => Some(false),
         (Value::Symbol(left), Value::Symbol(right)) => Some(left == right),
         // A Bytes and a ByteArray hold the same content differently, so the
         // comparison is over BYTES rather than over the representation.
@@ -522,7 +569,9 @@ fn structural_equality(left: &Value, right: &Value) -> Option<bool> {
         (Value::Regex(left), Value::Regex(right)) => {
             Some(left.pattern == right.pattern && left.flags == right.flags)
         }
-        (Value::Contract(left), Value::Contract(right)) => Some(left == right),
+        (Value::Contract(left, left_arguments), Value::Contract(right, right_arguments)) => {
+            Some(left == right && left_arguments == right_arguments)
+        }
         _ => None,
     }
 }

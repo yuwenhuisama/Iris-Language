@@ -1871,12 +1871,18 @@ fn d206_interns_a_closed_type_by_definition_and_arguments() {
     let unapplied = "class A {} A.type same? A.type";
     // C076 keeps the Type object DISTINCT from the Class object it reifies.
     let type_is_not_class = "class A {} A.type same? A";
+    let class_is_not_type = "class A {} A same? A.type";
+    let bare_is_not_closed = "class Box<T> {} Box same? Box<String>.type";
+    let closed_is_not_bare = "class Box<T> {} Box<String>.type same? Box";
 
     // When / Then
     assert_eq!(rendered(same_arguments), "Bool(true)");
     assert_eq!(rendered(different_arguments), "Bool(false)");
     assert_eq!(rendered(unapplied), "Bool(true)");
     assert_eq!(rendered(type_is_not_class), "Bool(false)");
+    assert_eq!(rendered(class_is_not_type), "Bool(false)");
+    assert_eq!(rendered(bare_is_not_closed), "Bool(false)");
+    assert_eq!(rendered(closed_is_not_bare), "Bool(false)");
 }
 
 #[test]
@@ -2507,7 +2513,10 @@ fn c067_admits_a_bare_closed_generic_name_as_a_value() {
     assert_eq!(rendered(distinct), "Array([Bool(true), Bool(false)])");
     assert_eq!(rendered(comparison), "Array([Bool(true), Bool(false)])");
     assert_eq!(rendered(shift), "Integer(IntegerValue(4))");
-    assert_eq!(rendered(at_end), "Class(ClassId(7))");
+    assert_eq!(
+        rendered(at_end),
+        "ClosedClass(ClassId(7), [NominalType { class: ClassId(6), arguments: [] }])"
+    );
     assert_eq!(rendered(right_operand), "Bool(false)");
 }
 
@@ -2966,18 +2975,21 @@ fn c035_reads_the_candidate_inside_a_transaction_and_the_revision_outside() {
                 [A.properties, Reflection::Class.properties(A)]";
 
     // When / Then
-    assert_eq!(rendered(staged), "Array([Symbol(\"@x\"), Symbol(\"@y\")])");
+    assert_eq!(
+        rendered(staged),
+        "ReadonlyArray([Symbol(\"@x\"), Symbol(\"@y\")])"
+    );
     assert_eq!(
         rendered(rolled_back),
-        "Array([Integer(IntegerValue(0)), Array([Symbol(\"@x\")])])"
+        "Array([Integer(IntegerValue(0)), ReadonlyArray([Symbol(\"@x\")])])"
     );
     assert_eq!(
         rendered(committed),
-        "Array([Nil, Array([Symbol(\"@x\"), Symbol(\"@y\")])])"
+        "Array([Nil, ReadonlyArray([Symbol(\"@x\"), Symbol(\"@y\")])])"
     );
     assert_eq!(
         rendered(both),
-        "Array([Array([Symbol(\"@x\")]), Array([Symbol(\"@x\")])])"
+        "Array([ReadonlyArray([Symbol(\"@x\")]), ReadonlyArray([Symbol(\"@x\")])])"
     );
 }
 
@@ -3252,7 +3264,7 @@ fn v358_reports_no_implicit_contract_parent_or_module_edge() {
     // `Iterable`, `Iterator` and `Iteration` are built in under D-466, so a
     // user Contract takes the next id rather than 0. What this pins is that
     // exactly ONE declared parent appears.
-    assert_eq!(rendered(parent), "Array([Contract(ContractId(3))])");
+    assert_eq!(rendered(parent), "Array([Contract(ContractId(3), [])])");
     assert_eq!(rendered(edge), "Array([Symbol(\"A\")])");
 }
 
@@ -3336,7 +3348,7 @@ fn c027_lets_an_escaping_closure_keep_a_body_local() {
     // When / Then: each Closure keeps its OWN local, and neither became a slot.
     assert_eq!(
         rendered(escaped),
-        "Array([Integer(IntegerValue(7)), Integer(IntegerValue(9)), Array([])])"
+        "Array([Integer(IntegerValue(7)), Integer(IntegerValue(9)), ReadonlyArray([])])"
     );
 }
 
@@ -3362,7 +3374,7 @@ fn c097_exposes_the_minimal_class_reflection_view() {
     );
     assert_eq!(rendered(modules), "Array([Symbol(\"M\")])");
     // Built-in traversal Contracts occupy the first ids under D-466.
-    assert_eq!(rendered(contracts), "Array([Contract(ContractId(3))])");
+    assert_eq!(rendered(contracts), "Array([Contract(ContractId(3), [])])");
 }
 
 #[test]
@@ -3465,16 +3477,16 @@ fn c086_reports_applied_decorators_in_written_order() {
     let none = "class Box { } Box.decorators";
 
     // When / Then
-    assert_eq!(rendered(one), "Array([Symbol(\"first\")])");
+    assert_eq!(rendered(one), "ReadonlyArray([Symbol(\"first\")])");
     assert_eq!(
         rendered(ordered),
-        "Array([Symbol(\"first\"), Symbol(\"second\")])"
+        "ReadonlyArray([Symbol(\"first\"), Symbol(\"second\")])"
     );
     assert_eq!(
         rendered(reversed),
-        "Array([Symbol(\"second\"), Symbol(\"first\")])"
+        "ReadonlyArray([Symbol(\"second\"), Symbol(\"first\")])"
     );
-    assert_eq!(rendered(none), "Array([])");
+    assert_eq!(rendered(none), "ReadonlyArray([])");
 }
 
 #[test]

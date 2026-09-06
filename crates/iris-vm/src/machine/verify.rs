@@ -701,8 +701,10 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::PackageValidate { .. }
         | Instruction::LoadIterationDone { .. }
         | Instruction::LoadClass { .. }
+        | Instruction::LoadClosedClass { .. }
         | Instruction::LoadType { .. }
         | Instruction::LoadContract { .. }
+        | Instruction::BindModuleMethod { .. }
         | Instruction::LoadBuiltinType { .. }
         | Instruction::BuildType { .. }
         | Instruction::LoadBuiltinClass { .. }
@@ -718,6 +720,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         | Instruction::RaiseNameError { .. }
         | Instruction::RaiseMessageNotFound { .. }
         | Instruction::RaiseTypeContract { .. }
+        | Instruction::RaiseType { .. }
         | Instruction::RaiseImmutableBinding { .. }
         | Instruction::RaiseVisibilityDenied { .. }
         | Instruction::RaiseArgumentError { .. }
