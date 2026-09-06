@@ -1,167 +1,186 @@
 # Classes and Objects
 
-This chapter puts the object model into code. You'll define Classes, attach Methods with `fun`, declare stored properties, use raw instance variables with `@name`, refer to the current receiver with `self`, construct instances with `Type.new()`, and distinguish identity from equality. The chapter ends by pointing toward Modules and Contracts, which are the next composition tools after single Class inheritance.
-
-```iris
-class Counter {
-  property value: Integer = 0
-
-  fun add(delta: Integer) -> Integer { @value += delta }
-}
-
-let counter = Counter.new()
-```
-
-This snippet is adapted from `IRIS-V1-CONTROL-EX003`.
+This chapter details the object model of Iris v1. You will create Classes, attach methods, define stored properties, inspect instance storage, understand inheritance, and distinguish reference identity from structural equality.
 
 ## Stored properties declare typed slots
 
-`property name: Type` is the stored-property shorthand. It declares a typed slot with an optional initializer and generates accessors. The generated getter reads exactly the raw slot `@name`, and the generated setter checks and writes that same slot; there is never a hidden second backing field. An accessor block can narrow each accessor's visibility.
+The `property` shorthand defines a typed property slot and generates corresponding accessors. When custom behavior is needed, `property fun` defines explicit property accessors.
 
+<!-- iris-example: {"id":"05-stored-properties","mode":"vm","stdout":"100\n"} -->
 ```iris
 class Account {
-  property owner: String
-  property balance: Integer = 0 {
-    get;
-    private set;
-  }
+  public property balance: Integer = 100
 }
+let a = Account.new()
+print(a.balance)
 ```
 
-Writing `property fun` instead gives you the explicit accessor form, where you supply the body. Replacing a stored property's accessor with a compatible `property fun` changes only the Method body: it creates no second slot, and it touches `@name` only if its body says so.
+Expected output:
 
-A property can also live at Class or Module level with `class property` or `module property`, and `shared class property` belongs to the unapplied generic definition rather than to each closed construction.
+```text
+100
+```
+
+Property reads dispatch through the property getter without requiring explicit parentheses.
 
 ## Classes are objects with a new message
 
-A Class declaration creates a logical Class object. Instances are made by sending `new` to the Class object. Iris v1 doesn't have Class-named constructor syntax or constructor overloads. Construction allocates an instance, runs stored property initialization where present, calls the final dynamic `initialize(...)`, and returns the instance if initialization succeeds.
+Classes in Iris are first-class runtime objects. You instantiate a class by sending the `new` message to the Class object. Iris does not use constructor overloading or constructor names matching the class.
 
+<!-- iris-example: {"id":"05-classes-new","mode":"vm","stdout":"42\n"} -->
 ```iris
-class Point {
-  fun initialize(x: Integer, y: Integer) -> Nil {
-    @x = x
-    @y = y
-  }
+class Counter {
+  public fun value() -> Integer { 42 }
 }
-
-let point = Point.new(1, 2)
+let c = Counter.new()
+print(c.value())
 ```
+
+Expected output:
+
+```text
+42
+```
+
+Calling `Counter.new()` allocates a new instance and dispatches initialization before returning the instance.
 
 ## Raw instance variables live on the current receiver
 
-Raw instance variables use `@name`. They name storage on the current receiver. Source code can't write `other.@name`; outside code should use Methods or properties. A raw ivar read that finds no slot returns `nil` under the raw ivar rules. First assignment can create receiver state only when the receiver's policy allows instance state expansion.
+Raw instance variables begin with `@` (such as `@value`). They represent internal slot storage associated with the current receiver instance. Outside code cannot reach into private ivar state directly, preserving encapsulation.
 
+<!-- iris-example: {"id":"05-instance-state","mode":"vm","stdout":"0\n7\n"} -->
 ```iris
-class Named {
-  fun initialize(name: String) -> Nil { @name = name }
-  fun name() -> String { @name }
-  fun rename(name: String) -> Nil { @name = name }
+class Entity {
+  public fun initialize() -> Nil {
+    @val = 0
+    nil
+  }
+  public fun set_val(n: Integer) -> Integer {
+    @val = n
+  }
+  public fun get_val() -> Integer {
+    @val
+  }
 }
+let e = Entity.new()
+print(e.get_val())
+e.set_val(7)
+print(e.get_val())
 ```
 
-Class-level state is different: it must be declared. `shared mut @@name` and `shared let @@name` create a cell anchored to the declaring Class or Module, and a subclass cannot shadow or redeclare it.
+Expected output:
 
-```iris
-class Counter {
-  shared mut @@created: Integer = 0
-
-  class fun track() -> Integer { @@created += 1 }
-}
+```text
+0
+7
 ```
+
+In contrast, class-level shared state must be explicitly declared with `shared mut @@name` or `shared let @@name`.
 
 ## Self and super make receiver roles explicit
 
-`self` names the current receiver. It is useful when you want to pass the receiver as an object or make the receiver role explicit. Unqualified Method calls inside receiver code can also resolve to privileged sends to the current receiver.
+The `self` keyword references the active receiver instance within method bodies.
 
+Classes support single inheritance via `extends`. Methods in subclasses can override inherited behavior and participate in method lookup order.
+
+<!-- iris-example: {"id":"05-inheritance-super","mode":"vm","stdout":"base derived\ntrue\n"} -->
 ```iris
-class Box {
-  fun initialize(value: Object) -> Nil { @value = value }
-  fun value() -> Object { @value }
-  fun copy_value_to(other: Box) -> Object { other.replace(value()) }
-  fun replace(value: Object) -> Object { @value = value }
-  fun receiver() -> Box { self }
+class Base {
+  public fun name() -> String { "base" }
 }
+class Derived extends Base {
+  public override fun name() -> String { super() + " derived" }
+}
+let d = Derived.new()
+print(d.name())
+print(d is Base)
 ```
 
-Inheritance uses `extends`. A Class has a single runtime superclass. `super(args...)` calls the same selector after the current Method's lexical owner in the receiver's current method lookup order. There is no bare `super` and no implicit argument forwarding.
+Expected output:
 
-```iris
-class NamedCounter extends Counter {
-  fun initialize(name: String) -> Nil {
-    super()
-    @name = name
-  }
-}
+```text
+base derived
+true
 ```
+
+Calling `super(args...)` invokes the next implementation in the receiver's method resolution order (MRO).
 
 ## Equality is separate from identity
 
-Equality and identity are different. `==` is an ordinary comparison Method slot. Root equality for identity-bearing objects first checks whether both references denote the same object, then follows the comparison protocol. `same?` is the primitive identity test. It accepts only identity-bearing operands and raises `IdentityError` for identity-less values.
+Iris maintains a clear distinction between value equality and identity:
 
+- Equality (`==`) dispatches to the comparison protocol defined on the object's class.
+- Identity (`same?`) checks whether two identity-bearing values denote the same observable object identity, not whether memory addresses match. If either operand is identity-less, it raises `IdentityError` (`IRIS-V1-RUNTIME-C029`).
+
+<!-- iris-example: {"id":"05-equality-identity","mode":"vm","stdout":"true\nfalse\n"} -->
 ```iris
 let first = Object.new()
 let second = first
 let third = Object.new()
-
-let same_reference = first same? second
-let equal_by_protocol = first == third
+print(first same? second)
+print(first same? third)
 ```
 
-Methods and BoundMethods also have identity. Every time code reads `obj.method`, Iris creates a fresh BoundMethod object that captures the receiver relation and exact Method identity selected at binding time. Later ordinary sends use the current active Class revision, but a saved BoundMethod keeps its captured Method identity and revalidates receiver membership when invoked.
+Expected output:
 
-```iris
-class Counter {
-  fun value() -> Integer { @value }
-}
-
-let counter = Counter.new()
-let before = counter.value
-let again = counter.value
+```text
+true
+false
 ```
 
-This snippet is adapted from a runtime example in `spec-snippets.json` sourced from `03-runtime-object-model.md`. Invoking a retained BoundMethod revalidates at entry: if the Method's owner is no longer in the receiver's current lookup order, the invocation raises `MethodBindingError` before the body runs.
+`first same? second` evaluates to `true` because both identifiers point to the same instance. `first same? third` evaluates to `false` because they are separate allocations.
 
 ## Open classes keep logical identity
 
-Classes can be reopened with `open class`, subject to the static spine and validation rules. Reopening publishes a new active revision of the same logical Class identity. It is dynamic behavior, but it can't remove or weaken the static facts that existing typed code was promised.
+Iris supports reopening existing classes using `open class`. This updates the active class revision while strictly maintaining the logical identity and static guarantees already established.
 
+<!-- iris-example: {"id":"05-open-class","mode":"vm","stdout":"updated\n"} -->
 ```iris
-let klass = Counter
-
-open class Counter {
-  override fun value() -> Integer { 2 }
+class Service {
+  public fun status() -> String { "initial" }
 }
-
-let still_same_class = klass same? Counter
+open class Service {
+  public override fun status() -> String { "updated" }
+}
+let s = Service.new()
+print(s.status())
 ```
 
-Existing instances keep whatever storage they already have. The runtime never walks live instances to upgrade them, and it never calls a migration hook for you. If your application tracks its own objects, it may implement and explicitly invoke the conventional `migrate_revision(source: ClassRevision, target: ClassRevision) -> Nil`.
+Expected output:
+
+```text
+updated
+```
+
+Reopening a class publishes a new active revision atomically, allowing dynamic updates without invalidating existing identity references.
 
 ## Static promise, dynamic freedom
 
-A Class is dynamic because its active revision can change through an authorized open operation. It is statically promised because its declared superclass, declared Contracts, visible member names and signatures, property contracts, generic arity, and other static spine facts must remain compatible before a new revision can publish.
+A class defines a static spine: its superclass, property contracts, and member signatures form an immutable promise. Dynamic operations such as class reopening or method replacement must conform to this static spine before changes are published.
 
-Single inheritance is only the first layer of composition. Chapter 06, handled separately, introduces Modules for reusable behavior and Contracts for named obligation surfaces. Contracts are also where explicit `..` qualified dispatch becomes necessary when ordinary selector identity is not enough.
+**Hands-on Exercise**
+
+Save the `Account` example as `account.iris`. After its first print, add `a.balance = 125` and `print(a.balance)`. Run `./target/debug/iris --vm account.iris` and confirm output `100` followed by `125`: the generated setter changes the stored slot while preserving its `Integer` contract.
 
 ## Read the spec
 
-This chapter simplifies these normative clauses:
+This chapter simplifies the following normative clauses:
 
-- [`IRIS-V1-RUNTIME-C003`](../../spec/iris-v1/03-runtime-object-model.md): every runtime value is an object.
-- [`IRIS-V1-RUNTIME-C009`](../../spec/iris-v1/03-runtime-object-model.md): logical Classes and active revisions.
-- [`IRIS-V1-RUNTIME-C010`](../../spec/iris-v1/03-runtime-object-model.md): reopening keeps logical Class identity.
+- [`IRIS-V1-RUNTIME-C003`](../../spec/iris-v1/03-runtime-object-model.md): runtime objecthood.
+- [`IRIS-V1-RUNTIME-C009`](../../spec/iris-v1/03-runtime-object-model.md): logical classes and active revisions.
+- [`IRIS-V1-RUNTIME-C010`](../../spec/iris-v1/03-runtime-object-model.md): reopening preserves logical Class identity.
 - [`IRIS-V1-RUNTIME-C023`](../../spec/iris-v1/03-runtime-object-model.md): ordinary message identity.
-- [`IRIS-V1-RUNTIME-C029`](../../spec/iris-v1/03-runtime-object-model.md): primitive `same?`.
-- [`IRIS-V1-RUNTIME-C038`](../../spec/iris-v1/03-runtime-object-model.md): Method binding creates a BoundMethod.
-- [`IRIS-V1-RUNTIME-C040`](../../spec/iris-v1/03-runtime-object-model.md): each Method read creates a distinct BoundMethod identity.
-- [`IRIS-V1-RUNTIME-C046`](../../spec/iris-v1/03-runtime-object-model.md): single Class inheritance plus Module composition lookup.
-- [`IRIS-V1-RUNTIME-C054`](../../spec/iris-v1/03-runtime-object-model.md): standard construction through `new`.
-- [`IRIS-V1-RUNTIME-C055`](../../spec/iris-v1/03-runtime-object-model.md): no Class-named constructor syntax or constructor overloads.
-- [`IRIS-V1-RUNTIME-C066`](../../spec/iris-v1/03-runtime-object-model.md): raw `@x` storage on the current receiver.
-- [`IRIS-V1-RUNTIME-C081`](../../spec/iris-v1/03-runtime-object-model.md): explicit `super(args...)`.
-- [`IRIS-V1-RUNTIME-C086`](../../spec/iris-v1/03-runtime-object-model.md): default equality for identity-bearing objects.
-- [`IRIS-V1-RUNTIME-C161`](../../spec/iris-v1/03-runtime-object-model.md): a stored property and its single backing slot.
-- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): `shared let` and `shared mut` class-level cells.
-- [`IRIS-V1-RUNTIME-C164`](../../spec/iris-v1/03-runtime-object-model.md): the `migrate_revision(source, target)` convention.
-- [`IRIS-V1-GRAMMAR-C058`](../../spec/iris-v1/02-lexical-grammar.md): stored-property shorthand and accessor blocks.
-- [`IRIS-V1-GRAMMAR-C064`](../../spec/iris-v1/02-lexical-grammar.md): `class`, `module`, and `shared` property declarations.
+- [`IRIS-V1-RUNTIME-C029`](../../spec/iris-v1/03-runtime-object-model.md): primitive identity comparison with `same?`.
+- [`IRIS-V1-RUNTIME-C038`](../../spec/iris-v1/03-runtime-object-model.md): Method binding produces BoundMethod.
+- [`IRIS-V1-RUNTIME-C040`](../../spec/iris-v1/03-runtime-object-model.md): distinct BoundMethod identities.
+- [`IRIS-V1-RUNTIME-C046`](../../spec/iris-v1/03-runtime-object-model.md): single class inheritance and MRO lookup.
+- [`IRIS-V1-RUNTIME-C054`](../../spec/iris-v1/03-runtime-object-model.md): object construction via `new`.
+- [`IRIS-V1-RUNTIME-C055`](../../spec/iris-v1/03-runtime-object-model.md): absence of named constructor overloads.
+- [`IRIS-V1-RUNTIME-C066`](../../spec/iris-v1/03-runtime-object-model.md): receiver instance storage with `@ivar`.
+- [`IRIS-V1-RUNTIME-C081`](../../spec/iris-v1/03-runtime-object-model.md): explicit `super(args...)` invocation.
+- [`IRIS-V1-RUNTIME-C086`](../../spec/iris-v1/03-runtime-object-model.md): default object equality semantics.
+- [`IRIS-V1-RUNTIME-C161`](../../spec/iris-v1/03-runtime-object-model.md): single backing slot for stored properties.
+- [`IRIS-V1-RUNTIME-C162`](../../spec/iris-v1/03-runtime-object-model.md): shared class storage.
+- [`IRIS-V1-RUNTIME-C164`](../../spec/iris-v1/03-runtime-object-model.md): revision migration conventions.
+- [`IRIS-V1-GRAMMAR-C058`](../../spec/iris-v1/02-lexical-grammar.md): property shorthand and accessor definitions.
+- [`IRIS-V1-GRAMMAR-C064`](../../spec/iris-v1/02-lexical-grammar.md): property scope modifiers.

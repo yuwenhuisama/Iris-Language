@@ -9,6 +9,7 @@ members = [
     "crates/iris-abi",
     "crates/iris-runtime",
     "crates/iris-vm",
+    "crates/iris-native-sdk",
 ]
 resolver = "3"
 
