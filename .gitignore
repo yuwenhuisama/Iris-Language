@@ -229,3 +229,6 @@ Iris.VC.db
 # Generated Python bytecode from tools/
 __pycache__/
 *.pyc
+
+# Local Iris package sources and native build receipts.
+.iris/
