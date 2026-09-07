@@ -1,7 +1,7 @@
 use super::rounding::{HexFloat, round_hexadecimal};
 use super::{Literal, Segment};
 
-pub(super) fn convert_number(source: &str) -> Segment {
+pub(crate) fn convert_number(source: &str) -> Segment {
     let width = candidate_width(source.as_bytes());
     let candidate = &source[..width];
     if has_radix_prefix(candidate) && candidate.as_bytes().get(2) == Some(&b'_') {
@@ -36,12 +36,20 @@ pub(super) fn convert_number(source: &str) -> Segment {
 }
 
 fn candidate_width(bytes: &[u8]) -> usize {
+    let exponent_markers: &[u8] = match bytes {
+        [b'0', b'x' | b'X', ..] => b"pP",
+        [b'0', b'b' | b'B' | b'o' | b'O', ..] => b"",
+        _ => b"eE",
+    };
     let mut width = 0;
     while let Some(byte) = bytes.get(width) {
         if *byte == b'.' && bytes.get(width + 1) == Some(&b'.') {
             break;
         }
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'+' | b'-') {
+        let exponent_sign = matches!(byte, b'+' | b'-')
+            && width > 0
+            && exponent_markers.contains(&bytes[width - 1]);
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.') || exponent_sign {
             width += 1;
         } else {
             break;

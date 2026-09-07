@@ -1,4 +1,4 @@
-use crate::literal::numeric_literal_width;
+use crate::literal::{boundary, convert_number, convert_string};
 use crate::{ByteOffset, Diagnostic, SourcePosition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +61,8 @@ pub enum TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub offset: ByteOffset,
+    /// Exclusive byte offset in the original source, excluding following trivia.
+    pub end: ByteOffset,
 }
 
 #[derive(Debug, Default)]
@@ -99,22 +101,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
         Ok(value) => value,
         Err(diagnostic) => return fail(diagnostic),
     };
-    let literal_conversion = crate::convert_literals(text);
-    let diagnostics = match literal_conversion.diagnostics().first() {
-        Some(&"LEX_BAD_NUMERIC_SEPARATOR") => vec![Diagnostic::new(
-            "LEX_BAD_NUMERIC_SEPARATOR",
-            ByteOffset(base),
-            SourcePosition { line: 1, column: 1 },
-        )],
-        Some(code) => {
-            return fail(Diagnostic::new(
-                code,
-                ByteOffset(base),
-                SourcePosition { line: 1, column: 1 },
-            ));
-        }
-        None => Vec::new(),
-    };
+    let mut diagnostics = Vec::new();
     let bytes = text.as_bytes();
     let mut tokens = Vec::new();
     let mut index = 0;
@@ -122,11 +109,29 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
     let mut expression_start = true;
     while index < bytes.len() {
         let offset = ByteOffset(base + index);
+        match boundary::string_header(&bytes[index..]) {
+            Ok(Some(header)) => {
+                let segment = convert_string(&text[index..]);
+                if let Some(code) = segment.diagnostic {
+                    return fail(Diagnostic::new(code, offset, position));
+                }
+                tokens.push(Token {
+                    kind: header.kind,
+                    offset,
+                    end: ByteOffset(offset.0 + segment.width),
+                });
+                advance(&mut index, segment.width, &mut position);
+                expression_start = false;
+                continue;
+            }
+            Err(code) => return fail(Diagnostic::new(code, offset, position)),
+            Ok(None) => {}
+        }
         match bytes[index] {
             b' ' | b'\t' => advance(&mut index, 1, &mut position),
             b'\n' | b'\r' => {
                 let width = newline_width(bytes, index);
-                push(&mut tokens, TokenKind::Newline, offset);
+                push(&mut tokens, TokenKind::Newline, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
@@ -143,7 +148,13 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
             }
             b'/' if bytes.get(index + 1) == Some(&b'*') => match comment_end(bytes, index) {
                 Some(end) => {
-                    advance_comment(&mut tokens, bytes, &mut index, end, base, &mut position)
+                    if bytes[index..end]
+                        .iter()
+                        .any(|byte| matches!(byte, b'\n' | b'\r'))
+                    {
+                        expression_start = true;
+                    }
+                    advance_comment(&mut tokens, bytes, &mut index, end, base, &mut position);
                 }
                 None => {
                     return fail(Diagnostic::new(
@@ -168,7 +179,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 ));
             }
             b'%' if bytes.get(index + 1) == Some(&b'{') => {
-                push(&mut tokens, TokenKind::HashOpen, offset);
+                push(&mut tokens, TokenKind::HashOpen, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
@@ -183,7 +194,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                     TokenKind::ContractView => 2,
                     _ => unreachable!(),
                 };
-                push(&mut tokens, kind, offset);
+                push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
@@ -192,8 +203,17 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                     && (bytes.get(index + 1).is_some_and(u8::is_ascii_digit)
                         || bytes.get(index + 1) == Some(&b'_'))) =>
             {
-                let width = numeric_literal_width(&text[index..]);
-                push(&mut tokens, TokenKind::SourceCharacter, offset);
+                let segment = convert_number(&text[index..]);
+                if let Some(code) = segment.diagnostic {
+                    let diagnostic = Diagnostic::new(code, offset, position);
+                    if code == "LEX_BAD_NUMERIC_SEPARATOR" {
+                        diagnostics.push(diagnostic);
+                    } else {
+                        return fail(diagnostic);
+                    }
+                }
+                let width = segment.width;
+                push(&mut tokens, TokenKind::SourceCharacter, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = false;
             }
@@ -210,17 +230,17 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
             // spellings. Without them `=~` lexed as assignment plus bitwise
             // not, and `!~` failed to lex at all.
             b'=' if bytes.get(index + 1) == Some(&b'~') => {
-                push(&mut tokens, TokenKind::MatchTilde, offset);
+                push(&mut tokens, TokenKind::MatchTilde, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
             b'!' if bytes.get(index + 1) == Some(&b'~') => {
-                push(&mut tokens, TokenKind::NotMatchTilde, offset);
+                push(&mut tokens, TokenKind::NotMatchTilde, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
             b'!' if bytes.get(index + 1) == Some(&b'=') => {
-                push(&mut tokens, TokenKind::BangEqual, offset);
+                push(&mut tokens, TokenKind::BangEqual, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
@@ -232,16 +252,16 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                     [b'<', b'=', ..] => (TokenKind::LessEqual, 2),
                     _ => (TokenKind::LessThan, 1),
                 };
-                push(&mut tokens, kind, offset);
+                push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
             b'>' if bytes.get(index + 1) == Some(&b'>') && matches!(mode, Mode::Type) => {
-                push(&mut tokens, TokenKind::GreaterThan, offset);
+                push(&mut tokens, TokenKind::GreaterThan, (offset, 1));
                 push(
                     &mut tokens,
                     TokenKind::GreaterThan,
-                    ByteOffset(offset.0 + 1),
+                    (ByteOffset(offset.0 + 1), 1),
                 );
                 advance(&mut index, 2, &mut position);
                 expression_start = false;
@@ -252,7 +272,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 } else {
                     (TokenKind::RightShift, 2)
                 };
-                push(&mut tokens, kind, offset);
+                push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
@@ -262,32 +282,29 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 } else {
                     (TokenKind::GreaterThan, 1)
                 };
-                push(&mut tokens, kind, offset);
+                push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
             b'/' if bytes.get(index + 1) == Some(&b'=') => {
-                push(&mut tokens, TokenKind::SlashEqual, offset);
+                push(&mut tokens, TokenKind::SlashEqual, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
-            b'/' if expression_start => match regex_end(bytes, index + 1) {
-                Some(end) => {
-                    let width = end - index;
-                    push(&mut tokens, TokenKind::RegexLiteral, offset);
-                    advance(&mut index, width, &mut position);
-                    expression_start = false;
+            b'/' | b'r' if expression_start && boundary::starts_regex(&bytes[index..]) => {
+                match boundary::regex_end(&bytes[index..], bytes[index] == b'r') {
+                    Ok(width) => {
+                        push(&mut tokens, TokenKind::RegexLiteral, (offset, width));
+                        advance(&mut index, width, &mut position);
+                        expression_start = false;
+                    }
+                    Err(code) => {
+                        return fail(Diagnostic::new(code, offset, position));
+                    }
                 }
-                None => {
-                    return fail(Diagnostic::new(
-                        "LEX_UNTERMINATED_LITERAL",
-                        offset,
-                        position,
-                    ));
-                }
-            },
+            }
             b'/' => {
-                push(&mut tokens, TokenKind::Slash, offset);
+                push(&mut tokens, TokenKind::Slash, (offset, 1));
                 advance(&mut index, 1, &mut position);
                 expression_start = true;
             }
@@ -349,7 +366,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
                 &mut expression_start,
             ),
             b'@' if bytes.get(index + 1) == Some(&b'@') => {
-                push(&mut tokens, TokenKind::DoubleAt, offset);
+                push(&mut tokens, TokenKind::DoubleAt, (offset, 2));
                 advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
@@ -364,82 +381,48 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
             ),
             byte @ (b'+' | b'-' | b'*' | b'&' | b'|' | b'^' | b'%' | b'=') => {
                 let (kind, width) = fixed_operator(bytes, index, byte);
-                push(&mut tokens, kind, offset);
+                push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
                 expression_start = true;
             }
-            b'"' | b'\'' => match quoted_end(bytes, index, bytes[index]) {
-                Some(end) => {
-                    let width = end - index;
-                    push(&mut tokens, TokenKind::StringLiteral, offset);
-                    advance(&mut index, width, &mut position);
-                    expression_start = false;
+            byte if is_identifier_start(byte) => {
+                let end = identifier_end(bytes, index);
+                // C009 forbids Pattern_Syntax, Pattern_White_Space,
+                // controls and default-ignorable code points in an
+                // identifier. Such a scalar yields an EMPTY identifier, and
+                // reporting it here is what stops the scanner from making
+                // no progress and looping forever.
+                if end == index {
+                    return fail(Diagnostic::new("LEX_INVALID_IDENTIFIER", offset, position));
                 }
-                None => {
-                    return fail(Diagnostic::new(
-                        "LEX_UNTERMINATED_LITERAL",
-                        offset,
-                        position,
-                    ));
-                }
-            },
-            byte if is_identifier_start(byte) => match prefixed_literal(bytes, index) {
-                Ok(Some((kind, end))) => {
-                    let width = end - index;
-                    push(&mut tokens, kind, offset);
-                    advance(&mut index, width, &mut position);
-                    expression_start = false;
-                }
-                Ok(None) => {
-                    let end = identifier_end(bytes, index);
-                    // C009 forbids Pattern_Syntax, Pattern_White_Space,
-                    // controls and default-ignorable code points in an
-                    // identifier. Such a scalar yields an EMPTY identifier, and
-                    // reporting it here is what stops the scanner from making
-                    // no progress and looping forever.
-                    if end == index {
-                        return fail(Diagnostic::new("LEX_INVALID_IDENTIFIER", offset, position));
-                    }
-                    // C019 admits a selector SUFFIX before `=` in a setter
-                    // selector, naming both `ready?=` and `value!=`. Only `?=`
-                    // was recognised, so `value!=` lexed as `value` plus the
-                    // inequality operator and could not be declared.
-                    //
-                    // `!==` is NOT a setter selector: that is `value!` compared
-                    // with `==`, so the byte after `=` must not be another `=`.
-                    let suffixed = matches!(bytes.get(end), Some(&b'?') | Some(&b'!'))
-                        && bytes.get(end + 1) == Some(&b'=')
-                        && bytes.get(end + 2) != Some(&b'=');
-                    let kind = if suffixed {
-                        TokenKind::SetterSelector
-                    } else if keyword(&bytes[index..end]) {
-                        TokenKind::Keyword
-                    } else {
-                        TokenKind::Identifier
-                    };
-                    let width = if kind == TokenKind::SetterSelector {
-                        end + 2 - index
-                    } else {
-                        end - index
-                    };
-                    push(&mut tokens, kind, offset);
-                    advance(&mut index, width, &mut position);
-                    expression_start = false;
-                }
-                Err(unterminated) => {
-                    return fail(Diagnostic::new(
-                        if unterminated {
-                            "LEX_UNTERMINATED_LITERAL"
-                        } else {
-                            "LEX_BAD_LITERAL_PREFIX"
-                        },
-                        offset,
-                        position,
-                    ));
-                }
-            },
+                // C019 admits a selector SUFFIX before `=` in a setter
+                // selector, naming both `ready?=` and `value!=`. Only `?=`
+                // was recognised, so `value!=` lexed as `value` plus the
+                // inequality operator and could not be declared.
+                //
+                // `!==` is NOT a setter selector: that is `value!` compared
+                // with `==`, so the byte after `=` must not be another `=`.
+                let suffixed = matches!(bytes.get(end), Some(&b'?') | Some(&b'!'))
+                    && bytes.get(end + 1) == Some(&b'=')
+                    && bytes.get(end + 2) != Some(&b'=');
+                let kind = if suffixed {
+                    TokenKind::SetterSelector
+                } else if keyword(&bytes[index..end]) {
+                    TokenKind::Keyword
+                } else {
+                    TokenKind::Identifier
+                };
+                let width = if kind == TokenKind::SetterSelector {
+                    end + 2 - index
+                } else {
+                    end - index
+                };
+                push(&mut tokens, kind, (offset, width));
+                advance(&mut index, width, &mut position);
+                expression_start = false;
+            }
             _ => {
-                push(&mut tokens, TokenKind::SourceCharacter, offset);
+                push(&mut tokens, TokenKind::SourceCharacter, (offset, 1));
                 advance(&mut index, 1, &mut position);
                 expression_start = true;
             }
@@ -475,79 +458,7 @@ fn decode_source(source: &[u8]) -> Result<(&str, usize), Diagnostic> {
         )),
     }
 }
-fn prefixed_literal(bytes: &[u8], index: usize) -> Result<Option<(TokenKind, usize)>, bool> {
-    let prefixes: &[(&[u8], TokenKind)] = &[
-        (b"mbr", TokenKind::ByteArrayLiteral),
-        (b"mr", TokenKind::MutableStringLiteral),
-        (b"mb", TokenKind::ByteArrayLiteral),
-        (b"br", TokenKind::BytesLiteral),
-        (b"m", TokenKind::MutableStringLiteral),
-        (b"b", TokenKind::BytesLiteral),
-        (b"r", TokenKind::StringLiteral),
-    ];
-    for (prefix, kind) in prefixes {
-        if bytes[index..].starts_with(prefix)
-            && bytes
-                .get(index + prefix.len())
-                .is_some_and(|byte| *byte == b'"' || *byte == b'\'')
-        {
-            return quoted_end(bytes, index + prefix.len(), bytes[index + prefix.len()])
-                .map(|end| Some((*kind, end)))
-                .ok_or(true);
-        }
-    }
-    if [b"rm".as_slice(), b"bm", b"rb", b"brm"]
-        .iter()
-        .any(|prefix| {
-            bytes[index..].starts_with(prefix)
-                && bytes
-                    .get(index + prefix.len())
-                    .is_some_and(|byte| *byte == b'"' || *byte == b'\'')
-        })
-    {
-        return Err(false);
-    }
-    Ok(None)
-}
-fn quoted_end(bytes: &[u8], start: usize, quote: u8) -> Option<usize> {
-    let mut index = start + 1;
-    let mut interpolation = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index += 2,
-            byte if byte == quote && interpolation == 0 => return Some(index + 1),
-            b'$' if bytes.get(index + 1) == Some(&b'{') => {
-                interpolation += 1;
-                index += 2;
-            }
-            b'}' if interpolation > 0 => {
-                interpolation -= 1;
-                index += 1;
-            }
-            b'\n' | b'\r' => return None,
-            _ => index += 1,
-        }
-    }
-    None
-}
-fn regex_end(bytes: &[u8], mut index: usize) -> Option<usize> {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\\' => index += 2,
-            b'/' => {
-                index += 1;
-                while bytes.get(index).is_some_and(u8::is_ascii_alphabetic) {
-                    index += 1;
-                }
-                return Some(index);
-            }
-            b'\n' | b'\r' => return None,
-            _ => index += 1,
-        }
-    }
-    None
-}
-fn comment_end(bytes: &[u8], mut index: usize) -> Option<usize> {
+pub(crate) fn comment_end(bytes: &[u8], mut index: usize) -> Option<usize> {
     let mut depth = 1;
     index += 2;
     while index + 1 < bytes.len() {
@@ -578,8 +489,12 @@ fn advance_comment(
 ) {
     while *index < end {
         if matches!(bytes[*index], b'\n' | b'\r') {
-            push(tokens, TokenKind::Newline, ByteOffset(base + *index));
             let width = newline_width(bytes, *index);
+            tokens.push(Token {
+                kind: TokenKind::Newline,
+                offset: ByteOffset(base + *index),
+                end: ByteOffset(base + *index + width),
+            });
             *index += width;
             position.line += 1;
             position.column = 1;
@@ -598,7 +513,7 @@ fn punct(
     starts_expression: bool,
     expression_start: &mut bool,
 ) {
-    push(tokens, kind, offset);
+    push(tokens, kind, (offset, 1));
     advance(index, 1, position);
     // `IRIS-V1-COLLECTIONS-C023` makes a slash open a Regex literal only where a
     // primary expression is expected. Every caller passed that answer in and it
@@ -606,8 +521,12 @@ fn punct(
     // and `fun f() { /a/ }` could not lex a Regex at all.
     *expression_start = starts_expression;
 }
-fn push(tokens: &mut Vec<Token>, kind: TokenKind, offset: ByteOffset) {
-    tokens.push(Token { kind, offset });
+fn push(tokens: &mut Vec<Token>, kind: TokenKind, (offset, width): (ByteOffset, usize)) {
+    tokens.push(Token {
+        kind,
+        offset,
+        end: ByteOffset(offset.0 + width),
+    });
 }
 fn fixed_operator(bytes: &[u8], index: usize, byte: u8) -> (TokenKind, usize) {
     let remaining = &bytes[index..];

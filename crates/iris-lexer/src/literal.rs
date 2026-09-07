@@ -1,9 +1,10 @@
+pub(crate) mod boundary;
 mod numeric;
 mod rounding;
 mod text;
 
-use numeric::convert_number;
-use text::convert_string;
+pub(crate) use numeric::convert_number;
+pub(crate) use text::convert_string;
 
 /// A source literal value produced during lexical conversion.
 #[derive(Clone, Debug, PartialEq)]
@@ -44,29 +45,6 @@ impl LiteralConversion {
 }
 
 /// Converts standalone source literal segments without evaluating expressions.
-/// The end of a `IRIS-V1-COLLECTIONS-C023` Regex literal starting at `index`.
-///
-/// Answers `None` when the slash does not open one, so ordinary division is
-/// left alone.
-fn regex_literal_end(bytes: &[u8], index: usize) -> Option<usize> {
-    let mut cursor = index + 1;
-    while cursor < bytes.len() {
-        match bytes[cursor] {
-            b'\\' => cursor += 2,
-            b'/' => {
-                cursor += 1;
-                while bytes.get(cursor).is_some_and(u8::is_ascii_alphabetic) {
-                    cursor += 1;
-                }
-                return Some(cursor);
-            }
-            b'\n' | b'\r' => return None,
-            _ => cursor += 1,
-        }
-    }
-    None
-}
-
 pub fn convert_literals(source: &str) -> LiteralConversion {
     let mut conversion = LiteralConversion::default();
     let bytes = source.as_bytes();
@@ -77,34 +55,53 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
     // evaluated. C041 makes a String a sequence of scalars, and the empty
     // sequence is one of them.
     let mut saw_string = false;
+    let mut expression_start = true;
     while index < bytes.len() {
+        if let Some(end) = boundary::comment_end(bytes, index) {
+            if bytes[index..end]
+                .iter()
+                .any(|byte| matches!(byte, b'\n' | b'\r'))
+            {
+                expression_start = true;
+            }
+            index = end;
+            continue;
+        }
         if bytes[index].is_ascii_whitespace() {
+            if matches!(bytes[index], b'\n' | b'\r') {
+                expression_start = true;
+            }
             index += 1;
             continue;
         }
         if b"[],;".contains(&bytes[index]) {
             flush_string(&mut conversion, &mut pending_string, &mut saw_string);
             index += 1;
+            expression_start = bytes[index - 1] != b']';
             continue;
+        }
+        if expression_start && boundary::starts_regex(&bytes[index..]) {
+            match boundary::regex_end(&bytes[index..], bytes[index] == b'r') {
+                Ok(width) => {
+                    flush_string(&mut conversion, &mut pending_string, &mut saw_string);
+                    index += width;
+                    expression_start = false;
+                    continue;
+                }
+                Err("LEX_RESOURCE_LIMIT") => {
+                    conversion.diagnostics.push("LEX_RESOURCE_LIMIT");
+                    return conversion;
+                }
+                Err(_) => {}
+            }
         }
         if is_identifier_start(bytes[index]) && !starts_string(bytes, index) {
             index = identifier_end(bytes, index);
-            continue;
-        }
-        // `IRIS-V1-COLLECTIONS-C023` makes `/pattern/flags` a Regex literal.
-        // This pass walks the whole source without token context, so a class
-        // such as `[0-9]` inside one was read as a numeric literal and reported
-        // LEX_INVALID_RADIX_DIGIT for the entire source. A Regex is skipped
-        // whole; the scanner owns its tokenization.
-        if bytes[index] == b'/'
-            && let Some(end) = regex_literal_end(bytes, index)
-        {
-            flush_string(&mut conversion, &mut pending_string, &mut saw_string);
-            index = end;
+            expression_start = false;
             continue;
         }
         let result = match bytes[index] {
-            b'\'' | b'"' | b'r' if starts_string(bytes, index) => convert_string(&source[index..]),
+            _ if starts_string(bytes, index) => convert_string(&source[index..]),
             byte if byte.is_ascii_digit()
                 || (byte == b'.'
                     && (next_is_digit(bytes, index) || bytes.get(index + 1) == Some(&b'_'))) =>
@@ -113,11 +110,13 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
                 convert_number(&source[index..])
             }
             _ => {
+                expression_start = !matches!(bytes[index], b')' | b'}');
                 index += 1;
                 continue;
             }
         };
         index += result.width;
+        expression_start = false;
         match result.value {
             Some(Literal::String(value)) => {
                 pending_string.push_str(&value);
@@ -137,14 +136,10 @@ pub fn convert_literals(source: &str) -> LiteralConversion {
     conversion
 }
 
-pub(crate) fn numeric_literal_width(source: &str) -> usize {
-    numeric::convert_number(source).width
-}
-
 pub(crate) struct Segment {
-    width: usize,
+    pub(crate) width: usize,
     value: Option<Literal>,
-    diagnostic: Option<&'static str>,
+    pub(crate) diagnostic: Option<&'static str>,
     warning: Option<&'static str>,
 }
 
@@ -178,8 +173,7 @@ fn flush_string(conversion: &mut LiteralConversion, pending: &mut String, saw: &
 }
 
 fn starts_string(bytes: &[u8], index: usize) -> bool {
-    matches!(bytes[index], b'\'' | b'"')
-        || bytes[index] == b'r' && matches!(bytes.get(index + 1), Some(b'\'' | b'"' | b'#'))
+    !matches!(boundary::string_header(&bytes[index..]), Ok(None))
 }
 
 fn next_is_digit(bytes: &[u8], index: usize) -> bool {
