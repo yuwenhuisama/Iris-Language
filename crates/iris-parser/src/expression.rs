@@ -4,7 +4,20 @@ use crate::{Associativity, Parser, is_identifier, is_reserved_keyword};
 
 impl Parser {
     pub(super) fn expression(&mut self, minimum: u8) -> Option<Expression> {
+        if self.expression_depth == 0 {
+            self.expression_nodes = 0;
+        }
+        self.expression_node()?;
+        self.expression_depth += 1;
+        let result = self.nested(|parser| parser.expression_contents(minimum));
+        self.expression_depth -= 1;
+        result
+    }
+
+    fn expression_contents(&mut self, minimum: u8) -> Option<Expression> {
+        self.skip_newlines();
         let mut left = self.prefix()?;
+        self.expression_layout();
         while let Some((precedence, associativity)) = self.infix() {
             if precedence < minimum {
                 break;
@@ -45,6 +58,7 @@ impl Parser {
                 operator,
                 right: Box::new(right),
             };
+            self.expression_layout();
         }
         if minimum == 0 && !(self.check("=") && self.peek_next() == Some(">")) {
             if let Some(operator) = self.assignment_operator() {
@@ -109,6 +123,8 @@ impl Parser {
     fn postfix(&mut self) -> Option<Expression> {
         let mut expression = self.primary()?;
         loop {
+            self.expression_layout();
+            self.expression_node()?;
             if self.consume(".") {
                 expression = Expression::Member {
                     receiver: Box::new(expression),
@@ -124,7 +140,7 @@ impl Parser {
                 // starts a line is an Array literal statement. Without this the
                 // postfix form would swallow a following literal.
                 self.advance();
-                let index = self.expression(0)?;
+                let index = self.with_layout(true, |parser| parser.expression(0))?;
                 self.expect("]")?;
                 expression = Expression::Index {
                     receiver: Box::new(expression),
@@ -180,6 +196,7 @@ impl Parser {
         let start = self.cursor;
         let diagnostics = self.diagnostics.len();
         self.advance();
+        self.skip_newlines();
         let mut arguments = Vec::new();
         loop {
             let argument = if self.check("_") {
@@ -195,9 +212,11 @@ impl Parser {
                 }
             };
             arguments.push(argument);
+            self.skip_newlines();
             if !self.consume(",") {
                 break;
             }
+            self.skip_newlines();
         }
         if self.expect_generic_close().is_none() {
             self.rewind(start, diagnostics);
@@ -224,6 +243,7 @@ impl Parser {
         // C063 requires -- `A < B` -- into a parse error.
         let diagnostics = self.diagnostics.len();
         self.advance();
+        self.skip_newlines();
         let mut arguments = Vec::new();
         loop {
             let Some(argument) = self.type_expression() else {
@@ -231,9 +251,11 @@ impl Parser {
                 return None;
             };
             arguments.push(argument);
+            self.skip_newlines();
             if !self.consume(",") {
                 break;
             }
+            self.skip_newlines();
         }
         if self.expect_generic_close().is_none() {
             self.rewind(start, diagnostics);
@@ -248,6 +270,7 @@ impl Parser {
         // C020 is still not weakened: anything that COULD continue an
         // expression keeps the operator reading, so `a < b` stays a comparison.
         let complete = self.check(";")
+            || self.check("\n")
             || self.check(",")
             || self.check("]")
             || self.check(")")
@@ -278,11 +301,12 @@ impl Parser {
         let start = self.cursor;
         let diagnostics = self.diagnostics.len();
         self.advance();
+        self.skip_newlines();
         let Some(annotation) = self.type_expression() else {
             self.rewind(start, diagnostics);
             return None;
         };
-        if !self.consume(")") {
+        if !self.consume_after_newlines(")") {
             self.rewind(start, diagnostics);
             return None;
         }
@@ -319,46 +343,63 @@ impl Parser {
                 return Some(Expression::ReifiedType(annotation));
             }
             self.advance();
-            // C021 spells the Tuple forms `()`, `(a,)` and `(a, b, ...)`, so
-            // the empty and trailing-comma forms are what separate a one-element
-            // Tuple from an ordinary grouped expression.
-            if self.consume(")") {
-                return Some(Expression::Tuple(Vec::new()));
-            }
-            let value = self.expression(0)?;
-            if self.consume(",") {
-                let mut elements = vec![value];
-                while !self.check(")") && !self.at_end() {
-                    elements.push(self.expression(0)?);
-                    if !self.consume(",") {
-                        break;
-                    }
-                }
-                self.expect(")")?;
-                return Some(Expression::Tuple(elements));
-            }
-            self.expect(")")?;
-            return Some(Expression::Grouped(Box::new(value)));
+            return self.with_layout(true, Self::grouped_or_tuple);
         }
         if self.consume("[") {
             return self.array();
         }
         if self.consume("%{") {
-            // `hash_literal ::= "%{" hash_entry_list? "}"` with
-            // `hash_entry ::= expression ":" expression`.
-            let mut entries = Vec::new();
-            while !self.check("}") && !self.at_end() {
-                let key = self.expression(0)?;
-                self.expect(":")?;
-                let value = self.expression(0)?;
-                entries.push((key, value));
+            return self.with_layout(true, Self::hash_literal);
+        }
+        self.primary_value()
+    }
+
+    fn grouped_or_tuple(&mut self) -> Option<Expression> {
+        self.skip_newlines();
+        // C021 spells the Tuple forms `()`, `(a,)` and `(a, b, ...)`, so
+        // the empty and trailing-comma forms are what separate a one-element
+        // Tuple from an ordinary grouped expression.
+        if self.consume(")") {
+            return Some(Expression::Tuple(Vec::new()));
+        }
+        let value = self.expression(0)?;
+        if self.consume(",") {
+            self.skip_newlines();
+            let mut elements = vec![value];
+            while !self.check(")") && !self.at_end() {
+                elements.push(self.expression(0)?);
                 if !self.consume(",") {
                     break;
                 }
+                self.skip_newlines();
             }
-            self.expect("}")?;
-            return Some(Expression::Hash(entries));
+            self.expect(")")?;
+            return Some(Expression::Tuple(elements));
         }
+        self.expect(")")?;
+        Some(Expression::Grouped(Box::new(value)))
+    }
+
+    fn hash_literal(&mut self) -> Option<Expression> {
+        self.skip_newlines();
+        // `hash_literal ::= "%{" hash_entry_list? "}"` with
+        // `hash_entry ::= expression ":" expression`.
+        let mut entries = Vec::new();
+        while !self.check("}") && !self.at_end() {
+            let key = self.expression(0)?;
+            self.expect(":")?;
+            let value = self.expression(0)?;
+            entries.push((key, value));
+            if !self.consume(",") {
+                break;
+            }
+            self.skip_newlines();
+        }
+        self.expect("}")?;
+        Some(Expression::Hash(entries))
+    }
+
+    fn primary_value(&mut self) -> Option<Expression> {
         if self.check("{") && !self.no_trailing_block {
             return self.closure_literal();
         }
@@ -453,12 +494,17 @@ impl Parser {
     }
 
     pub(super) fn if_expression(&mut self) -> Option<Expression> {
+        self.nested(Self::if_expression_contents)
+    }
+
+    fn if_expression_contents(&mut self) -> Option<Expression> {
         let outer = std::mem::replace(&mut self.no_trailing_block, true);
         let condition = self.expression(0);
         self.no_trailing_block = outer;
         let condition = condition?;
         let then_body = self.body()?;
-        let else_body = if self.consume("else") {
+        let else_body = if self.consume_after_newlines("else") {
+            self.skip_newlines();
             if self.consume("if") {
                 Some(vec![Statement::Expression(self.if_expression()?)])
             } else {
@@ -502,6 +548,11 @@ impl Parser {
     }
 
     fn delimited_expressions(&mut self, closer: &str) -> Option<Vec<Expression>> {
+        self.with_layout(true, |parser| parser.expression_list(closer))
+    }
+
+    fn expression_list(&mut self, closer: &str) -> Option<Vec<Expression>> {
+        self.skip_newlines();
         let mut values = Vec::new();
         if self.consume(closer) {
             return Some(values);
@@ -516,6 +567,7 @@ impl Parser {
                 return Some(values);
             }
             self.expect(",")?;
+            self.skip_newlines();
             if self.consume(closer) {
                 return Some(values);
             }

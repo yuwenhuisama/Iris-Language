@@ -1,6 +1,8 @@
 //! Recursive-descent declarations plus Pratt expressions for Iris v1.
 
 mod expression;
+mod layout;
+mod limits;
 
 #[cfg(test)]
 mod expression_tests;
@@ -49,37 +51,19 @@ pub fn parse(source: &str) -> ParseResult {
             program_accepted: false,
         };
     }
-    let lexer_tokens = lexed.tokens();
-    let mut raw = Vec::new();
-    let mut cursor = 0;
-    while cursor < lexer_tokens.len() {
-        let token = lexer_tokens[cursor];
-        if token.kind == TokenKind::Newline {
-            raw.push((token.kind, "\n", token.offset.0));
-            cursor += 1;
-            continue;
-        }
-        let start = token.offset.0;
-        let end = if token.kind == TokenKind::SourceCharacter
-            && source.as_bytes().get(start).is_some_and(u8::is_ascii_digit)
-        {
-            numeric_end(source, start)
-        } else {
-            token_end(source, start, token.kind)
-        };
-        let text = source.get(start..end).unwrap_or_default().trim();
-        if !text.is_empty() {
-            raw.push((token.kind, text, start));
-        }
-        cursor += 1;
-        while lexer_tokens
-            .get(cursor)
-            .is_some_and(|next| next.offset.0 < end)
-        {
-            cursor += 1;
-        }
-    }
-    let tokens = combine_numeric_literals(&raw);
+    let raw = lexed
+        .tokens()
+        .iter()
+        .map(|token| {
+            let text = match token.kind {
+                TokenKind::Newline => "\n",
+                _ => &source[token.offset.0..token.end.0],
+            };
+            (text, token.offset.0)
+        })
+        .collect::<Vec<_>>();
+    let tokens = combine_operators(&raw);
+    let steps_remaining = tokens.len().saturating_mul(64).saturating_add(1024);
     let mut parser = Parser {
         tokens,
         cursor: 0,
@@ -87,8 +71,17 @@ pub fn parse(source: &str) -> ParseResult {
         no_trailing_block: false,
         no_type_union: false,
         empty_closure_header: false,
+        delimited_layout: false,
+        depth: 0,
+        expression_depth: 0,
+        expression_nodes: 0,
+        steps_remaining,
+        exhausted: false,
     };
     let program = parser.program();
+    if parser.exhausted {
+        parser.error("PARSE_RESOURCE_LIMIT");
+    }
     let program_accepted = parser.diagnostics.is_empty() && parser.at_end();
     if !parser.at_end() && parser.diagnostics.is_empty() {
         parser.error("PARSE_UNEXPECTED_TOKEN");
@@ -98,140 +91,6 @@ pub fn parse(source: &str) -> ParseResult {
         diagnostics: parser.diagnostics,
         program_accepted,
     }
-}
-
-fn token_end(source: &str, start: usize, kind: TokenKind) -> usize {
-    let remaining = source.get(start..).unwrap_or_default();
-    let width = match kind {
-        TokenKind::RangeInclusive | TokenKind::RangeExclusive => 3,
-        TokenKind::ContractView
-        | TokenKind::BangEqual
-        | TokenKind::MatchTilde
-        | TokenKind::NotMatchTilde
-        | TokenKind::LessEqual
-        | TokenKind::GreaterEqual
-        | TokenKind::LeftShift
-        | TokenKind::RightShift
-        | TokenKind::StarStar
-        | TokenKind::EqualEqual
-        | TokenKind::AndAnd
-        | TokenKind::PipePipe
-        | TokenKind::MatchArrow
-        | TokenKind::PlusEqual
-        | TokenKind::MinusEqual
-        | TokenKind::StarEqual
-        | TokenKind::SlashEqual
-        | TokenKind::AmpEqual
-        | TokenKind::PipeEqual
-        | TokenKind::CaretEqual
-        | TokenKind::PercentEqual => 2,
-        TokenKind::Spaceship
-        | TokenKind::StarStarEqual
-        | TokenKind::LeftShiftEqual
-        | TokenKind::RightShiftEqual
-        | TokenKind::AndAndEqual
-        | TokenKind::PipePipeEqual => 3,
-        // C009 continues an identifier by Unicode XID_Continue, so the width
-        // is measured in SCALARS. Counting ASCII bytes truncated every
-        // non-ASCII identifier mid-scalar.
-        TokenKind::Identifier | TokenKind::Keyword | TokenKind::SetterSelector => remaining
-            .char_indices()
-            .take_while(|(_, scalar)| {
-                *scalar == '_'
-                    || icu_properties::CodePointSetData::new::<icu_properties::props::XidContinue>()
-                        .contains(*scalar)
-            })
-            .map(|(offset, scalar)| offset + scalar.len_utf8())
-            .last()
-            .unwrap_or(0),
-        TokenKind::StringLiteral
-        | TokenKind::MutableStringLiteral
-        | TokenKind::BytesLiteral
-        | TokenKind::ByteArrayLiteral => literal_end(remaining),
-        TokenKind::RegexLiteral => regex_literal_end(remaining),
-        TokenKind::Newline => usize::from(remaining.starts_with("\r\n")) + 1,
-        TokenKind::HashOpen => 2,
-        TokenKind::SourceCharacter
-        | TokenKind::LessThan
-        | TokenKind::GreaterThan
-        | TokenKind::Slash
-        | TokenKind::LeftParen
-        | TokenKind::RightParen
-        | TokenKind::LeftBrace
-        | TokenKind::RightBrace
-        | TokenKind::Colon
-        | TokenKind::Semicolon
-        | TokenKind::Dot
-        | TokenKind::At => 1,
-        TokenKind::DoubleAt => 2,
-    };
-    start + width
-}
-
-fn numeric_end(source: &str, start: usize) -> usize {
-    let bytes = source.as_bytes();
-    let hexadecimal = bytes
-        .get(start..start + 2)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"0x"));
-    let mut end = start;
-    while let Some(byte) = bytes.get(end) {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'+' | b'-') {
-            end += 1;
-            continue;
-        }
-        if *byte == b'.'
-            && (hexadecimal || matches!(bytes.get(end + 1), Some(next) if next.is_ascii_digit()))
-        {
-            end += 1;
-            continue;
-        }
-        break;
-    }
-    end
-}
-
-/// The length of a `IRIS-V1-COLLECTIONS-C076` Regex literal token.
-///
-/// A Regex is delimited by `/` rather than a quote and carries trailing flags,
-/// so measuring it with the quoted-literal rule cut the token at the closing
-/// slash and DROPPED every flag, making `/a/im` indistinguishable from `/a/`.
-fn regex_literal_end(remaining: &str) -> usize {
-    let bytes = remaining.as_bytes();
-    let mut cursor = usize::from(bytes.first() == Some(&b'r')) + 1;
-    while let Some(byte) = bytes.get(cursor) {
-        match byte {
-            b'\\' => cursor += 2,
-            b'/' => {
-                cursor += 1;
-                while bytes.get(cursor).is_some_and(u8::is_ascii_alphabetic) {
-                    cursor += 1;
-                }
-                return cursor;
-            }
-            _ => cursor += 1,
-        }
-    }
-    remaining.len()
-}
-
-fn literal_end(remaining: &str) -> usize {
-    let quote = remaining
-        .bytes()
-        .position(|byte| matches!(byte, b'\'' | b'"'))
-        .unwrap_or(0);
-    let delimiter = remaining.as_bytes().get(quote).copied().unwrap_or(b'"');
-    let mut cursor = quote + 1;
-    while let Some(byte) = remaining.as_bytes().get(cursor) {
-        if *byte == b'\\' {
-            cursor += 2;
-            continue;
-        }
-        cursor += 1;
-        if *byte == delimiter {
-            return cursor;
-        }
-    }
-    remaining.len()
 }
 
 #[derive(Clone, Debug)]
@@ -245,25 +104,25 @@ struct Token {
     offset: usize,
 }
 
-fn combine_numeric_literals(raw: &[(TokenKind, &str, usize)]) -> Vec<Token> {
+fn combine_operators(raw: &[(&str, usize)]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut cursor = 0;
     while cursor < raw.len() {
-        let (kind, text, offset) = raw[cursor];
+        let (text, offset) = raw[cursor];
         // Two colons form `::` only when they are ADJACENT in the source.
         // Joining any two colon tokens turned `f(x: :a)`, a keyword argument
         // whose value is a Symbol, into the single name `x::a`.
         if text == ":"
             && raw
                 .get(cursor + 1)
-                .is_some_and(|(_, next, next_offset)| *next == ":" && *next_offset == offset + 1)
+                .is_some_and(|(next, next_offset)| *next == ":" && *next_offset == offset + 1)
         {
             tokens.push(Token {
                 text: "::".into(),
                 offset,
             });
             cursor += 2;
-        } else if text == "as" && raw.get(cursor + 1).is_some_and(|(_, next, _)| *next == "?") {
+        } else if text == "as" && raw.get(cursor + 1).is_some_and(|(next, _)| *next == "?") {
             // `as?` is one operator in the chapter 02 precedence table, but `?`
             // is a separate source character, so the two are joined here rather
             // than leaving `as` to bind and the `?` to dangle.
@@ -272,19 +131,6 @@ fn combine_numeric_literals(raw: &[(TokenKind, &str, usize)]) -> Vec<Token> {
                 offset,
             });
             cursor += 2;
-        } else if kind == TokenKind::SourceCharacter && text.as_bytes()[0].is_ascii_digit() {
-            let mut value = String::from(text);
-            cursor += 1;
-            while raw.get(cursor).is_some_and(|(next_kind, next, _)| {
-                *next_kind == TokenKind::SourceCharacter && next.as_bytes()[0].is_ascii_digit()
-            }) {
-                value.push_str(raw[cursor].1);
-                cursor += 1;
-            }
-            tokens.push(Token {
-                text: value,
-                offset,
-            });
         } else {
             tokens.push(Token {
                 text: text.into(),
@@ -315,6 +161,12 @@ struct Parser {
     no_type_union: bool,
     /// Set when a `||` token was rewritten into an empty closure header.
     empty_closure_header: bool,
+    delimited_layout: bool,
+    depth: usize,
+    expression_depth: usize,
+    expression_nodes: usize,
+    steps_remaining: usize,
+    exhausted: bool,
 }
 
 impl Parser {
@@ -332,6 +184,7 @@ impl Parser {
             if self.consume("\n") {
                 continue;
             }
+            let start = self.cursor;
             let decorators = self.decorators();
             match self.peek() {
                 Some("open") if self.peek_next() == Some("contract") => {
@@ -423,6 +276,7 @@ impl Parser {
                 }
             };
             self.consume_terminators();
+            self.ensure_progress(start);
         }
         program
     }
@@ -438,6 +292,7 @@ impl Parser {
         let mut constraints = Vec::new();
         let mut meta_deny = Vec::new();
         let mut rank = 0;
+        self.skip_newlines();
         while !self.check("{") && !self.at_end() {
             let clause = match self.peek() {
                 Some("extends") => 1,
@@ -478,6 +333,7 @@ impl Parser {
                 }
                 _ => unreachable!(),
             }
+            self.skip_newlines();
         }
         let body = self.body()?;
         Some(ClassDeclaration {
@@ -511,6 +367,7 @@ impl Parser {
         let mut constraints = Vec::new();
         let mut meta_deny = Vec::new();
         let mut rank = 0;
+        self.skip_newlines();
         while !self.check("{") && !self.at_end() {
             let clause = match self.peek() {
                 Some("mixin") => 1,
@@ -541,6 +398,7 @@ impl Parser {
                 }
                 _ => unreachable!(),
             }
+            self.skip_newlines();
         }
         Some(ModuleDeclaration {
             reopen,
@@ -651,6 +509,7 @@ impl Parser {
         let mut constraints = Vec::new();
         let mut meta_deny = Vec::new();
         let mut rank = 0;
+        self.skip_newlines();
         while !self.check("{") && !self.at_end() {
             let clause = match self.peek() {
                 Some("extends") => 1,
@@ -681,6 +540,7 @@ impl Parser {
                 }
                 _ => unreachable!(),
             }
+            self.skip_newlines();
         }
         Some(ContractDeclaration {
             decorators,
@@ -704,10 +564,10 @@ impl Parser {
     pub(crate) fn try_parts(&mut self) -> Option<TryParts> {
         let body = self.body()?;
         let mut catches = Vec::new();
-        while self.consume("catch") {
+        while self.consume_after_newlines("catch") {
             catches.push(self.catch_clause()?);
         }
-        let finally = if self.consume("finally") {
+        let finally = if self.consume_after_newlines("finally") {
             Some(self.body()?)
         } else {
             None
@@ -720,7 +580,12 @@ impl Parser {
     }
 
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
+        self.with_layout(false, Self::closure_contents)
+    }
+
+    fn closure_contents(&mut self) -> Option<Expression> {
         self.expect("{")?;
+        self.skip_newlines();
         let mut parameters = Vec::new();
         let mut return_type = None;
         let mut has_header = false;
@@ -750,6 +615,7 @@ impl Parser {
         } else if self.consume("|") {
             has_header = true;
             let outer = std::mem::replace(&mut self.no_type_union, true);
+            self.skip_newlines();
             while !self.check("|") && !self.at_end() {
                 let Some(parameter) = self.binding_name() else {
                     self.no_type_union = outer;
@@ -760,9 +626,11 @@ impl Parser {
                     self.no_type_union = outer;
                     return None;
                 }
+                self.skip_newlines();
                 if !self.consume(",") {
                     break;
                 }
+                self.skip_newlines();
             }
             // The union level is restored BEFORE the return annotation, which
             // sits outside the parameter list and may legitimately be a union.
@@ -778,14 +646,16 @@ impl Parser {
             self.consume_terminators();
         }
         let mut body = Vec::new();
-        self.consume_terminators();
+        self.skip_newlines();
         while !self.check("}") && !self.at_end() {
+            let start = self.cursor;
             if let Some(statement) = self.statement() {
                 body.push(statement);
             } else {
                 self.advance_to_terminator();
             }
             self.consume_terminators();
+            self.ensure_progress(start);
         }
         self.expect("}")?;
         Some(Expression::Closure {
@@ -797,10 +667,16 @@ impl Parser {
     }
 
     fn body(&mut self) -> Option<Vec<Statement>> {
+        self.with_layout(false, Self::body_contents)
+    }
+
+    fn body_contents(&mut self) -> Option<Vec<Statement>> {
+        self.skip_newlines();
         self.expect("{")?;
         let mut body = Vec::new();
-        self.consume_terminators();
+        self.skip_newlines();
         while !self.check("}") && !self.at_end() {
+            let start = self.cursor;
             if self.check("meta") {
                 self.error("PARSE_BAD_HEADER_ORDER");
                 return None;
@@ -811,6 +687,7 @@ impl Parser {
                 self.advance_to_terminator();
             }
             self.consume_terminators();
+            self.ensure_progress(start);
         }
         self.expect("}")?;
         Some(body)
@@ -831,6 +708,10 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Option<Statement> {
+        self.nested(Self::statement_contents)
+    }
+
+    fn statement_contents(&mut self) -> Option<Statement> {
         let decorators = self.decorators();
         // C059's `shared_decl` and C064's `shared` property marker share the
         // keyword, so `shared_decl` claims it only when `let` or `mut` follows.
@@ -993,12 +874,15 @@ impl Parser {
             // read, which made `fun id<T>(x: T) -> T` a parse error.
             let type_parameters = self.generic_parameters();
             self.expect("(")?;
+            self.skip_newlines();
             let mut parameters = Vec::new();
             while !self.check(")") && !self.at_end() {
-                parameters.push(self.parameter()?);
+                parameters.push(self.with_layout(true, Self::parameter)?);
+                self.skip_newlines();
                 if !self.consume(",") {
                     break;
                 }
+                self.skip_newlines();
             }
             self.expect(")")?;
             // `parameter_sequence` fixes the channel ORDER: positionals, then
@@ -1017,7 +901,7 @@ impl Parser {
             // followed by `{` is a bodyless requirement rather than a parse
             // error. Only a present `{` commits to parsing a body, which keeps
             // a malformed body reported as the body error it is.
-            let body = if self.check("{") {
+            let body = if self.check_after_newlines("{") {
                 Some(self.body()?)
             } else {
                 None
@@ -1045,6 +929,7 @@ impl Parser {
             } else {
                 Expression::Literal("nil".into())
             };
+            self.validate_property_accessors()?;
             return Some(Statement::StoredProperty {
                 decorators,
                 shared,
@@ -1064,7 +949,8 @@ impl Parser {
             self.no_trailing_block = outer;
             let condition = condition?;
             let then_body = self.body()?;
-            let else_body = if self.consume("else") {
+            let else_body = if self.consume_after_newlines("else") {
+                self.skip_newlines();
                 if self.check("if") {
                     Some(vec![self.statement()?])
                 } else {
@@ -1120,7 +1006,7 @@ impl Parser {
                 return Some(Statement::Raise(None));
             }
             let value = self.expression(0)?;
-            let cause = if self.consume("from") {
+            let cause = if self.consume_after_newlines("from") {
                 Some(self.expression(0)?)
             } else {
                 None
@@ -1402,6 +1288,10 @@ impl Parser {
     /// array forms are built here, because a Tuple value does not exist yet and
     /// inventing one would fabricate semantics chapter 06 owns.
     fn binding_pattern(&mut self) -> Option<Pattern> {
+        self.nested(Self::binding_pattern_contents)
+    }
+
+    fn binding_pattern_contents(&mut self) -> Option<Pattern> {
         if self.consume("[") {
             let mut elements = Vec::new();
             while !self.check("]") && !self.at_end() {
@@ -1437,6 +1327,10 @@ impl Parser {
     }
 
     fn array_pattern(&mut self) -> Option<Pattern> {
+        self.nested(Self::array_pattern_contents)
+    }
+
+    fn array_pattern_contents(&mut self) -> Option<Pattern> {
         self.expect("[")?;
         let mut elements = Vec::new();
         while !self.check("]") && !self.at_end() {
@@ -1452,12 +1346,21 @@ impl Parser {
     fn generic_parameters(&mut self) -> Vec<String> {
         let mut values = Vec::new();
         if self.consume("<") {
+            self.skip_newlines();
+            if self.check(">") {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+            }
             while !self.check(">") && !self.at_end() {
                 if let Some(name) = self.name() {
                     values.push(name);
                 }
+                self.skip_newlines();
                 if !self.consume(",") {
                     break;
+                }
+                self.skip_newlines();
+                if self.check(">") {
+                    self.error("PARSE_UNEXPECTED_TOKEN");
                 }
             }
             let _ = self.expect(">");
@@ -1466,23 +1369,26 @@ impl Parser {
     }
     fn constraints(&mut self) -> Vec<Constraint> {
         let mut values = Vec::new();
+        self.skip_newlines();
         while let Some(parameter) = self.name() {
             if self.expect(":").is_none() {
                 break;
             }
-            let Some(bound) = self.type_expression() else {
+            let Some(bound) = self.with_layout(true, Self::type_expression) else {
                 break;
             };
             values.push(Constraint { parameter, bound });
+            self.skip_newlines();
             if !self.consume(",") {
                 break;
             }
+            self.skip_newlines();
         }
         values
     }
     fn type_list(&mut self) -> Vec<TypeExpression> {
         let mut values = Vec::new();
-        while let Some(value) = self.type_expression() {
+        while let Some(value) = self.with_layout(true, Self::type_expression) {
             values.push(value);
             if !self.consume(",") {
                 break;
@@ -1491,15 +1397,19 @@ impl Parser {
         values
     }
     fn function_type(&mut self) -> Option<TypeExpression> {
+        self.skip_newlines();
         self.expect("(")?;
+        self.skip_newlines();
         let mut parameters = Vec::new();
         while !self.check(")") && !self.at_end() {
-            parameters.push(self.type_expression()?);
+            parameters.push(self.with_layout(true, Self::type_expression)?);
             if !self.consume(",") {
                 break;
             }
+            self.skip_newlines();
         }
         self.expect(")")?;
+        self.skip_newlines();
         self.expect("-")?;
         self.expect(">")?;
         let result = self.type_expression()?;
@@ -1516,13 +1426,16 @@ impl Parser {
     /// `String | Integer` as the way to declare a wider binding cell, so the
     /// union level is required rather than optional.
     fn type_expression(&mut self) -> Option<TypeExpression> {
+        self.skip_newlines();
         let first = self.type_intersection()?;
+        self.expression_layout();
         if self.no_type_union {
             return Some(first);
         }
         let mut values = vec![first];
         while self.consume("|") {
             values.push(self.type_intersection()?);
+            self.expression_layout();
         }
         if values.len() == 1 {
             values.pop()
@@ -1532,6 +1445,11 @@ impl Parser {
     }
 
     fn type_intersection(&mut self) -> Option<TypeExpression> {
+        self.nested(Self::type_intersection_contents)
+    }
+
+    fn type_intersection_contents(&mut self) -> Option<TypeExpression> {
+        self.skip_newlines();
         // IRIS-V1-TYPES-C094 makes the bare signature NOT a Type on its own:
         // `callable_type ::= ("Closure"|"BoundMethod"|"Block") "<" function_type ">"`.
         // The inner `(` form is parsed only as that generic argument.
@@ -1539,7 +1457,8 @@ impl Parser {
             let kind = self.name()?;
             self.expect("<")?;
             let signature = self.function_type()?;
-            self.expect(">")?;
+            self.skip_newlines();
+            self.expect_generic_close()?;
             return Some(TypeExpression::Generic {
                 name: kind,
                 arguments: vec![signature],
@@ -1556,7 +1475,7 @@ impl Parser {
             // never parsed, so `(String | Nil) & NonNil` could not be written.
             self.advance();
             let outer = std::mem::replace(&mut self.no_type_union, false);
-            let grouped = self.type_expression();
+            let grouped = self.with_layout(true, Self::type_expression);
             self.no_type_union = outer;
             self.expect(")")?;
             grouped?
@@ -1566,12 +1485,15 @@ impl Parser {
             // so any nominal Type name may carry closed generic arguments,
             // including `Dynamic<T>` from IRIS-V1-TYPES-C014.
             if self.consume("<") {
+                self.skip_newlines();
                 let mut arguments = Vec::new();
-                while !self.check(">") && !self.at_end() {
-                    arguments.push(self.type_expression()?);
+                loop {
+                    arguments.push(self.with_layout(true, Self::type_expression)?);
+                    self.skip_newlines();
                     if !self.consume(",") {
                         break;
                     }
+                    self.skip_newlines();
                 }
                 self.expect_generic_close()?;
                 TypeExpression::Generic { name, arguments }
@@ -1594,9 +1516,11 @@ impl Parser {
             first
         };
         let mut values = vec![first];
+        self.expression_layout();
         while self.consume("&") {
             let member = self.type_intersection()?;
             values.push(member);
+            self.expression_layout();
         }
         if values.len() == 1 {
             values.pop()
@@ -1731,6 +1655,7 @@ impl Parser {
                 break;
             };
             decorators.push(Decorator { name, arguments });
+            self.skip_newlines();
         }
         decorators
     }
@@ -1973,6 +1898,9 @@ impl Parser {
         self.peek() == Some(expected)
     }
     fn peek(&self) -> Option<&str> {
+        if self.exhausted {
+            return None;
+        }
         self.tokens
             .get(self.cursor)
             .map(|token| token.text.as_str())
@@ -2018,12 +1946,18 @@ impl Parser {
             .map(|token| token.text.as_str())
     }
     fn advance(&mut self) -> Option<Token> {
+        if self.steps_remaining == 0 {
+            self.exhausted = true;
+            self.error("PARSE_RESOURCE_LIMIT");
+            return None;
+        }
+        self.steps_remaining -= 1;
         let value = self.tokens.get(self.cursor).cloned();
         self.cursor += usize::from(value.is_some());
         value
     }
     fn at_end(&self) -> bool {
-        self.cursor >= self.tokens.len()
+        self.exhausted || self.cursor >= self.tokens.len()
     }
     fn error(&mut self, code: &'static str) {
         if !self
