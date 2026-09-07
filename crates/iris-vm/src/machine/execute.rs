@@ -12,6 +12,71 @@ use super::{
     truthy,
 };
 
+struct FrameState {
+    registers: Vec<Value>,
+    counter: usize,
+    handlers: Vec<(usize, Register, Register)>,
+    converted: Option<MachineError>,
+    arity: usize,
+}
+
+enum InstructionAction {
+    Produced(Value),
+    Continue,
+    Return(Value),
+}
+
+macro_rules! instruction_group {
+    (execute_iteration, $bindings:tt, $arms:tt) => {
+        instruction_group!(@impl execute_iteration, $bindings, [run_frame], [], $arms);
+    };
+    (execute_class_send, $bindings:tt, $arms:tt) => {
+        instruction_group!(@impl execute_class_send, $bindings, [run_frame], [], $arms);
+    };
+    (execute_slot, $bindings:tt, $arms:tt) => {
+        instruction_group!(@impl execute_slot, $bindings, [], [], $arms);
+    };
+    ($name:ident, $bindings:tt, $arms:tt) => {
+        instruction_group!(@impl $name, $bindings, [run_frame], [dispatch], $arms);
+    };
+    (@impl $name:ident, ($machine:ident, $instruction:ident, $state:ident, $registers:ident, $program:ident, $classes:ident), [$($run_frame:ident)?], [$($dispatch:ident)?], { $($arms:tt)* }) => {
+        impl Machine {
+            #[inline(never)]
+            fn $name(
+                &mut $machine,
+                $instruction: &Instruction,
+                $state: &mut FrameState,
+                $program: &Program,
+                $classes: &[ClassId],
+            ) -> Result<InstructionAction, MachineError> {
+                let $registers = &mut $state.registers;
+                let _ = (&$registers, &$program, &$classes);
+                $(macro_rules! $run_frame {
+                    ($label:lifetime, $call:expr) => {
+                        match $call {
+                            Ok(value) => value,
+                            Err(error) => {
+                                $machine.handle_frame_error($state, error)?;
+                                return Ok(InstructionAction::Continue);
+                            }
+                        }
+                    };
+                })?
+                $(macro_rules! $dispatch {
+                    ($body:expr) => {
+                        run_frame!('frame, (|| -> Result<Value, MachineError> { Ok($body) })())
+                    };
+                })?
+                let produced = match $instruction {
+                    $($arms)*
+                    _ => unreachable!("instruction routed to the wrong execution group"),
+                };
+                Ok(InstructionAction::Produced(produced))
+            }
+        }
+    };
+}
+
 impl Machine {
     /// Runs ONE frame to completion, answering its register file.
     ///
@@ -78,90 +143,218 @@ impl Machine {
         // a Symbol. If no handler answers it, the program must still fail with
         // the ORIGINAL error rather than with a raised Symbol: an uncaught
         // ConcurrentModification is that error, not `Raised(:...)`.
-        let mut converted: Option<MachineError> = None;
-        macro_rules! run_frame {
-            ($label:lifetime, $call:expr) => {
-                match $call {
-                    Ok(values) => values,
-                    Err(MachineError::Raised(propagation)) => {
-                        let (value, context) = *propagation;
-                        let Some((handler, exception, context_register)) = handlers.pop() else {
-                            return Err(MachineError::Raised(Box::new((value, context))));
-                        };
-                        registers[exception as usize] = value;
-                        registers[context_register as usize] = context;
-                        counter = handler;
-                        continue $label;
-                    }
-                    // A failure the specification NAMES is an ordinary
-                    // catchable Iris error, so it belongs to the innermost
-                    // handler rather than to the frame boundary. Returning it
-                    // here let `try { [].iterator().next().value } catch ...`
-                    // escape the catch entirely - the handler was reachable
-                    // and simply never consulted.
-                    Err(error) => match (super::catchable_name(&error), handlers.pop()) {
-                        (Some(name), Some((handler, exception, context_register))) => {
-                            let value = Value::Symbol(name.to_owned());
-                            registers[exception as usize] = value.clone();
-                            // A NAMED failure still travels with a context: a
-                            // program reads `c.value` and the decoder
-                            // diagnostic off it, so binding nil left the catch
-                            // holding nothing to ask.
-                            registers[context_register as usize] =
-                                self.named_failure_context(value);
-                            converted = Some(error);
-                            counter = handler;
-                            continue $label;
-                        }
-                        _ => return Err(error),
-                    },
-                }
-            };
-        }
-        'frame: while let Some(instruction) = instructions.get(counter) {
-            counter += 1;
-            // Every instruction's own failure goes through `dispatch` so a
-            // NAMED runtime error reaches the innermost handler. Letting the
-            // `?` operators inside leave the frame directly meant a `try`
-            // around `a[0] = 1` never saw the IndexError: the handler was on
-            // the stack and simply never consulted.
-            macro_rules! dispatch {
-                ($body:expr) => {
-                    match (|| -> Result<Value, MachineError> { Ok($body) })() {
-                        Ok(value) => value,
-                        Err(MachineError::Raised(propagation)) => {
-                            let (value, context) = *propagation;
-                            let Some((handler, exception, context_register)) = handlers.pop()
-                            else {
-                                return Err(MachineError::Raised(Box::new((value, context))));
-                            };
-                            registers[exception as usize] = value;
-                            registers[context_register as usize] = context;
-                            counter = handler;
-                            continue 'frame;
-                        }
-                        Err(error) => match (super::catchable_name(&error), handlers.pop()) {
-                            (Some(name), Some((handler, exception, context_register))) => {
-                                let value = Value::Symbol(name.to_owned());
-                                registers[exception as usize] = value.clone();
-                                registers[context_register as usize] =
-                                    self.named_failure_context(value);
-                                converted = Some(error);
-                                counter = handler;
-                                continue 'frame;
-                            }
-                            _ => return Err(error),
-                        },
-                    }
-                };
-            }
+        let mut state = FrameState {
+            registers,
+            counter,
+            handlers,
+            converted: None,
+            arity,
+        };
+        while let Some(instruction) = instructions.get(state.counter) {
+            state.counter += 1;
             // A run that never terminates would HANG here, so each instruction
             // charges a step and the run fails once the budget is gone.
             self.remaining_steps = self
                 .remaining_steps
                 .checked_sub(1)
                 .ok_or(MachineError::StepBudgetExhausted)?;
-            let produced = match instruction {
+            let action = match instruction {
+                Instruction::LoadInteger { .. }
+                | Instruction::LoadFloat64 { .. }
+                | Instruction::LoadFloat32 { .. }
+                | Instruction::LoadText { .. }
+                | Instruction::LoadBytes { .. }
+                | Instruction::LoadByteArray { .. }
+                | Instruction::MakeMutableString { .. }
+                | Instruction::LoadSymbol { .. }
+                | Instruction::LoadBool { .. }
+                | Instruction::LoadNil { .. }
+                | Instruction::LoadIterationDone { .. }
+                | Instruction::BuildIterationYield { .. }
+                | Instruction::LoadClass { .. }
+                | Instruction::LoadClosedClass { .. }
+                | Instruction::LoadType { .. }
+                | Instruction::LoadContract { .. }
+                | Instruction::BindModuleMethod { .. }
+                | Instruction::LoadGlobal { .. }
+                | Instruction::StoreGlobal { .. }
+                | Instruction::PublishBinding { .. }
+                | Instruction::LoadBinding { .. }
+                | Instruction::StoreBinding { .. }
+                | Instruction::Move { .. }
+                | Instruction::MakeCell { .. }
+                | Instruction::LoadCell { .. }
+                | Instruction::StoreCell { .. }
+                | Instruction::DeclareDeferred { .. }
+                | Instruction::MarkAssigned { .. }
+                | Instruction::ReadDeferred { .. }
+                | Instruction::TestTruth { .. }
+                | Instruction::MakeKeywordArgument { .. } => {
+                    self.execute_load(instruction, &mut state, program, classes)
+                }
+                Instruction::RaiseEncodingSelection { .. }
+                | Instruction::EncodingDecode { .. }
+                | Instruction::FfiOpen { .. }
+                | Instruction::IrisValueEncode { .. }
+                | Instruction::IrisValueDecode { .. }
+                | Instruction::EscapeRegex { .. }
+                | Instruction::MakeRegex { .. }
+                | Instruction::CheckAnnotation { .. }
+                | Instruction::CheckReturn { .. }
+                | Instruction::ApplyReopen { .. }
+                | Instruction::Print { .. }
+                | Instruction::NativeCall { .. }
+                | Instruction::NativeFixture { .. }
+                | Instruction::DiscardedContexts { .. }
+                | Instruction::PackageValidate { .. }
+                | Instruction::UnicodeVersion { .. }
+                | Instruction::GateNew { .. }
+                | Instruction::GateComplete { .. }
+                | Instruction::LoadRegex { .. }
+                | Instruction::NegateTruth { .. }
+                | Instruction::RaiseUnsupported { .. } => {
+                    self.execute_builtin(instruction, &mut state, program, classes)
+                }
+                Instruction::BindParameters { .. }
+                | Instruction::DefaultParameter { .. }
+                | Instruction::RaiseLoopTransfer { .. }
+                | Instruction::RaiseParseDiagnostic { .. }
+                | Instruction::RaiseNameError { .. }
+                | Instruction::DestructureElement { .. }
+                | Instruction::RaiseTypeContract { .. }
+                | Instruction::RaiseType { .. }
+                | Instruction::RaiseArgumentError { .. }
+                | Instruction::RaiseImmutableBinding { .. }
+                | Instruction::RaiseMessageNotFound { .. }
+                | Instruction::RaiseVisibilityDenied { .. }
+                | Instruction::Binary { .. }
+                | Instruction::Unary { .. } => {
+                    self.execute_operand(instruction, &mut state, program, classes)
+                }
+                Instruction::BuildArray { .. }
+                | Instruction::LoadBuiltinType { .. }
+                | Instruction::BuildType { .. }
+                | Instruction::LoadBuiltinClass { .. }
+                | Instruction::BuildTuple { .. }
+                | Instruction::BuildRange { .. }
+                | Instruction::BuildHash { .. }
+                | Instruction::MakeClosure { .. }
+                | Instruction::Index { .. }
+                | Instruction::SetIndex { .. } => {
+                    self.execute_collection(instruction, &mut state, program, classes)
+                }
+                Instruction::BindMember { .. } => {
+                    self.execute_member(instruction, &mut state, program, classes)
+                }
+                Instruction::Identity { .. }
+                | Instruction::TypeTest { .. }
+                | Instruction::FromBits { .. } => {
+                    self.execute_value(instruction, &mut state, program, classes)
+                }
+                Instruction::Await { .. }
+                | Instruction::HostRun { .. }
+                | Instruction::UnobservedFailures { .. } => {
+                    self.execute_task(instruction, &mut state, program, classes)
+                }
+                Instruction::JumpUnless { .. }
+                | Instruction::Jump { .. }
+                | Instruction::ArrayVersion { .. }
+                | Instruction::ArrayNext { .. }
+                | Instruction::RangeNext { .. }
+                | Instruction::IteratorOpen { .. }
+                | Instruction::IteratorNext { .. }
+                | Instruction::IteratorClose { .. } => {
+                    self.execute_iteration(instruction, &mut state, program, classes)
+                }
+                Instruction::EnterTry { .. }
+                | Instruction::CatchMatch { .. }
+                | Instruction::EnterCleanup { .. }
+                | Instruction::LeaveTry
+                | Instruction::Raise { .. }
+                | Instruction::ReRaise { .. }
+                | Instruction::RaiseNoActiveException
+                | Instruction::Propagate { .. }
+                | Instruction::Return { .. } => {
+                    self.execute_transfer(instruction, &mut state, program, classes)
+                }
+                Instruction::Call { .. } | Instruction::BareCall { .. } => {
+                    self.execute_call(instruction, &mut state, program, classes)
+                }
+                Instruction::Using { .. } | Instruction::New { .. } => {
+                    self.execute_construction(instruction, &mut state, program, classes)
+                }
+                Instruction::Send { .. } => {
+                    self.execute_send(instruction, &mut state, program, classes)
+                }
+                Instruction::SendSuper { .. } | Instruction::SendClass { .. } => {
+                    self.execute_class_send(instruction, &mut state, program, classes)
+                }
+                Instruction::Reflection { .. } => {
+                    self.execute_reflection(instruction, &mut state, program, classes)
+                }
+                Instruction::Revision { .. } => {
+                    self.execute_revision(instruction, &mut state, program, classes)
+                }
+                Instruction::OpenClass { .. }
+                | Instruction::DefineMethod { .. }
+                | Instruction::Json { .. } => {
+                    self.execute_mutation(instruction, &mut state, program, classes)
+                }
+                Instruction::ContractCast { .. } | Instruction::SendContract { .. } => {
+                    self.execute_contract(instruction, &mut state, program, classes)
+                }
+                Instruction::GetIvar { .. }
+                | Instruction::SetIvar { .. }
+                | Instruction::GetClassVar { .. }
+                | Instruction::SetClassVar { .. } => {
+                    self.execute_slot(instruction, &mut state, program, classes)
+                }
+            }?;
+            match action {
+                InstructionAction::Produced(value) => {
+                    if let Some(destination) = instruction.destination() {
+                        state.registers[destination as usize] = value;
+                    }
+                }
+                InstructionAction::Continue => {}
+                InstructionAction::Return(value) => return Ok(vec![value]),
+            }
+        }
+        Ok(state.registers)
+    }
+
+    #[inline(never)]
+    fn handle_frame_error(
+        &mut self,
+        state: &mut FrameState,
+        error: MachineError,
+    ) -> Result<(), MachineError> {
+        match error {
+            MachineError::Raised(propagation) => {
+                let (value, context) = *propagation;
+                let Some((handler, exception, context_register)) = state.handlers.pop() else {
+                    return Err(MachineError::Raised(Box::new((value, context))));
+                };
+                state.registers[exception as usize] = value;
+                state.registers[context_register as usize] = context;
+                state.counter = handler;
+            }
+            error => match (super::catchable_name(&error), state.handlers.pop()) {
+                (Some(name), Some((handler, exception, context_register))) => {
+                    let value = Value::Symbol(name.to_owned());
+                    state.registers[exception as usize] = value.clone();
+                    state.registers[context_register as usize] = self.named_failure_context(value);
+                    state.converted = Some(error);
+                    state.counter = handler;
+                }
+                _ => return Err(error),
+            },
+        }
+        Ok(())
+    }
+}
+
+instruction_group!(execute_load, (self, instruction, state, registers, program, classes), {
                 Instruction::LoadInteger { digits, .. } => {
                     let Ok(number) = digits.parse() else {
                         // The lexer produced this text, so a rejection would
@@ -325,6 +518,9 @@ impl Machine {
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+});
+
+instruction_group!(execute_builtin, (self, instruction, state, registers, program, classes), {
                 Instruction::RaiseEncodingSelection { code, .. } => {
                     return Err(MachineError::LexicalDiagnostic(code));
                 }
@@ -386,18 +582,18 @@ impl Machine {
                     if !self.annotation_admits(&value, annotation, program, classes)? {
                         dispatch!(Err(MachineError::TypeContractError)?);
                     }
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::CheckReturn { value, annotation } => {
                     let value = registers[*value as usize].clone();
                     if !self.annotation_admits(&value, annotation, program, classes)? {
                         return Err(MachineError::TypeContractError);
                     }
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::ApplyReopen { class, reopen } => {
                     self.apply_reopen(program, classes, *class, *reopen)?;
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::Print { first, count, .. } => {
                     let start = *first as usize;
@@ -500,6 +696,9 @@ impl Machine {
                 Instruction::RaiseUnsupported { .. } => {
                     return Err(MachineError::UnsupportedConstruct);
                 }
+});
+
+instruction_group!(execute_operand, (self, instruction, state, registers, program, classes), {
                 // `IRIS-V1-CONTROL-C023` binds the categories: positionals in
                 // order, `*rest` taking the remainder as a fresh Array, a
                 // `key` parameter by NAME, and `**kwargs` collecting the
@@ -522,7 +721,7 @@ impl Machine {
                     // positionals for a `*rest`.
                     let _ = count;
                     let start = *first as usize;
-                    let end = arity.max(start).min(registers.len());
+                    let end = state.arity.max(start).min(registers.len());
                     let supplied = registers[start..end].to_vec();
                     let bound = dispatch!(Self::bind_parameters(kinds, &supplied)?);
                     let Value::Tuple(bound) = bound else {
@@ -543,7 +742,7 @@ impl Machine {
                     // count past the positional slot, so `m(1, k: 5)` left
                     // `b = 2` unapplied.
                     if !matches!(registers[*index], Value::Nil) {
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     }
                     let value = registers[*source as usize].clone();
                     registers[*index] = value.clone();
@@ -635,13 +834,16 @@ impl Machine {
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = value;
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     }
                     // A refusal here is an ordinary catchable Iris error - an
                     // unhashable key, say - so it goes through the handler
                     // dispatch rather than escaping the frame.
                     dispatch!(self.send(selector, operand, &[])?)
                 }
+});
+
+instruction_group!(execute_collection, (self, instruction, state, registers, program, classes), {
                 Instruction::BuildArray { first, count, .. } => {
                     let start = *first as usize;
                     let elements = registers[start..start + *count as usize].to_vec();
@@ -782,6 +984,9 @@ impl Machine {
                         }
                     })
                 }
+});
+
+instruction_group!(execute_member, (self, instruction, state, registers, program, classes), {
                 Instruction::BindMember {
                     receiver, selector, ..
                 } => {
@@ -1145,7 +1350,7 @@ impl Machine {
                                     if let Some(destination) = instruction.destination() {
                                         registers[destination as usize] = value;
                                     }
-                                    continue;
+                                    return Ok(InstructionAction::Continue);
                                 }
                                 // A BUILT-IN class answers its own constants -
                                 // `Float64.nan`, `Float32.infinity` - which the
@@ -1158,7 +1363,7 @@ impl Machine {
                                     if let Some(destination) = instruction.destination() {
                                         registers[destination as usize] = value;
                                     }
-                                    continue;
+                                    return Ok(InstructionAction::Continue);
                                 }
                                 // A name the Class does not declare is a
                                 // message it does not answer, so the failure
@@ -1225,7 +1430,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = value;
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                             // The refusal is an ordinary CATCHABLE failure, so
                             // it goes to the innermost handler. Returning it
@@ -1239,7 +1444,7 @@ impl Machine {
                             if let Some(destination) = instruction.destination() {
                                 registers[destination as usize] = refused;
                             }
-                            continue;
+                            return Ok(InstructionAction::Continue);
                         };
                         let bound_selector = self
                             .dynamic_selectors
@@ -1305,6 +1510,9 @@ impl Machine {
                         }
                     }
                 }
+});
+
+instruction_group!(execute_value, (self, instruction, state, registers, program, classes), {
                 Instruction::Identity { left, right, .. } => {
                     // An identity-LESS operand raises rather than being
                     // compared, and the refusal is catchable like any other.
@@ -1344,6 +1552,9 @@ impl Machine {
                         FloatWidth::Bits64 => Value::Float64(f64::from_bits(bits)),
                     }
                 }
+});
+
+instruction_group!(execute_task, (self, instruction, state, registers, program, classes), {
                 Instruction::Await { task, .. } => {
                     // `C037` forbids SUSPENDING inside a meta transaction, and
                     // `ASYNC-C018` owns the async reason for the prohibition.
@@ -1364,9 +1575,9 @@ impl Machine {
                                     // `counter` was already advanced past this
                                     // instruction at the top of the loop, so
                                     // it is the RESUME point as it stands.
-                                    counter,
+                                    counter: state.counter,
                                     destination: instruction.destination(),
-                                    handlers: handlers.clone(),
+                                    handlers: state.handlers.clone(),
                                     cleanup: None,
                                     function: None,
                                     continuations: Vec::new(),
@@ -1412,19 +1623,22 @@ impl Machine {
                             .collect(),
                     ))
                 }
+});
+
+instruction_group!(execute_iteration, (self, instruction, state, registers, program, classes), {
                 // Truth is decided by the RUNTIME rather than re-derived here.
                 // `IRIS-V1-CONTROL-C022` makes only `false` and `nil` falsey,
                 // and a second copy of that rule would be one more place for
                 // the backends to diverge.
                 Instruction::JumpUnless { condition, target } => {
                     if !truthy(&registers[*condition as usize]) {
-                        counter = *target;
+                        state.counter = *target;
                     }
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::Jump { target } => {
-                    counter = *target;
-                    continue;
+                    state.counter = *target;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::ArrayVersion { array, .. } => match &registers[*array as usize] {
                     Value::Array(array) => {
@@ -1492,8 +1706,8 @@ impl Machine {
                         }
                     };
                     let Some(value) = element else {
-                        counter = *exhausted;
-                        continue;
+                        state.counter = *exhausted;
+                        return Ok(InstructionAction::Continue);
                     };
                     value
                 }
@@ -1535,8 +1749,8 @@ impl Machine {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
                     if !within {
-                        counter = *exhausted;
-                        continue;
+                        state.counter = *exhausted;
+                        return Ok(InstructionAction::Continue);
                     }
                     Value::Integer(value)
                 }
@@ -1632,8 +1846,8 @@ impl Machine {
                     match step {
                         Value::IterationYield(value) => *value,
                         Value::IterationDone => {
-                            counter = *exhausted;
-                            continue;
+                            state.counter = *exhausted;
+                            return Ok(InstructionAction::Continue);
                         }
                         _ => return Err(MachineError::TypeContractError),
                     }
@@ -1671,16 +1885,19 @@ impl Machine {
                         (Some(_), Err(error)) => return Err(error),
                         (_, Ok(())) => {}
                     }
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
+});
+
+instruction_group!(execute_transfer, (self, instruction, state, registers, program, classes), {
                 Instruction::EnterTry {
                     handler,
                     exception,
                     context,
                     ..
                 } => {
-                    handlers.push((*handler, *exception, *context));
-                    continue;
+                    state.handlers.push((*handler, *exception, *context));
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::CatchMatch {
                     exception, class, ..
@@ -1697,11 +1914,11 @@ impl Machine {
                     self.pending_cleanup_cause = context
                         .map(|register| registers[register as usize].clone())
                         .filter(|value| matches!(value, Value::ExceptionContext(..)));
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::LeaveTry => {
-                    handlers.pop();
-                    continue;
+                    state.handlers.pop();
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::Raise {
                     value,
@@ -1746,13 +1963,13 @@ impl Machine {
                         Box::new(source_location(&program.source, *offset).into()),
                     );
                     self.next_context = self.next_context.saturating_add(1);
-                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                    let Some((handler, exception, context_register)) = state.handlers.pop() else {
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
                     registers[exception as usize] = value;
                     registers[context_register as usize] = context;
-                    counter = handler;
-                    continue;
+                    state.counter = handler;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::ReRaise {
                     value,
@@ -1777,35 +1994,35 @@ impl Machine {
                     ))));
                     let context =
                         Value::ExceptionContext(identity, held, cause, suppressed, sites, location);
-                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                    let Some((handler, exception, context_register)) = state.handlers.pop() else {
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
                     registers[exception as usize] = value;
                     registers[context_register as usize] = context;
-                    counter = handler;
-                    continue;
+                    state.counter = handler;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::RaiseNoActiveException => {
                     dispatch!(Err(MachineError::NoActiveException)?);
-                    continue;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::Propagate { value, context } => {
                     let value = registers[*value as usize].clone();
                     let context = registers[*context as usize].clone();
-                    let Some((handler, exception, context_register)) = handlers.pop() else {
+                    let Some((handler, exception, context_register)) = state.handlers.pop() else {
                         // Cleanup ran and nothing answered it, so a converted
                         // error leaves as ITSELF. Re-raising the Symbol would
                         // report `Raised(:IndexError)` where the reference
                         // reports IndexError.
-                        if let Some(error) = converted.take() {
+                        if let Some(error) = state.converted.take() {
                             return Err(error);
                         }
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
                     registers[exception as usize] = value;
                     registers[context_register as usize] = context;
-                    counter = handler;
-                    continue;
+                    state.counter = handler;
+                    return Ok(InstructionAction::Continue);
                 }
                 Instruction::Return { value } => {
                     // `C063` lets a `return` from a cleanup OVERRIDE a pending
@@ -1825,8 +2042,11 @@ impl Machine {
                     // The answer is handed back in the frame's own result
                     // slot, so a caller reads it without knowing the callee's
                     // register layout.
-                    return Ok(vec![value]);
+                    return Ok(InstructionAction::Return(value));
                 }
+});
+
+instruction_group!(execute_call, (self, instruction, state, registers, program, classes), {
                 Instruction::Call {
                     function,
                     first,
@@ -1872,7 +2092,7 @@ impl Machine {
                             (_, [Value::Text(_)]) => None,
                             _ => {
                                 dispatch!(Err(MachineError::Kernel(KernelError::Type))?);
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                         };
                         let Some(converted) = converted else {
@@ -1882,12 +2102,12 @@ impl Machine {
                                     selector: name.clone(),
                                 })?
                             });
-                            continue;
+                            return Ok(InstructionAction::Continue);
                         };
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = converted;
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     };
                     let Value::BoundMethod(bound) = registers[*callee as usize].clone() else {
                         return Err(MachineError::UnsupportedConstruct);
@@ -1952,6 +2172,9 @@ impl Machine {
                     ));
                     returned.into_iter().next().unwrap_or(Value::Nil)
                 }
+});
+
+instruction_group!(execute_construction, (self, instruction, state, registers, program, classes), {
                 Instruction::Using {
                     resource, block, ..
                 } => match self.invoke_using(
@@ -1966,9 +2189,9 @@ impl Machine {
                             frame.continuations.push(PendingFrame {
                                 gate,
                                 registers: registers.clone(),
-                                counter,
+                                counter: state.counter,
                                 destination: instruction.destination(),
-                                handlers: handlers.clone(),
+                                handlers: state.handlers.clone(),
                                 cleanup: None,
                                 function: None,
                                 continuations: Vec::new(),
@@ -2043,6 +2266,9 @@ impl Machine {
                     }
                     Value::Object(object)
                 }
+});
+
+instruction_group!(execute_send, (self, instruction, state, registers, program, classes), {
                 Instruction::Send {
                     receiver,
                     selector,
@@ -2078,7 +2304,7 @@ impl Machine {
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = value;
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     }
                     if let (Value::Class(class), "properties") = (&receiver, selector.as_str())
                         && arguments.is_empty()
@@ -2098,7 +2324,7 @@ impl Machine {
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = Value::ReadonlyArray(properties);
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     }
                     if selector == "call" {
                         let (callee, passed) = match receiver {
@@ -2173,7 +2399,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = value;
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                         };
                         if passed.len() != callee.parameters {
@@ -2231,7 +2457,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = Value::Object(object);
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                             Value::ClosedClass(class, type_arguments) if selector == "new" => {
                                 let object = self
@@ -2275,7 +2501,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = Value::Object(object);
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                             Value::Class(class) => {
                                 if selector == "properties" && arguments.is_empty() {
@@ -2295,7 +2521,7 @@ impl Machine {
                                         registers[destination as usize] =
                                             Value::ReadonlyArray(properties);
                                     }
-                                    continue;
+                                    return Ok(InstructionAction::Continue);
                                 }
                                 let selector_id =
                                     selector_id(program, selector).ok_or_else(|| {
@@ -2358,7 +2584,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = value;
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                             Value::Object(object) => object,
                             receiver => {
@@ -2366,7 +2592,7 @@ impl Machine {
                                 if let Some(destination) = instruction.destination() {
                                     registers[destination as usize] = value;
                                 }
-                                continue;
+                                return Ok(InstructionAction::Continue);
                             }
                         };
                         let selector_name = selector.clone();
@@ -2416,7 +2642,7 @@ impl Machine {
                                         if let Some(destination) = instruction.destination() {
                                             registers[destination as usize] = value;
                                         }
-                                        continue;
+                                        return Ok(InstructionAction::Continue);
                                     }
                                     // An absent selector is an ordinary
                                     // catchable Iris error, so it goes through
@@ -2428,7 +2654,7 @@ impl Machine {
                                             .dispatch_class_name(program, classes, class),
                                         selector: selector_name,
                                     })?);
-                                    continue;
+                                    return Ok(InstructionAction::Continue);
                                 }
                                 // A VISIBILITY refusal is an ordinary catchable
                                 // Iris error, so it goes through the handler
@@ -2437,15 +2663,15 @@ impl Machine {
                                 let Some(name) = super::catchable_name(&error) else {
                                     return Err(error);
                                 };
-                                let Some((handler, exception, context_register)) = handlers.pop()
+                                let Some((handler, exception, context_register)) = state.handlers.pop()
                                 else {
                                     return Err(error);
                                 };
                                 registers[exception as usize] = Value::Symbol(name.to_owned());
                                 registers[context_register as usize] = Value::Nil;
-                                converted = Some(error);
-                                counter = handler;
-                                continue 'frame;
+                                state.converted = Some(error);
+                                state.counter = handler;
+                                return Ok(InstructionAction::Continue);
                             }
                         };
                         let function = usize::try_from(method.body().raw()).map_err(|_| {
@@ -2498,6 +2724,9 @@ impl Machine {
                         }
                     }
                 }
+});
+
+instruction_group!(execute_class_send, (self, instruction, state, registers, program, classes), {
                 Instruction::SendSuper {
                     receiver,
                     owner,
@@ -2520,7 +2749,7 @@ impl Machine {
                         if let Some(destination) = instruction.destination() {
                             registers[destination as usize] = value;
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     }
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
@@ -2623,6 +2852,9 @@ impl Machine {
                         classes,
                     ))
                 }
+});
+
+instruction_group!(execute_reflection, (self, instruction, state, registers, program, classes), {
                 Instruction::Reflection {
                     namespace,
                     selector,
@@ -3112,6 +3344,9 @@ impl Machine {
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     }
                 }),
+});
+
+instruction_group!(execute_revision, (self, instruction, state, registers, program, classes), {
                 Instruction::Revision {
                     namespace,
                     selector,
@@ -3307,6 +3542,9 @@ impl Machine {
                         _ => return Err(MachineError::Kernel(KernelError::Type)),
                     }
                 }),
+});
+
+instruction_group!(execute_mutation, (self, instruction, state, registers, program, classes), {
                 Instruction::OpenClass {
                     class, callback, ..
                 } => dispatch!({
@@ -3435,6 +3673,9 @@ impl Machine {
                         classes,
                     )?
                 }),
+});
+
+instruction_group!(execute_contract, (self, instruction, state, registers, program, classes), {
                 Instruction::ContractCast {
                     receiver, contract, ..
                 } => {
@@ -3457,7 +3698,7 @@ impl Machine {
                                 ContractId::new(*contract as u64 + 1),
                             );
                         }
-                        continue;
+                        return Ok(InstructionAction::Continue);
                     };
                     let class = self
                         .runtime
@@ -3601,6 +3842,9 @@ impl Machine {
                     ));
                     returned.into_iter().next().unwrap_or(Value::Nil)
                 }
+});
+
+instruction_group!(execute_slot, (self, instruction, state, registers, program, classes), {
                 Instruction::GetIvar { receiver, name, .. } => {
                     let Value::Object(object) = registers[*receiver as usize] else {
                         return Err(MachineError::Kernel(KernelError::Type));
@@ -3686,14 +3930,7 @@ impl Machine {
                         .assign_class_var(class, selector, registers[*value as usize].clone())
                         .map_err(MachineError::Construction)?
                 }
-            };
-            if let Some(destination) = instruction.destination() {
-                registers[destination as usize] = produced;
-            }
-        }
-        Ok(registers)
-    }
-}
+});
 
 fn decorator_argument_value(argument: &str) -> Value {
     if argument.is_empty() {
