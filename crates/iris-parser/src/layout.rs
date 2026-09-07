@@ -5,7 +5,7 @@ impl Parser {
         if !self.check_after_newlines("{") {
             return Some(());
         }
-        let start = self.cursor;
+        let checkpoint = self.checkpoint();
         self.advance();
         self.skip_newlines();
         while !self.check("}") && !self.at_end() {
@@ -18,7 +18,7 @@ impl Parser {
             self.skip_newlines();
         }
         self.expect("}")?;
-        self.cursor = start;
+        self.restore(checkpoint);
         Some(())
     }
 
@@ -27,23 +27,23 @@ impl Parser {
     }
 
     pub(super) fn consume_after_newlines(&mut self, expected: &str) -> bool {
-        let start = self.cursor;
+        let checkpoint = self.checkpoint();
         self.skip_newlines();
         if self.consume(expected) {
             true
         } else {
-            self.cursor = start;
+            self.restore(checkpoint);
             false
         }
     }
 
     pub(super) fn check_after_newlines(&mut self, expected: &str) -> bool {
-        let start = self.cursor;
+        let checkpoint = self.checkpoint();
         self.skip_newlines();
         if self.check(expected) {
             true
         } else {
-            self.cursor = start;
+            self.restore(checkpoint);
             false
         }
     }

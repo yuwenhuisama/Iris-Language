@@ -1,8 +1,20 @@
 //! Recursive-descent declarations plus Pratt expressions for Iris v1.
 
+mod checkpoint;
+mod class_declaration;
 mod expression;
 mod layout;
 mod limits;
+mod recording;
+pub mod source;
+mod source_calls;
+mod source_entry;
+mod source_facts;
+mod source_headers;
+mod source_imports;
+mod source_patterns;
+
+pub use source_entry::{parse_editor, parse_with_source};
 
 #[cfg(test)]
 mod expression_tests;
@@ -13,10 +25,10 @@ mod analysis;
 pub use analysis::analyze;
 
 use iris_syntax::{
-    CatchBinding, CatchClause, ClassDeclaration, Constraint, ContractDeclaration, Declaration,
-    Decorator, Expression, MatchArm, MatchBody, MethodDeclaration, MethodKind, MixinEntry,
-    ModuleDeclaration, Parameter, ParameterCategory, Pattern, Program, ProgramEntry, Raise,
-    Statement, TypeExpression, Visibility,
+    CatchBinding, CatchClause, Constraint, ContractDeclaration, Declaration, Decorator, Expression,
+    MatchBody, MethodDeclaration, MethodKind, MixinEntry, ModuleDeclaration, Parameter,
+    ParameterCategory, Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression,
+    Visibility,
 };
 
 /// The three clauses of a `try`, shared by its statement and expression forms.
@@ -41,14 +53,33 @@ impl ParseResult {
 }
 
 pub fn parse(source: &str) -> ParseResult {
+    parse_internal(source, false, false).parse
+}
+
+fn parse_internal(source: &str, recording: bool, editor: bool) -> source::SourceParse {
     let lexed = lex(source.as_bytes());
+    let mut recorder = recording::Recorder::new(source.len(), recording);
+    if recording {
+        recorder.document.tokens = lexed.tokens().to_vec();
+        source_entry::protected_regions(source, &mut recorder.document);
+    }
     if let Some(diagnostic) = lexed.diagnostics().first() {
-        return ParseResult {
-            program: Program::default(),
-            diagnostics: vec![Diagnostic {
-                code: diagnostic.code(),
-            }],
-            program_accepted: false,
+        recorder.damage(
+            source::Span {
+                start: 0,
+                end: source.len(),
+            },
+            diagnostic.code(),
+        );
+        return source::SourceParse {
+            parse: ParseResult {
+                program: Program::default(),
+                diagnostics: vec![Diagnostic {
+                    code: diagnostic.code(),
+                }],
+                program_accepted: false,
+            },
+            source: recorder.document,
         };
     }
     let raw = lexed
@@ -59,7 +90,7 @@ pub fn parse(source: &str) -> ParseResult {
                 TokenKind::Newline => "\n",
                 _ => &source[token.offset.0..token.end.0],
             };
-            (text, token.offset.0)
+            (text, token.offset.0, token.end.0, token.kind)
         })
         .collect::<Vec<_>>();
     let tokens = combine_operators(&raw);
@@ -77,6 +108,11 @@ pub fn parse(source: &str) -> ParseResult {
         expression_nodes: 0,
         steps_remaining,
         exhausted: false,
+        recorder,
+        editor,
+        token_edits: Vec::new(),
+        source_len: source.len(),
+        consumed_end: 0,
     };
     let program = parser.program();
     if parser.exhausted {
@@ -86,10 +122,13 @@ pub fn parse(source: &str) -> ParseResult {
     if !parser.at_end() && parser.diagnostics.is_empty() {
         parser.error("PARSE_UNEXPECTED_TOKEN");
     }
-    ParseResult {
-        program,
-        diagnostics: parser.diagnostics,
-        program_accepted,
+    source::SourceParse {
+        parse: ParseResult {
+            program,
+            diagnostics: parser.diagnostics,
+            program_accepted,
+        },
+        source: parser.recorder.document,
     }
 }
 
@@ -102,39 +141,51 @@ struct Token {
     /// and column, so the offset is retained here and converted at the point a
     /// location is built rather than being discarded during tokenization.
     offset: usize,
+    end: usize,
+    kind: TokenKind,
 }
 
-fn combine_operators(raw: &[(&str, usize)]) -> Vec<Token> {
+fn combine_operators(raw: &[(&str, usize, usize, TokenKind)]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut cursor = 0;
     while cursor < raw.len() {
-        let (text, offset) = raw[cursor];
+        let (text, offset, end, kind) = raw[cursor];
         // Two colons form `::` only when they are ADJACENT in the source.
         // Joining any two colon tokens turned `f(x: :a)`, a keyword argument
         // whose value is a Symbol, into the single name `x::a`.
         if text == ":"
             && raw
                 .get(cursor + 1)
-                .is_some_and(|(next, next_offset)| *next == ":" && *next_offset == offset + 1)
+                .is_some_and(|(next, next_offset, _, _)| *next == ":" && *next_offset == offset + 1)
         {
             tokens.push(Token {
                 text: "::".into(),
                 offset,
+                end: raw[cursor + 1].2,
+                kind,
             });
             cursor += 2;
-        } else if text == "as" && raw.get(cursor + 1).is_some_and(|(next, _)| *next == "?") {
+        } else if text == "as"
+            && raw
+                .get(cursor + 1)
+                .is_some_and(|(next, _, _, _)| *next == "?")
+        {
             // `as?` is one operator in the chapter 02 precedence table, but `?`
             // is a separate source character, so the two are joined here rather
             // than leaving `as` to bind and the `?` to dangle.
             tokens.push(Token {
                 text: "as?".into(),
                 offset,
+                end: raw[cursor + 1].2,
+                kind,
             });
             cursor += 2;
         } else {
             tokens.push(Token {
                 text: text.into(),
                 offset,
+                end,
+                kind,
             });
             cursor += 1;
         }
@@ -143,6 +194,11 @@ fn combine_operators(raw: &[(&str, usize)]) -> Vec<Token> {
 }
 
 struct Parser {
+    recorder: recording::Recorder,
+    editor: bool,
+    token_edits: Vec<(usize, Token)>,
+    source_len: usize,
+    consumed_end: usize,
     tokens: Vec<Token>,
     cursor: usize,
     diagnostics: Vec<Diagnostic>,
@@ -281,84 +337,42 @@ impl Parser {
         program
     }
 
-    fn class_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ClassDeclaration> {
-        let reopen = self.consume("open");
-        self.expect("class")?;
-        let name = self.qualified_name()?;
-        let parameters = self.generic_parameters();
-        let mut extends = None;
-        let mut implements = Vec::new();
-        let mut mixins = Vec::new();
-        let mut constraints = Vec::new();
-        let mut meta_deny = Vec::new();
-        let mut rank = 0;
-        self.skip_newlines();
-        while !self.check("{") && !self.at_end() {
-            let clause = match self.peek() {
-                Some("extends") => 1,
-                Some("for") => 2,
-                Some("mixin") => 3,
-                Some("where") => 4,
-                Some("meta") => 5,
-                _ => {
-                    self.error("PARSE_BAD_HEADER_ORDER");
-                    return None;
-                }
-            };
-            if clause <= rank {
-                self.error("PARSE_BAD_HEADER_ORDER");
-                return None;
-            }
-            rank = clause;
-            match clause {
-                1 => {
-                    self.advance();
-                    extends = self.type_expression();
-                }
-                2 => {
-                    self.advance();
-                    implements = self.type_list();
-                }
-                3 => {
-                    self.advance();
-                    mixins = self.mixin_entries();
-                }
-                4 => {
-                    self.advance();
-                    constraints = self.constraints();
-                }
-                5 => {
-                    self.advance();
-                    meta_deny = self.meta_deny()?;
-                }
-                _ => unreachable!(),
-            }
-            self.skip_newlines();
-        }
-        let body = self.body()?;
-        Some(ClassDeclaration {
-            decorators,
-            reopen,
-            name,
-            parameters,
-            extends,
-            implements,
-            mixins,
-            constraints,
-            meta_deny,
-            body,
-        })
+    fn module_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ModuleDeclaration> {
+        let frame = self.recorder.begin(self.current_offset());
+        let mut header = source::DeclarationHeader::default();
+        header.span.start = self.current_offset();
+        let result = self.module_contents(decorators, &mut header);
+        let kind = result.as_ref().and_then(|value| {
+            let mut declaration =
+                self.source_declaration(frame.id, source::DeclarationKind::Module)?;
+            declaration.visible_from = 0;
+            declaration.modifiers.reopen = value.reopen;
+            declaration.header = Some(header);
+            Some(source::SourceKind::Declaration(Box::new(declaration)))
+        });
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
     }
 
-    fn module_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ModuleDeclaration> {
+    fn module_contents(
+        &mut self,
+        decorators: Vec<Decorator>,
+        header: &mut source::DeclarationHeader,
+    ) -> Option<ModuleDeclaration> {
+        let recovery = self.recorder.document.recovery.len();
+        header.has_decorators = !decorators.is_empty();
         let reopen = self.consume("open");
         self.expect("module")?;
         let name = self.qualified_name()?;
+        self.recorder
+            .enter_scope(source::ScopeKind::Module, self.current_offset());
+        header.has_type_parameters = self.check("<");
         let parameters = self.generic_parameters();
         // V261 expects `module M for C` to report a STATIC diagnostic, so the
         // clause `module_decl` does not admit is consumed here and rejected in
         // analysis rather than failing as a header-order parse error.
         let contract_for = if self.consume("for") {
+            header.has_implements = true;
             self.type_list()
         } else {
             Vec::new()
@@ -385,14 +399,17 @@ impl Parser {
             rank = clause;
             match clause {
                 1 => {
+                    header.has_mixins = true;
                     self.advance();
                     mixins = self.mixin_entries();
                 }
                 2 => {
+                    header.has_constraints = true;
                     self.advance();
                     constraints = self.constraints();
                 }
                 3 => {
+                    header.has_meta_policy = true;
                     self.advance();
                     meta_deny = self.meta_deny()?;
                 }
@@ -400,6 +417,7 @@ impl Parser {
             }
             self.skip_newlines();
         }
+        self.finish_header(header, recovery);
         Some(ModuleDeclaration {
             reopen,
             decorators,
@@ -416,42 +434,80 @@ impl Parser {
     /// Parses `type_alias_decl ::= "type" type_name generic_params? "=" type_expr`.
     /// Parses `import_decl`.
     fn import_declaration(&mut self) -> Option<iris_syntax::ImportDeclaration> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.import_contents();
+        let kind = result
+            .as_ref()
+            .filter(|_| self.recorder.enabled)
+            .map(|(value, separators)| self.import_fact(frame.id, value, separators));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result.map(|(value, _)| value)
+    }
+
+    fn import_contents(
+        &mut self,
+    ) -> Option<(iris_syntax::ImportDeclaration, Vec<source::ImportSeparator>)> {
         // C069 places the C049 replacement-authorization marker BEFORE the
         // keyword, since D-230 authorizes the replacements that import
         // contributes rather than authorizing per name.
         let replacement_authorized = self.consume("override");
         if self.consume("from") {
-            let target = self.import_path()?;
+            let (target, separators) = self.import_path()?;
             self.expect("import")?;
             let mut specs = Vec::new();
             loop {
-                let name = self.name()?;
-                let alias = self.consume("as").then(|| self.name()).flatten();
-                specs.push(iris_syntax::ImportSpec { name, alias });
+                specs.push(self.import_spec()?);
                 if !self.consume(",") || self.check("\n") {
                     break;
                 }
             }
-            return Some(iris_syntax::ImportDeclaration {
-                target,
-                alias: None,
-                specs,
-                replacement_authorized,
-            });
+            return Some((
+                iris_syntax::ImportDeclaration {
+                    target,
+                    alias: None,
+                    specs,
+                    replacement_authorized,
+                },
+                separators,
+            ));
         }
         self.expect("import")?;
-        let target = self.import_path()?;
+        let (target, separators) = self.import_path()?;
         let alias = self.consume("as").then(|| self.name()).flatten();
-        Some(iris_syntax::ImportDeclaration {
-            target,
-            alias,
-            replacement_authorized,
-            specs: Vec::new(),
-        })
+        Some((
+            iris_syntax::ImportDeclaration {
+                target,
+                alias,
+                replacement_authorized,
+                specs: Vec::new(),
+            },
+            separators,
+        ))
     }
 
     /// Parses `export_decl`.
     fn export_declaration(&mut self) -> Option<iris_syntax::ExportDeclaration> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.export_contents();
+        if self.recorder.enabled {
+            let children = self.recorder.children(frame.id).to_vec();
+            for child in children {
+                if let source::SourceKind::Declaration(value) =
+                    &mut self.recorder.document.nodes[child.0].kind
+                {
+                    value.modifiers.exported = true;
+                }
+            }
+        }
+        self.recorder.finish(
+            frame,
+            self.consumed_end,
+            result.as_ref().map(|_| source::SourceKind::Export),
+        );
+        result
+    }
+
+    fn export_contents(&mut self) -> Option<iris_syntax::ExportDeclaration> {
         self.expect("export")?;
         // `export <declaration>` publishes the declaration it wraps; anything
         // else is a list of already-declared names.
@@ -486,8 +542,21 @@ impl Parser {
     }
 
     fn type_alias_declaration(&mut self) -> Option<iris_syntax::TypeAliasDeclaration> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.type_alias_contents();
+        let kind = result
+            .as_ref()
+            .and_then(|_| self.source_declaration(frame.id, source::DeclarationKind::TypeAlias))
+            .map(|value| source::SourceKind::Declaration(Box::new(value)));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
+    }
+
+    fn type_alias_contents(&mut self) -> Option<iris_syntax::TypeAliasDeclaration> {
         self.expect("type")?;
         let name = self.name()?;
+        self.recorder
+            .enter_scope(source::ScopeKind::TypeAlias, self.current_offset());
         let parameters = self.generic_parameters();
         self.expect("=")?;
         let target = self.type_expression()?;
@@ -499,11 +568,37 @@ impl Parser {
     }
 
     fn contract_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ContractDeclaration> {
+        let frame = self.recorder.begin(self.current_offset());
+        let mut header = source::DeclarationHeader::default();
+        header.span.start = self.current_offset();
+        let result = self.contract_contents(decorators, &mut header);
+        let kind = result.as_ref().and_then(|value| {
+            let mut declaration =
+                self.source_declaration(frame.id, source::DeclarationKind::Contract)?;
+            declaration.visible_from = 0;
+            declaration.modifiers.reopen = value.open;
+            declaration.header = Some(header);
+            Some(source::SourceKind::Declaration(Box::new(declaration)))
+        });
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
+    }
+
+    fn contract_contents(
+        &mut self,
+        decorators: Vec<Decorator>,
+        header: &mut source::DeclarationHeader,
+    ) -> Option<ContractDeclaration> {
+        let recovery = self.recorder.document.recovery.len();
+        header.has_decorators = !decorators.is_empty();
         // V204 expects a STATIC diagnostic, so `open` is consumed here and
         // reported by analysis rather than failing as a parse error.
         let open = self.consume("open");
         self.expect("contract")?;
         let name = self.name()?;
+        self.recorder
+            .enter_scope(source::ScopeKind::Contract, self.current_offset());
+        header.has_type_parameters = self.check("<");
         let parameters = self.generic_parameters();
         let mut parents = Vec::new();
         let mut constraints = Vec::new();
@@ -527,14 +622,17 @@ impl Parser {
             rank = clause;
             match clause {
                 1 => {
+                    header.has_extends = true;
                     self.advance();
                     parents = self.type_list();
                 }
                 2 => {
+                    header.has_constraints = true;
                     self.advance();
                     constraints = self.constraints();
                 }
                 3 => {
+                    header.has_meta_policy = true;
                     self.advance();
                     meta_deny = self.meta_deny()?;
                 }
@@ -542,6 +640,7 @@ impl Parser {
             }
             self.skip_newlines();
         }
+        self.finish_header(header, recovery);
         Some(ContractDeclaration {
             decorators,
             open,
@@ -580,10 +679,19 @@ impl Parser {
     }
 
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
-        self.with_layout(false, Self::closure_contents)
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.with_layout(false, Self::closure_contents);
+        let kind = result
+            .as_ref()
+            .filter(|_| self.recorder.enabled)
+            .map(|value| source::SourceKind::Expression(self.primary_fact(frame.id, value)));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
     }
 
     fn closure_contents(&mut self) -> Option<Expression> {
+        self.recorder
+            .enter_scope(source::ScopeKind::Closure, self.current_offset());
         self.expect("{")?;
         self.skip_newlines();
         let mut parameters = Vec::new();
@@ -594,9 +702,9 @@ impl Parser {
         // `{ ||; ... }` never reached the header at all. An empty header is
         // consumed whole here, which is the same contextual longest-match
         // C020 applies to `>>` closing two generic argument lists.
-        if self.check("||")
-            && let Some(token) = self.tokens.get_mut(self.cursor)
-        {
+        if self.check("||") {
+            self.save_token_edit();
+            let token = &mut self.tokens[self.cursor];
             // Rewrite the pair into a single `|` and step past it, so the
             // header below sees the empty parameter list it expects.
             token.text = "|".into();
@@ -617,15 +725,24 @@ impl Parser {
             let outer = std::mem::replace(&mut self.no_type_union, true);
             self.skip_newlines();
             while !self.check("|") && !self.at_end() {
+                let frame = self.recorder.begin(self.current_offset());
                 let Some(parameter) = self.binding_name() else {
+                    self.recorder.finish(frame, self.consumed_end, None);
                     self.no_type_union = outer;
                     return None;
                 };
                 parameters.push(parameter);
                 if self.consume(":") && self.type_expression().is_none() {
+                    self.recorder.finish(frame, self.consumed_end, None);
                     self.no_type_union = outer;
                     return None;
                 }
+                let kind = self
+                    .source_declaration(frame.id, source::DeclarationKind::Parameter)
+                    .map_or(source::SourceKind::Statement, |value| {
+                        source::SourceKind::Declaration(Box::new(value))
+                    });
+                self.recorder.finish(frame, self.consumed_end, Some(kind));
                 self.skip_newlines();
                 if !self.consume(",") {
                     break;
@@ -667,7 +784,22 @@ impl Parser {
     }
 
     fn body(&mut self) -> Option<Vec<Statement>> {
-        self.with_layout(false, Self::body_contents)
+        if !self.recorder.enabled {
+            return self.with_layout(false, Self::body_contents);
+        }
+        self.skip_newlines();
+        let frame = self.recorder.begin(self.current_offset());
+        let scope = self.recorder.document.scope(self.recorder.scope);
+        let is_owner_body = scope.kind != source::ScopeKind::Document
+            && scope.owner == self.recorder.frames.iter().rev().nth(1).copied();
+        if !is_owner_body {
+            self.recorder
+                .enter_scope(source::ScopeKind::Block, self.current_offset());
+        }
+        let result = self.with_layout(false, Self::body_contents);
+        let kind = result.as_ref().map(|_| source::SourceKind::Body);
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
     }
 
     fn body_contents(&mut self) -> Option<Vec<Statement>> {
@@ -708,7 +840,13 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Option<Statement> {
-        self.nested(Self::statement_contents)
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.nested(Self::statement_contents);
+        let kind = result
+            .as_ref()
+            .map(|value| self.statement_fact(frame.id, value));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
     }
 
     fn statement_contents(&mut self) -> Option<Statement> {
@@ -868,7 +1006,10 @@ impl Parser {
             }
             if kind == MethodKind::Property && self.consume("=") {
                 selector.push('=');
+                self.extend_source_name(&selector);
             }
+            self.recorder
+                .enter_scope(source::ScopeKind::Method, self.current_offset());
             // `method_decl ::= ... "fun" selector generic_params? parameter_list`,
             // so a Method may declare its OWN type parameters. They were never
             // read, which made `fun id<T>(x: T) -> T` a parse error.
@@ -885,6 +1026,7 @@ impl Parser {
                 self.skip_newlines();
             }
             self.expect(")")?;
+            let return_hint_offset = self.consumed_end;
             // `parameter_sequence` fixes the channel ORDER: positionals, then
             // positional rest, then keywords, then keyword rest, then block.
             // V007 names a positional written AFTER a keyword.
@@ -906,7 +1048,7 @@ impl Parser {
             } else {
                 None
             };
-            return Some(Statement::Method(MethodDeclaration {
+            let statement = Statement::Method(MethodDeclaration {
                 is_async,
                 decorators,
                 is_override,
@@ -918,7 +1060,15 @@ impl Parser {
                 return_type,
                 visibility,
                 body,
-            }));
+            });
+            if let Some(id) = self.recorder.frames.last().copied() {
+                let mut fact = self.statement_fact(id, &statement);
+                if let source::SourceKind::Declaration(declaration) = &mut fact {
+                    declaration.return_hint_offset = Some(return_hint_offset);
+                }
+                self.recorder.document.nodes[id.0].kind = fact;
+            }
+            return Some(statement);
         }
         if kind == MethodKind::Property {
             let name = self.name()?;
@@ -930,6 +1080,16 @@ impl Parser {
                 Expression::Literal("nil".into())
             };
             self.validate_property_accessors()?;
+            if let Some(id) = self.recorder.frames.last().copied()
+                && let Some(mut declaration) =
+                    self.source_declaration(id, source::DeclarationKind::Property)
+            {
+                declaration.visibility = visibility;
+                declaration.surface = Some(level.unwrap_or(MethodKind::Instance));
+                declaration.modifiers.shared = shared;
+                self.recorder.document.nodes[id.0].kind =
+                    source::SourceKind::Declaration(Box::new(declaration));
+            }
             return Some(Statement::StoredProperty {
                 decorators,
                 shared,
@@ -1056,9 +1216,12 @@ impl Parser {
                 });
             }
             if self.consume("for") {
+                self.recorder
+                    .enter_scope(source::ScopeKind::Loop, self.current_offset());
                 let binding = self.binding_pattern()?;
                 self.expect("in")?;
                 let iterable = self.expression(0)?;
+                self.activate_pattern_bindings();
                 return Some(Statement::For {
                     label: Some(label),
                     binding,
@@ -1082,11 +1245,14 @@ impl Parser {
         // `for_statement ::= loop_label? "for" binding_pattern "in" expression
         // block_body`, so the unlabelled form is a statement in its own right.
         if self.consume("for") {
+            self.recorder
+                .enter_scope(source::ScopeKind::Loop, self.current_offset());
             let binding = self.binding_pattern()?;
             self.expect("in")?;
             let outer = std::mem::replace(&mut self.no_trailing_block, true);
             let iterable = self.expression(0);
             self.no_trailing_block = outer;
+            self.activate_pattern_bindings();
             return Some(Statement::For {
                 label: None,
                 binding,
@@ -1122,6 +1288,19 @@ impl Parser {
     }
 
     fn catch_clause(&mut self) -> Option<CatchClause> {
+        let frame = self.recorder.begin(self.current_offset());
+        self.recorder
+            .enter_scope(source::ScopeKind::Catch, self.current_offset());
+        let result = self.catch_contents();
+        self.recorder.finish(
+            frame,
+            self.consumed_end,
+            result.as_ref().map(|_| source::SourceKind::Statement),
+        );
+        result
+    }
+
+    fn catch_contents(&mut self) -> Option<CatchClause> {
         if self.check("{") {
             return Some(CatchClause {
                 binding: None,
@@ -1133,7 +1312,7 @@ impl Parser {
         let binding = if self.consume("_") {
             CatchBinding::Discard
         } else {
-            CatchBinding::Name(self.binding_name()?)
+            CatchBinding::Name(self.catch_binding_name()?)
         };
         let filter = if self.consume(":") {
             Some(self.type_expression()?)
@@ -1141,7 +1320,7 @@ impl Parser {
             None
         };
         let context = if self.consume(",") {
-            Some(self.binding_name()?)
+            Some(self.catch_binding_name()?)
         } else {
             None
         };
@@ -1174,19 +1353,7 @@ impl Parser {
                 }
                 break;
             }
-            let pattern = self.pattern()?;
-            let guard = if self.consume("if") {
-                self.expression(0)
-            } else {
-                None
-            };
-            self.expect_arrow()?;
-            let body = self.match_body()?;
-            arms.push(MatchArm {
-                pattern,
-                guard,
-                body,
-            });
+            arms.push(self.source_match_arm()?);
             self.consume(",");
             self.consume_terminators();
         }
@@ -1252,6 +1419,22 @@ impl Parser {
     /// `IRIS-V1-GRAMMAR-C050`, which binds by DECLARATION rather than by
     /// guessing which trailing argument is a Closure.
     fn parameter(&mut self) -> Option<Parameter> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.parameter_contents();
+        let kind = result.as_ref().map(|value| {
+            let Some(mut declaration) =
+                self.source_declaration(frame.id, source::DeclarationKind::Parameter)
+            else {
+                return source::SourceKind::Statement;
+            };
+            declaration.parameter_category = Some(value.category);
+            source::SourceKind::Declaration(Box::new(declaration))
+        });
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
+    }
+
+    fn parameter_contents(&mut self) -> Option<Parameter> {
         let category = if self.consume("**") {
             ParameterCategory::KeywordRest
         } else if self.consume("*") {
@@ -1303,7 +1486,7 @@ impl Parser {
             self.expect("]")?;
             return Some(Pattern::Array(elements));
         }
-        self.name().map(Pattern::Name)
+        self.pattern_binding_name().map(Pattern::Name)
     }
 
     /// Parses one `match_pattern_alternative` from the C051 vocabulary.
@@ -1323,7 +1506,7 @@ impl Parser {
             let literal = self.advance()?.text;
             return Some(Pattern::Literal(literal));
         }
-        self.name().map(Pattern::Name)
+        self.pattern_binding_name().map(Pattern::Name)
     }
 
     fn array_pattern(&mut self) -> Option<Pattern> {
@@ -1351,9 +1534,14 @@ impl Parser {
                 self.error("PARSE_UNEXPECTED_TOKEN");
             }
             while !self.check(">") && !self.at_end() {
+                let frame = self.recorder.begin(self.current_offset());
                 if let Some(name) = self.name() {
                     values.push(name);
                 }
+                let kind = self
+                    .source_declaration(frame.id, source::DeclarationKind::TypeParameter)
+                    .map(|value| source::SourceKind::Declaration(Box::new(value)));
+                self.recorder.finish(frame, self.consumed_end, kind);
                 self.skip_newlines();
                 if !self.consume(",") {
                     break;
@@ -1368,6 +1556,17 @@ impl Parser {
         values
     }
     fn constraints(&mut self) -> Vec<Constraint> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.constraints_contents();
+        self.recorder.finish(
+            frame,
+            self.consumed_end,
+            Some(source::SourceKind::Statement),
+        );
+        result
+    }
+
+    fn constraints_contents(&mut self) -> Vec<Constraint> {
         let mut values = Vec::new();
         self.skip_newlines();
         while let Some(parameter) = self.name() {
@@ -1426,6 +1625,18 @@ impl Parser {
     /// `String | Integer` as the way to declare a wider binding cell, so the
     /// union level is required rather than optional.
     fn type_expression(&mut self) -> Option<TypeExpression> {
+        self.skip_newlines();
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.type_expression_contents();
+        let kind = result
+            .as_ref()
+            .filter(|_| self.recorder.enabled)
+            .map(|value| source::SourceKind::Type(value.clone()));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
+    }
+
+    fn type_expression_contents(&mut self) -> Option<TypeExpression> {
         self.skip_newlines();
         let first = self.type_intersection()?;
         self.expression_layout();
@@ -1529,6 +1740,17 @@ impl Parser {
         }
     }
     fn meta_deny(&mut self) -> Option<Vec<String>> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.meta_deny_contents();
+        self.recorder.finish(
+            frame,
+            self.consumed_end,
+            result.as_ref().map(|_| source::SourceKind::Statement),
+        );
+        result
+    }
+
+    fn meta_deny_contents(&mut self) -> Option<Vec<String>> {
         self.expect("deny")?;
         let mut values = vec![self.name()?];
         while self.consume(",") {
@@ -1572,11 +1794,21 @@ impl Parser {
     }
 
     fn selector(&mut self) -> Option<String> {
+        let start = self.current_offset();
         if let Some(operator) = self.operator_selector() {
+            self.recorder.name(source::NameSite {
+                text: operator.into(),
+                span: source::Span {
+                    start,
+                    end: self.consumed_end,
+                },
+            });
             return Some(operator.into());
         }
         let name = self.name()?;
-        self.selector_suffix(name)
+        let name = self.selector_suffix(name)?;
+        self.extend_source_name(&name);
+        Some(name)
     }
 
     fn operator_selector(&mut self) -> Option<&'static str> {
@@ -1644,16 +1876,25 @@ impl Parser {
                 .is_some_and(|token| is_identifier(&token.text))
             && self.decorator_arguments_follow()
         {
+            let frame = self.recorder.begin(self.current_offset());
             self.advance();
             let Some(name) = self.qualified_name() else {
+                self.recorder.finish(frame, self.consumed_end, None);
                 break;
             };
             if self.expect("(").is_none() {
+                self.recorder.finish(frame, self.consumed_end, None);
                 break;
             }
             let Some(arguments) = self.arguments() else {
+                self.recorder.finish(frame, self.consumed_end, None);
                 break;
             };
+            self.recorder.finish(
+                frame,
+                self.consumed_end,
+                Some(source::SourceKind::Decorator),
+            );
             decorators.push(Decorator { name, arguments });
             self.skip_newlines();
         }
@@ -1731,7 +1972,17 @@ impl Parser {
     }
     fn name(&mut self) -> Option<String> {
         if self.is_name() {
-            self.advance().map(|token| token.text)
+            let token = self.advance()?;
+            if self.recorder.enabled {
+                self.recorder.name(source::NameSite {
+                    text: token.text.clone(),
+                    span: source::Span {
+                        start: token.offset,
+                        end: token.end,
+                    },
+                });
+            }
+            Some(token.text)
         } else {
             self.error("PARSE_UNEXPECTED_TOKEN");
             None
@@ -1748,21 +1999,54 @@ impl Parser {
     /// The dotted form is admitted ONLY here, before the `::`. A `.` elsewhere
     /// keeps its member-access meaning, and a path with no `::` continues to
     /// name a Module in the current package.
-    fn import_path(&mut self) -> Option<String> {
+    fn import_path(&mut self) -> Option<(String, Vec<source::ImportSeparator>)> {
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.import_path_contents();
+        self.recorder.finish(
+            frame,
+            self.consumed_end,
+            result.as_ref().map(|_| source::SourceKind::Statement),
+        );
+        result
+    }
+
+    fn import_path_contents(&mut self) -> Option<(String, Vec<source::ImportSeparator>)> {
+        let mut separators = Vec::new();
         let mut name = self.name()?;
         while self.check(".") {
-            let restore = self.cursor;
+            let restore = self.checkpoint();
+            let start = self.current_offset();
             self.advance();
+            let end = self.consumed_end;
             let Some(segment) = self.name() else {
-                self.cursor = restore;
+                self.restore(restore);
                 break;
             };
+            if self.recorder.enabled {
+                separators.push(source::ImportSeparator {
+                    kind: source::ImportSeparatorKind::Dot,
+                    span: source::Span { start, end },
+                });
+            }
             // Only a dotted run that REACHES a `::` is a package name. Anything
             // else is left to its ordinary reading rather than being consumed.
             name.push('.');
             name.push_str(&segment);
         }
-        while self.consume_qualified_separator() {
+        loop {
+            let start = self.current_offset();
+            if !self.consume_qualified_separator() {
+                break;
+            }
+            if self.recorder.enabled {
+                separators.push(source::ImportSeparator {
+                    kind: source::ImportSeparatorKind::Qualified,
+                    span: source::Span {
+                        start,
+                        end: self.consumed_end,
+                    },
+                });
+            }
             name.push_str("::");
             // IRIS-V1-META-C013 keeps wildcard imports out of Iris v1 source and
             // IRIS-V1-META-V417 names the diagnostic, so a `*` here is reported
@@ -1773,11 +2057,11 @@ impl Parser {
                 // strand a token and report a second, generic diagnostic for one
                 // cause. V417 names exactly one code for this input.
                 self.advance();
-                return Some(name);
+                return Some((name, separators));
             }
             name.push_str(&self.name()?);
         }
-        Some(name)
+        Some((name, separators))
     }
 
     pub(crate) fn qualified_name(&mut self) -> Option<String> {
@@ -1853,7 +2137,11 @@ impl Parser {
             Some(())
         } else {
             self.error("PARSE_UNEXPECTED_TOKEN");
-            None
+            if self.editor && expected == "}" && self.at_end() && !self.exhausted {
+                Some(())
+            } else {
+                None
+            }
         }
     }
     /// Closes ONE generic argument list, splitting a `>>` token when needed.
@@ -1868,11 +2156,12 @@ impl Parser {
         if self.consume(">") {
             return Some(());
         }
-        if self.check(">>")
-            && let Some(token) = self.tokens.get_mut(self.cursor)
-        {
+        if self.check(">>") {
+            self.save_token_edit();
+            let token = &mut self.tokens[self.cursor];
             token.text = ">".into();
             token.offset += 1;
+            self.consumed_end = token.offset;
             return Some(());
         }
         self.error("PARSE_UNEXPECTED_TOKEN");
@@ -1938,7 +2227,9 @@ impl Parser {
     }
     /// The byte offset of the token at the cursor.
     fn current_offset(&self) -> usize {
-        self.tokens.get(self.cursor).map_or(0, |token| token.offset)
+        self.tokens
+            .get(self.cursor)
+            .map_or(self.source_len, |token| token.offset)
     }
     fn peek_next(&self) -> Option<&str> {
         self.tokens
@@ -1953,6 +2244,9 @@ impl Parser {
         }
         self.steps_remaining -= 1;
         let value = self.tokens.get(self.cursor).cloned();
+        if let Some(token) = &value {
+            self.consumed_end = token.end;
+        }
         self.cursor += usize::from(value.is_some());
         value
     }
@@ -1960,6 +2254,13 @@ impl Parser {
         self.exhausted || self.cursor >= self.tokens.len()
     }
     fn error(&mut self, code: &'static str) {
+        self.recorder.damage(
+            source::Span {
+                start: self.current_offset(),
+                end: self.current_offset(),
+            },
+            code,
+        );
         if !self
             .diagnostics
             .iter()

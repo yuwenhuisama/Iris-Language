@@ -1,5 +1,6 @@
 use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 
+use crate::source::{ExpressionFact, NameSite, SourceKind, Span};
 use crate::{Associativity, Parser, is_identifier, is_reserved_keyword};
 
 impl Parser {
@@ -16,6 +17,8 @@ impl Parser {
 
     fn expression_contents(&mut self, minimum: u8) -> Option<Expression> {
         self.skip_newlines();
+        let start = self.current_offset();
+        let mark = self.recorder.mark();
         let mut left = self.prefix()?;
         self.expression_layout();
         while let Some((precedence, associativity)) = self.infix() {
@@ -58,12 +61,35 @@ impl Parser {
                 operator,
                 right: Box::new(right),
             };
+            self.recorder.wrap(
+                mark,
+                Span {
+                    start,
+                    end: self.consumed_end,
+                },
+                SourceKind::Expression(ExpressionFact::Unsupported { form: "binary" }),
+            );
             self.expression_layout();
         }
         if minimum == 0 && !(self.check("=") && self.peek_next() == Some(">")) {
             if let Some(operator) = self.assignment_operator() {
+                let target = self.recorder.last();
                 self.advance();
                 let right = self.expression(0)?;
+                if let Some((target, value)) = target.zip(self.recorder.last()) {
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::Assignment {
+                            target,
+                            value,
+                            operator,
+                        }),
+                    );
+                }
                 left = Expression::Assignment {
                     left: Box::new(left),
                     operator,
@@ -81,6 +107,21 @@ impl Parser {
     }
 
     fn prefix(&mut self) -> Option<Expression> {
+        if matches!(self.peek(), Some("yield" | "await" | "+" | "-" | "~" | "!")) {
+            let frame = self.recorder.begin(self.current_offset());
+            let result = self.prefix_contents();
+            let kind = result
+                .as_ref()
+                .filter(|_| self.recorder.enabled)
+                .map(|value| SourceKind::Expression(self.primary_fact(frame.id, value)));
+            self.recorder.finish(frame, self.consumed_end, kind);
+            result
+        } else {
+            self.postfix()
+        }
+    }
+
+    fn prefix_contents(&mut self) -> Option<Expression> {
         // C071 binds `await` at `unary_expr`, so its operand is a unary
         // expression: tighter than any binary operator, looser than a postfix
         // call, making `await f()` an await of the call's result.
@@ -121,19 +162,89 @@ impl Parser {
     }
 
     fn postfix(&mut self) -> Option<Expression> {
+        let start = self.current_offset();
+        let mark = self.recorder.mark();
         let mut expression = self.primary()?;
         loop {
             self.expression_layout();
             self.expression_node()?;
+            let receiver = self.recorder.last();
             if self.consume(".") {
+                let dot = Span {
+                    start: self.consumed_end - 1,
+                    end: self.consumed_end,
+                };
+                if self.editor && matches!(self.peek(), None | Some("\n" | ";" | "}")) {
+                    self.error("PARSE_UNEXPECTED_TOKEN");
+                    if let Some(receiver) = receiver {
+                        self.recorder.wrap(
+                            mark,
+                            Span {
+                                start,
+                                end: dot.end,
+                            },
+                            SourceKind::Expression(ExpressionFact::IncompleteMember {
+                                receiver,
+                                dot,
+                            }),
+                        );
+                    }
+                    return Some(expression);
+                }
+                let selector_start = self.current_offset();
+                let selector = self.selector()?;
+                if let Some(receiver) = receiver {
+                    let name = NameSite {
+                        text: selector.clone(),
+                        span: Span {
+                            start: selector_start,
+                            end: self.consumed_end,
+                        },
+                    };
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::Member {
+                            receiver,
+                            name,
+                            contract: false,
+                        }),
+                    );
+                }
                 expression = Expression::Member {
                     receiver: Box::new(expression),
-                    selector: self.selector()?,
+                    selector,
                 };
             } else if self.consume("..") {
+                let selector_start = self.current_offset();
+                let selector = self.selector()?;
+                if let Some(receiver) = receiver {
+                    let name = NameSite {
+                        text: selector.clone(),
+                        span: Span {
+                            start: selector_start,
+                            end: self.consumed_end,
+                        },
+                    };
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::Member {
+                            receiver,
+                            name,
+                            contract: true,
+                        }),
+                    );
+                }
                 expression = Expression::ContractView {
                     receiver: Box::new(expression),
-                    selector: self.selector()?,
+                    selector,
                 };
             } else if self.check("[") && !self.newline_before_cursor() {
                 // A `[` on the SAME logical line is an index, while one that
@@ -146,6 +257,14 @@ impl Parser {
                     receiver: Box::new(expression),
                     index: Box::new(index),
                 };
+                self.recorder.wrap(
+                    mark,
+                    Span {
+                        start,
+                        end: self.consumed_end,
+                    },
+                    SourceKind::Expression(ExpressionFact::Unsupported { form: "index" }),
+                );
             } else if self.check("<")
                 && let Some(type_arguments) = self.call_type_arguments()
             {
@@ -164,6 +283,7 @@ impl Parser {
                     type_arguments,
                     arguments,
                 };
+                self.record_call(mark, start, receiver);
             } else if self.consume("(") {
                 let mut arguments = self.arguments()?;
                 // `trailing_block ::= closure_literal` is a postfix part, so a
@@ -177,6 +297,7 @@ impl Parser {
                     type_arguments: Vec::new(),
                     arguments,
                 };
+                self.record_call(mark, start, receiver);
             } else {
                 return Some(expression);
             }
@@ -193,8 +314,7 @@ impl Parser {
     /// `call_type_argument ::= type_expr | "_"`; C072 keeps `_` forbidden in
     /// every persistent Type position, so it is admitted only here.
     fn call_type_arguments(&mut self) -> Option<Vec<iris_syntax::TypeExpression>> {
-        let start = self.cursor;
-        let diagnostics = self.diagnostics.len();
+        let checkpoint = self.checkpoint();
         self.advance();
         self.skip_newlines();
         let mut arguments = Vec::new();
@@ -206,7 +326,7 @@ impl Parser {
                 match self.type_expression() {
                     Some(argument) => argument,
                     None => {
-                        self.rewind(start, diagnostics);
+                        self.restore(checkpoint);
                         return None;
                     }
                 }
@@ -219,11 +339,11 @@ impl Parser {
             self.skip_newlines();
         }
         if self.expect_generic_close().is_none() {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         if !self.check("(") {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         Some(arguments)
@@ -236,18 +356,17 @@ impl Parser {
     /// `a < b` and `Box < C` keep the comparison meaning C020 gives them. Any
     /// other shape restores the cursor and yields `None`.
     fn closed_generic_arguments(&mut self) -> Option<Vec<iris_syntax::TypeExpression>> {
-        let start = self.cursor;
+        let checkpoint = self.checkpoint();
         // Speculation must leave NO trace when it rewinds. The Type grammar
         // reports its own failures, so a rejected generic reading would
         // otherwise leave a diagnostic behind and turn the operator reading
         // C063 requires -- `A < B` -- into a parse error.
-        let diagnostics = self.diagnostics.len();
         self.advance();
         self.skip_newlines();
         let mut arguments = Vec::new();
         loop {
             let Some(argument) = self.type_expression() else {
-                self.rewind(start, diagnostics);
+                self.restore(checkpoint);
                 return None;
             };
             arguments.push(argument);
@@ -258,7 +377,7 @@ impl Parser {
             self.skip_newlines();
         }
         if self.expect_generic_close().is_none() {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         // C067 admits a closed generic name as a COMPLETE expression, so the
@@ -277,16 +396,10 @@ impl Parser {
             || self.check("}")
             || self.at_end();
         if !self.check(".") && !self.check("(") && !self.check("..") && !complete {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         Some(arguments)
-    }
-
-    /// Undoes a speculative parse, restoring cursor AND diagnostics.
-    fn rewind(&mut self, cursor: usize, diagnostics: usize) {
-        self.cursor = cursor;
-        self.diagnostics.truncate(diagnostics);
     }
 
     /// Parses `reified_type_expr`, or rewinds entirely.
@@ -298,26 +411,39 @@ impl Parser {
     /// the OPERATOR reading wins, which is why this speculates and restores
     /// diagnostics as well as the cursor.
     fn reified_type_expression(&mut self) -> Option<iris_syntax::TypeExpression> {
-        let start = self.cursor;
-        let diagnostics = self.diagnostics.len();
+        let checkpoint = self.checkpoint();
         self.advance();
         self.skip_newlines();
         let Some(annotation) = self.type_expression() else {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         };
         if !self.consume_after_newlines(")") {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         if !(self.check(".") && self.peek_next() == Some("type")) {
-            self.rewind(start, diagnostics);
+            self.restore(checkpoint);
             return None;
         }
         Some(annotation)
     }
 
     fn primary(&mut self) -> Option<Expression> {
+        if self.check("{") && !self.no_trailing_block {
+            return self.closure_literal();
+        }
+        let frame = self.recorder.begin(self.current_offset());
+        let result = self.primary_contents();
+        let kind = result
+            .as_ref()
+            .filter(|_| self.recorder.enabled)
+            .map(|value| SourceKind::Expression(self.primary_fact(frame.id, value)));
+        self.recorder.finish(frame, self.consumed_end, kind);
+        result
+    }
+
+    fn primary_contents(&mut self) -> Option<Expression> {
         if self.consume("@@") {
             return self.name().map(Expression::ClassVar);
         }
@@ -536,9 +662,28 @@ impl Parser {
     /// is unambiguously a keyword argument.
     fn argument(&mut self) -> Option<Expression> {
         if let Some(name) = self.peek_keyword_argument_name() {
+            let start = self.current_offset();
+            let mark = self.recorder.mark();
             self.advance();
+            let site = NameSite {
+                text: name.clone(),
+                span: Span {
+                    start,
+                    end: self.consumed_end,
+                },
+            };
             self.advance();
             let value = self.expression(0)?;
+            if let Some(value) = self.recorder.last() {
+                self.recorder.wrap(
+                    mark,
+                    Span {
+                        start,
+                        end: self.consumed_end,
+                    },
+                    SourceKind::Expression(ExpressionFact::KeywordArgument { name: site, value }),
+                );
+            }
             return Some(Expression::KeywordArgument {
                 name,
                 value: Box::new(value),
@@ -605,6 +750,7 @@ impl Parser {
     }
 
     fn consume_infix_operator(&mut self) -> Option<BinaryOperator> {
+        let start = self.current_offset();
         let token = self.advance()?.text;
         let operator = match token.as_str() {
             "**" => BinaryOperator::Power,
@@ -635,6 +781,13 @@ impl Parser {
             "||" => BinaryOperator::LogicalOr,
             selector if is_identifier(selector) && !is_reserved_keyword(selector) => {
                 let selector = self.selector_suffix(token)?;
+                self.recorder.name(NameSite {
+                    text: selector.clone(),
+                    span: Span {
+                        start,
+                        end: self.consumed_end,
+                    },
+                });
                 if selector == "same?" {
                     BinaryOperator::Identity
                 } else {
