@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { checkLocalLinks, checkTutorial, parseTutorial, runExample } from './check-tutorial.mjs';
 
@@ -259,3 +260,98 @@ test('CLI supports root and binary overrides and meaningful exit codes', context
   assert.equal(invoke(['--root']).status, 2);
   assert.match(invoke(['--help']).stdout, /Usage:/);
 });
+
+function landingHtml(language) {
+  const node = () => ({
+    addEventListener() {}, setAttribute() {},
+    classList: { toggle() {} }, querySelectorAll: () => [],
+  });
+  const nodes = Object.fromEntries(['main', 'lang-toggle', 'theme-toggle', 'sidebar-toggle'].map(id => [id, node()]));
+  const document = {
+    documentElement: { dataset: {} },
+    getElementById: id => nodes[id],
+    querySelector: () => node(), querySelectorAll: () => [], addEventListener() {},
+  };
+  runInNewContext(readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8'), {
+    document,
+    localStorage: { getItem: key => key === 'iris-site-lang' ? language : null, setItem() {} },
+    location: { hash: '#/' },
+    window: { addEventListener() {}, scrollTo() {} },
+  }, { filename: 'assets/app.js' });
+  assert.equal(document.documentElement.lang, language === 'en' ? 'en' : 'zh-CN');
+  assert.equal(nodes.main.className, 'landing');
+  return nodes.main.innerHTML;
+}
+
+function classElements(html, className) {
+  const elements = [];
+  for (const opening of html.matchAll(/<([a-z][\w-]*)\b[^>]*>/g)) {
+    const classes = /\sclass=["']([^"']*)["']/.exec(opening[0]);
+    if (!classes?.[1].split(/\s+/).includes(className)) continue;
+    const tags = new RegExp(`<\\/?${opening[1]}\\b[^>]*>`, 'g');
+    tags.lastIndex = opening.index + opening[0].length;
+    let depth = 1;
+    let closing;
+    while (depth && (closing = tags.exec(html))) depth += closing[0].startsWith('</') ? -1 : 1;
+    assert.equal(depth, 0, `unclosed .${className}`);
+    elements.push({ index: opening.index, end: tags.lastIndex, body: html.slice(opening.index + opening[0].length, closing.index) });
+  }
+  return elements;
+}
+
+function decodeHtml(html) {
+  const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+  return html.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (_, entity) => {
+    if (!entity.startsWith('#')) return entities[entity.toLowerCase()];
+    return String.fromCodePoint(entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1)));
+  });
+}
+
+const withoutTrailingNewline = text => text.replace(/\n$/, '');
+const featureIds = ['01-operators', '07-union-bindings', '06-composition', '06-contracts-declare-promises', '09-open-class-reopen'];
+
+for (const language of ['en', 'zh-cn']) {
+  test(`landing ${language}: exactly four feature rows precede build and run`, () => {
+    const html = landingHtml(language);
+    const rows = classElements(html, 'feature-row');
+    const starts = classElements(html, 'start-section');
+    assert.equal(starts.length, 1, 'landing must retain one .start-section');
+    assert.equal(rows.length, 4, 'landing must render exactly four .feature-row groups');
+    for (const row of rows) {
+      assert.ok(row.end <= starts[0].index, 'each complete feature row must precede .start-section');
+      assert.match(row.body, /<figure\b[^>]*\sdata-example-id=["'][^"']+["']/, 'each feature row must contain an example');
+    }
+  });
+
+  test(`landing ${language}: rendered feature source and output match tutorial VM examples`, () => {
+    const directory = new URL(`../tutorial/${language}/`, import.meta.url);
+    const examples = readdirSync(directory).filter(file => file.endsWith('.md')).flatMap(file => {
+      const parsed = parseTutorial(readFileSync(new URL(file, directory), 'utf8'), file);
+      assert.deepEqual(parsed.errors, []);
+      return parsed.examples;
+    });
+    const html = landingHtml(language);
+    const figures = [...html.matchAll(/<figure\b([^>]*)>([\s\S]*?)<\/figure>/g)].flatMap(match => {
+      const id = /\sdata-example-id=["']([^"']+)["']/.exec(match[1]);
+      return id ? [{ id: id[1], body: match[2], index: match.index, end: match.index + match[0].length }] : [];
+    });
+    assert.deepEqual(figures.map(figure => figure.id).sort(), [...featureIds].sort(), 'landing must render each of the five tutorial examples exactly once');
+    const rows = classElements(html, 'feature-row');
+    for (const figure of figures) {
+      const expected = examples.filter(example => example.id === figure.id);
+      assert.equal(expected.length, 1, `${figure.id}: unique tutorial metadata`);
+      assert.equal(expected[0].mode, 'vm', `${figure.id}: tutorial must classify the example as VM-supported`);
+      assert.ok(rows.some(row => row.index < figure.index && figure.end < row.end), `${figure.id}: figure must be inside a feature row`);
+      const visibleText = decodeHtml(figure.body.replace(/<!--[\s\S]*?-->|<[^>]*>/g, ''));
+      assert.match(visibleText, /--vm\b/, `${figure.id}: visible VM backend label`);
+      for (const [className, field] of [['feature-source', 'source'], ['feature-output', 'stdout']]) {
+        const containers = classElements(figure.body, className);
+        assert.equal(containers.length, 1, `${figure.id}: one .${className}`);
+        const codes = [...containers[0].body.matchAll(/<code\b[^>]*>([\s\S]*?)<\/code>/g)];
+        assert.equal(codes.length, 1, `${figure.id}: one .${className} code`);
+        const actual = decodeHtml(codes[0][1].replace(/<\/?span\b[^>]*>/g, ''));
+        assert.equal(withoutTrailingNewline(actual), withoutTrailingNewline(expected[0][field]), `${language} ${figure.id}: rendered ${field} must match tutorial metadata`);
+      }
+    }
+  });
+}

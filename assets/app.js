@@ -33,22 +33,109 @@
     ["09-dynamic-and-static", "Dynamic Meets Static", "动态与静态的交汇"],
     ["10-where-to-next", "Where To Next", "下一步"]
   ].map(([stem, en, zh]) => ({ stem, file: `${stem}.md`, en, zh }));
+  const featureExamples = {
+    "01-operators": {
+      backend: "--vm", stdout: "6\nfalse\n",
+      source: `let total = 1 + 2
+let shifted = total << 1
+print(shifted)
+print(total == shifted)
+`
+    },
+    "07-union-bindings": {
+      backend: "--vm", stdout: "ready\n42\n",
+      source: `mut value: String | Integer = "ready"
+print(value)
+
+value = 42
+print(value)
+`
+    },
+    "06-composition": {
+      backend: "--vm", stdout: "B\n",
+      source: `module A {
+  public fun trace() -> String { "A" }
+}
+
+module B mixin A {
+  public override fun trace() -> String { "B" }
+}
+
+class C mixin A, B {}
+
+print(C.new().trace())
+`
+    },
+    "06-contracts-declare-promises": {
+      backend: "--vm", stdout: "Beep boop\n",
+      source: `contract Speaker {
+  fun speak() -> String
+}
+
+class Robot for Speaker {
+  public impl fun speak() -> String {
+    "Beep boop"
+  }
+}
+
+let bot = Robot.new() as Speaker
+print(bot..speak())
+`
+    },
+    "09-open-class-reopen": {
+      backend: "--vm", stdout: "2\n",
+      source: `class Counter {
+  public fun value() -> Integer { 1 }
+}
+
+let c = Counter.new()
+
+open class Counter {
+  public override fun value() -> Integer { 2 }
+}
+
+print(c.value())
+`
+    }
+  };
+  const homepageFeatures = [
+    { key: "objects", stem: "01-getting-started", examples: ["01-operators"] },
+    { key: "promises", stem: "07-types-and-generics", examples: ["07-union-bindings"] },
+    { key: "composition", stem: "06-modules-and-contracts", examples: ["06-composition", "06-contracts-declare-promises"] },
+    { key: "revisions", stem: "09-dynamic-and-static", examples: ["09-open-class-reopen"] }
+  ];
   const strings = {
     en: {
       nav: { tutorial: "Learn", spec: "Specification", status: "Status", chapters: "Chapters" },
       skipContent: "Skip to content", home: "Home", themeLight: "Light", themeDark: "Dark",
       switchLanguage: "切换到中文", switchLight: "Switch to light theme", switchDark: "Switch to dark theme",
-      heroKicker: "The Iris language handbook",
-      heroTitle: "A small program.<br>A place to begin.",
-      heroLede: "Meet Iris, an object-oriented scripting language where dynamic behavior lives within static promises. Start with a working program, then learn what makes it work.",
+      heroKicker: "The Iris programming language",
+      heroTitle: "Object-oriented.<br>Dynamic, within bounds.",
+      heroLede: "Iris is a scripting language built on objects and messages. Static promises keep dynamic behavior within clear boundaries, from changing values to evolving classes.",
       readTutorial: "Build your first program", browseLessons: "Explore the learning path",
       exampleLabel: "Your first Iris program", sourceLabel: "Source", outputLabel: "Output",
       exampleCaption: "One function call. One line of output. Run it locally on the bytecode VM.",
-      startKicker: "01 / Build & run", startTitle: "From source to hello.",
+      featureKicker: "01 / Meet the language", featureTitle: "Four ideas. Real code.",
+      featureLede: "Objects, promises, composition, and change. Explore each through complete tutorial examples and their VM output.",
+      backendLabel: "Backend",
+      features: {
+        objects: { title: "Objects all the way down.", body: "Every runtime value is an object. Arithmetic and comparison express behavior through message sends: +, <<, and == invoke methods on their receivers.", detail: "Here, adding makes 3, shifting makes 6, and equality compares the two values.", link: "Explore objects and messages" },
+        promises: { title: "Changing values. Fixed promises.", body: "Dispatch stays runtime-dynamic. Type annotations constrain what is allowed; they never select a different selector or overload by static type.", detail: "This union example shows a binding changing from String to Integer while its allowed types stay fixed. It demonstrates a type boundary, not the full dispatch model.", link: "Explore types and promises" },
+        composition: { title: "Reuse behavior. Declare obligations.", body: "Iris combines single Class inheritance with Modules and Contracts. A Module supplies reusable methods; a Contract declares requirements a Class explicitly promises to satisfy.", detail: "Module lookup reaches B before A here. Separately, Robot promises Speaker with for, implements speak with impl, and calls its Contract slot through a view. Reuse and promises play different roles.", link: "Explore Modules and Contracts" },
+        revisions: { title: "Evolve a class. Keep its identity.", body: "A compatible open class revision can replace a method body without replacing the logical Class. The instance created before the update sees the new method here.", detail: "The language rule is transactional: validate a candidate, then publish atomically or roll back. This example shows a compatible method update, not full rollback or package-upgrade support.", link: "Explore bounded runtime change" }
+      },
+      featureCaptions: {
+        "01-operators": "Arithmetic and comparison as messages.",
+        "07-union-bindings": "The value changes; String | Integer remains the boundary.",
+        "06-composition": "Module reuse: B overrides the trace method from A.",
+        "06-contracts-declare-promises": "Contract promises: Robot satisfies Speaker explicitly.",
+        "09-open-class-reopen": "An existing instance observes the compatible method update."
+      },
+      startKicker: "02 / Build & run", startTitle: "From source to hello.",
       startLede: "With a stable Rust toolchain installed, open the Iris repository in your terminal.",
       build: "Build the CLI", run: "Run on the VM", setupLink: "Setup, script files, and the REPL",
       startNote: "These commands use a Unix-style shell. The getting-started chapter covers setup and platform details.",
-      learnKicker: "02 / Learn the language", learnTitle: "Follow the thread.",
+      learnKicker: "03 / Learn the language", learnTitle: "Follow the thread.",
       learnLede: "Ten chapters, one reading path. Begin with runnable examples; continue into the language model with explicit backend boundaries.",
       tutorialIndex: "Read the tutorial index", groupStart: "Start", groupCore: "Core", groupAdvanced: "Advanced",
       groupStartBody: "Build, run, and get comfortable with values.",
@@ -60,7 +147,7 @@
       statusTitle: "Running code, not a toolchain release.",
       statusBody: "Iris is a work in progress. The implementation is partial, with no production-readiness or compatibility promise. Check the repository for current limitations.",
       statusCta: "Current implementation status",
-      specKicker: "03 / Keep the reference close", specTitle: "The language, precisely.",
+      specKicker: "04 / Keep the reference close", specTitle: "The language, precisely.",
       specLede: "The frozen v1 specification defines the language, not the implementation's current feature set. English is authoritative; Simplified Chinese is a reference translation.",
       specBrowse: "Browse all 14 specification artifacts", readSpec: "Open the specification index",
       footer: "Iris / A language to explore.", repo: "Source on GitHub",
@@ -76,17 +163,33 @@
       nav: { tutorial: "学习", spec: "语言规范", status: "项目状态", chapters: "章节" },
       skipContent: "跳转到正文", home: "首页", themeLight: "亮色", themeDark: "暗色",
       switchLanguage: "Switch to English", switchLight: "切换到亮色主题", switchDark: "切换到暗色主题",
-      heroKicker: "Iris 语言学习手册",
-      heroTitle: "从一小段程序，<br>开始认识 Iris。",
-      heroLede: "Iris 是一门面向对象的脚本语言，让动态行为始终处于静态承诺的边界之内。从能运行的程序出发，逐步理解它背后的语言。",
+      heroKicker: "Iris 编程语言",
+      heroTitle: "面向对象，<br>动态有界。",
+      heroLede: "Iris 是一门以对象与消息为基础的脚本语言。从值的变化到类的演进，静态承诺为动态行为划定清晰的边界。",
       readTutorial: "构建你的第一个程序", browseLessons: "探索学习路线",
       exampleLabel: "你的第一个 Iris 程序", sourceLabel: "源代码", outputLabel: "输出",
       exampleCaption: "一次函数调用，一行输出。在本地的字节码 VM 上运行它。",
-      startKicker: "01 / 构建与运行", startTitle: "从源码到第一声问候。",
+      featureKicker: "01 / 认识语言", featureTitle: "四个理念，真实代码。",
+      featureLede: "对象、承诺、组合与变化。通过完整的教程示例及其 VM 输出，认识 Iris 的语言模型。",
+      backendLabel: "执行后端",
+      features: {
+        objects: { title: "每一个值，都是对象。", body: "所有运行时值都是对象。算术与比较通过消息发送表达行为：+、<< 和 == 都会调用接收者上的方法。", detail: "这个例子先相加得到 3，再移位得到 6，最后比较两个值是否相等。", link: "了解对象与消息" },
+        promises: { title: "值可以变，承诺不变。", body: "分派始终在运行时动态进行。类型注解约束允许的行为，不会根据静态类型选择不同的选择子或重载。", detail: "联合类型示例中，绑定的值从 String 变为 Integer，允许的类型却始终固定。它展示的是类型边界，而非完整的分派模型。", link: "了解类型与承诺" },
+        composition: { title: "复用行为，明确义务。", body: "Iris 将 Class 单继承与 Module、Contract 结合。Module 提供可复用的方法，Contract 声明由 Class 显式承诺满足的要求。", detail: "第一个例子的方法查找先到 B，再到 A。第二个例子中，Robot 用 for 承诺 Speaker，用 impl 实现 speak，再通过视图调用 Contract 槽位。行为复用与契约承诺各司其职。", link: "了解 Module 与 Contract" },
+        revisions: { title: "类可以演进，身份保持不变。", body: "兼容的 open class 修订可以替换方法体，而不替换逻辑上的 Class。这个例子中，更新前创建的实例也能看到新方法。", detail: "语言规定变更必须遵循事务规则：验证候选变更，再原子发布或回滚。本例展示兼容的方法更新，并非完整回滚或包升级支持的证明。", link: "了解有边界的运行时变化" }
+      },
+      featureCaptions: {
+        "01-operators": "算术与比较，以消息表达。",
+        "07-union-bindings": "值发生变化，String | Integer 的边界保持不变。",
+        "06-composition": "Module 复用：B 重写来自 A 的 trace 方法。",
+        "06-contracts-declare-promises": "Contract 承诺：Robot 显式满足 Speaker。",
+        "09-open-class-reopen": "已有实例观察到兼容的方法更新。"
+      },
+      startKicker: "02 / 构建与运行", startTitle: "从源码到第一声问候。",
       startLede: "安装稳定版 Rust 工具链后，在终端中打开 Iris 仓库目录。",
       build: "构建 CLI", run: "在 VM 上运行", setupLink: "环境配置、脚本文件与 REPL",
       startNote: "以下命令使用 Unix 风格的 shell。环境配置与平台差异请参阅开始使用章节。",
-      learnKicker: "02 / 学习语言", learnTitle: "循着代码，逐步深入。",
+      learnKicker: "03 / 学习语言", learnTitle: "循着代码，逐步深入。",
       learnLede: "十个章节，一条学习路线。从可运行示例开始，再深入语言模型；每一步都明确区分后端能力边界。",
       tutorialIndex: "阅读教程索引", groupStart: "起步", groupCore: "核心", groupAdvanced: "进阶",
       groupStartBody: "构建、运行，熟悉值与绑定。", groupCoreBody: "掌握控制流、函数与对象。", groupAdvancedBody: "理解承诺、资源与能力边界。",
@@ -96,7 +199,7 @@
       statusTitle: "代码已经能运行，但尚未发布工具链。",
       statusBody: "Iris 仍在开发中。目前只是部分实现，不承诺生产可用性或兼容性。请在仓库中查看当前限制。",
       statusCta: "查看当前实现状态",
-      specKicker: "03 / 随时查阅规范", specTitle: "准确理解这门语言。",
+      specKicker: "04 / 随时查阅规范", specTitle: "准确理解这门语言。",
       specLede: "冻结的 v1 规范定义语言语义，并不代表当前实现的功能范围。英文为权威版本，简体中文为参考译文。",
       specBrowse: "浏览全部 14 份规范文档", readSpec: "打开规范索引",
       footer: "Iris / 一门值得探索的语言。", repo: "GitHub 源代码",
@@ -170,7 +273,7 @@
   }
 
   function renderLanding() {
-    document.title = "Iris Programming Language | Build. Run. Learn.";
+    document.title = "Iris Programming Language | " + (currentLang === "zh" ? "面向对象，动态有界。" : "Object-oriented. Dynamic, within bounds.");
     main.className = "landing";
     main.innerHTML = `
       <section class="hero" aria-labelledby="hero-title">
@@ -181,6 +284,16 @@
           <div class="sheet-source"><span class="code-label">${t("sourceLabel")}</span><pre tabindex="0" aria-label="${t("sourceLabel")}"><code>${highlightIris('print("Hello, Iris!")')}</code></pre></div>
           <div class="sheet-output"><span class="code-label">${t("outputLabel")}</span><pre><code>Hello, Iris!</code></pre></div><figcaption>${t("exampleCaption")}</figcaption>
         </figure>
+      </section>
+      <section class="landing-section feature-section" aria-labelledby="feature-title"><div class="section-heading"><div><p class="section-kicker">${t("featureKicker")}</p><h2 id="feature-title">${t("featureTitle")}</h2></div><p class="section-lede">${t("featureLede")}</p></div>
+        ${homepageFeatures.map(({ key, stem, examples }) => `<article class="feature-row" aria-labelledby="feature-${key}"><div class="feature-copy"><h3 id="feature-${key}">${t(`features.${key}.title`)}</h3><p>${escapeHtml(t(`features.${key}.body`))}</p><p>${escapeHtml(t(`features.${key}.detail`))}</p><a class="text-link" href="${readerHref("tutorial", stem)}">${t(`features.${key}.link`)} <span aria-hidden="true">↗</span></a></div><div class="feature-examples">${examples.map((id) => {
+          const example = featureExamples[id];
+          return `<figure class="feature-sheet" data-example-id="${id}" aria-labelledby="caption-${id}">
+            <div class="sheet-heading"><span class="code-label">${t("backendLabel")}</span> <span class="sheet-backend">${example.backend}</span></div>
+            <div class="sheet-source feature-source"><span class="code-label">${t("sourceLabel")}</span><pre tabindex="0" aria-label="${t("sourceLabel")}"><code>${highlightIris(example.source)}</code></pre></div>
+            <div class="sheet-output feature-output"><span class="code-label">${t("outputLabel")}</span><pre tabindex="0" aria-label="${t("outputLabel")}"><code>${escapeHtml(example.stdout)}</code></pre></div>
+            <figcaption id="caption-${id}">${escapeHtml(t(`featureCaptions.${id}`))}</figcaption></figure>`;
+        }).join("")}</div></article>`).join("")}
       </section>
       <section class="landing-section start-section" aria-labelledby="start-title"><div class="section-heading"><div><p class="section-kicker">${t("startKicker")}</p><h2 id="start-title">${t("startTitle")}</h2></div><p class="section-lede">${t("startLede")}</p></div>
         <div class="command-steps"><article class="command-step"><h3><span class="chapter-number">01</span>${t("build")}</h3><pre tabindex="0" aria-label="${t("build")}"><code>cargo build -p iris-cli</code></pre></article>
