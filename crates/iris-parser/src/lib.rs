@@ -22,7 +22,9 @@ mod expression_tests;
 use iris_lexer::{TokenKind, lex};
 mod analysis;
 
-pub use analysis::analyze;
+pub use analysis::{
+    analyze, prepare_bindings, prepare_bindings_with_aliases, prepare_bindings_with_context,
+};
 
 use iris_syntax::{
     CatchBinding, CatchClause, Constraint, ContractDeclaration, Declaration, Decorator, Expression,

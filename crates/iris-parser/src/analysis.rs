@@ -9,6 +9,13 @@ use iris_syntax::{Expression, Program, ProgramEntry, Statement};
 
 use crate::Diagnostic;
 
+mod aliases;
+mod bindings;
+mod operations;
+pub use bindings::{
+    prepare_bindings, prepare_bindings_with_aliases, prepare_bindings_with_context,
+};
+
 /// Reports the static diagnostics for an accepted program.
 pub fn analyze(program: &Program) -> Vec<Diagnostic> {
     let mut analyzer = Analyzer {
@@ -44,6 +51,7 @@ pub fn analyze(program: &Program) -> Vec<Diagnostic> {
 /// `IRIS-V1-TYPES-C068` keeps inference LOCAL: only the actual arguments'
 /// static Types and an explicit immediate expected result may contribute, so
 /// nothing here records a body.
+#[derive(Clone)]
 struct GenericMethod {
     selector: String,
     type_parameters: Vec<String>,
@@ -54,6 +62,7 @@ struct GenericMethod {
 }
 
 /// One binding visible to later statements in the same scope.
+#[derive(Clone)]
 struct Local {
     name: String,
     mutable: bool,
@@ -64,6 +73,7 @@ struct Local {
     /// assignments to satisfy it without widening. `None` means the Type is not
     /// statically known, so no assignment can be rejected against it.
     fixed_type: Option<StaticType>,
+    contract: Option<iris_syntax::TypeExpression>,
     /// The Class names of a WRITTEN union annotation, when the source wrote one.
     ///
     /// `IRIS-V1-TYPES-D-196` rejects a call whose accepted-arity intersection
@@ -77,7 +87,8 @@ struct Local {
 enum TypeMember {
     Bool,
     Integer,
-    Float,
+    Float32,
+    Float64,
     String,
     Symbol,
     Nil,
@@ -176,10 +187,13 @@ impl StaticType {
         let member = match name {
             "Bool" => TypeMember::Bool,
             "Integer" => TypeMember::Integer,
-            "Float32" | "Float64" => TypeMember::Float,
+            "Float32" => TypeMember::Float32,
+            "Float64" => TypeMember::Float64,
             "String" => TypeMember::String,
             "Symbol" => TypeMember::Symbol,
             "Nil" => TypeMember::Nil,
+            "Array" => TypeMember::Array,
+            "Hash" => TypeMember::Hash,
             _ => return None,
         };
         Some(Self::single(member))
@@ -217,8 +231,18 @@ impl StaticType {
         }
         // A float literal is distinguished by its point or exponent, which the
         // lexer has already validated by this point.
-        if text.contains('.') || text.contains('e') || text.contains('E') {
-            return Some(Self::single(TypeMember::Float));
+        if text.ends_with("f32") {
+            return Some(Self::single(TypeMember::Float32));
+        }
+        if text.ends_with("f64")
+            || text.contains('.')
+            || (!text.starts_with("0x")
+                && !text.starts_with("0X")
+                && (text.contains('e') || text.contains('E')))
+            || text.contains('p')
+            || text.contains('P')
+        {
+            return Some(Self::single(TypeMember::Float64));
         }
         Some(Self::single(TypeMember::Integer))
     }
@@ -292,6 +316,7 @@ impl Control {
     }
 }
 
+#[derive(Default)]
 struct Analyzer {
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<Vec<Local>>,
@@ -432,6 +457,7 @@ impl Analyzer {
             scope.push(Local {
                 name: name.to_owned(),
                 mutable,
+                contract: fixed_type.as_ref().map(StaticType::contract),
                 fixed_type,
                 union_members,
             });
@@ -839,6 +865,24 @@ impl Analyzer {
     /// Infers an expression's static Type, or `None` when it is not known.
     fn expression_type(&self, expression: &Expression) -> Option<StaticType> {
         match expression {
+            Expression::Grouped(inner) => self.expression_type(inner),
+            Expression::Unary {
+                operand,
+                operator:
+                    iris_syntax::UnaryOperator::Plus
+                    | iris_syntax::UnaryOperator::Negate
+                    | iris_syntax::UnaryOperator::BitwiseNot,
+            } => self.expression_type(operand),
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => self.binary_type(left, operator, right),
+            Expression::Assignment {
+                left,
+                operator,
+                right,
+            } => self.assignment_type(left, *operator, right),
             // `nil`, `true` and `false` reach the parser as NAMES rather than
             // literals, so they are resolved here before an ordinary binding
             // lookup, which would otherwise find nothing and report no Type.
@@ -858,16 +902,6 @@ impl Analyzer {
             // `D-359`: `to_bool` decides only WHICH operand value is returned,
             // so the static result Type is the normalized union of the
             // reachable operand Types rather than `Bool`.
-            Expression::Binary {
-                left,
-                operator:
-                    iris_syntax::BinaryOperator::LogicalAnd | iris_syntax::BinaryOperator::LogicalOr,
-                right,
-            } => {
-                let left = self.expression_type(left)?;
-                let right = self.expression_type(right)?;
-                Some(StaticType::union(&left, &right))
-            }
             // A generic Method call carries the Type its inference produced,
             // which is what lets an annotated target reject a widened one.
             Expression::Call {
@@ -913,10 +947,19 @@ impl Analyzer {
     /// value Type, which is what lets `if c { 1 } else { raise :e }` stay
     /// Integer-typed rather than widening to include the raising side.
     fn branch_type(&self, body: &[Statement]) -> BranchType {
+        let mut branch = Analyzer {
+            scopes: self.scopes.clone(),
+            generic_methods: self.generic_methods.clone(),
+            ..Analyzer::default()
+        };
+        branch.scopes.push(Vec::new());
+        for statement in body.iter().take(body.len().saturating_sub(1)) {
+            branch.statement(statement, Control::callable());
+        }
         match body.last() {
             // A raise never completes normally, so the branch is bottom.
             Some(Statement::Raise(_)) => BranchType::Never,
-            Some(Statement::Expression(expression)) => self
+            Some(Statement::Expression(expression)) => branch
                 .expression_type(expression)
                 .map_or(BranchType::Unknown, BranchType::Value),
             // A branch ending in anything else contributes a Type this pass
@@ -1917,7 +1960,11 @@ impl Analyzer {
                         .collect(),
                     _ => Vec::new(),
                 };
+                let contract = annotation.clone().or_else(|| self.inferred_contract(value));
                 self.declare_union(name, *mutable, fixed_type, union_members);
+                if let Some(local) = self.scopes.last_mut().and_then(|scope| scope.last_mut()) {
+                    local.contract = contract;
+                }
             }
             // `IRIS-V1-CONTROL-D-427`: `let` MUST be initialized, and a deferred
             // `mut` is legal only with an explicit type.
@@ -2091,7 +2138,7 @@ impl Analyzer {
             } => {
                 self.scoped_body(body, control);
                 for catch in catches {
-                    self.scoped_body(&catch.body, control);
+                    self.catch_body(catch, control);
                 }
                 if let Some(body) = finally {
                     self.scoped_body(body, control);
@@ -2132,7 +2179,7 @@ impl Analyzer {
                 // unless their own declaration uses `mut`. Declaring them keeps
                 // a write to one reported as an immutable-binding error rather
                 // than as an unresolved target.
-                self.scopes.push(Vec::new());
+                let outer_scopes = std::mem::replace(&mut self.scopes, vec![Vec::new()]);
                 for parameter in &declaration.parameters {
                     // C078: a default referencing a parameter declared LATER is
                     // a forward reference. Each parameter is declared before the
@@ -2147,7 +2194,7 @@ impl Analyzer {
                             self.check_annotated_value(annotation, default);
                         }
                     }
-                    self.declare(&parameter.name, false);
+                    self.declare_parameter(parameter);
                 }
                 // A bodyless C062 requirement has no statements to analyse; it
                 // declares an obligation rather than an implementation.
@@ -2165,7 +2212,7 @@ impl Analyzer {
                 }
                 self.check_return_annotation(declaration);
                 self.check_async_result(declaration);
-                self.scopes.pop();
+                self.scopes = outer_scopes;
             }
             Statement::StoredProperty {
                 annotation,
@@ -2211,7 +2258,11 @@ impl Analyzer {
                     self.expression(value, control);
                 }
             }
-            Expression::Assignment { left, right, .. } => {
+            Expression::Assignment {
+                left,
+                operator,
+                right,
+            } => {
                 self.expression(right, control);
                 // `D-426`: a bare `name = expr` only ASSIGNS an existing mutable
                 // binding. It never implicitly declares, which is what prevents
@@ -2243,7 +2294,7 @@ impl Analyzer {
                         // annotation leaves the binding unchecked rather than
                         // guessed at.
                         Some(local) => {
-                            let assigned = self.expression_type(right);
+                            let assigned = self.assignment_type(left, *operator, right);
                             let fixed = local.fixed_type.clone();
                             if let (Some(fixed), Some(assigned)) = (fixed, assigned)
                                 && !fixed.accepts(&assigned)
@@ -2258,8 +2309,17 @@ impl Analyzer {
             }
             // A Closure body is a callable boundary for `return`, and it resets
             // the loop depth so a `break` inside it cannot target an outer loop.
-            Expression::Closure { body, .. } => {
-                self.scoped_body(body, control.entering_closure());
+            Expression::Closure {
+                parameters, body, ..
+            } => {
+                self.scopes.push(Vec::new());
+                for parameter in parameters {
+                    self.declare(parameter, false);
+                }
+                for statement in body {
+                    self.statement(statement, control.entering_closure());
+                }
+                self.scopes.pop();
             }
             // IRIS-V1-FFI-C005 makes the standard `FFI` subsystem the ONLY
             // script-originated binary path, and IRIS-V1-FFI-C004 forbids an
@@ -2384,7 +2444,7 @@ impl Analyzer {
             } => {
                 self.scoped_body(body, control);
                 for catch in catches {
-                    self.scoped_body(&catch.body, control);
+                    self.catch_body(catch, control);
                 }
                 if let Some(body) = finally {
                     self.scoped_body(body, control);

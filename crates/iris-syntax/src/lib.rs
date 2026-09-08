@@ -1,8 +1,10 @@
 //! Syntax tree types shared by the Iris v1 front end.
 
 mod shape;
+mod signature;
 
 pub use shape::{PRECEDENCE_ROWS_COVERED, render_parse_shape, render_parse_shapes};
+pub use signature::method_signature_compatible;
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Program {
