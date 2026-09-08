@@ -1,0 +1,101 @@
+lock_version = 1
+
+[[packages]]
+tree_sha256 = "d8b27f42cd9064213e3fd675c8a298134533a9bbb1ef09e329afc8da73778767"
+metadata_sha256 = "3a256fab2d311ab0e6ae1bf37bd72e295b70674c1bf8c390607e5a444b9f9ca6"
+
+[packages.manifest]
+manifest_version = 1
+package_id = "org.iris.network"
+api_major = 1
+version = "0.1.0"
+iris_major = 1
+sources = []
+entry_modules = ["Network"]
+
+[packages.manifest.dependencies]
+
+[packages.manifest.permissions]
+required = [
+    "native.load",
+    "native.blocking",
+    "network.tcp",
+]
+optional = []
+
+[packages.manifest.native]
+abi_major = 1
+minimum_minor = 0
+required_features = 0
+metadata = "native-api.json"
+cargo_manifest = "Cargo.toml"
+cargo_package = "iris-network"
+cargo_target = "iris_network"
+
+[packages.source]
+git = "https://github.com/yuwenhuisama/iris-network.git"
+rev = "c34aeb1044e999bd40f930dfde0ef898557ce1e0"
+
+[packages.files]
+".gitignore" = "306fd52e74fca6746e12acc750f232de15e71da917756a1270d74c91f5eb7368"
+"Cargo.lock" = "62c1c2a765ab6aa52ab9a154b3a2cc12e0fb83f2caa5a40ae21b3d78f99e8ad7"
+"Cargo.toml" = "467a3fa69608a492d232d19bd86a78cba600edef2d53ab4d099c0c4149c46214"
+"README.md" = "dcca5c690700f1d1ce0ec410e85b8ac2da2984d6369772fa8445b95710ad4cf0"
+"examples/loopback.rs" = "d9aee4c2c3ec9c78c3ac19486c11cae1b79c13864487f4d362f735525a7ea0bb"
+"iris.toml" = "099e75238740af89e45d6810701b81b5b6f5be65a0a5a919cfea9f4b44301285"
+"native-api.json" = "3a256fab2d311ab0e6ae1bf37bd72e295b70674c1bf8c390607e5a444b9f9ca6"
+"rust-toolchain.toml" = "a6a0bbd29ffaa8182dc22d1d9149709f1091e47df40ed96eb8a78a711c66a4ce"
+"src/callbacks.rs" = "aa43d8222310a09ea4c37dbac885c77f893625e38f9f5f4245acd86782dcdd81"
+"src/error.rs" = "83ae9c719ed06f1f4a10dc13991a0230ead9672360fe7adf2a7ec537eddc303d"
+"src/host.rs" = "1422d9892a4d40d0fb345dec4bfa8f0c1093e1de6484d70b34a92b99cbf54a03"
+"src/lib.rs" = "5293913e0a7245dd97aedc34ed8532ed9976ddd400fa80797f6d8646c237a7d0"
+"src/operations.rs" = "0fa2f068b963b9a9005668baa3a4469e1b8ae84c0ad617d9facc50f500ac92e1"
+"src/resources.rs" = "682275cc9b12be13132fee8f2b19feb421ae37af0a0e2ab5ee896249d4010880"
+"src/tcp.rs" = "057239050bed27feb5e7ed8a3c3eef2a954c0847efcde7683576f43311d74341"
+"tests/abi.rs" = "35276d471f0aaedf6a7b9439f2f16622793c2c03dcbda72097c8e121a2ea92be"
+"tests/manifest.rs" = "eb6178727f22c84dfa6b45128f37f7b731cac4f05558b0f0be698faef5e24cea"
+"tests/network.rs" = "cdfc7fe04d8a3adc6639b385bce11b6c76a9189013d9e545f8bff13b155533d5"
+"tests/support/mod.rs" = "ae802aecae426401d378a1e348e21894c9058fa2959c524ae2f1b4d5151649d4"
+
+[[packages]]
+tree_sha256 = "7156dd0bf1b309a7a204f62cf3fcd39f96e9e592db4f506195fd6e6b3e524754"
+
+[packages.manifest]
+manifest_version = 1
+package_id = "org.iris.http-advanced"
+api_major = 1
+version = "0.1.0"
+iris_major = 1
+sources = [
+    "src/model.ir",
+    "src/application.ir",
+    "src/http.ir",
+    "src/main.ir",
+]
+entry_modules = [
+    "Pipeline",
+    "Http",
+    "Main",
+]
+
+[packages.manifest.dependencies.network]
+package_id = "org.iris.network"
+api_major = 1
+version = "^0.1.0"
+git = "https://github.com/yuwenhuisama/iris-network.git"
+rev = "c34aeb1044e999bd40f930dfde0ef898557ce1e0"
+
+[packages.manifest.permissions]
+required = [
+    "native.load",
+    "native.blocking",
+    "network.tcp",
+]
+optional = []
+
+[packages.files]
+"iris.toml" = "f09c22e67d520e9c739c247a3662b927343cbb4ba983a7e430b5368ad6368cbb"
+"src/application.ir" = "3a4267b1e19c1de97b4502cc2f0691145953d01fb5705958b750c1a722521365"
+"src/http.ir" = "799db882f3ff4d05ba952d7495a6769cc04eaec94e1a21567b834e38e2972725"
+"src/main.ir" = "cf83ba9bf712e0a1880b7ae5a21b9810deef30209043696455f7c313c8a27e5e"
+"src/model.ir" = "40622a9a969cec7b9f32872fd1a98b2b8a82123a19acbd5b95f1f13b477b4198"

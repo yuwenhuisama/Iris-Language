@@ -1,0 +1,28 @@
+// Construct Request only after successful protocol parsing; application logic neither accesses sockets nor reinterprets raw headers.
+class Request {
+  public property fun target() -> String { @target }
+  public property fun path() -> String { @path }
+  public fun initialize(target: String) -> Nil {
+    @target = target
+    @path = target.split("?")[0]
+    nil
+  }
+}
+
+// Typed read-only accessors and constructor parameters express the guarantees; omit property setters the current VM does not fully check.
+class Response {
+  public property fun status() -> String { @status }
+  public property fun content_type() -> String { @content_type }
+  public property fun body() -> String { @body }
+  public fun initialize(status: String, contentType: String, body: String) -> Nil {
+    @status = status
+    @content_type = contentType
+    @body = body
+    nil
+  }
+}
+
+// A Contract is a named type guarantee, not duck typing inferred from method names or an HTTP annotation framework.
+contract HandlerContract {
+  fun handle(request: Request) -> Response
+}

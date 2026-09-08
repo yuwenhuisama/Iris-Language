@@ -1,0 +1,100 @@
+module Http {
+  // Pure entry point: raw headers -> typed Request -> Contract/closure pipeline -> Response -> UTF-8 wire format.
+  public module fun response(rawHeaders: String) -> String {
+    let response: Response = try {
+      Pipeline.run(Router.new(), parse(rawHeaders))
+    } catch error {
+      let code = error.to_string()
+      if code == "BadRequest" { Pipeline.bad_request() }
+      else {
+        if code != "MethodDenied" && code != "HeadDenied" { raise error }
+        let body = if code == "HeadDenied" { "" } else { "Method Not Allowed\n" }
+        Response.new("405 Method Not Allowed", "text/plain; charset=utf-8", body)
+      }
+    }
+    wire(response)
+  }
+
+  public module fun parse(rawHeaders: String) -> Request {
+    // Independently adapted from the basic demo, preserving its framing/ASCII/Host/Content-Length boundaries.
+    // Bound allocations by bytes first; the pure API rejects bodies and pipelining, while the socket adapter passes only the first header section.
+    if rawHeaders.byte_length() > 8192 { raise :BadRequest }
+    let sections = rawHeaders.split("\r\n\r\n")
+    if sections.length() != 2 { raise :BadRequest }
+    if sections[1] != "" { raise :BadRequest }
+    let lines = sections[0].split("\r\n")
+    if lines.length() > 65 { raise :BadRequest }
+    for byte in sections[0].to_bytes() {
+      if byte == 9 || byte == 10 || byte == 13 { continue }
+      if byte < 32 || byte > 126 { raise :BadRequest }
+    }
+    for line in lines {
+      if line.contains?("\r") || line.contains?("\n") { raise :BadRequest }
+    }
+    let start = lines[0].split(" ")
+    if start.length() != 3 { raise :BadRequest }
+    let method = start[0]
+    let target = start[1]
+    if !token(method) || start[2] != "HTTP/1.1" { raise :BadRequest }
+    if !target.starts_with?("/") || target.contains?("#") || target.contains?("\t") { raise :BadRequest }
+    mut hostSeen = false
+    mut lengthSeen = false
+    mut bodyDeclared = false
+    mut index = 1
+    while index < lines.length() {
+      let parts = lines[index].split(":")
+      if parts.length() < 2 { raise :BadRequest }
+      if !token(parts[0]) { raise :BadRequest }
+      let name = parts[0].downcase()
+      mut value = parts[1]
+      mut partIndex = 2
+      while partIndex < parts.length() {
+        value = value + ":" + parts[partIndex]
+        partIndex = partIndex + 1
+      }
+      value = value.trim()
+    // Host is not used for routing or authorization; this is not full URI authority, IPv6, or port validation.
+      if name == "host" {
+        if hostSeen || value == "" { raise :BadRequest }
+        for character in value.chars() {
+          if " \t,/@?#\\".contains?(character) { raise :BadRequest }
+        }
+        hostSeen = true
+      }
+      if name == "transfer-encoding" { raise :BadRequest }
+      if name == "content-length" {
+        if lengthSeen || value == "" { raise :BadRequest }
+        for character in value.chars() {
+          if !"0123456789".contains?(character) { raise :BadRequest }
+        }
+        bodyDeclared = value.replace("0", "") != ""
+        lengthSeen = true
+      }
+      index = index + 1
+    }
+    if !hostSeen { raise :BadRequest }
+    // Return 405 for non-GET methods without waiting for the declared body; the HEAD rejection has no body.
+    if method == "HEAD" { raise :HeadDenied }
+    if method != "GET" { raise :MethodDenied }
+    if bodyDeclared { raise :BadRequest }
+    Request.new(target)
+  }
+
+  private module fun token(text: String) -> Bool {
+    if text == "" { return false }
+    let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&'*+-.^_`|~"
+    for character in text.chars() {
+      if !allowed.contains?(character) { return false }
+    }
+    true
+  }
+
+  public module fun wire(response: Response) -> String {
+    // Response is a trusted application value, not an arbitrary external template; character count differs from UTF-8 length (see the Chinese root response).
+    let status: String = response.status
+    let body: String = response.body
+    let contentType: String = response.content_type
+    let allow = if status == "405 Method Not Allowed" { "Allow: GET\r\n" } else { "" }
+    "HTTP/1.1 " + status + "\r\nContent-Type: " + contentType + "\r\nContent-Length: " + body.byte_length().to_string() + "\r\nConnection: close\r\n" + allow + "X-Iris-Pipeline: " + Pipeline.marker() + "\r\n\r\n" + body
+  }
+}

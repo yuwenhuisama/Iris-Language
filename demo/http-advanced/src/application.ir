@@ -1,0 +1,80 @@
+// Both engines currently support read-only class decorator metadata, not method wrapping or automatic routing.
+// Declare both phases explicitly; empty plan/transform leave the class unchanged, while Pipeline.marker reads the arguments for actual use.
+contract ClassDecorator {
+  fun plan(declaration, arguments) -> Plan
+  fun transform(declaration, arguments, context) -> Transformation
+}
+class PipelineTag for ClassDecorator {
+  public impl fun plan(declaration, arguments) -> Plan { Plan.empty }
+  public impl fun transform(declaration, arguments, context) -> Transformation { Transformation.empty }
+}
+
+@PipelineTag(:advanced_v1)
+class Router for HandlerContract {
+  public impl fun handle(request: Request) -> Response {
+    let path: String = request.path
+    if path == "/" {
+      return Response.new("200 OK", "text/plain; charset=utf-8", "你好，Iris!\n")
+    }
+    if path == "/health" {
+      return Response.new("200 OK", "application/json", JSON.encode(%{"status": "ok"}, canonical: true) + "\n")
+    }
+    if path == "/double" { return self.double(request) }
+    // Deliberately failing demo endpoint: middleware translates only this known application error and propagates unknown errors.
+    if path == "/fail" { raise :DemoFailure }
+    Response.new("404 Not Found", "text/plain; charset=utf-8", "Not Found\n")
+  }
+
+  private fun double(request: Request) -> Response {
+    // No body or URL decoding: accept only /double?value=<JSON scalar> to avoid introducing another URL parser.
+    let parts = request.target.split("?")
+    if parts.length() != 2 { return Pipeline.bad_request() }
+    let query = parts[1].split("=")
+    if query.length() != 2 || query[0] != "value" { return Pipeline.bad_request() }
+    let source: String = query[1]
+    if source.byte_length() > 128 { return Pipeline.bad_request() }
+    try {
+      // JSON returns a dynamic value; binding to Integer enforces a runtime boundary that rejects true, strings, and arrays as integers.
+      let value: Integer = JSON.decode(source, depth: 4)
+      if value < -1000 || value > 1000 { return Pipeline.unprocessable() }
+      Response.new("200 OK", "application/json", JSON.encode(%{"doubled": value * 2}, canonical: true) + "\n")
+    } catch error {
+      let code = error.to_string()
+      if code == "TypeContractError" { return Pipeline.unprocessable() }
+      if code == "JSONSyntaxError" || code == "JSONDuplicateNameError" || code == "JSONLimitError" {
+        return Pipeline.bad_request()
+      }
+      raise error
+    }
+  }
+}
+
+module Pipeline {
+  public module fun run(handler: HandlerContract, request: Request) -> Response {
+    // Capture the Contract receiver in a closure and chain stages with explicit .call, without global route registration or implicit scanning.
+    let next: Closure<(Request) -> Response> = { |incoming: Request| -> Response; handler.handle(incoming) }
+    try {
+      next.call(request)
+    } catch error {
+      if error.to_string() != "DemoFailure" { raise error }
+      Response.new("500 Internal Server Error", "text/plain; charset=utf-8", "Controlled Failure\n")
+    }
+  }
+
+  public module fun marker() -> String {
+    // Read the actual @PipelineTag arguments so changing the annotation changes the X-Iris-Pipeline wire header.
+    // Use a Symbol rather than arbitrary client data as a header value; this is a fixed marker from trusted source.
+    let applications = Router.decorator_arguments
+    let arguments = applications[0]
+    let marker: Symbol = arguments[0]
+    marker.to_string()
+  }
+
+  public module fun bad_request() -> Response {
+    Response.new("400 Bad Request", "text/plain; charset=utf-8", "Bad Request\n")
+  }
+
+  public module fun unprocessable() -> Response {
+    Response.new("422 Unprocessable Content", "application/json", JSON.encode(%{"error": "integer -1000..1000 required"}, canonical: true) + "\n")
+  }
+}

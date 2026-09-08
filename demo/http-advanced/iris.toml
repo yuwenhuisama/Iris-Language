@@ -1,0 +1,18 @@
+manifest_version = 1
+package_id = "org.iris.http-advanced"
+api_major = 1
+version = "0.1.0"
+iris_major = 1
+sources = ["src/model.ir", "src/application.ir", "src/http.ir", "src/main.ir"]
+entry_modules = ["Pipeline", "Http", "Main"]
+
+[permissions]
+required = ["native.load", "native.blocking", "network.tcp"]
+optional = []
+
+[dependencies.network]
+package_id = "org.iris.network"
+api_major = 1
+version = "^0.1.0"
+git = "https://github.com/yuwenhuisama/iris-network.git"
+rev = "c34aeb1044e999bd40f930dfde0ef898557ce1e0"
