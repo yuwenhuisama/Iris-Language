@@ -109,3 +109,51 @@ are separate roots preceding their declaration; consumers should not assume
 the declaration node's span includes those decorators.
 
 Run `cargo run -p iris-parser --example source_graph` for a parser-only driver.
+
+### Documentation And Signature Sites
+
+`iris_lexer::lex_with_comments` opts into scanner-classified outer comments;
+`lex` and `lex_type` do not allocate comment storage. `Comment` carries
+`kind: CommentKind`, `offset: ByteOffset`, and exclusive `end: ByteOffset`.
+Kinds are `Line`, `Block`, `DocumentationLine`, and `DocumentationBlock`.
+Nested block contents and markers inside literals are never separate comments.
+
+The following additive `SourceDocument` vectors are public through `source`:
+
+- `comments: Vec<iris_lexer::Comment>` preserves classified source spans.
+- `documentation: Vec<Documentation>` stores `declaration: SyntaxId`, `span`,
+  UTF-8 `text` bounded to 2048 bytes, and `truncated`. Attachments use production
+  ownership, including decorators and wrapped exported declarations, not names.
+  Only standalone immediately preceding doc lines or one block attach. Blank
+  lines, ordinary comments, intervening statements, trailing comments, and parse
+  damage break attachment. Decorator gaps follow the same rule. Line markers
+  remove one optional space; block cleanup preserves paragraphs and removes
+  conventional leading stars only. No Markdown interpretation is performed.
+- `parameter_slots: Vec<ParameterSlot>` is ordered by production encounter.
+  Filter by `owner: SyntaxId` for a callable's written parameter order. Slots
+  have `span`, `name: NameSite` (including `_`), `category: ParameterCategory`,
+  optional named `declaration`, optional `annotation`, and optional `default`
+  expression IDs. `_` creates no symbol. Existing named `parameters` edges
+  remain unchanged. Closure bodies have a `Body` child, isolating header facts.
+- `signatures: Vec<SignatureSite>` carries callable `owner`, written header
+  `span`, and optional `return_type`, captured before parsing the body.
+- `calls: Vec<CallSite>` carries `call: SyntaxId`, `open: Span`, optional `close`,
+  this call's `commas`, ordered `arguments: Vec<ArgumentSlot>`, bounded `end`,
+  and `incomplete`. Each argument has `span`, `kind: ArgumentKind`, optional
+  `expression`, and `incomplete`. Kinds are `Positional`, `Keyword(NameSite)`,
+  and `TrailingBlock`. Trailing commas before an actual `)` add no empty slot;
+  missing arguments at an editor boundary do. Nested separators belong only to
+  the production that consumed them. The call vector is completion order, not
+  source order; use the node graph for ancestry.
+
+`parse_editor` additionally retains calls ending at EOF or an existing closer,
+including unfinished expressions and nested calls. Retained partial arguments
+have no complete expression ID. Recovery never consumes an enclosing `}` or
+`]`; diagnostics remain rejecting. Reserved `key:` can be retained as a damaged
+editor keyword slot but is not accepted grammar. Arbitrary malformed headers,
+lexical errors, and arbitrary token insertion remain unsupported. Failed parent
+productions can remove their complete subtree. Checkpoints and arena truncation
+roll back all source sidecars. Plain `parse` leaves all new vectors unallocated.
+
+Run `cargo run -p iris-parser --example source_metadata` for a documentation,
+parameter-slot, and incomplete-call driver.
