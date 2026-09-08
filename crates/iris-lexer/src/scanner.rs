@@ -1,5 +1,5 @@
 use crate::literal::{boundary, convert_number, convert_string};
-use crate::{ByteOffset, Diagnostic, SourcePosition};
+use crate::{ByteOffset, Comment, CommentKind, Diagnostic, SourcePosition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenKind {
@@ -69,9 +69,13 @@ pub struct Token {
 pub struct LexedSource {
     tokens: Vec<Token>,
     diagnostics: Vec<Diagnostic>,
+    comments: Vec<Comment>,
 }
 
 impl LexedSource {
+    pub fn comments(&self) -> &[Comment] {
+        &self.comments
+    }
     pub fn tokens(&self) -> &[Token] {
         &self.tokens
     }
@@ -90,13 +94,17 @@ enum Mode {
 }
 
 pub fn lex(source: &[u8]) -> LexedSource {
-    scan(source, Mode::Expression)
+    scan(source, Mode::Expression, false)
 }
 pub fn lex_type(source: &[u8]) -> LexedSource {
-    scan(source, Mode::Type)
+    scan(source, Mode::Type, false)
 }
 
-fn scan(source: &[u8], mode: Mode) -> LexedSource {
+pub fn lex_with_comments(source: &[u8]) -> LexedSource {
+    scan(source, Mode::Expression, true)
+}
+
+fn scan(source: &[u8], mode: Mode, record_comments: bool) -> LexedSource {
     let (text, base) = match decode_source(source) {
         Ok(value) => value,
         Err(diagnostic) => return fail(diagnostic),
@@ -104,6 +112,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
     let mut diagnostics = Vec::new();
     let bytes = text.as_bytes();
     let mut tokens = Vec::new();
+    let mut comments = Vec::new();
     let mut index = 0;
     let mut position = SourcePosition { line: 1, column: 1 };
     let mut expression_start = true;
@@ -144,10 +153,32 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
             }
             b'/' if bytes.get(index + 1) == Some(&b'/') => {
                 let width = line_end(bytes, index) - index;
+                if record_comments {
+                    comments.push(Comment {
+                        kind: if bytes.get(index + 2) == Some(&b'/') {
+                            CommentKind::DocumentationLine
+                        } else {
+                            CommentKind::Line
+                        },
+                        offset,
+                        end: ByteOffset(offset.0 + width),
+                    });
+                }
                 advance(&mut index, width, &mut position);
             }
             b'/' if bytes.get(index + 1) == Some(&b'*') => match comment_end(bytes, index) {
                 Some(end) => {
+                    if record_comments {
+                        comments.push(Comment {
+                            kind: if bytes.get(index + 2) == Some(&b'*') {
+                                CommentKind::DocumentationBlock
+                            } else {
+                                CommentKind::Block
+                            },
+                            offset,
+                            end: ByteOffset(base + end),
+                        });
+                    }
                     if bytes[index..end]
                         .iter()
                         .any(|byte| matches!(byte, b'\n' | b'\r'))
@@ -431,6 +462,7 @@ fn scan(source: &[u8], mode: Mode) -> LexedSource {
     LexedSource {
         tokens,
         diagnostics,
+        comments,
     }
 }
 
@@ -641,5 +673,6 @@ fn fail(diagnostic: Diagnostic) -> LexedSource {
     LexedSource {
         tokens: Vec::new(),
         diagnostics: vec![diagnostic],
+        comments: Vec::new(),
     }
 }

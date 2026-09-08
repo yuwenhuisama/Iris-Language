@@ -1,12 +1,14 @@
 //! Source decoding, trivia scanning, and diagnostics for Iris v1.
 
 mod diagnostic;
+mod comments;
 mod literal;
 mod scanner;
 
 pub use diagnostic::{ByteOffset, Diagnostic, SourcePosition};
 pub use literal::{Literal, LiteralConversion, convert_literals};
-pub use scanner::{LexedSource, Token, TokenKind, lex, lex_type};
+pub use scanner::{LexedSource, Token, TokenKind, lex, lex_type, lex_with_comments};
+pub use comments::{Comment, CommentKind};
 
 #[cfg(test)]
 mod tests {
