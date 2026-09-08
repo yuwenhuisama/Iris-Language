@@ -2,6 +2,7 @@
 
 mod checkpoint;
 mod class_declaration;
+mod closure;
 mod expression;
 mod layout;
 mod limits;
@@ -12,6 +13,9 @@ mod source_entry;
 mod source_facts;
 mod source_headers;
 mod source_imports;
+mod source_metadata;
+mod source_documentation;
+mod source_parameters;
 mod source_patterns;
 
 pub use source_entry::{parse_editor, parse_with_source};
@@ -59,10 +63,15 @@ pub fn parse(source: &str) -> ParseResult {
 }
 
 fn parse_internal(source: &str, recording: bool, editor: bool) -> source::SourceParse {
-    let lexed = lex(source.as_bytes());
+    let lexed = if recording {
+        iris_lexer::lex_with_comments(source.as_bytes())
+    } else {
+        lex(source.as_bytes())
+    };
     let mut recorder = recording::Recorder::new(source.len(), recording);
     if recording {
         recorder.document.tokens = lexed.tokens().to_vec();
+        recorder.document.comments = lexed.comments().to_vec();
         source_entry::protected_regions(source, &mut recorder.document);
     }
     if let Some(diagnostic) = lexed.diagnostics().first() {
@@ -105,6 +114,7 @@ fn parse_internal(source: &str, recording: bool, editor: bool) -> source::Source
         no_type_union: false,
         empty_closure_header: false,
         delimited_layout: false,
+        call_argument_recovery: false,
         depth: 0,
         expression_depth: 0,
         expression_nodes: 0,
@@ -124,6 +134,7 @@ fn parse_internal(source: &str, recording: bool, editor: bool) -> source::Source
     if !parser.at_end() && parser.diagnostics.is_empty() {
         parser.error("PARSE_UNEXPECTED_TOKEN");
     }
+    parser.recorder.attach_documentation(source);
     source::SourceParse {
         parse: ParseResult {
             program,
@@ -220,6 +231,7 @@ struct Parser {
     /// Set when a `||` token was rewritten into an empty closure header.
     empty_closure_header: bool,
     delimited_layout: bool,
+    call_argument_recovery: bool,
     depth: usize,
     expression_depth: usize,
     expression_nodes: usize,
@@ -244,6 +256,8 @@ impl Parser {
             }
             let start = self.cursor;
             let decorators = self.decorators();
+            let entry_start = self.tokens[start].offset;
+            let entry_mark = self.recorder.mark();
             match self.peek() {
                 Some("open") if self.peek_next() == Some("contract") => {
                     self.contract_declaration(decorators).map(|value| {
@@ -333,6 +347,7 @@ impl Parser {
                     None
                 }
             };
+            self.recorder.documented_entry(entry_mark, entry_start);
             self.consume_terminators();
             self.ensure_progress(start);
         }
@@ -680,111 +695,6 @@ impl Parser {
         Some((body, catches, finally))
     }
 
-    pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
-        let frame = self.recorder.begin(self.current_offset());
-        let result = self.with_layout(false, Self::closure_contents);
-        let kind = result
-            .as_ref()
-            .filter(|_| self.recorder.enabled)
-            .map(|value| source::SourceKind::Expression(self.primary_fact(frame.id, value)));
-        self.recorder.finish(frame, self.consumed_end, kind);
-        result
-    }
-
-    fn closure_contents(&mut self) -> Option<Expression> {
-        self.recorder
-            .enter_scope(source::ScopeKind::Closure, self.current_offset());
-        self.expect("{")?;
-        self.skip_newlines();
-        let mut parameters = Vec::new();
-        let mut return_type = None;
-        let mut has_header = false;
-        // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
-        // parameter list, but `||` lexes as ONE logical-or token, so a bare
-        // `{ ||; ... }` never reached the header at all. An empty header is
-        // consumed whole here, which is the same contextual longest-match
-        // C020 applies to `>>` closing two generic argument lists.
-        if self.check("||") {
-            self.save_token_edit();
-            let token = &mut self.tokens[self.cursor];
-            // Rewrite the pair into a single `|` and step past it, so the
-            // header below sees the empty parameter list it expects.
-            token.text = "|".into();
-            token.offset += 1;
-            self.empty_closure_header = true;
-        }
-        if self.empty_closure_header {
-            self.empty_closure_header = false;
-            has_header = true;
-            self.advance();
-            if self.consume("-") {
-                self.expect(">")?;
-                return_type = Some(self.type_expression()?);
-            }
-            self.consume_terminators();
-        } else if self.consume("|") {
-            has_header = true;
-            let outer = std::mem::replace(&mut self.no_type_union, true);
-            self.skip_newlines();
-            while !self.check("|") && !self.at_end() {
-                let frame = self.recorder.begin(self.current_offset());
-                let Some(parameter) = self.binding_name() else {
-                    self.recorder.finish(frame, self.consumed_end, None);
-                    self.no_type_union = outer;
-                    return None;
-                };
-                parameters.push(parameter);
-                if self.consume(":") && self.type_expression().is_none() {
-                    self.recorder.finish(frame, self.consumed_end, None);
-                    self.no_type_union = outer;
-                    return None;
-                }
-                let kind = self
-                    .source_declaration(frame.id, source::DeclarationKind::Parameter)
-                    .map_or(source::SourceKind::Statement, |value| {
-                        source::SourceKind::Declaration(Box::new(value))
-                    });
-                self.recorder.finish(frame, self.consumed_end, Some(kind));
-                self.skip_newlines();
-                if !self.consume(",") {
-                    break;
-                }
-                self.skip_newlines();
-            }
-            // The union level is restored BEFORE the return annotation, which
-            // sits outside the parameter list and may legitimately be a union.
-            self.no_type_union = outer;
-            self.expect("|")?;
-            if self.consume("-") {
-                self.expect(">")?;
-                // C017 needs the annotation to SURVIVE parsing: an annotated
-                // and a bare Closure were the same AST node, so the omission
-                // it diagnoses could not be observed.
-                return_type = Some(self.type_expression()?);
-            }
-            self.consume_terminators();
-        }
-        let mut body = Vec::new();
-        self.skip_newlines();
-        while !self.check("}") && !self.at_end() {
-            let start = self.cursor;
-            if let Some(statement) = self.statement() {
-                body.push(statement);
-            } else {
-                self.advance_to_terminator();
-            }
-            self.consume_terminators();
-            self.ensure_progress(start);
-        }
-        self.expect("}")?;
-        Some(Expression::Closure {
-            parameters,
-            return_type,
-            has_header,
-            body,
-        })
-    }
-
     fn body(&mut self) -> Option<Vec<Statement>> {
         if !self.recorder.enabled {
             return self.with_layout(false, Self::body_contents);
@@ -852,6 +762,7 @@ impl Parser {
     }
 
     fn statement_contents(&mut self) -> Option<Statement> {
+        let header_recovery = self.recorder.document.recovery.len();
         let decorators = self.decorators();
         // C059's `shared_decl` and C064's `shared` property marker share the
         // keyword, so `shared_decl` claims it only when `let` or `mut` follows.
@@ -1045,6 +956,7 @@ impl Parser {
             // followed by `{` is a bodyless requirement rather than a parse
             // error. Only a present `{` commits to parsing a body, which keeps
             // a malformed body reported as the body error it is.
+            self.record_signature(header_recovery);
             let body = if self.check_after_newlines("{") {
                 Some(self.body()?)
             } else {
@@ -1406,7 +1318,15 @@ impl Parser {
         let mut highest = 0;
         for parameter in parameters {
             let channel = channel(parameter.category);
-            if channel < highest {
+            if channel < highest
+                || (channel == highest
+                    && matches!(
+                        parameter.category,
+                        ParameterCategory::Rest
+                            | ParameterCategory::KeywordRest
+                            | ParameterCategory::Block
+                    ))
+            {
                 return false;
             }
             highest = channel;
@@ -1423,6 +1343,9 @@ impl Parser {
     fn parameter(&mut self) -> Option<Parameter> {
         let frame = self.recorder.begin(self.current_offset());
         let result = self.parameter_contents();
+        if let Some(value) = &result {
+            self.record_parameter_slot(frame.id, value.category);
+        }
         let kind = result.as_ref().map(|value| {
             let Some(mut declaration) =
                 self.source_declaration(frame.id, source::DeclarationKind::Parameter)
@@ -2203,7 +2126,7 @@ impl Parser {
     /// alone.
     fn peek_keyword_argument_name(&self) -> Option<String> {
         let name = self.peek()?;
-        if self.peek_next() != Some(":") || is_reserved_keyword(name) {
+        if self.peek_next() != Some(":") || (is_reserved_keyword(name) && !(self.editor && self.call_argument_recovery && name == "key")) {
             return None;
         }
         if !name

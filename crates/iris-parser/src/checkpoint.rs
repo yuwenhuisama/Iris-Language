@@ -11,11 +11,12 @@ pub(super) struct Checkpoint {
     scopes: usize,
     roots: usize,
     recovery: usize,
+    metadata: [usize; 4],
     frames: Vec<(SyntaxId, usize)>,
     scope: ScopeId,
     damaged: Vec<(ScopeId, bool)>,
     consumed_end: usize,
-    flags: [bool; 4],
+    flags: [bool; 5],
 }
 
 impl Parser {
@@ -35,6 +36,12 @@ impl Parser {
             scopes: self.recorder.document.scopes.len(),
             roots: self.recorder.document.roots.len(),
             recovery: self.recorder.document.recovery.len(),
+            metadata: [
+                self.recorder.document.parameter_slots.len(),
+                self.recorder.document.signatures.len(),
+                self.recorder.document.calls.len(),
+                self.recorder.documentation_starts.len(),
+            ],
             frames: self
                 .recorder
                 .frames
@@ -49,6 +56,7 @@ impl Parser {
                 self.no_type_union,
                 self.empty_closure_header,
                 self.delimited_layout,
+                self.call_argument_recovery,
             ],
         }
     }
@@ -62,10 +70,26 @@ impl Parser {
             self.no_type_union,
             self.empty_closure_header,
             self.delimited_layout,
+            self.call_argument_recovery,
         ] = checkpoint.flags;
         self.recorder.document.nodes.truncate(checkpoint.nodes);
         self.recorder.document.scopes.truncate(checkpoint.scopes);
         self.recorder.document.roots.truncate(checkpoint.roots);
+        self.recorder
+            .document
+            .parameter_slots
+            .truncate(checkpoint.metadata[0]);
+        self.recorder
+            .document
+            .signatures
+            .truncate(checkpoint.metadata[1]);
+        self.recorder
+            .document
+            .calls
+            .truncate(checkpoint.metadata[2]);
+        self.recorder
+            .documentation_starts
+            .truncate(checkpoint.metadata[3]);
         self.recorder
             .document
             .recovery

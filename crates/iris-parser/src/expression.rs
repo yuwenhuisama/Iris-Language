@@ -274,30 +274,30 @@ impl Parser {
                 // what keeps `a < b` a comparison; the helper rewinds
                 // otherwise, so reaching here means the `(` is already next.
                 self.expect("(")?;
-                let mut arguments = self.arguments()?;
+                let (mut arguments, mut site) = self.call_arguments()?;
                 if self.check("{") && !self.no_trailing_block {
-                    arguments.push(self.closure_literal()?);
+                    arguments.push(self.trailing_call_block(&mut site)?);
                 }
                 expression = Expression::Call {
                     callee: Box::new(expression),
                     type_arguments,
                     arguments,
                 };
-                self.record_call(mark, start, receiver);
+                self.record_call((mark, start, receiver), site);
             } else if self.consume("(") {
-                let mut arguments = self.arguments()?;
+                let (mut arguments, mut site) = self.call_arguments()?;
                 // `trailing_block ::= closure_literal` is a postfix part, so a
                 // Closure written after the argument list is one more argument.
                 // IRIS-V1-RUNTIME-C099 receives it as the `block` parameter.
                 if self.check("{") && !self.no_trailing_block {
-                    arguments.push(self.closure_literal()?);
+                    arguments.push(self.trailing_call_block(&mut site)?);
                 }
                 expression = Expression::Call {
                     callee: Box::new(expression),
                     type_arguments: Vec::new(),
                     arguments,
                 };
-                self.record_call(mark, start, receiver);
+                self.record_call((mark, start, receiver), site);
             } else {
                 return Some(expression);
             }
@@ -526,6 +526,10 @@ impl Parser {
     }
 
     fn primary_value(&mut self) -> Option<Expression> {
+        if self.editor && self.call_argument_recovery && matches!(self.peek(), Some(")" | "}" | "]")) {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            return None;
+        }
         if self.check("{") && !self.no_trailing_block {
             return self.closure_literal();
         }
@@ -660,8 +664,11 @@ impl Parser {
     /// `name:` is distinguished from a Symbol literal by position: a Symbol
     /// writes the colon BEFORE the name, so an identifier followed by a colon
     /// is unambiguously a keyword argument.
-    fn argument(&mut self) -> Option<Expression> {
+    pub(super) fn argument(&mut self) -> Option<Expression> {
         if let Some(name) = self.peek_keyword_argument_name() {
+            if is_reserved_keyword(&name) {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+            }
             let start = self.current_offset();
             let mark = self.recorder.mark();
             self.advance();

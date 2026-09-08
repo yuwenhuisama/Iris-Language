@@ -8,6 +8,7 @@ pub(super) struct Recorder {
     pub enabled: bool,
     pub frames: Vec<SyntaxId>,
     pub scope: ScopeId,
+    pub documentation_starts: Vec<(SyntaxId, usize)>,
 }
 
 #[cfg(test)]
@@ -23,6 +24,11 @@ mod tests {
         assert_eq!(result.source.tokens.capacity(), 0);
         assert_eq!(result.source.protected.capacity(), 0);
         assert_eq!(result.source.recovery.capacity(), 0);
+        assert_eq!(result.source.comments.capacity(), 0);
+        assert_eq!(result.source.documentation.capacity(), 0);
+        assert_eq!(result.source.parameter_slots.capacity(), 0);
+        assert_eq!(result.source.signatures.capacity(), 0);
+        assert_eq!(result.source.calls.capacity(), 0);
     }
 }
 
@@ -57,6 +63,7 @@ impl Recorder {
             enabled,
             frames: Vec::new(),
             scope: ScopeId(0),
+            documentation_starts: Vec::new(),
         }
     }
 
@@ -96,10 +103,19 @@ impl Recorder {
                 let node = &mut self.document.nodes[frame.id.0];
                 node.span.end = end;
                 node.kind = kind;
+                if matches!(node.kind, SourceKind::Declaration(_)) {
+                    self.documentation_starts.push((frame.id, node.span.start));
+                }
+                if matches!(node.kind, SourceKind::Export) {
+                    for child in &node.children {
+                        self.documentation_starts.push((*child, node.span.start));
+                    }
+                }
                 self.attach(frame.id);
             }
             None => {
                 self.document.nodes.truncate(frame.id.0);
+                self.prune_metadata(frame.id.0);
                 self.document.scopes.truncate(frame.scopes);
                 for recovery in &mut self.document.recovery {
                     if recovery.scope.0 >= frame.scopes {
@@ -109,6 +125,20 @@ impl Recorder {
                 self.document.scopes[frame.scope.0].damaged = true;
             }
         }
+    }
+
+    pub fn prune_metadata(&mut self, nodes: usize) {
+        self.document.parameter_slots.retain(|slot| {
+            slot.owner.0 < nodes
+                && slot.declaration.is_none_or(|id| id.0 < nodes)
+                && slot.annotation.is_none_or(|id| id.0 < nodes)
+                && slot.default.is_none_or(|id| id.0 < nodes)
+        });
+        self.document
+            .signatures
+            .retain(|site| site.owner.0 < nodes && site.return_type.is_none_or(|id| id.0 < nodes));
+        self.document.calls.retain(|site| site.call.0 < nodes);
+        self.documentation_starts.retain(|(id, _)| id.0 < nodes);
     }
 
     fn attach(&mut self, id: SyntaxId) {

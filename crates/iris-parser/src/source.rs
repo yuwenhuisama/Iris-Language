@@ -1,6 +1,9 @@
 //! Source facts emitted by grammar productions, independently of the runtime AST.
 
 pub use crate::source_headers::{DeclarationHeader, ImportSeparator, ImportSeparatorKind};
+pub use crate::source_metadata::{
+    ArgumentKind, ArgumentSlot, CallSite, Documentation, ParameterSlot, SignatureSite,
+};
 use iris_syntax::{MethodKind, ParameterCategory, TypeExpression, Visibility};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -37,6 +40,11 @@ pub struct SourceDocument {
     pub tokens: Vec<iris_lexer::Token>,
     pub protected: Vec<Span>,
     pub recovery: Vec<Recovery>,
+    pub comments: Vec<iris_lexer::Comment>,
+    pub documentation: Vec<Documentation>,
+    pub parameter_slots: Vec<ParameterSlot>,
+    pub signatures: Vec<SignatureSite>,
+    pub calls: Vec<CallSite>,
 }
 
 impl SourceDocument {
