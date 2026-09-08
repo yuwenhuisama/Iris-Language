@@ -193,7 +193,8 @@ impl crate::ClassRegistry {
         Ok(())
     }
 
-    fn resolve_local_or_ancestor_method(
+    /// Resolves candidate-visible methods, stopping at staged or active tombstones.
+    pub fn resolve_local_or_ancestor_method(
         &self,
         class: ClassId,
         selector: Selector,
@@ -201,12 +202,17 @@ impl crate::ClassRegistry {
         for entry in self.active(class)?.mro() {
             let method = match entry {
                 MroEntry::Class(owner) => {
-                    let revision = self.active(*owner)?;
-                    if revision.tombstones().contains(&selector) {
+                    let (methods, tombstones) = match self.staged.get(owner) {
+                        Some(candidate) => (&candidate.methods, &candidate.tombstones),
+                        None => {
+                            let revision = self.active(*owner)?;
+                            (revision.methods(), revision.tombstones())
+                        }
+                    };
+                    if tombstones.contains(&selector) {
                         return Err(ClassError::MethodSlotNotFound { class, selector });
                     }
-                    revision
-                        .methods()
+                    methods
                         .get(&selector)
                         .and_then(|id| self.methods.get(id))
                         .copied()
