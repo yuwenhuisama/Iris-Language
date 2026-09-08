@@ -1,3 +1,6 @@
 [submodule "demo/http-server"]
 	path = demo/http-server
 	url = https://github.com/yuwenhuisama/iris-http-server.git
+[submodule "demo/http-advanced"]
+	path = demo/http-advanced
+	url = https://github.com/yuwenhuisama/iris-http-advanced.git
