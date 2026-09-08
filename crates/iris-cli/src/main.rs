@@ -92,10 +92,15 @@ fn run_on_machine(source: &str, origin: &str) -> ExitCode {
     let program = match iris_vm::compile(source) {
         Ok(program) => program,
         Err(error) => {
-            eprintln!(
-                "iris: {origin}: the machine does not cover {}",
-                error.construct
-            );
+            match error.kind {
+                iris_vm::CompileErrorKind::UnsupportedConstruct => eprintln!(
+                    "iris: {origin}: the machine does not cover {}",
+                    error.construct
+                ),
+                iris_vm::CompileErrorKind::StaticDiagnostic { code } => {
+                    eprintln!("iris: {origin}: TypeContractError: {code}");
+                }
+            }
             return ExitCode::FAILURE;
         }
     };

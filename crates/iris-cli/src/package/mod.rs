@@ -34,6 +34,8 @@ enum Error {
     },
     #[error("the machine does not cover {0}")]
     Compile(String),
+    #[error("TypeContractError: {0}")]
+    StaticDiagnostic(&'static str),
     #[error("machine defect: {0}")]
     Verify(String),
     #[error("machine execution failed: {0}")]
@@ -130,8 +132,16 @@ fn run_package(root: &Path, engine: Engine, grants: &Grants) -> Result<(), Error
                 .map_err(|error| Error::Evaluation(crate::repl::describe(&error)))?;
         }
         Engine::Machine => {
-            let program = iris_vm::compile_package_tree_with_natives(&sources, &registry)
-                .map_err(|error| Error::Compile(error.construct))?;
+            let program = iris_vm::compile_package_tree_with_natives(&sources, &registry).map_err(
+                |error| match error.kind {
+                    iris_vm::CompileErrorKind::UnsupportedConstruct => {
+                        Error::Compile(error.construct)
+                    }
+                    iris_vm::CompileErrorKind::StaticDiagnostic { code } => {
+                        Error::StaticDiagnostic(code)
+                    }
+                },
+            )?;
             iris_vm::verify(&program).map_err(|error| Error::Verify(format!("{error:?}")))?;
             iris_vm::run_with_natives(&program, registry)
                 .map_err(|error| Error::Machine(format!("{error:?}")))?;
