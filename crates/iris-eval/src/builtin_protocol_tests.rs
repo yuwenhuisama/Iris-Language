@@ -660,7 +660,7 @@ fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
     let raises = "class P { public fun to_bool() -> Bool { raise :sentinel } } \
                   mut x = P.new(); x &&= 1";
     let skipped = "mut log = []; mut x = nil; let r = x &&= log.append(:ran); log";
-    let written = "mut x = true; let r = x &&= 5; x";
+    let written = "mut x: Bool | Integer = true; let r = x &&= 5; x";
 
     // When
     let raises = rendered(raises);
@@ -677,7 +677,7 @@ fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
 #[test]
 fn c037_or_assignment_writes_only_on_the_falsy_path() {
     // Given
-    let written = "mut x = nil; let r = x ||= 7; x";
+    let written = "mut x: Nil | Integer = nil; let r = x ||= 7; x";
     let skipped = "mut log = []; mut x = true; let r = x ||= log.append(:ran); log";
 
     // When
@@ -793,7 +793,7 @@ fn c044_each_iteration_binds_in_a_fresh_scope() {
                   if n < 3 { Iteration.yield(n) } else { Iteration.done } } \
                   public fun close() { nil } } \
                   class Src { public fun iterator() { It.new() } } \
-                  mut first = nil; mut second = nil; \
+                  mut first: Object = nil; mut second: Object = nil; \
                   for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; \
                   [first.call(), second.call()]";
 
@@ -855,7 +855,7 @@ fn c045_for_destructuring_binds_or_raises_pattern_match_error() {
                    if n < 2 { Iteration.yield([1, 2]) } else { Iteration.done } } \
                    public fun close() { nil } } \
                    class Src { public fun iterator() { It.new() } } \
-                   mut got = nil; for [a, b] in Src.new() { got = a }; got";
+                   mut got: Object = nil; for [a, b] in Src.new() { got = a }; got";
     let mismatched = "mut n = 0; \
                       class It { public fun next() { n = n + 1; \
                       if n < 2 { Iteration.yield([1, 2, 3]) } else { Iteration.done } } \
@@ -1371,7 +1371,7 @@ fn c035_yields_the_setter_result_for_a_property_write() {
     // whatever its setter Method returned.
     let both_writes = "class Box { public property fun name=(value) -> Symbol { :written } } \
                        mut local = 0; let local_result = (local = 1); \
-                       let property_result = (Box.new().name = 2); [local_result, property_result]";
+                       let property_result: Object = (Box.new().name = 2); [local_result, property_result]";
     // Assignment is right-associative, so the inner setter runs first and the
     // outer setter receives its RESULT rather than the original operand.
     let nested = "mut log = []; \
@@ -1526,7 +1526,7 @@ fn c088_lets_an_exception_context_serve_as_a_hash_key() {
 fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
     // D-155 makes each bare `raise` APPEND one site to the context it
     // continues, without replacing the root stack or creating a fresh context.
-    let one_site = "mut captured = nil; \
+    let one_site = "mut captured: Object = nil; \
                     try { try { raise :x } catch _, c { captured = c; raise } } \
                     catch _, o { [o same? captured, o.re_raise_sites] }";
     let two_sites = "try { try { try { raise :x } catch _, c { raise } } \
@@ -1688,7 +1688,7 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
     // directly. A call counter is required here: probing this row previously
     // produced a FALSE POSITIVE, because the expected `:then` also arrives from
     // the C094 default while `method_missing` runs zero times.
-    let dispatched = "mut calls = 0; mut seen = nil; \
+    let dispatched = "mut calls = 0; mut seen: Object = nil; \
                       class C { public fun method_missing(selector, args, block) { \
                       calls = calls + 1; seen = [selector, args, block]; true } } \
                       C.undef_method(:to_bool); \
@@ -2201,13 +2201,13 @@ fn c013_reads_a_top_level_helper_as_a_bound_method() {
     // bindings. C014 makes reading a Method create a BoundMethod rather than
     // exposing a Function runtime kind, so a helper is readable as a value and
     // not only callable.
-    let read = "mut r = 0; module M { fun f() -> Integer { 1 } r = f } r";
+    let read = "mut r: Object = 0; module M { fun f() -> Integer { 1 } r = f } r";
     // A Module body is where top-level executable code lives, which includes
     // BINDINGS; only expressions ran, so every `let` there was skipped.
     let binding = "mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r";
     // C037: a parameter is CONTRAVARIANT, so a wider declared parameter accepts
     // a narrower argument, through a bound helper as through a direct call.
-    let contravariant = "mut r = 0; \
+    let contravariant = "mut r: Object = 0; \
 module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; r = f(\"x\") } r";
     // Narrowing the parameter reverses the relation, which proves the
     // acceptance is variance and not an absence of checking.
@@ -2239,7 +2239,7 @@ module M { fun id<T>(x: T) -> T { x } let bound: String = id(\"iris\"); result =
     let mismatched = "mut result: String = \"z\"; \
 module M { fun id<T>(x: T) -> T { x } let bound: String = id(1); result = bound } result";
     // A non-generic Method with the same shape is unaffected.
-    let plain = "mut result = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
+    let plain = "mut result: Object = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
 
     // When / Then
     assert_eq!(rendered(inferred), "Text(\"iris\")");

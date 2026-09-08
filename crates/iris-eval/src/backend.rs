@@ -142,7 +142,19 @@ impl Backend for Bytecode {
 
     fn execute(&self, source: &str) -> Support {
         match iris_vm::compile(source) {
-            Err(declined) => Support::Unsupported(declined.construct),
+            Err(error) => match error.kind {
+                iris_vm::CompileErrorKind::UnsupportedConstruct => {
+                    Support::Unsupported(error.construct)
+                }
+                iris_vm::CompileErrorKind::StaticDiagnostic { code } => {
+                    Support::Ran(Observation::Error(match code {
+                        "BINDING_FIXED_LOCAL_TYPE" => {
+                            format!("{:?}", EvaluationError::TypeContractError)
+                        }
+                        other => other.to_owned(),
+                    }))
+                }
+            },
             Ok(program) => match iris_vm::run(&program) {
                 Ok(value) => Support::Ran(Observation::Value(render_value(&value))),
                 // A kernel failure is a real observation: a row may assert

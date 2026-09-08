@@ -153,7 +153,7 @@ class Node {
 
 module ListOps {
   public fun build(xs: Array) -> Object {
-    mut head = nil
+    mut head: Object = nil
     for x in xs {
       let n = Node.new()
       n.value = x

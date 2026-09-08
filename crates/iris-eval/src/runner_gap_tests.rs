@@ -9,10 +9,10 @@ use super::{EvaluationError, evaluate};
 fn for_iteration_closures_capture_their_own_immutable_bindings() {
     // Given: an iterator yields two values and each iteration stores closures
     // that read its immutable loop binding.
-    let separate_iterations = "mut n = 0; class It { public fun next() { n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } public fun close() { nil } } class Src { public fun iterator() { It.new() } } mut first = nil; mut second = nil; for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; [first.call(), second.call()]";
+    let separate_iterations = "mut n = 0; class It { public fun next() { n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } public fun close() { nil } } class Src { public fun iterator() { It.new() } } mut first: Object = nil; mut second: Object = nil; for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; [first.call(), second.call()]";
     // The negative control creates both closures during one iteration, so both
     // must continue to read that iteration's one immutable binding.
-    let same_iteration = "mut first = nil; mut second = nil; for x in [1] { first = { x }; second = { x } }; [first.call(), second.call()]";
+    let same_iteration = "mut first: Object = nil; mut second: Object = nil; for x in [1] { first = { x }; second = { x } }; [first.call(), second.call()]";
 
     for (source, expected) in [
         (separate_iterations, "[nil, [1, 2]]"),
@@ -1701,7 +1701,7 @@ fn catch_receives_a_value_raised_by_initialize() {
 #[test]
 fn escaped_receiver_from_failed_initialize_remains_usable() {
     // Given
-    let source = "mut escaped = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; try { A.new() } catch error { escaped.to_bool() }";
+    let source = "mut escaped: Object = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; try { A.new() } catch error { escaped.to_bool() }";
 
     // When
     let result = evaluate(source);
@@ -3663,10 +3663,10 @@ fn c160_keeps_an_entered_frame_on_its_selected_body() {
         evaluate(
             "class A { public async fun m(g) -> Symbol { let v = await g; :old } } \
              let a = A.new(); let g = Gate.new(); let entered_task = a.m(g); \
-             let replaced = A.open() { |t| t.define_method(:m) { |arg| :new } }; \
+             open class A { public override async fun m(g) -> Symbol { :new } }; \
              let posted = Gate.complete(g, 1); \
              let entered = Host.run(entered_task); \
-             let later = A.new().m(g); [entered, later]"
+             let later = Host.run(A.new().m(g)); [entered, later]"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("old".into()),
@@ -4021,7 +4021,7 @@ fn c056_construction_uses_the_captured_revision() {
                public fun initialize() -> Object { nil } \
                public fun arm() -> Symbol { \
                  let committed = A.open() { |t| t.define_method(:m) { :new } }; :armed } \
-               public fun m() -> Symbol { :old } } \
+               public fun m() -> Object { :old } } \
              module Q { public fun run() -> Object { let a = A.new(); [a.tag, a.m()] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -4095,7 +4095,7 @@ fn c161_replacement_creates_no_second_backing_slot() {
                public property fun infinity=(v) -> Object { recorded = v; nil } } \
              module Q { public fun run() -> Object { \
                let read = Float64.infinity; \
-               let wrote = Float64.infinity = :written; \
+               let wrote: Object = Float64.infinity = :written; \
                [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -4348,7 +4348,10 @@ fn compound_assignment_reads_once_and_short_circuits() {
         ("mut x = 10; x -= 3; x", "7"),
         ("mut x = 2; x **= 3; x", "8"),
         ("mut x = 6; x &= 3; x", "2"),
-        ("mut x = nil; let r = x ||= 7; [r, x]", "[7, 7]"),
+        (
+            "mut x: Nil | Integer = nil; let r = x ||= 7; [r, x]",
+            "[7, 7]",
+        ),
         (
             "mut y = :kept; let s = (y ||= :other); [s, y]",
             "[:kept, :kept]",
@@ -7501,13 +7504,13 @@ fn a_reflective_define_method_names_its_target() {
         ),
         // The published body REPLACES the class's own method.
         (
-            "class K { public fun m(a) -> Symbol { :old } } \
+            "class K { public fun m(a) -> Object { :old } } \
              Reflection::Class.define_method(K, :m) { |o| :new }; K.new().m(1)",
             Some("[nil, :new]"),
         ),
         // A call whose arity does not match the block is an ArgumentError.
         (
-            "class K { public fun m() -> Symbol { :old } } \
+            "class K { public fun other() -> Symbol { :old } } \
              Reflection::Class.define_method(K, :m) { |o| :new }; K.new().m()",
             None,
         ),
@@ -7528,7 +7531,7 @@ fn a_reflective_define_method_names_its_target() {
 
     // The arity failure RAISES, so an enclosing `try` catches it by name.
     let agreement = crate::backend::compare_backends(
-        "class K { public fun m() -> Symbol { :old } } \
+        "class K { public fun other() -> Symbol { :old } } \
          module M { public fun run() -> Object { \
          Reflection::Class.define_method(K, :m) { |o| :new }; \
          try { K.new().m() } catch e { e } } } M.run()",
@@ -8136,7 +8139,7 @@ fn an_annotated_boundary_is_guarded() {
     for (source, expected) in [
         // A BINDING whose value the annotation excludes.
         (
-            "class A { public fun f() -> Object { let s: String = 1; s } } A.new().f()",
+            "class A { public fun f(value) -> Object { let s: String = value; s } } A.new().f(1)",
             None,
         ),
         // A PARAMETER, checked as the frame starts.
@@ -8144,7 +8147,10 @@ fn an_annotated_boundary_is_guarded() {
             "class A { public fun f(x: Integer) -> Object { x } } A.new().f(\"s\")",
             None,
         ),
-        ("let value: Dynamic<String> = 1; value", None),
+        (
+            "class A { public fun f(value) { let result: Dynamic<String> = value; result } } A.new().f(1)",
+            None,
+        ),
         // Controls: a value the annotation ADMITS still binds, and an
         // annotation that decides nothing narrows nothing.
         (
@@ -11040,7 +11046,7 @@ fn a_removed_to_bool_reaches_method_missing() {
     // The handler runs ONCE and receives the selector, an empty positional
     // snapshot and no block.
     agrees_on(
-        "mut calls = 0; mut seen = nil; \
+        "mut calls = 0; mut seen: Object = nil; \
          class FallbackTruth { public fun method_missing(selector, args, block) { \
            calls = calls + 1; seen = [selector, args, block]; true } } \
          FallbackTruth.undef_method(:to_bool); \
@@ -11713,7 +11719,7 @@ fn a_reopened_builtin_property_overrides_the_native_constant() {
          public override property fun infinity() -> Symbol { :replaced } \
          public property fun infinity=(v) -> Object { recorded = v; nil } } \
          module Q { public fun run() -> Object { \
-         let read = Float64.infinity; let wrote = Float64.infinity = :written; \
+         let read = Float64.infinity; let wrote: Object = Float64.infinity = :written; \
          [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()",
         "[:replaced, :written, []]",
     );
