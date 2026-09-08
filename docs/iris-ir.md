@@ -595,8 +595,13 @@ Stated explicitly so nothing is assumed of it:
 The backend is **deliberately partial**, and declines rather than approximates.
 A backend that guessed would make a differential row agree for the wrong
 reason, which is worse than leaving the row held. `compile` therefore answers a
-`CompileError` naming the construct it lacks, and the harness reports fewer
-than two RUNNING backends as insufficient rather than as agreement.
+`CompileError` separating an unsupported construct (`CompileErrorKind::UnsupportedConstruct`)
+from a static diagnostic on a rejected program (`CompileErrorKind::StaticDiagnostic`).
+When an unsupported construct is encountered, compilation declines to run and the harness
+reports fewer than two RUNNING backends as insufficient rather than as agreement.
+When a static diagnostic is emitted, such as `BINDING_FIXED_LOCAL_TYPE` for an invalid fixed
+local assignment, compilation produces no executable `Program`, yet differential execution
+counts this as a verified static rejection (reporting `TypeContractError`) rather than a refusal.
 
 Covered: integer, float, string, bool, nil and Symbol literals; built-in
 `to_string` on Integer, String, Bool, nil, and Symbol (Float has no such
