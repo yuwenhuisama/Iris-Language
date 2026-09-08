@@ -531,7 +531,8 @@ impl Machine {
                 }
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.to_owned()))?;
-                self.runtime
+                let method = self
+                    .runtime
                     .registry_mut()
                     .define_module_method(
                         module_id,
@@ -540,6 +541,7 @@ impl Machine {
                         Visibility::Public,
                     )
                     .map_err(MachineError::Class)?;
+                self.remember_signature(method, program);
             }
         }
         let mut classes = Vec::with_capacity(program.classes.len());
@@ -575,7 +577,8 @@ impl Machine {
                         for (selector, function) in &source.methods {
                             let selector = selector_id(program, selector)
                                 .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                            self.runtime
+                            let method = self
+                                .runtime
                                 .registry_mut()
                                 .define_module_method(
                                     module,
@@ -584,6 +587,7 @@ impl Machine {
                                     Visibility::Public,
                                 )
                                 .map_err(MachineError::Class)?;
+                            self.remember_signature(method, program);
                         }
                         self.modules.push((name.clone(), module));
                         module
@@ -660,7 +664,8 @@ impl Machine {
                     };
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                self.runtime
+                let method = self
+                    .runtime
                     .registry_mut()
                     .publish_origin_method(
                         class,
@@ -669,6 +674,7 @@ impl Machine {
                         visibility,
                     )
                     .map_err(MachineError::Class)?;
+                self.remember_signature(method, program);
             }
             for property in &declaration.stored_properties {
                 let selector = selector_id(program, &property.name)
@@ -696,7 +702,8 @@ impl Machine {
             for (selector, function) in &declaration.class_methods {
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                self.runtime
+                let method = self
+                    .runtime
                     .registry_mut()
                     .publish_singleton_method(
                         class,
@@ -705,6 +712,7 @@ impl Machine {
                         Visibility::Public,
                     )
                     .map_err(MachineError::Class)?;
+                self.remember_signature(method, program);
             }
             self.runtime
                 .registry_mut()
@@ -728,27 +736,16 @@ impl Machine {
                 _ => iris_runtime::BuiltinClass::String,
             };
             let class = self.kernel.class(kind).map_err(MachineError::Kernel)?;
-            self.runtime
-                .registry_mut()
-                .begin_transaction(class)
-                .map_err(MachineError::Class)?;
-            for (selector, function) in &reopen.methods {
-                let selector = selector_id(program, selector)
-                    .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                self.runtime
-                    .registry_mut()
-                    .publish_method(
-                        class,
-                        selector,
-                        MethodBody::new(*function as u64),
-                        Visibility::Public,
-                    )
-                    .map_err(MachineError::Class)?;
-            }
-            self.runtime
-                .registry_mut()
-                .commit_transaction(class)
-                .map_err(MachineError::Class)?;
+            self.apply_members(
+                (
+                    class,
+                    &crate::compile::ClassReopen {
+                        methods: reopen.methods.clone(),
+                        class_methods: Vec::new(),
+                    },
+                ),
+                program,
+            )?;
         }
         Ok(classes)
     }
@@ -924,63 +921,6 @@ impl Machine {
                     .map_err(MachineError::Construction)?;
             }
         }
-        Ok(())
-    }
-}
-
-impl Machine {
-    /// Applies one class reopen, at the source position it was written.
-    pub(super) fn apply_reopen(
-        &mut self,
-        program: &Program,
-        classes: &[ClassId],
-        class_index: usize,
-        reopen_index: usize,
-    ) -> Result<(), MachineError> {
-        let Some(class) = classes.get(class_index).copied() else {
-            return Err(MachineError::SerializationError);
-        };
-        let Some(reopen) = program
-            .classes
-            .get(class_index)
-            .and_then(|declaration| declaration.reopens.get(reopen_index))
-        else {
-            return Err(MachineError::SerializationError);
-        };
-        self.runtime
-            .registry_mut()
-            .begin_transaction(class)
-            .map_err(MachineError::Class)?;
-        for (selector, function) in &reopen.methods {
-            let selector = selector_id(program, selector)
-                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-            self.runtime
-                .registry_mut()
-                .publish_method(
-                    class,
-                    selector,
-                    MethodBody::new(*function as u64),
-                    Visibility::Public,
-                )
-                .map_err(MachineError::Class)?;
-        }
-        for (selector, function) in &reopen.class_methods {
-            let selector = selector_id(program, selector)
-                .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-            self.runtime
-                .registry_mut()
-                .publish_singleton_method(
-                    class,
-                    selector,
-                    MethodBody::new(*function as u64),
-                    Visibility::Public,
-                )
-                .map_err(MachineError::Class)?;
-        }
-        self.runtime
-            .registry_mut()
-            .commit_transaction(class)
-            .map_err(MachineError::Class)?;
         Ok(())
     }
 }

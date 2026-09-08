@@ -891,7 +891,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                             .push(Instruction::RaiseImmutableBinding { destination });
                         return Ok(destination);
                     }
+                    let annotation = binding.annotation.clone();
                     let source = self.expression(right)?;
+                    self.check_binding_value(source, annotation.as_ref());
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::StoreBinding {
                         destination,
@@ -912,18 +914,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 }
                 let source = self.expression(right)?;
                 let destination = binding.register;
-                if binding.shared {
-                    self.instructions.push(Instruction::StoreCell {
-                        destination: source,
-                        cell: destination,
-                        source,
-                    });
-                } else {
-                    self.instructions.push(Instruction::Move {
-                        destination,
-                        source,
-                    });
-                }
+                self.write_binding(&binding, source)?;
                 if let Some(assigned) = binding.assigned {
                     self.instructions
                         .push(Instruction::MarkAssigned { assigned });
@@ -1115,13 +1106,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
         );
         for capture in &captures {
             let register = lowering.allocate()?;
-            lowering.names.push(if capture.shared && capture.writable {
+            let mut binding = if capture.shared && capture.writable {
                 super::lowering::Binding::shared(capture.name.clone(), register)
             } else if capture.shared {
                 super::lowering::Binding::captured_value(capture.name.clone(), register)
             } else {
                 super::lowering::Binding::value(capture.name.clone(), register)
-            });
+            };
+            binding.annotation = capture.annotation.clone();
+            lowering.names.push(binding);
         }
         for parameter in parameters {
             let register = lowering.allocate()?;
@@ -1138,6 +1131,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         self.closures.extend(closure_functions);
         self.closures.push(Function {
             name: "<closure>".to_owned(),
+            signature: None,
             parameters: captures.len() + parameters.len(),
             captures: captures.len(),
             fixed_arity: None,
@@ -1204,6 +1198,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         self.closures.extend(nested);
         self.closures.push(Function {
             name: "<dynamic-method>".to_owned(),
+            signature: Some(super::method_metadata::dynamic(parameters)),
             parameters: parameters.len() + 1,
             captures: 0,
             fixed_arity: None,

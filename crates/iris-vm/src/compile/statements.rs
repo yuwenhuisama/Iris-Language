@@ -53,11 +53,13 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if self.method_values.contains(&value) {
                     self.method_values.push(destination);
                 }
-                self.names.push(if *mutable {
+                let mut binding = if *mutable {
                     Binding::shared(name.clone(), destination)
                 } else {
                     Binding::value(name.clone(), destination)
-                });
+                };
+                binding.annotation = annotation.clone();
+                self.names.push(binding);
                 if self.top_level {
                     let published = self.allocate()?;
                     self.instructions.push(Instruction::PublishBinding {

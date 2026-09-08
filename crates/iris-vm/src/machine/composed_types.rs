@@ -313,6 +313,11 @@ impl Machine {
         classes: &[iris_runtime::ClassId],
     ) -> Result<bool, MachineError> {
         match annotation {
+            TypeExpression::Name(name) if name == "Array" => {
+                Ok(matches!(value, Value::Array(_) | Value::ReadonlyArray(_)))
+            }
+            TypeExpression::Name(name) if name == "Hash" => Ok(matches!(value, Value::Hash(_))),
+            TypeExpression::Name(name) if name == "Symbol" => Ok(matches!(value, Value::Symbol(_))),
             // `C011` admits every value EXCEPT nil, and `C023` makes `Never`
             // uninhabited, so neither resolves through a declared class.
             TypeExpression::Name(name) if name == "NonNil" => Ok(!matches!(value, Value::Nil)),

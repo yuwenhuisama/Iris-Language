@@ -7,7 +7,11 @@
 
 use iris_syntax::Statement;
 
+mod binding_writes;
 mod declarations;
+mod diagnostic;
+mod method_metadata;
+pub use diagnostic::{CompileError, CompileErrorKind};
 mod expressions;
 
 use declarations::{CollectedDeclarations, collect_signatures};
@@ -33,28 +37,10 @@ pub(crate) use ir::{
 };
 pub use ir::{FloatWidth, Instruction, ParameterKind, Program, Register};
 
-/// Why a program could not be compiled.
-///
-/// This is NOT a program error. It means this backend does not yet cover the
-/// construct, so the caller must decline rather than produce a result.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompileError {
-    /// The construct that is not covered.
-    pub construct: String,
-}
-
-impl CompileError {
-    fn new(construct: impl Into<String>) -> Self {
-        Self {
-            construct: construct.into(),
-        }
-    }
-}
-
-/// Compiles `source`, or reports the first construct this backend lacks.
+/// Compiles `source`, or reports an unsupported construct or static violation.
 ///
 /// # Errors
-/// Returns the uncovered construct, or a parse rejection.
+/// Returns an uncovered construct or a statically incompatible binding.
 pub fn compile(source: &str) -> Result<Program, CompileError> {
     compile_with_natives(source, &iris_native_host::NativeRegistry::new())
 }
@@ -72,7 +58,6 @@ pub(crate) fn compile_in_mode(
     mode: CompilationMode,
 ) -> Result<Program, CompileError> {
     let mut parsed = iris_parser::parse(source);
-    let native_names = native::prepare(&mut parsed.program, natives)?;
     // A source the PARSER refuses is a program error the reference raises when
     // the program runs, so the backend answers a program that raises it rather
     // than declining - both refuse it either way, but only one of those can
@@ -108,6 +93,10 @@ pub(crate) fn compile_in_mode(
             builtin_reopens: Vec::new(),
         });
     }
+
+    parsed.program = iris_parser::prepare_bindings(&parsed.program)
+        .map_err(|diagnostics| CompileError::diagnostic(diagnostics[0].code))?;
+    let native_names = native::prepare(&mut parsed.program, natives)?;
 
     // A declaration naming a target that does not EXIST - a reopen of an
     // undeclared class, a contract inheriting an undeclared parent - is a
@@ -169,9 +158,15 @@ pub(crate) fn compile_in_mode(
         .statements
         .iter()
         .filter_map(|statement| match statement {
-            Statement::Binding { mutable, name, .. } => Some(ProgramBinding {
+            Statement::Binding {
+                mutable,
+                name,
+                annotation,
+                ..
+            } => Some(ProgramBinding {
                 name: name.clone(),
                 shared: *mutable,
+                annotation: annotation.clone(),
             }),
             _ => None,
         })
@@ -397,6 +392,7 @@ pub(crate) fn compile_in_mode(
     if !classes.is_empty() {
         let implicit = functions.len();
         functions.push(ir::Function {
+            signature: None,
             name: "to_bool".to_owned(),
             parameters: 1,
             captures: 0,

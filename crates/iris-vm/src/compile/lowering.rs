@@ -171,6 +171,7 @@ pub(super) fn lower_function(
         let value = lowering.expression(expression)?;
         lowering.instructions.push(Instruction::Return { value });
         return Ok(Function {
+            signature: signature.declaration.map(super::method_metadata::bodyless),
             name: format!("{}.{}", signature.module, signature.selector),
             parameters: usize::from(signature.receiver),
             captures: 0,
@@ -209,6 +210,7 @@ pub(super) fn lower_function(
     }
     lowering.instructions.push(Instruction::Return { value });
     Ok(Function {
+        signature: signature.declaration.map(super::method_metadata::bodyless),
         name: format!("{}.{}", signature.module, signature.selector),
         parameters: signature.parameters.len() + usize::from(signature.receiver),
         captures: 0,
@@ -288,12 +290,14 @@ pub(crate) struct Lowering<'a, 'b> {
 
 #[derive(Clone)]
 pub(super) struct ProgramBinding {
+    pub(super) annotation: Option<iris_syntax::TypeExpression>,
     pub(super) name: String,
     pub(super) shared: bool,
 }
 
 #[derive(Clone)]
 pub(super) struct Binding {
+    pub(super) annotation: Option<iris_syntax::TypeExpression>,
     pub(super) name: String,
     pub(super) register: Register,
     pub(super) shared: bool,
@@ -305,6 +309,7 @@ pub(super) struct Binding {
 impl Binding {
     pub(super) const fn value(name: String, register: Register) -> Self {
         Self {
+            annotation: None,
             name,
             register,
             shared: false,
@@ -315,6 +320,7 @@ impl Binding {
 
     pub(super) const fn deferred(name: String, register: Register, assigned: Register) -> Self {
         Self {
+            annotation: None,
             name,
             register,
             shared: false,
@@ -325,6 +331,7 @@ impl Binding {
 
     pub(super) const fn shared(name: String, register: Register) -> Self {
         Self {
+            annotation: None,
             name,
             register,
             shared: true,
@@ -335,6 +342,7 @@ impl Binding {
 
     pub(super) const fn captured_value(name: String, register: Register) -> Self {
         Self {
+            annotation: None,
             name,
             register,
             shared: true,
@@ -573,26 +581,5 @@ impl<'a, 'b> Lowering<'a, 'b> {
             cell: binding.register,
         });
         Ok(destination)
-    }
-
-    /// Writes `source` to the binding, through its cell when it has one.
-    pub(super) fn write_binding(
-        &mut self,
-        binding: &Binding,
-        source: Register,
-    ) -> Result<(), CompileError> {
-        if binding.shared {
-            self.instructions.push(Instruction::StoreCell {
-                destination: source,
-                cell: binding.register,
-                source,
-            });
-        } else {
-            self.instructions.push(Instruction::Move {
-                destination: binding.register,
-                source,
-            });
-        }
-        Ok(())
     }
 }

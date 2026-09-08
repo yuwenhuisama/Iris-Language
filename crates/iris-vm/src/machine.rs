@@ -4,9 +4,15 @@ use iris_runtime::{Kernel, KernelError, NativeSelector, Runtime, Selector, Value
 
 use crate::compile::{Instruction, Program, Register};
 
+#[cfg(test)]
+mod boundary_tests;
 mod composed_types;
 mod execute;
+mod method_mutation;
+mod method_removal;
+mod nominal_relation;
 mod operations;
+mod reopen;
 mod runtime;
 mod stdlib;
 
@@ -79,6 +85,12 @@ pub use verify::{MachineError, VerifyError, verify};
 
 /// A register machine over runtime values.
 pub struct Machine {
+    method_signatures:
+        std::collections::HashMap<iris_runtime::MethodId, iris_syntax::MethodDeclaration>,
+    pending_replacements: std::collections::BTreeMap<
+        (iris_runtime::ClassId, Selector, bool),
+        method_removal::PendingMethod,
+    >,
     natives: Option<std::rc::Rc<iris_native_host::NativeRegistry>>,
     /// Owns the class registry, the heap and the ivar tables together.
     ///
@@ -231,6 +243,8 @@ impl Machine {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut())?;
         Ok(Self {
+            method_signatures: std::collections::HashMap::new(),
+            pending_replacements: std::collections::BTreeMap::new(),
             natives: None,
             runtime,
             kernel,

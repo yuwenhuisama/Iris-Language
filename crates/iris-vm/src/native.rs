@@ -49,6 +49,7 @@ pub fn compile_packages_with_natives(
     for (_, source) in programs {
         if !iris_parser::parse(source).program_accepted {
             return Err(CompileError {
+                kind: crate::CompileErrorKind::UnsupportedConstruct,
                 construct: "invalid VM package source unit".to_owned(),
             });
         }
@@ -73,10 +74,12 @@ pub fn compile_package_tree_with_natives(
     registry: &NativeRegistry,
 ) -> Result<Program, CompileError> {
     iris_native_host::PackageSource::validate_metadata(sources).map_err(|_| CompileError {
+        kind: crate::CompileErrorKind::UnsupportedConstruct,
         construct: "conflicting or invalid VM package metadata".to_owned(),
     })?;
     for source in sources {
         source.validate_imports().map_err(|_| CompileError {
+            kind: crate::CompileErrorKind::UnsupportedConstruct,
             construct: "native package import permission".to_owned(),
         })?;
     }
@@ -101,6 +104,7 @@ fn compile_units<'a>(
 ) -> Result<Program, CompileError> {
     let Some((package, first)) = sources.next() else {
         return Err(CompileError {
+            kind: crate::CompileErrorKind::UnsupportedConstruct,
             construct: "unsupported VM package shape: expected at least one source unit".to_owned(),
         });
     };
@@ -108,6 +112,7 @@ fn compile_units<'a>(
     for (identity, source) in sources {
         if identity != package {
             return Err(CompileError {
+                kind: crate::CompileErrorKind::UnsupportedConstruct,
                 construct:
                     "unsupported VM package shape: cross-package execution is not implemented"
                         .to_owned(),

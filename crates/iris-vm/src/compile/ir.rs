@@ -981,6 +981,7 @@ pub enum FloatWidth {
 /// which is why a collection there refuses inside a method body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Function {
+    pub(crate) signature: Option<iris_syntax::MethodDeclaration>,
     /// The name this function was declared under, for diagnostics.
     pub(crate) name: String,
     /// How many leading registers hold parameters.
@@ -1062,6 +1063,7 @@ pub(crate) struct ModuleDeclaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Contract {
+    pub(crate) parents: Vec<String>,
     pub(crate) name: String,
     pub(crate) requirements: Vec<ContractRequirement>,
     /// Capability names this contract DENIES to every conforming class.

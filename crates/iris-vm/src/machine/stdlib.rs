@@ -985,10 +985,7 @@ impl Machine {
                 else {
                     return Err(MachineError::UnknownSelector(alias.clone()));
                 };
-                self.runtime
-                    .registry_mut()
-                    .alias_method(*class, alias, original)
-                    .map_err(MachineError::Class)?;
+                self.alias_checked((*class, alias, original), program)?;
                 Some(Value::Nil)
             }
             Value::Class(class)
@@ -1001,17 +998,7 @@ impl Machine {
                 let Some(slot) = selector_id(program, name) else {
                     return Err(MachineError::UnknownSelector(name.clone()));
                 };
-                if selector == "remove_method" {
-                    self.runtime
-                        .registry_mut()
-                        .remove_method(*class, slot)
-                        .map_err(MachineError::Class)?;
-                } else {
-                    self.runtime
-                        .registry_mut()
-                        .undef_method(*class, slot)
-                        .map_err(MachineError::Class)?;
-                }
+                self.remove_checked((*class, slot, selector == "undef_method"), program)?;
                 Some(Value::Nil)
             }
             // `C119` makes `A.method(:f)` and the reflective call ONE surface,

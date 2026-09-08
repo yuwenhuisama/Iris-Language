@@ -6,6 +6,7 @@ use super::{
 };
 
 pub(super) struct Signature<'a> {
+    pub(super) declaration: Option<&'a iris_syntax::MethodDeclaration>,
     pub(super) module: &'a str,
     pub(super) selector: &'a str,
     pub(super) parameters: Vec<&'a iris_syntax::Parameter>,
@@ -438,6 +439,7 @@ pub(super) fn collect_signatures<'a>(
                 continue;
             };
             signatures.push(Signature {
+                declaration: None,
                 module: &module.name,
                 selector: name,
                 parameters: Vec::new(),
@@ -668,6 +670,7 @@ fn collect_contract(
     // rather than merely incomplete. A parent must already be declared, since
     // its requirements have to exist to be inherited.
     let mut requirements = Vec::new();
+    let mut parents = Vec::new();
     for parent in &declaration.parents {
         // A GENERIC parent names the same contract as a bare one: the backend
         // interns one contract per definition rather than per construction, so
@@ -686,6 +689,8 @@ fn collect_contract(
             }
             return Err(CompileError::new("contract parent unbound"));
         };
+        parents.push(name.clone());
+        parents.extend(parent.parents.iter().cloned());
         requirements.extend(parent.requirements.iter().cloned());
     }
     for statement in &declaration.body {
@@ -730,6 +735,7 @@ fn collect_contract(
         });
     }
     contracts.push(Contract {
+        parents,
         name: declaration.name.clone(),
         requirements,
         meta_deny: declaration.meta_deny.clone(),
@@ -741,6 +747,7 @@ fn traversal_contracts() -> Vec<Contract> {
     vec![
         Contract {
             name: "Iterable".to_owned(),
+            parents: Vec::new(),
             requirements: vec![ContractRequirement {
                 selector: "iterator".to_owned(),
                 arity: 0,
@@ -754,6 +761,7 @@ fn traversal_contracts() -> Vec<Contract> {
         },
         Contract {
             name: "Iterator".to_owned(),
+            parents: Vec::new(),
             requirements: vec![
                 ContractRequirement {
                     selector: "next".to_owned(),
@@ -775,6 +783,7 @@ fn traversal_contracts() -> Vec<Contract> {
         },
         Contract {
             name: "Iteration".to_owned(),
+            parents: Vec::new(),
             requirements: Vec::new(),
             meta_deny: Vec::new(),
         },
@@ -949,6 +958,7 @@ fn collect_class<'a>(
                 None
             } else {
                 signatures.push(Signature {
+                    declaration: None,
                     module: &class.name,
                     selector: name,
                     parameters: Vec::new(),
@@ -1033,6 +1043,7 @@ fn collect_class<'a>(
         }
         signatures.push(Signature {
             module: &class.name,
+            declaration: None,
             selector: name,
             parameters: Vec::new(),
             return_type: None,
@@ -1478,6 +1489,7 @@ fn collect_methods<'a>(
         }
         signatures.push(Signature {
             module: owner,
+            declaration: Some(method),
             selector: &method.selector,
             parameters,
             return_type: method.return_type.as_ref(),

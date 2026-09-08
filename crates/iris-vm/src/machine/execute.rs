@@ -3572,6 +3572,7 @@ instruction_group!(execute_mutation, (self, instruction, state, registers, progr
                         return Err(MachineError::Class(error));
                     }
                     if outermost {
+                        self.pending_replacements.clear();
                         self.open_group_state = Some(OpenGroupState::Active);
                     }
                     // `C037` makes the body NON-SUSPENDING, so an `await`
@@ -3592,10 +3593,17 @@ instruction_group!(execute_mutation, (self, instruction, state, registers, progr
                         return outcome;
                     }
                     if self.open_group_state.take() == Some(OpenGroupState::Aborted) {
+                        self.pending_replacements.clear();
                         self.runtime.registry_mut().roll_back_group();
                         return outcome;
                     }
                     let value = outcome?;
+                    let validation = self.validate_replacements(program);
+                    self.pending_replacements.clear();
+                    if let Err(error) = validation {
+                        self.runtime.registry_mut().roll_back_group();
+                        return Err(error);
+                    }
                     self.runtime
                         .registry_mut()
                         .commit_group()
@@ -3641,22 +3649,7 @@ instruction_group!(execute_mutation, (self, instruction, state, registers, progr
                     };
                     let selector = selector_id(program, name)
                         .ok_or_else(|| MachineError::UnknownSelector(name.clone()))?;
-                    let body = u64::try_from(*function).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: *function,
-                        })
-                    })?;
-                    let method = self
-                        .runtime
-                        .registry_mut()
-                        .publish_method(
-                            class,
-                            selector,
-                            iris_runtime::MethodBody::new(body),
-                            iris_runtime::Visibility::Public,
-                        )
-                        .map_err(MachineError::Class)?;
-                    self.dynamic_methods.insert(method.id());
+                    self.define_checked((class, selector, *function), program)?;
                     Value::Nil
                 }),
                 Instruction::Json {
