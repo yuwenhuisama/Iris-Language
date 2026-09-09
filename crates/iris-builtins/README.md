@@ -20,7 +20,10 @@ by an extension. These family labels do not establish source Class bindings.
   owners to resolve an unknown receiver or infer universal Object inheritance.
 - Prefer authored declarations. Catalog return facts are observed results, not
   declared annotations: omitted annotations remain `Dynamic<Object>`.
-- `Known` means the fixed family on success, not guaranteed success. `Receiver`
+- `Known` means the fixed family on success, not guaranteed success. `ArrayOf`
+  retains an evidenced builtin element family; text split/scalar/grapheme arrays
+  use `ArrayOf(String)` and display `Array<String>`. This does not promise that a
+  mutable array keeps its original elements after mutation or escape. `Receiver`
   means preserved receiver identity/family; FFI bind retains identity while
   returning updated binding metadata. `Unknown` also covers unions, optional
   results, element/callback results, and backend-divergent results. Unknown
