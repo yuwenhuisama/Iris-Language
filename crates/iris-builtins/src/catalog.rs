@@ -3,7 +3,7 @@ use crate::{
     Surface,
 };
 use Availability::{Both, Reference, Vm};
-use ReturnFact::{Known, Receiver, Unknown};
+use ReturnFact::{ArrayOf, Known, Receiver, Unknown};
 
 const fn positional(label: &'static str, type_label: Option<&'static str>) -> Parameter {
     Parameter {
@@ -44,6 +44,7 @@ macro_rules! row {
             shapes: $shapes,
             return_label: match $result {
                 Known(kind) => Some(kind.name()),
+                ArrayOf(kind) => Some(kind.array_name()),
                 Receiver => Some(BuiltinType::$family.name()),
                 Unknown => None,
             },
@@ -63,6 +64,7 @@ macro_rules! service {
             shapes: $shapes,
             return_label: match $result {
                 Known(kind) => Some(kind.name()),
+                ArrayOf(kind) => Some(kind.array_name()),
                 Receiver | Unknown => None,
             },
             result: $result,

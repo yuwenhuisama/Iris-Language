@@ -6,6 +6,9 @@ macro_rules! families {
             pub const fn name(self) -> &'static str {
                 match self { $(Self::$variant => $name),+ }
             }
+            pub const fn array_name(self) -> &'static str {
+                match self { $(Self::$variant => concat!("Array<", $name, ">")),+ }
+            }
             pub fn from_name(name: &str) -> Option<Self> {
                 match name { $($name => Some(Self::$variant),)+ _ => None }
             }

@@ -41,6 +41,7 @@ pub enum Availability {
 pub enum ReturnFact {
     Unknown,
     Known(BuiltinType),
+    ArrayOf(BuiltinType),
     Receiver,
 }
 
