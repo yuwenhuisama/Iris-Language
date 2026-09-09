@@ -53,7 +53,7 @@ retain the normalized AST type plus source-only child name/type sites; optional
 `T?` does not invent a source occurrence of `Nil`.
 
 Expression facts link names, literals, member receivers, calls and their ordered
-arguments, assignments, grouping, generic construction, reified types, closures,
+arguments, index receivers/indexes, assignments, grouping, generic construction, reified types, closures,
 keyword arguments, and collection/range shapes (Array, Tuple, Hash, Range). Other
 expression forms explicitly report `Unsupported` with production children, rather
 than claiming an inferred type. Imports retain per-segment targets, per-spec names,
