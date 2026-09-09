@@ -54,9 +54,10 @@ retain the normalized AST type plus source-only child name/type sites; optional
 
 Expression facts link names, literals, member receivers, calls and their ordered
 arguments, assignments, grouping, generic construction, reified types, closures,
-and keyword arguments. Other expression forms explicitly report `Unsupported`
-with production children, rather than claiming an inferred type. Imports retain
-per-segment targets, per-spec names, aliases, and replacement authorization.
+keyword arguments, and collection/range shapes (Array, Tuple, Hash, Range). Other
+expression forms explicitly report `Unsupported` with production children, rather
+than claiming an inferred type. Imports retain per-segment targets, per-spec names,
+aliases, and replacement authorization.
 
 `SourceDeclaration.return_hint_offset` is the byte immediately after a Method's
 parameter-list closing `)`, before trivia or a written return annotation. It is

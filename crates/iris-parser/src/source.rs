@@ -184,6 +184,21 @@ pub enum ExpressionFact {
         text: String,
         kind: LiteralKind,
     },
+    Array {
+        elements: Vec<SyntaxId>,
+    },
+    Tuple {
+        elements: Vec<SyntaxId>,
+    },
+    Hash {
+        entries: Vec<(SyntaxId, SyntaxId)>,
+    },
+    Range {
+        start: SyntaxId,
+        end: SyntaxId,
+        operator: RangeOperator,
+        operator_span: Span,
+    },
     Member {
         receiver: SyntaxId,
         name: NameSite,
@@ -225,6 +240,12 @@ pub enum ExpressionFact {
     Unsupported {
         form: &'static str,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RangeOperator {
+    Inclusive,
+    Exclusive,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

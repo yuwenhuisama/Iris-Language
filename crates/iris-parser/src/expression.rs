@@ -25,7 +25,13 @@ impl Parser {
             if precedence < minimum {
                 break;
             }
+            let left_id = self.recorder.last();
+            let operator_start = self.current_offset();
             let operator = self.consume_infix_operator()?;
+            let operator_span = Span {
+                start: operator_start,
+                end: self.consumed_end,
+            };
             let next = if associativity == Associativity::Right {
                 precedence
             } else {
@@ -56,6 +62,11 @@ impl Parser {
                 self.error("PARSE_NONASSOCIATIVE_CHAIN");
                 return None;
             }
+            let fact = crate::source_facts::binary_fact(
+                &operator,
+                left_id.zip(self.recorder.last()),
+                operator_span,
+            );
             left = Expression::Binary {
                 left: Box::new(left),
                 operator,
@@ -67,7 +78,7 @@ impl Parser {
                     start,
                     end: self.consumed_end,
                 },
-                SourceKind::Expression(ExpressionFact::Unsupported { form: "binary" }),
+                SourceKind::Expression(fact),
             );
             self.expression_layout();
         }
