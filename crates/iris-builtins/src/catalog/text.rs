@@ -17,7 +17,7 @@ macro_rules! transform_rows {
         row!($family, Instance, "casefold", shapes![Both []], Known(String), "Unicode case folding returns immutable String for either receiver.", "crates/iris-eval/src/source_runtime.rs:4235; crates/iris-vm/src/machine/stdlib.rs:641"),
         row!($family, Instance, "nfc", shapes![Both []], Known(String), "NFC normalization returns immutable String.", "crates/iris-eval/src/source_runtime.rs:4249; crates/iris-vm/src/machine/stdlib.rs:641"),
         row!($family, Instance, "nfd", shapes![Both []], Known(String), "NFD normalization returns immutable String.", "crates/iris-eval/src/source_runtime.rs:4249; crates/iris-vm/src/machine/stdlib.rs:641"),
-        row!($family, Instance, "graphemes", shapes![Both []], Known(Array), "Eager Array of grapheme-cluster Strings, not a lazy view.", "crates/iris-eval/src/source_runtime.rs:4265; crates/iris-vm/src/machine/stdlib.rs:641"),
+        row!($family, Instance, "graphemes", shapes![Both []], ArrayOf(String), "Eager Array of grapheme-cluster Strings, not a lazy view.", "crates/iris-eval/src/source_runtime.rs:4265; crates/iris-vm/src/machine/stdlib.rs:641"),
         row!($family, Instance, "=~", shapes![Both [positional("arg1", Some("Regex"))]], Unknown, "First Match snapshot or nil; Regex argument required.", "crates/iris-eval/src/source_runtime.rs:4000; crates/iris-vm/src/machine/stdlib.rs:424"),
         row!($family, Instance, "!~", shapes![Both [positional("arg1", Some("Regex"))]], Known(Bool), "True when no Regex match exists.", "crates/iris-eval/src/source_runtime.rs:4000; crates/iris-vm/src/machine/stdlib.rs:424"),
     )+] };
@@ -74,7 +74,7 @@ const TEXT_ROWS: &[BuiltinMember] = &[
         Instance,
         "split",
         shapes![Both[TEXT]],
-        Known(Array),
+        ArrayOf(String),
         "Array of Strings split by required String separator.",
         "crates/iris-eval/src/source_runtime.rs:4295; crates/iris-vm/src/machine/stdlib/hash_text.rs:133"
     ),
@@ -146,7 +146,7 @@ const TEXT_ROWS: &[BuiltinMember] = &[
         Instance,
         "chars",
         shapes![Both []],
-        Known(Array),
+        ArrayOf(String),
         "Array of one-scalar Strings.",
         "crates/iris-eval/src/source_runtime.rs:4321; crates/iris-vm/src/machine/stdlib/hash_text.rs:146"
     ),
@@ -155,7 +155,7 @@ const TEXT_ROWS: &[BuiltinMember] = &[
         Instance,
         "to_array",
         shapes![Both []],
-        Known(Array),
+        ArrayOf(String),
         "Array of one-scalar Strings.",
         "crates/iris-eval/src/source_runtime.rs:4147; crates/iris-vm/src/machine/stdlib/hash_text.rs:163"
     ),
@@ -236,7 +236,7 @@ const TEXT_ROWS: &[BuiltinMember] = &[
         Instance,
         "to_array",
         shapes![Reference []],
-        Known(Array),
+        ArrayOf(String),
         "Array of scalar Strings; reference only.",
         "crates/iris-eval/src/source_runtime.rs:4147"
     ),
