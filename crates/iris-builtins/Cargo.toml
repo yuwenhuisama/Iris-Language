@@ -1,0 +1,9 @@
+[package]
+name = "iris-builtins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Inert implementation-evidence catalog for Iris language tooling"
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/iris-builtins",
     "crates/iris-lexer",
     "crates/iris-syntax",
     "crates/iris-parser",

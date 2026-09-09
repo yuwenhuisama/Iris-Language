@@ -145,6 +145,7 @@ The implementation lives in Rust crates under [`crates/`](crates/):
 
 | Crate | Responsibility |
 | --- | --- |
+| `iris-builtins` | Dependency-free, `no_std`, allocation-free implementation-evidence catalog for tooling |
 | `iris-lexer` | Source decoding, contextual tokenization, literal conversion, diagnostics |
 | `iris-syntax` | Syntax tree and canonical parse-shape rendering |
 | `iris-parser` | Recursive-descent declarations, Pratt expressions, static analysis |
