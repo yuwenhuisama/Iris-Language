@@ -263,19 +263,22 @@ impl Parser {
                 // postfix form would swallow a following literal.
                 self.advance();
                 let index = self.with_layout(true, |parser| parser.expression(0))?;
+                let index_node = self.recorder.last();
                 self.expect("]")?;
                 expression = Expression::Index {
                     receiver: Box::new(expression),
                     index: Box::new(index),
                 };
-                self.recorder.wrap(
-                    mark,
-                    Span {
-                        start,
-                        end: self.consumed_end,
-                    },
-                    SourceKind::Expression(ExpressionFact::Unsupported { form: "index" }),
-                );
+                if let (Some(receiver), Some(index)) = (receiver, index_node) {
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::Index { receiver, index }),
+                    );
+                }
             } else if self.check("<")
                 && let Some(type_arguments) = self.call_type_arguments()
             {

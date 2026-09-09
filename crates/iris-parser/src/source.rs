@@ -208,6 +208,10 @@ pub enum ExpressionFact {
         receiver: SyntaxId,
         dot: Span,
     },
+    Index {
+        receiver: SyntaxId,
+        index: SyntaxId,
+    },
     Call {
         callee: SyntaxId,
         arguments: Vec<SyntaxId>,
