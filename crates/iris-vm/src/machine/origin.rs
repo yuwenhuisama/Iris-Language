@@ -213,7 +213,7 @@ impl Machine {
             self.method_signatures.retain(|method, _| {
                 registry
                     .method_by_id(*method)
-                    .is_none_or(|method| method.owner() != MethodOwner::Class(class))
+                    .is_some_and(|method| method.owner() != MethodOwner::Class(class))
             });
             self.decorator_metadata.truncate(metadata);
             return Err(error);

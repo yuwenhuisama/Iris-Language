@@ -153,8 +153,7 @@ impl Machine {
                                     .signature
                                     .as_ref()
                                     .ok_or(MachineError::UnsupportedConstruct)?;
-                                if signature.is_async
-                                    || signature.return_type.is_none()
+                                if signature.return_type.is_none()
                                     || signature.parameters.iter().any(|parameter| {
                                         parameter.annotation.is_none()
                                             || parameter.default.is_some()

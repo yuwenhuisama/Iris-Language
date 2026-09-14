@@ -103,6 +103,100 @@ fn failed_origin_is_hidden_and_consumes_no_publication_when_next_origin_succeeds
 }
 
 #[test]
+fn generated_add_method_signature_is_absent_when_origin_rolls_back() {
+    // Given: a Class origin whose decorator adds a method before a later operation fails.
+    let program = compile(
+        r#"
+class AddThenFail {}
+impl AddThenFail for ClassDecorator {
+ public fun plan(declaration, arguments) -> Plan { Plan.empty }
+ public fun transform(declaration, arguments, context) -> Transformation {
+   Transformation.add_method(:added, { || -> Integer; 42 }).wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object; next.call() })
+ }
+}
+@AddThenFail()
+class Target meta deny method_body { public fun value() -> Integer { 7 } }
+0
+"#,
+    )
+    .expect("compile");
+    let mut machine = Machine::new().expect("machine");
+    machine.register_core_records().expect("core");
+    machine
+        .register_callable_types(&program)
+        .expect("callables");
+    let mut classes = machine.register_classes(&program).expect("classes");
+    assert!(
+        !machine
+            .method_signatures
+            .values()
+            .any(|signature| signature.selector == "added")
+    );
+
+    // When: publishing the origin fails after the generated method is installed.
+    assert!(machine.publish_origin(&program, &mut classes).is_err());
+
+    // Then: rollback leaves only resolvable method signature metadata.
+    let registry = machine.runtime.registry();
+    assert!(
+        machine
+            .method_signatures
+            .keys()
+            .all(|method| registry.method_by_id(*method).is_some())
+    );
+}
+
+#[test]
+fn generated_async_class_method_retains_async_signature_metadata() {
+    // Given: a Class decorator generates an async method from a closure.
+    let program = compile(
+        r#"
+class Add {}
+impl Add for ClassDecorator {
+ public fun plan(declaration, arguments) -> Plan { Plan.empty }
+ public fun transform(declaration, arguments, context) -> Transformation {
+  Transformation.add_method(:added, { async || -> Integer; 42 })
+ }
+}
+@Add()
+class Target {}
+0
+"#,
+    )
+    .expect("compile");
+    let mut machine = Machine::new().expect("machine");
+    machine.register_core_records().expect("core");
+    machine
+        .register_callable_types(&program)
+        .expect("callables");
+    let mut classes = machine.register_classes(&program).expect("classes");
+
+    // When: the decorated origin is published.
+    machine
+        .publish_origin(&program, &mut classes)
+        .expect("origin");
+    let selector = super::selector_id(&program, "added").expect("selector");
+    let method = machine
+        .runtime
+        .registry()
+        .active(classes[1])
+        .expect("target revision")
+        .methods()
+        .get(&selector)
+        .copied()
+        .expect("generated method");
+
+    // Then: the registered signature declares the generated method async.
+    assert!(
+        machine
+            .method_signatures
+            .get(&method)
+            .expect("generated signature")
+            .is_async
+    );
+}
+
+#[test]
 fn provisional_class_cannot_be_loaded_when_transform_reads_its_name() {
     let source = "class Inspect {} impl Inspect for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { let leaked = Target; Transformation.empty } } @Inspect() class Target { } 0";
     let program = compile(source).expect("compile");

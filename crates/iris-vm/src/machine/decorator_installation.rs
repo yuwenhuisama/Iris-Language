@@ -83,8 +83,7 @@ impl Machine {
                                 .signature
                                 .as_ref()
                                 .ok_or(MachineError::UnsupportedConstruct)?;
-                            if metadata.is_async
-                                || metadata.return_type.is_none()
+                            if metadata.return_type.is_none()
                                 || metadata.parameters.iter().any(|parameter| {
                                     parameter.default.is_some()
                                         || parameter.category
@@ -110,6 +109,7 @@ impl Machine {
                                     iris_runtime::Visibility::Private,
                                 )
                                 .map_err(MachineError::Class)?;
+                            self.remember_signature(method, program);
                             self.wrapper_chains.insert(
                                 method.id(),
                                 WrapperChain {
