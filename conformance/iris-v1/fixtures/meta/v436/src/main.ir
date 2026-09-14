@@ -1,2 +1,3 @@
 contract Drawable { fun draw(n: Integer) -> String }
-class Canvas for Drawable { public impl fun draw(n: Integer) -> String { "old" } }
+class Canvas { public fun draw(n: Integer) -> String { "old" } }
+impl Canvas for Drawable {}

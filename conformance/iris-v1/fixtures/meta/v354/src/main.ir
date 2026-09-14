@@ -1,5 +1,5 @@
 class Ledger {
-  shared class property log: Array = []
+  shared class property log: Array = %[]
   shared class property counter: Integer = 4
 }
 module Upgrade {

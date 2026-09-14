@@ -87,6 +87,7 @@ correctly fails each.
 | `V229` | diagnostic | executable | `IRIS-V1-TYPES-C070` forbids a STANDALONE unconstrained call from defaulting its type parameter; an expected result or an argument-bound parameter is exempt. |
 | `V223` | diagnostic | executable | `D-196` makes the accepted-arity INTERSECTION across a union's members the set a call may use; an empty one rejects every call. |
 | `V222` | diagnostic | executable | `D-195`: a member only ONE constituent declares is not available on the union. The row writes `String \| MutableString`; two declared Classes stand in, since no `MutableString` Class exists yet. |
+| `V924`-`V929` | mixed | executable | v1.36 top-level static implementation coverage: order-independent ordinary/qualified dispatch, empty implementation reuse, coherence failures, generic-specialization rejection, Module `Self` constraints, and Contract-view equality/hash/identity regression. |
 
 ## Remaining rows and their blockers
 

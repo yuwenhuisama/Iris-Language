@@ -1,5 +1,5 @@
 module Store {
-  shared class property escaped: Array = []
+  shared class property escaped: Array = %[]
 }
 class Box {
   let local = 7

@@ -1,1 +1,1 @@
-open class Canvas { public impl fun draw(n: Integer) -> String { "new" } }
+open class Canvas { public override fun draw(n: Integer) -> String { "new" } }

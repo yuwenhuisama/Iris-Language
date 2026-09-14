@@ -1,5 +1,7 @@
 contract A { fun m(value: Object) -> String }
 contract B { fun m(value: Object) -> String }
 module Provider { public fun m(value: Object) -> String { "provider" } }
-class Host for A, B mixin Provider { public impl fun m(value: Object) -> String { "host" } }
+class Host mixin Provider { public fun m(value: Object) -> String { "host" } }
+impl Host for A {}
+impl Host for B {}
 open class Host { public fun m(value: Object) -> String { "replaced" } }

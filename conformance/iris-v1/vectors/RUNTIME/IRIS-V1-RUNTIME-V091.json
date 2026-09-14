@@ -18,7 +18,7 @@
   "input": {
     "kind": "fixture",
     "independent_sources": [
-      "class A { shared mut @@x = 0; class fun set_shared(v) { @@x = v } class fun shared() { @@x } class fun set_own(v) { @x = v } class fun own() { @x } }; class B extends A { }; let s1 = A.set_shared(1); let s2 = B.set_shared(2); let o1 = A.set_own(:a); let o2 = B.set_own(:b); [A.shared(), B.shared(), A.own(), B.own()]",
+      "class A { shared mut @@x = 0; class fun set_shared(v) { @@x = v } class fun shared() { @@x } class fun set_own(v) { @x = v } class fun own() { @x } }; class B extends A { }; let s1 = A.set_shared(1); let s2 = B.set_shared(2); let o1 = A.set_own(:a); let o2 = B.set_own(:b); %[A.shared(), B.shared(), A.own(), B.own()]",
       "class A { shared mut @@x = 0; }; class B extends A { shared mut @@x = 1; }"
     ]
   },

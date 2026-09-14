@@ -1,1 +1,2 @@
-class Box { if true { self.define_method(:extra) { :extra } } }
+class Box { }
+open class Box { if true { self.define_method(:extra) { :extra } } }

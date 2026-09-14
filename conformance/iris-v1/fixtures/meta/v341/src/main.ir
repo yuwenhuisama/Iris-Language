@@ -1,1 +1,2 @@
-class Box { self.define_method(:ok) { 1 }; raise :stop }
+class Box { }
+open class Box { self.define_method(:ok) { 1 }; raise :stop }

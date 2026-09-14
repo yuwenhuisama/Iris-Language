@@ -1,6 +1,7 @@
 contract ClassDecorator { fun transform(declaration, arguments, context) }
-export class AddsTrace for ClassDecorator {
-  public impl fun transform(declaration, arguments, context) -> Transformation {
+export class AddsTrace {
+  public fun transform(declaration, arguments, context) -> Transformation {
     Transformation.empty.add_method(:trace) { :traced }
   }
 }
+impl AddsTrace for ClassDecorator {}

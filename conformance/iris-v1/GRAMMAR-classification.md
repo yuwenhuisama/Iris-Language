@@ -45,6 +45,7 @@ This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear 
 | `IRIS-V1-GRAMMAR-V191` | `spec/iris-v1/02-lexical-grammar.md:604` | diagnostic | interpreter required; JIT required; native not applicable | executable | Assert `<BS><LF>` continuation evaluates `sum` to `Integer(3)` and bad continuations emit `LEX_BAD_CONTINUATION`. |
 | `IRIS-V1-GRAMMAR-V192` | `spec/iris-v1/02-lexical-grammar.md:605` | positive | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert Contract declaration parsing with ordered parent Type list `ParentA`, `ParentB`. |
 | `IRIS-V1-GRAMMAR-V193` | `spec/iris-v1/02-lexical-grammar.md:606` | positive | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert implicit-root and explicit-`Object` Class headers parse as distinct source forms. |
+| `IRIS-V1-GRAMMAR-V907` | v1.36 errata | positive | interpreter required; JIT required; native not applicable | executable | Assert `%[]`, `is?`, and postfix `!` parse and evaluate together; the same record anchors the v1.36 declaration productions exercised by dedicated chapter vectors. |
 
 ## Classification Totals
 

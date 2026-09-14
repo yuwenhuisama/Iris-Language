@@ -117,6 +117,7 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V110` | `:630` | negative | needs-subsystem | Re-probed in milestone 2. All five reserved-selector declarations ARE rejected and the runner now observes diagnostics, but `IRIS-V1-GRAMMAR-C054` names no stable category for this case, so the emitted `PARSE_UNEXPECTED_TOKEN` would be an authored code. Marking it `status:authored-expect` was tried and reverted because the runner reports such a row without comparing anything, which would assert nothing while looking verified. |
 | `IRIS-V1-RUNTIME-V111` | `:631` | negative | needs-subsystem | Re-probed again after the v1.15 errata. `IRIS-V1-CONTROL-C078` now names `DECLARATION_REBINDING`, but that does NOT close this row: three of its four sources rebind with an ANONYMOUS class, module or contract expression (`A = class {}`), which has no v1 production and fails as a parse error, and the fourth assigns to a `const` and fails as an immutable-binding error. The row needs anonymous declaration expressions before its rebinding rejection can be observed at all. |
 | `IRIS-V1-RUNTIME-V112` | `:636` | positive | executable | Concrete `0 ** -1` source asserts positive `Float64` infinity without error. |
+| `IRIS-V1-RUNTIME-V985` | v1.36 errata | positive | executable | Explicit `let @field` and `mut @field` declarations initialize once per instance, retain independent cells, and permit only the mutable write. |
 
 ## Classification Totals
 

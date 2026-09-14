@@ -1,1 +1,2 @@
-module Broken { let staged = 1 raise :init_failed }
+module Broken { }
+open module Broken { let staged = 1 raise :init_failed }

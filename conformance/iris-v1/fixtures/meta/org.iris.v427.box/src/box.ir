@@ -1,1 +1,2 @@
-export class Box { if true { self.define_method(:extra) { :extra } } }
+export class Box { }
+export open class Box { if true { self.define_method(:extra) { :extra } } }

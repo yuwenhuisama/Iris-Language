@@ -48,6 +48,9 @@ such a field stays blocked below.
 | `V426` | positive | executable | `IRIS-V1-META-C097` exposes `active_revision`, and `C022` makes each body ONE atomic publication, so a committed `Box.open` advances the revision by exactly one and its defined selector answers. The vector asserts the DIFFERENCE rather than an absolute number: a Class's baseline reflects how the kernel builds it, which is an implementation fact rather than a specified one. The row also lists an audit diff, which needs the Revision view's audit data and is recorded rather than asserted. |
 
 | `V343` | positive | executable | `IRIS-V1-META-C026` makes a declared Method NOT close over its body's locals, and the v1.25 errata `IRIS-V1-META-C121` settles which `IRIS-V1-CONTROL-C011` branch this observes: the declaration is ACCEPTED and the read raises `NameError` when the Method runs, while a sibling Method reading nothing answers normally. |
+| `V941` | diagnostic | executable | v1.36 rejects executable Class/Module origins and duplicate nominal origins with their stable diagnostics. |
+| `V942` | positive | executable | `open class ... mixin` publishes members and composition atomically while retaining a static Contract implementation. |
+| `V943` | positive | executable | A Module constrained by `where Self: Contract` composes into a Class that supplies the required static implementation. |
 
 ## Blocked
 
