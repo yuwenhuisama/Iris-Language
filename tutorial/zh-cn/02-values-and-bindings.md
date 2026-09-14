@@ -109,12 +109,12 @@ ready
 
 集合类型同样生成标准对象：
 
-- 数组使用方括号语法 `[...]`。
+- Array 表达式使用 `%[...]`；方括号继续用于索引与 pattern。
 - 字典映射使用散列表语法 `%{ ... }`。
 
 <!-- iris-example: {"id":"02-nil-collections","mode":"vm","stdout":"2\nIris\n"} -->
 ```iris
-let items = [1, 2]
+let items = %[1, 2]
 let table = %{ :lang: "Iris" }
 print(items.length())
 print(table[:lang])

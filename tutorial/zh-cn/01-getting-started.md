@@ -102,9 +102,9 @@ Iris 保留了极少数不作为消息发送的短路控制形式：`!`、`&&`�
 
 <!-- iris-example: {"id":"01-identity","mode":"vm","stdout":"true\nfalse\n"} -->
 ```iris
-let first = [1, 2]
+let first = %[1, 2]
 let second = first
-let third = [1, 2]
+let third = %[1, 2]
 print(first same? second)
 print(first same? third)
 ```

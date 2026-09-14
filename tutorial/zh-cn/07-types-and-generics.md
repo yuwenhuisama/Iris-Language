@@ -70,13 +70,13 @@ value is present
 
 ## 测试与 casts
 
-Iris 提供了三组核心类型运算符：`is`、`as` 以及 `as?`。运算符 `is` 执行运行时查询并返回 `Bool`。运算符 `as` 验证目标类型，成功时返回原值，失败时抛出运行时异常。运算符 `as?` 进行安全类型检查，失败时返回 `nil`。
+Iris 提供了三组核心类型运算符：`is?`、`as` 以及 `as?`。运算符 `is?` 执行运行时查询并返回 `Bool`。运算符 `as` 验证目标类型，成功时返回原值，失败时抛出运行时异常。运算符 `as?` 进行安全类型检查，失败时返回 `nil`。
 
 <!-- iris-example: {"id":"07-tests-and-casts","mode":"vm","stdout":"hello\n"} -->
 ```iris
 let value: Object = "hello"
 
-if value is String {
+if value is? String {
   let text = value as String
   print(text)
 }
@@ -90,6 +90,8 @@ hello
 
 这些操作直接检查已有对象的运行时身份，不会执行隐式数值类型转换、深拷贝集合数据或变更方法分派表。
 
+后缀 `!` 断言单个表达式结果非 nil。它对操作数求值一次，返回移除静态 Type 中 `Nil` 后的原始值；值为 `nil` 时抛出 `TypeError`。它只收窄该表达式：`maybe!.length()` 不会永久改变 `maybe` 的类型。
+
 当显式类型转换失败时，系统会立即抛出异常：
 
 <!-- iris-example: {"id":"07-cast-failure","mode":"expected-error","engine":"vm","exit":1,"stderr":"Type","stdout":""} -->
@@ -102,7 +104,7 @@ let num = raw as Integer
 
 运算符 `typeof(expression)` 是静态类型构造器，而不是运行时求值查询（`IRIS-V1-TYPES-C093`）。它提取操作数表达式在当前程序点的规范化静态类型，包括当前生效的流敏感收窄结果。操作数表达式仅参与类型检查，绝不会在运行时被执行。
 
-<!-- iris-example: {"id":"07-typeof-expression","mode":"vm","stdout":"25\n"} -->
+<!-- iris-example: {"id":"07-typeof-expression","mode":"reference","stdout":"25\n"} -->
 ```iris
 let base: Integer = 10
 let copy: typeof(base) = 25

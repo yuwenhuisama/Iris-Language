@@ -68,7 +68,7 @@ class Job mixin Trace private {}
 
 ## Contracts 声明承诺
 
-契约是 Iris 中声明明确义务的规范接口。契约主体只包含方法签名要求，不包含具体实现体或存储字段。在契约主体内编写方法实现会触发语法错误。类使用 `for` 关键字承诺遵循契约，并使用 `impl` 标记实现方法。
+契约是 Iris 中声明明确义务的规范接口。契约主体只包含方法签名要求，不包含具体实现体或存储字段。在契约主体内编写方法实现会触发语法错误。顶层 `impl Class for Contract` 声明以与源码顺序无关的方式建立静态实现。
 
 <!-- iris-example: {"id":"06-contracts-declare-promises","mode":"vm","stdout":"Beep boop\n"} -->
 ```iris
@@ -76,8 +76,10 @@ contract Speaker {
   fun speak() -> String
 }
 
-class Robot for Speaker {
-  public impl fun speak() -> String {
+class Robot {}
+
+impl Robot for Speaker {
+  public fun speak() -> String {
     "Beep boop"
   }
 }
@@ -92,9 +94,9 @@ print(bot..speak())
 Beep boop
 ```
 
-声明 `for Speaker` 构成了 `Robot` 类不可动摇的静态脊柱事实。后续的动态变更可以替换兼容的方法体，但无法抹除 `Robot` 已承诺 `Speaker` 的既定事实。
+声明 `impl Robot for Speaker` 构成永久静态事实。后续动态变更可以替换兼容的方法体，但无法抹除该承诺。
 
-`impl` 标记明确表示该方法旨在满足契约要求。如果一个方法在满足契约的同时，还重写了继承或混入的方法，两个修饰符需一并书写，例如 `override impl fun draw() -> Nil { ... }`。
+`impl` 块中的方法同时加入 Class 的普通表面和所选 Contract 的限定槽。空 impl 块可以绑定 Class 或其静态 mixin 已声明的兼容方法。
 
 ## 限定 Contract slots
 
@@ -107,14 +109,19 @@ contract Parser {
 }
 
 contract Validator {
-  fun process(input: String) -> String
+  fun validate(input: String) -> String
 }
 
-class Tool for Parser, Validator {
-  public impl fun Parser::process(input: String) -> String {
+class Tool {}
+
+impl Tool for Parser {
+  public fun process(input: String) -> String {
     "parse: " + input
   }
-  public impl fun Validator::process(input: String) -> String {
+}
+
+impl Tool for Validator {
+  public fun validate(input: String) -> String {
     "validate: " + input
   }
 }
@@ -123,7 +130,7 @@ let tool = Tool.new()
 let p = tool as Parser
 let v = tool as Validator
 print(p..process("text"))
-print(v..process("text"))
+print(v..validate("text"))
 ```
 
 预期终端输出：
@@ -133,7 +140,7 @@ parse: text
 validate: text
 ```
 
-在声明中，`Contract::selector` 将方法绑定到特定的契约限定槽位。在表达式中，`view..selector` 直接调用该限定槽位。使用单点操作符 `view.selector` 时，仍执行常规的接收者方法查找。
+impl 声明把每项 requirement 同时绑定到 Class 普通 Method 表面和该 Contract 的限定槽。在表达式中，`view..selector` 直接调用限定槽。单点形式 `view.selector` 仍执行普通消息发送。Contract view 使用 `==` 比较，并按 receiver relation 加 Contract identity 进行哈希；由于 view 没有独立身份，`same?` 抛出 `IdentityError`。
 
 ## 静态承诺，动态自由
 
@@ -158,7 +165,7 @@ Iris 在动态灵活性与静态保障之间保持平衡。
 
 **动手练习**
 
-编写一个契约 `Describable`，要求方法 `fun describe() -> String`。编写一个模块 `Tagged`，提供方法 `public fun tag() -> String { "[tag]" }`。接着声明类 `Item for Describable mixin Tagged` 并实现 `describe`。实例化 `Item`，将其转换为 `Describable` 视图，分别打印描述内容和标签。使用 `./target/debug/iris --vm item.iris` 运行验证。
+编写一个契约 `Describable`，要求方法 `fun describe() -> String`。编写一个模块 `Tagged`，提供方法 `public fun tag() -> String { "[tag]" }`。声明 `class Item mixin Tagged {}`，再用 `impl Item for Describable { ... }` 实现 Contract。实例化 `Item`，将其转换为 `Describable` 视图，分别打印描述内容和标签。使用 `./target/debug/iris --vm item.iris` 运行验证。
 
 预期终端输出：
 

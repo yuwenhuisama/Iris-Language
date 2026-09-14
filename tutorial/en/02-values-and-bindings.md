@@ -109,12 +109,12 @@ ready
 
 Collections also produce standard objects:
 
-- Arrays use bracket notation `[...]`.
+- Array expressions use `%[...]`; square brackets remain indexing and pattern syntax.
 - Maps use hash table notation `%{ ... }`.
 
 <!-- iris-example: {"id":"02-nil-collections","mode":"vm","stdout":"2\nIris\n"} -->
 ```iris
-let items = [1, 2]
+let items = %[1, 2]
 let table = %{ :lang: "Iris" }
 print(items.length())
 print(table[:lang])

@@ -72,8 +72,10 @@ print(C.new().trace())
   fun speak() -> String
 }
 
-class Robot for Speaker {
-  public impl fun speak() -> String {
+class Robot {}
+
+impl Robot for Speaker {
+  public fun speak() -> String {
     "Beep boop"
   }
 }

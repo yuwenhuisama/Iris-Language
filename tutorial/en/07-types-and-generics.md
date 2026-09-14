@@ -70,13 +70,13 @@ The syntax `T?` is syntactic sugar for `T | Nil`, and both normalize to the same
 
 ## Tests and casts
 
-Iris provides three fundamental operators for inspecting and casting types: `is`, `as`, and `as?`. The operator `is` performs a runtime query and returns a `Bool`. The operator `as` verifies the type, returning the value or raising a runtime exception if the check fails. The operator `as?` checks safely, returning `nil` on failure.
+Iris provides three fundamental operators for inspecting and casting types: `is?`, `as`, and `as?`. The operator `is?` performs a runtime query and returns a `Bool`. The operator `as` verifies the type, returning the value or raising a runtime exception if the check fails. The operator `as?` checks safely, returning `nil` on failure.
 
 <!-- iris-example: {"id":"07-tests-and-casts","mode":"vm","stdout":"hello\n"} -->
 ```iris
 let value: Object = "hello"
 
-if value is String {
+if value is? String {
   let text = value as String
   print(text)
 }
@@ -90,6 +90,8 @@ hello
 
 These operations inspect the existing object identity directly. They do not perform implicit numeric conversions, copy collection elements, or alter method lookup tables.
 
+Postfix `!` asserts that one expression result is non-nil. It evaluates the operand once, returns the exact value with `Nil` removed from its static type, and raises `TypeError` when the value is `nil`. It narrows only that expression: `maybe!.length()` does not permanently change the type of `maybe`.
+
 When an explicit cast fails, Iris raises an immediate runtime error.
 
 <!-- iris-example: {"id":"07-cast-failure","mode":"expected-error","engine":"vm","exit":1,"stderr":"Type","stdout":""} -->
@@ -102,7 +104,7 @@ let num = raw as Integer
 
 The `typeof(expression)` operator is a static type constructor rather than a runtime query (`IRIS-V1-TYPES-C093`). It yields the normalized static type of the operand expression at that exact program point, reflecting any active flow-sensitive narrowing. The expression operand is type-checked but never evaluated at runtime.
 
-<!-- iris-example: {"id":"07-typeof-expression","mode":"vm","stdout":"25\n"} -->
+<!-- iris-example: {"id":"07-typeof-expression","mode":"reference","stdout":"25\n"} -->
 ```iris
 let base: Integer = 10
 let copy: typeof(base) = 25

@@ -68,7 +68,7 @@ The `private` keyword sits directly on the mixin edge. Here, `Trace` receives au
 
 ## Contracts declare promises
 
-A contract is an explicit obligation surface. A contract body contains method requirements without executable bodies or stored fields. Writing a method body inside a contract is an error. A class opts into a contract using `for`, then marks each satisfying method with `impl`.
+A contract is an explicit obligation surface. A contract body contains method requirements without executable bodies or stored fields. Writing a method body inside a contract is an error. A top-level `impl Class for Contract` declaration establishes the static implementation independently of source order.
 
 <!-- iris-example: {"id":"06-contracts-declare-promises","mode":"vm","stdout":"Beep boop\n"} -->
 ```iris
@@ -76,8 +76,10 @@ contract Speaker {
   fun speak() -> String
 }
 
-class Robot for Speaker {
-  public impl fun speak() -> String {
+class Robot {}
+
+impl Robot for Speaker {
+  public fun speak() -> String {
     "Beep boop"
   }
 }
@@ -92,9 +94,9 @@ Expected terminal output:
 Beep boop
 ```
 
-The declaration `for Speaker` creates a permanent static fact on `Robot`. Dynamic updates can replace compatible method bodies later, but runtime mutation cannot erase the promise that `Robot` implements `Speaker`.
+The declaration `impl Robot for Speaker` creates a permanent static fact. Dynamic updates can replace compatible method bodies later, but runtime mutation cannot erase that promise.
 
-The `impl` keyword indicates that a method satisfies a contract requirement. If a method replaces an inherited or mixed-in method while also fulfilling a contract, both keywords are written together, such as `override impl fun draw() -> Nil { ... }`.
+Methods in an `impl` block join the Class ordinary surface and the selected Contract-qualified slots. An empty block may bind compatible methods already declared by the Class or its static mixins.
 
 ## Qualified Contract slots
 
@@ -107,14 +109,19 @@ contract Parser {
 }
 
 contract Validator {
-  fun process(input: String) -> String
+  fun validate(input: String) -> String
 }
 
-class Tool for Parser, Validator {
-  public impl fun Parser::process(input: String) -> String {
+class Tool {}
+
+impl Tool for Parser {
+  public fun process(input: String) -> String {
     "parse: " + input
   }
-  public impl fun Validator::process(input: String) -> String {
+}
+
+impl Tool for Validator {
+  public fun validate(input: String) -> String {
     "validate: " + input
   }
 }
@@ -123,7 +130,7 @@ let tool = Tool.new()
 let p = tool as Parser
 let v = tool as Validator
 print(p..process("text"))
-print(v..process("text"))
+print(v..validate("text"))
 ```
 
 Expected terminal output:
@@ -133,7 +140,7 @@ parse: text
 validate: text
 ```
 
-In declarations, `Contract::selector` assigns a method to a specific contract slot. In expressions, `view..selector` dispatches directly to that qualified slot. A single dot `view.selector` remains an ordinary receiver message send.
+An impl declaration binds each requirement to both the Class ordinary method surface and that Contract's qualified slot. In expressions, `view..selector` dispatches directly to the qualified slot. A single dot `view.selector` remains an ordinary receiver message send. Contract views compare with `==` and hash by receiver relation plus Contract identity; because the view has no independent identity, `same?` raises `IdentityError`.
 
 ## Static promise, dynamic freedom
 
@@ -158,7 +165,7 @@ Because `Kernel` is an ordinary module, standard composition and lookup rules ap
 
 **Hands-on Exercise**
 
-Create a contract `Describable` with a required method `fun describe() -> String`. Define a module `Tagged` providing `public fun tag() -> String { "[tag]" }`. Then declare a class `Item for Describable mixin Tagged` satisfying `describe`. Instantiate `Item`, cast it to `Describable`, and print both its description and its tag. Run the script with `./target/debug/iris --vm item.iris`.
+Create a contract `Describable` with a required method `fun describe() -> String`. Define a module `Tagged` providing `public fun tag() -> String { "[tag]" }`. Declare `class Item mixin Tagged {}` and implement the Contract with `impl Item for Describable { ... }`. Instantiate `Item`, cast it to `Describable`, and print both its description and its tag. Run the script with `./target/debug/iris --vm item.iris`.
 
 Expected terminal output:
 

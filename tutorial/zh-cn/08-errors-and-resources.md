@@ -80,14 +80,14 @@ working
 
 ## Closeable 与 using
 
-规范定义的清理协议以 `Closeable` 契约（`IRIS-V1-ASYNC-C030`）为核心，要求普通方法 `close() -> Nil`。在完整的规范一致性下，标准辅助函数的签名要求为 `using(resource: Closeable, &block)`（`IRIS-V1-ASYNC-C032`）。符合规范的类通过 `class ... for Closeable` 声明显式标称一致性，并通过 `public impl fun Closeable::close() -> Nil` 实现专属契约槽位（具体语法形式与视图派发规则请参考第 06 章）。
+规范定义的清理协议以 `Closeable` 契约（`IRIS-V1-ASYNC-C030`）为核心，要求普通方法 `close() -> Nil`。在完整的规范一致性下，标准辅助函数的签名要求为 `using(resource: Closeable, &block)`（`IRIS-V1-ASYNC-C032`）。符合规范的类通过顶层 `impl Resource for Closeable { ... }` 块声明显式标称一致性（具体语法形式与视图派发规则请参考第 06 章）。
 
 在当前运行环境中，内置的 `Closeable` 契约尚未绑定到全局命名空间，直接引用 `Closeable` 会触发 NameError。当前引擎仅将 `using` 作为基于方法名的运行时清理便利机制提供，直接派发至任何包含 `close()` 方法的接收者。下方的可运行示例仅展示此便捷清理机制，并不代表标准的标称 `Closeable` 契约一致性。注意，`using` 仍是普通方法或辅助函数的标识符，并非语言关键字或特殊语法。
 
 <!-- iris-example: {"id":"08-closeable-using","mode":"vm","stdout":"inside block\nresource closed\ndone\n"} -->
 ```iris
 class ManagedResource {
-  mut closed = false
+  mut @closed: Bool = false
   public fun close() -> Nil {
     if !@closed {
       @closed = true

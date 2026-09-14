@@ -2,7 +2,7 @@
 
 This tutorial is a practical introduction to Iris v1 for working programmers. It teaches the language model through concrete programs, verified execution on the Iris register machine, and direct citations into the frozen specification.
 
-The Iris language syntax is stable: the v1 specification is frozen, and owner-approved errata through v1.33 shape the current forms of callable Types, stored properties, `shared` class state, `typeof`, generators, and decorators. These chapters show current spelling throughout.
+The Iris language syntax is stable: the v1 specification is frozen, and owner-approved errata through v1.36 shape the current forms of callable Types, explicit instance fields, collection literals, static Contract implementations, generators, and bounded open transactions. These chapters show current spelling throughout.
 
 The implementation under [`crates/`](../../crates/) provides an `iris` binary that includes both an ahead-of-time bytecode register machine (`--vm`) and a tree-walking reference engine. While the compiler and register machine cover core language constructs today, Iris is not yet a complete production toolchain.
 

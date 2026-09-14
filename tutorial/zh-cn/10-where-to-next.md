@@ -16,8 +16,10 @@ module Timestamped {
   }
 }
 
-class Record for Describable mixin Timestamped {
-  public impl fun describe() -> String {
+class Record mixin Timestamped {}
+
+impl Record for Describable {
+  public fun describe() -> String {
     "Record::active"
   }
 }
@@ -27,7 +29,7 @@ let desc = rec as Describable
 
 print(desc..describe())
 print(rec.stamp())
-print(rec is Record)
+print(rec is? Record)
 ```
 
 预期终端输出：

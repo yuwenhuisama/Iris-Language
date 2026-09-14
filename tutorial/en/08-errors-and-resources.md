@@ -80,14 +80,14 @@ Structured records inside `ExceptionContext` provide precise diagnostic informat
 
 ## Closeable and using
 
-The normative cleanup protocol centers on the `Closeable` contract (`IRIS-V1-ASYNC-C030`), which requires an ordinary method `close() -> Nil`. Under full normative conformance, the standard helper signature is `using(resource: Closeable, &block)` (`IRIS-V1-ASYNC-C032`). Conforming classes declare explicit nominal conformance via `class ... for Closeable` and implement the dedicated slot via `public impl fun Closeable::close() -> Nil` (refer to chapter 06 for the exact syntax and view dispatch rules).
+The normative cleanup protocol centers on the `Closeable` contract (`IRIS-V1-ASYNC-C030`), which requires an ordinary method `close() -> Nil`. Under full normative conformance, the standard helper signature is `using(resource: Closeable, &block)` (`IRIS-V1-ASYNC-C032`). Conforming classes declare explicit nominal conformance through a top-level `impl Resource for Closeable { ... }` block (refer to chapter 06 for the exact syntax and view dispatch rules).
 
 In the current implementation environment, the built-in `Closeable` contract is not yet bound in the global namespace, so referencing `Closeable` directly raises a NameError. The engine instead provides the helper as a name-based runtime cleanup convenience, dispatching to any receiver that exposes a matching `close()` method. The runnable snippet below demonstrates this convenience behavior, but it does not represent standard nominal `Closeable` contract conformance. Note that `using` remains an ordinary method or helper identifier, not a language keyword or special syntax.
 
 <!-- iris-example: {"id":"08-closeable-using","mode":"vm","stdout":"inside block\nresource closed\ndone\n"} -->
 ```iris
 class ManagedResource {
-  mut closed = false
+  mut @closed: Bool = false
   public fun close() -> Nil {
     if !@closed {
       @closed = true

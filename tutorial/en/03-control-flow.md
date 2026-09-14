@@ -53,7 +53,7 @@ The `for` loop iterates over any object satisfying the iteration protocol. For e
 <!-- iris-example: {"id":"03-for-loop","mode":"vm","stdout":"6\n"} -->
 ```iris
 mut sum = 0
-for value in [1, 2, 3] {
+for value in %[1, 2, 3] {
   sum = sum + value
 }
 print(sum)

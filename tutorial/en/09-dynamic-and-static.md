@@ -128,9 +128,11 @@ A decorator is an ordinary class that implements one of five standard contracts:
 
 <!-- iris-example: {"id":"09-decorator-contract-impl","mode":"spec-only","reason":"Current C124 decorator contract sketch without an application fixture"} -->
 ```iris
-class Stamp for MethodDecorator {
-  impl fun plan(declaration, arguments) -> Plan { Plan.empty }
-  impl fun transform(declaration, arguments, context) -> Transformation { Transformation.empty }
+class Stamp {}
+
+impl Stamp for MethodDecorator {
+  fun plan(declaration, arguments) -> Plan { Plan.empty }
+  fun transform(declaration, arguments, context) -> Transformation { Transformation.empty }
 }
 ```
 

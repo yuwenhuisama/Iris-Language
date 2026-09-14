@@ -51,10 +51,7 @@ Raw instance variables begin with `@` (such as `@value`). They represent interna
 <!-- iris-example: {"id":"05-instance-state","mode":"vm","stdout":"0\n7\n"} -->
 ```iris
 class Entity {
-  public fun initialize() -> Nil {
-    @val = 0
-    nil
-  }
+  mut @val: Integer = 0
   public fun set_val(n: Integer) -> Integer {
     @val = n
   }
@@ -93,7 +90,7 @@ class Derived extends Base {
 }
 let d = Derived.new()
 print(d.name())
-print(d is Base)
+print(d is? Base)
 ```
 
 Expected output:
