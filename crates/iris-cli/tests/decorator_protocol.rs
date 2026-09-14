@@ -69,6 +69,8 @@ macro_rules! protocol_cases {
 protocol_cases! {
     meta_c127_c132_argument_changes_available_outside_phase:
         "argument_changes_available" => Expected::Stdout("true\ntrue\n");
+    meta_c127_c132_argument_changes_constructor_accepts_all_public_fields:
+        "argument_changes_constructor_fields" => Expected::Stdout("true\ntrue\ntrue\n7\n");
     meta_c132_constructor_rejects_non_symbol_keys:
         "argument_changes_bad_key" => Expected::Stdout("true\n");
     meta_c127_c139_plan_outside_phase_has_typed_category:

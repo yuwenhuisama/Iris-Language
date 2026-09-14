@@ -1,0 +1,28 @@
+print(ArgumentChanges.empty is? ArgumentChanges)
+print(ArgumentChanges.new() is? ArgumentChanges)
+
+class ConstructChanges {}
+impl ConstructChanges for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        let positional: Hash<Symbol, Object> = %{:value: 10}
+        let keywords: Hash<Symbol, Object> = %{:label: :updated}
+        let rest: Array<Object> = %[20]
+        let keyword_rest: Hash<Symbol, Object> = %{:extra: 30}
+        let block = { || -> Integer; 40 }
+        let changes = ArgumentChanges.new(
+            positional: positional,
+            keywords: keywords,
+            rest: rest,
+            keyword_rest: keyword_rest,
+            block: block
+        )
+        print(changes is? ArgumentChanges)
+        Transformation.empty
+    }
+}
+class Target {
+    @ConstructChanges()
+    public fun value() -> Integer { 7 }
+}
+print(Target.new().value())
