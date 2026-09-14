@@ -4,6 +4,31 @@ use crate::module_registry::ModuleError;
 use crate::{ClassError, ClassId, ModuleId, MroEntry};
 
 impl crate::ClassRegistry {
+    pub(crate) fn candidate_module_overlay(&self) -> crate::module_overlay::ModuleOverlay<'_> {
+        crate::module_overlay::ModuleOverlay {
+            active: &self.modules.modules,
+            staged: &self.modules.staged,
+        }
+    }
+
+    pub(crate) fn overlay_structure(
+        &self,
+        candidate: &crate::CandidateRevision,
+        modules: &crate::module_overlay::ModuleOverlay<'_>,
+    ) -> Result<(Vec<MroEntry>, crate::MetaCapabilities), ClassError> {
+        let (order, module_policy) = modules.linearize(&candidate.modules)?;
+        let mut mro = vec![MroEntry::Class(candidate.owner)];
+        mro.extend(order.into_iter().map(MroEntry::Module));
+        if let Some(superclass) = candidate.runtime_superclass {
+            mro.extend_from_slice(self.active(superclass)?.mro());
+        }
+        let policy = self
+            .effective_meta_capabilities(candidate.static_spine, candidate.runtime_superclass)?
+            .narrowed_by(candidate.meta_capabilities)
+            .narrowed_by(module_policy);
+        Ok((mro, policy))
+    }
+
     pub(crate) fn origin_mro(
         &self,
         class: ClassId,

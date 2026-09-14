@@ -88,6 +88,7 @@ impl crate::ClassRegistry {
         );
         self.mutate_candidate(class, |candidate| {
             candidate.replace_method(selector, method.id());
+            candidate.provisional_methods.insert(method.id());
         })?;
         self.methods.insert(method.id(), method);
         Ok(method)
@@ -151,31 +152,7 @@ impl crate::ClassRegistry {
         body: MethodBody,
         visibility: Visibility,
     ) -> Result<Method, ClassError> {
-        // C035 lets the transaction read its OWN candidate metadata after
-        // writes, so replacing a Method staged earlier in the same body is a
-        // body change rather than a new slot.
-        let present = match self.staged.get(&class) {
-            Some(candidate) => candidate.methods.contains_key(&selector),
-            None => self.active(class)?.methods().contains_key(&selector),
-        };
-        let capability = if present {
-            crate::Capability::MethodBody
-        } else {
-            crate::Capability::MethodSet
-        };
-        self.require_meta_capability(class, capability)?;
-        let method = Method::new(
-            self.next_method()?,
-            MethodOwner::Class(class),
-            selector,
-            body,
-            visibility,
-        );
-        self.mutate_candidate(class, |candidate| {
-            candidate.replace_method(selector, method.id());
-        })?;
-        self.methods.insert(method.id(), method);
-        Ok(method)
+        self.publish_candidate_decorated_method(class, selector, body, visibility, [])
     }
 
     /// Creates another local slot that references the selected Method identity.
@@ -261,6 +238,7 @@ impl crate::ClassRegistry {
         );
         self.mutate_candidate(class, |candidate| {
             candidate.replace_singleton_method(selector, method.id());
+            candidate.provisional_methods.insert(method.id());
         })?;
         self.methods.insert(method.id(), method);
         Ok(method)
@@ -296,12 +274,7 @@ impl crate::ClassRegistry {
         origin: bool,
     ) -> Result<Method, ClassError> {
         if !origin {
-            let capability = if self.active(class)?.methods().contains_key(&selector) {
-                crate::Capability::MethodBody
-            } else {
-                crate::Capability::MethodSet
-            };
-            self.require_meta_capability(class, capability)?;
+            self.require_candidate_method_mutation(class, selector)?;
         }
         let method = Method::new(
             self.next_method()?,
@@ -313,6 +286,7 @@ impl crate::ClassRegistry {
         self.mutate_candidate(class, |candidate| {
             candidate.stage_decorators(decorators);
             candidate.replace_method(selector, method.id());
+            candidate.provisional_methods.insert(method.id());
         })?;
         self.methods.insert(method.id(), method);
         Ok(method)
@@ -477,13 +451,19 @@ impl crate::ClassRegistry {
     ) -> Result<bool, DispatchError> {
         match method.visibility() {
             Visibility::Public => Ok(true),
-            Visibility::Private => Ok(matches!(
-                (method.owner(), context.lexical_class),
-                (MethodOwner::Class(owner), Some(caller)) if owner == caller
-            ) || matches!(
-                context.lexical_module,
-                Some(module) if self.module_has_private_access(receiver, module)
-            )),
+            Visibility::Private => match method.owner() {
+                MethodOwner::Class(owner) => Ok(context.lexical_class == Some(owner)
+                    || (owner == receiver
+                        && context.lexical_module.is_some_and(|module| {
+                            self.module_has_private_access(receiver, module)
+                        }))),
+                MethodOwner::Module(owner) => Ok(context.lexical_module == Some(owner)
+                    && self
+                        .active(receiver)
+                        .map_err(DispatchError::Class)?
+                        .mro()
+                        .contains(&MroEntry::Module(owner))),
+            },
             Visibility::Protected => match (method.owner(), context.lexical_class) {
                 (MethodOwner::Class(owner), Some(caller)) => Ok(context.receiver_is_self
                     && self

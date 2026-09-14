@@ -739,6 +739,8 @@ pub enum Value {
     /// each other's mutations. The elements therefore live behind a shared
     /// handle rather than being copied on every bind, pass and read.
     Array(ArrayRef),
+    ImmutableArray(crate::ImmutableArray),
+    ImmutableHash(crate::ImmutableHash),
     /// A runtime-owned `ReadonlyArray` view.
     ///
     /// `IRIS-V1-CONTROL-D-142` lets user code iterate and copy a suppressed
@@ -891,18 +893,7 @@ pub enum Value {
     /// stay mutually distinct, so a Contract carries its own identity rather
     /// than reusing `ClassId` or `ModuleId`.
     Contract(ContractId, Vec<NominalType>),
-    /// A decorator `Transformation`, the candidate transformation C125 fixes.
-    ///
-    /// `IRIS-V1-META-C125` gives it a MINIMAL surface: `empty`, `kind` and
-    /// `add_method(selector, body)`. The staged Methods are carried as
-    /// `(selector, closure)` pairs so the runtime phase applies them through
-    /// the ordinary capability-checked publication path that
-    /// `IRIS-V1-META-C090` requires of a handwritten declaration, rather than
-    /// through a privileged back door of its own.
-    Transformation {
-        kind: &'static str,
-        staged: Vec<(String, ObjectId)>,
-    },
+    Decorator(Box<crate::DecoratorValue>),
     /// An `Iteration.yield(value)` result carrying one yielded value.
     ///
     /// `IRIS-V1-COLLECTIONS-C013` makes it an immutable identity-less value that
@@ -918,6 +909,7 @@ pub enum Value {
     /// the positionals and carries its name to the binding step rather than
     /// being split into a separate pre-evaluated list.
     KeywordArgument(String, Box<Value>),
+    BlockArgument(Box<Value>),
     /// An identity-bearing `ExceptionContext` for one propagation event.
     ///
     /// `IRIS-V1-CONTROL-C056` gives every `raise` a fresh runtime-owned context
@@ -1010,6 +1002,7 @@ pub enum TypeAtom {
     /// reflects exactly those two members. Flattening the union into the
     /// enclosing intersection would lose that structure entirely.
     Union(Vec<TypeAtom>),
+    Intersection(Vec<TypeAtom>),
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

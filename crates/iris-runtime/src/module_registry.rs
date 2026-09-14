@@ -31,15 +31,11 @@ impl Error for ModuleError {}
 /// Immutable Module composition and Method tables owned by the runtime.
 #[derive(Debug, Default)]
 pub(crate) struct ModuleRegistry {
-    modules: HashMap<ModuleId, Module>,
-    next_module_id: u64,
-}
-
-#[derive(Debug)]
-struct Module {
-    components: Vec<CompositionEdge>,
-    methods: HashMap<Selector, Method>,
-    meta_capabilities: MetaCapabilities,
+    pub(crate) modules: HashMap<ModuleId, crate::ModuleRevision>,
+    pub(crate) revisions: HashMap<crate::ModuleRevisionId, crate::ModuleRevision>,
+    pub(crate) staged: HashMap<ModuleId, crate::CandidateModule>,
+    pub(crate) next_module_id: u64,
+    pub(crate) next_revision_id: u64,
 }
 
 impl ModuleRegistry {
@@ -53,14 +49,22 @@ impl ModuleRegistry {
             .next_module_id
             .checked_add(1)
             .ok_or(ModuleError::ModuleIdentityExhausted)?;
-        self.modules.insert(
-            id,
-            Module {
-                components: components.to_vec(),
-                methods: HashMap::new(),
-                meta_capabilities,
-            },
-        );
+        let next_revision_id = self
+            .next_revision_id
+            .checked_add(1)
+            .ok_or(ModuleError::ModuleIdentityExhausted)?;
+        let revision = crate::ModuleRevision {
+            id: crate::ModuleRevisionId(self.next_revision_id),
+            owner: id,
+            number: 1,
+            commit_id: 0,
+            components: components.to_vec(),
+            methods: HashMap::new(),
+            meta_capabilities,
+        };
+        self.revisions.insert(revision.id, revision.clone());
+        self.modules.insert(id, revision);
+        self.next_revision_id = next_revision_id;
         self.next_module_id = next_module_id;
         Ok(id)
     }
@@ -98,11 +102,25 @@ impl ModuleRegistry {
             body,
             visibility,
         );
-        self.modules
-            .get_mut(&module)
+        let mut revision = self
+            .modules
+            .get(&module)
             .ok_or(ModuleError::UnknownModuleId(module))?
-            .methods
-            .insert(selector, method);
+            .clone();
+        let next_revision_id = self
+            .next_revision_id
+            .checked_add(1)
+            .ok_or(ModuleError::ModuleIdentityExhausted)?;
+        revision.number = revision
+            .number
+            .checked_add(1)
+            .ok_or(ModuleError::ModuleIdentityExhausted)?;
+        revision.id = crate::ModuleRevisionId(self.next_revision_id);
+        revision.commit_id = 0;
+        revision.methods.insert(selector, method);
+        self.revisions.insert(revision.id, revision.clone());
+        self.modules.insert(module, revision);
+        self.next_revision_id = next_revision_id;
         Ok(method)
     }
 

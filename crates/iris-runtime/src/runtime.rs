@@ -1,6 +1,10 @@
 use core::fmt;
 use std::{collections::HashMap, error::Error};
 
+mod class_variables;
+mod collection;
+mod provisional;
+
 use crate::{
     Capability, ClassError, ClassId, ClassRegistry, DispatchError, DispatchOutcome, HeapPayload,
     Method, MethodId, MethodOwner, ObjectId, RuntimeHeap, Selector, Value, Visibility,
@@ -95,7 +99,10 @@ pub struct Runtime {
     heap: RuntimeHeap,
     raw_ivars: HashMap<ObjectId, HashMap<Selector, Value>>,
     class_raw_ivars: HashMap<ClassId, HashMap<Selector, Value>>,
+    staged_class_raw_ivars: HashMap<ClassId, HashMap<Selector, Value>>,
     class_vars: HashMap<(ClassId, Selector), Value>,
+    staged_class_vars: HashMap<(ClassId, Selector), Value>,
+    staged_storage_bases: HashMap<ClassId, Option<crate::RevisionId>>,
     /// Normalized closed-generic arguments carried by each ordinary instance.
     instance_type_arguments: HashMap<ObjectId, Vec<crate::NominalType>>,
 }
@@ -289,35 +296,7 @@ impl Runtime {
         &mut self,
         roots: impl IntoIterator<Item = &'a crate::Value>,
     ) -> (usize, usize) {
-        // Class-level state is always live while its Class exists, so a value
-        // held in a class ivar or class variable is an implicit root. Omitting
-        // them would free an object reachable only that way.
-        let all_roots: Vec<crate::Value> = roots
-            .into_iter()
-            .cloned()
-            .chain(
-                self.class_raw_ivars
-                    .values()
-                    .flat_map(HashMap::values)
-                    .cloned(),
-            )
-            .chain(self.class_vars.values().cloned())
-            .collect();
-        let reachable = crate::reachable_from(&self.heap, &self.raw_ivars, all_roots.iter());
-        let garbage: Vec<crate::ObjectId> = self
-            .heap
-            .live_ids()
-            .into_iter()
-            .filter(|id| !reachable.contains(*id))
-            .collect();
-        let freed = garbage.len();
-        for dead in garbage {
-            // The identity came from `live_ids`, so the free cannot fail; an
-            // error here would mean the heap disagreed with itself.
-            drop(self.heap.free(dead));
-            self.instance_type_arguments.remove(&dead);
-        }
-        (freed, self.heap.compact())
+        self.collect_with_edges(roots, |_, _| {})
     }
 
     /// Relocates live heap objects, returning how many MOVED.
@@ -361,19 +340,6 @@ impl Runtime {
             .raw_ivars
             .get_mut(&instance)
             .and_then(|slots| slots.remove(&name)))
-    }
-
-    /// Stores a Class variable cell and returns its stored value.
-    pub fn declare_class_var(
-        &mut self,
-        class: ClassId,
-        name: Selector,
-        value: Value,
-        mutable: bool,
-    ) -> Result<Value, ConstructionError> {
-        self.registry.declare_class_var(class, name, mutable)?;
-        self.class_vars.insert((class, name), value.clone());
-        Ok(value)
     }
 
     /// Reads an absent Class-object raw ivar as nil without materializing it.

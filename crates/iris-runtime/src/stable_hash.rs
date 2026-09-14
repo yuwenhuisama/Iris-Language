@@ -94,6 +94,7 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::Contract(..)
         | Value::Closure(_)
         | Value::KeywordArgument(_, _)
+        | Value::BlockArgument(_)
         | Value::ReadonlyArray(_)
         | Value::SourceLocation(..)
         | Value::StackFrame(..)
@@ -103,7 +104,9 @@ pub fn public_hash(value: &Value) -> Result<IntegerValue, StableHashError> {
         | Value::ByteIterator(_)
         | Value::Generator(_)
         | Value::Task(_)
-        | Value::Transformation { .. }
+        | Value::Decorator(_)
+        | Value::ImmutableArray(_)
+        | Value::ImmutableHash(_)
         | Value::ExceptionContext(..)
         | Value::ContractView(_, _)
         | Value::Object(_)

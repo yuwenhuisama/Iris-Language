@@ -14,7 +14,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{BoundReceiver, HeapPayload, ObjectId, RuntimeHeap, Selector, Value};
+mod walker;
+
+use crate::{ObjectId, RuntimeHeap, Selector, Value};
 
 /// An object's raw receiver ivars, which the runtime stores OUTSIDE the heap.
 pub type RawIvars = HashMap<ObjectId, HashMap<Selector, Value>>;
@@ -71,168 +73,15 @@ pub fn reachable_from<'a>(
     ivars: &RawIvars,
     roots: impl IntoIterator<Item = &'a Value>,
 ) -> Reachable {
-    let mut walker = Walker {
-        heap,
-        ivars,
-        objects: HashSet::new(),
-        cells: HashSet::new(),
-    };
-    for root in roots {
-        walker.walk(root);
-    }
-    Reachable {
-        objects: walker.objects,
-    }
+    walker::trace((heap, ivars), (roots, []), &mut |_, _| {})
 }
 
-struct Walker<'a> {
-    heap: &'a RuntimeHeap,
-    ivars: &'a RawIvars,
-    objects: HashSet<ObjectId>,
-    cells: HashSet<usize>,
-}
-
-impl Walker<'_> {
-    /// Records an identity and follows its heap payload.
-    ///
-    /// Re-entry is what terminates a cycle: an object already recorded is not
-    /// expanded a second time.
-    fn reach(&mut self, object: ObjectId) {
-        if !self.objects.insert(object) {
-            return;
-        }
-        // Raw ivars live OUTSIDE the heap payload, so they are followed even
-        // for an identity the heap does not own.
-        if let Some(slots) = self.ivars.get(&object) {
-            for slot in slots.values().cloned().collect::<Vec<_>>() {
-                self.walk(&slot);
-            }
-        }
-        let Ok(found) = self.heap.lookup(object) else {
-            // An identity with no heap entry is still REACHED - a Closure or a
-            // Gate is named by an ObjectId whose body lives in the evaluator,
-            // not here. Dropping it would let a sweep free a live identity.
-            return;
-        };
-        let HeapPayload::InstanceFields(fields) = found.payload();
-        for field in fields.clone() {
-            self.walk(&field);
-        }
-    }
-
-    /// One arm per `Value` variant, with NO catch-all: an omitted variant
-    /// would silently under-approximate reachability and let a sweep free a
-    /// live object, so a new variant must fail to compile here instead.
-    fn walk(&mut self, value: &Value) {
-        match value {
-            // Identities whose payload the heap owns.
-            Value::Object(id)
-            | Value::Task(id)
-            | Value::Generator(id)
-            | Value::ArrayIterator(id)
-            | Value::HashIterator(id)
-            | Value::ByteIterator(id)
-            | Value::Gate(id)
-            | Value::Closure(id) => self.reach(*id),
-
-            // Shared cells: the crossing point between the two regions.
-            Value::Array(values) => {
-                if self.cells.insert(values.cell_id()) {
-                    for element in values.elements() {
-                        self.walk(&element);
-                    }
-                }
-            }
-            Value::Hash(entries) => {
-                if self.cells.insert(entries.cell_id()) {
-                    for (key, entry) in entries.entries() {
-                        self.walk(&key);
-                        self.walk(&entry);
-                    }
-                }
-            }
-
-            // Inline sequences.
-            Value::ReadonlyArray(values) | Value::Tuple(values) => {
-                for element in values {
-                    self.walk(element);
-                }
-            }
-
-            // Single nested values.
-            Value::StackFrame(_, inner)
-            | Value::RaiseSite(inner)
-            | Value::IterationYield(inner)
-            | Value::KeywordArgument(_, inner)
-            | Value::ContractView(inner, _) => self.walk(inner),
-
-            Value::ExceptionContext(id, value, cause, suppressed, sites, location) => {
-                self.reach(*id);
-                self.walk(value);
-                self.walk(cause);
-                for entry in suppressed.iter().chain(sites) {
-                    self.walk(entry);
-                }
-                self.walk(&location.location);
-                for frame in &location.original_stack {
-                    self.walk(frame);
-                }
-            }
-
-            Value::Transformation { staged, .. } => {
-                for (_, id) in staged {
-                    self.reach(*id);
-                }
-            }
-
-            Value::BoundMethod(bound) => {
-                self.reach(bound.id());
-                if let BoundReceiver::Object(receiver) = bound.receiver() {
-                    self.reach(receiver);
-                }
-            }
-
-            Value::Library(library) => {
-                for (_, signature) in &library.signatures {
-                    self.walk(signature);
-                }
-            }
-
-            // Leaves: these hold no Iris value that could keep an identity
-            // alive. A ByteArray and a MutableString are shared cells too, but
-            // their bodies are bytes and text rather than `Value`s, so there is
-            // nothing further to reach through them.
-            Value::Nil
-            | Value::Bool(_)
-            | Value::Integer(_)
-            | Value::Float32(_)
-            | Value::Float64(_)
-            | Value::SourceLocation(..)
-            | Value::Range(_)
-            | Value::NativeResource(_)
-            | Value::ExternalResource(_)
-            | Value::Regex(_)
-            | Value::Match(_)
-            | Value::MutableString(_)
-            | Value::Bytes(_)
-            | Value::ByteArray(_)
-            | Value::Text(_)
-            | Value::Symbol(_)
-            | Value::Class(_)
-            | Value::ClosedClass(..)
-            | Value::Method(_)
-            | Value::Contract(..)
-            | Value::IterationDone
-            | Value::Type(..)
-            | Value::ComposedType(_) => {}
-        }
-    }
-}
+pub(crate) use walker::trace;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ArrayRef, ClassId, HashRef};
+    use crate::{ArrayRef, ClassId, HashRef, HeapPayload};
 
     /// These tests build heap payloads directly, so no raw ivars exist.
     fn no_ivars() -> RawIvars {

@@ -104,6 +104,7 @@ impl ComparisonProtocol {
             | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
+            | Value::BlockArgument(_)
             | Value::IterationYield(_)
             | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
@@ -116,7 +117,9 @@ impl ComparisonProtocol {
             | Value::Task(_)
             | Value::Range(..)
             | Value::IterationDone
-            | Value::Transformation { .. }
+            | Value::Decorator(_)
+            | Value::ImmutableArray(_)
+            | Value::ImmutableHash(_)
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
@@ -198,6 +201,7 @@ impl Truthiness {
                 | Value::Contract(..)
                 | Value::Closure(_)
                 | Value::KeywordArgument(_, _)
+                | Value::BlockArgument(_)
                 | Value::IterationYield(_)
                 | Value::ReadonlyArray(_)
                 | Value::SourceLocation(..)
@@ -210,7 +214,9 @@ impl Truthiness {
                 | Value::Task(_)
                 | Value::Range(..)
                 | Value::IterationDone
-                | Value::Transformation { .. }
+                | Value::Decorator(_)
+                | Value::ImmutableArray(_)
+                | Value::ImmutableHash(_)
                 | Value::ExceptionContext(..)
                 | Value::ContractView(_, _)
                 | Value::Object(_)
@@ -247,6 +253,7 @@ impl Truthiness {
             | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
+            | Value::BlockArgument(_)
             | Value::IterationYield(_)
             | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
@@ -259,7 +266,9 @@ impl Truthiness {
             | Value::Task(_)
             | Value::Range(..)
             | Value::IterationDone
-            | Value::Transformation { .. }
+            | Value::Decorator(_)
+            | Value::ImmutableArray(_)
+            | Value::ImmutableHash(_)
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)

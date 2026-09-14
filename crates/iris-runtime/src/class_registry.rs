@@ -120,6 +120,7 @@ impl Error for ClassError {}
 /// Runtime-owned registry of logical Classes and every published revision.
 #[derive(Debug, Default)]
 pub struct ClassRegistry {
+    pub(crate) callable_types: crate::callable_type::CallableTypes,
     pub(crate) classes: HashMap<ClassId, LogicalClass>,
     pub(crate) revisions: HashMap<RevisionId, ClassRevision>,
     pub(crate) modules: ModuleRegistry,
@@ -221,10 +222,12 @@ impl ClassRegistry {
         let next_class_id = self
             .next_class_id
             .checked_add(1)
+            .filter(|next| *next < crate::core_registration::CORE_ID_DOMAIN)
             .ok_or(ClassError::ClassIdentityExhausted)?;
         let next_revision_id = self
             .next_revision_id
             .checked_add(1)
+            .filter(|next| *next < crate::core_registration::CORE_ID_DOMAIN)
             .ok_or(ClassError::RevisionIdentityExhausted)?;
         let next_commit_id = self
             .next_commit_id
@@ -452,6 +455,7 @@ impl ClassRegistry {
         let next_revision_id = self
             .next_revision_id
             .checked_add(1)
+            .filter(|next| *next < crate::core_registration::CORE_ID_DOMAIN)
             .ok_or(ClassError::RevisionIdentityExhausted)?;
         let next_commit_id = self
             .next_commit_id
@@ -513,14 +517,6 @@ impl ClassRegistry {
                 .collect(),
         )?;
         Ok(())
-    }
-
-    /// Discards every candidate staged in the current transaction group.
-    ///
-    /// `IRIS-V1-META-C038` rolls back ALL candidates in the group together, so
-    /// an inner open's target is discarded with the outermost one.
-    pub fn roll_back_group(&mut self) {
-        self.staged.clear();
     }
 
     /// Discards the candidate staged for `class`, publishing nothing.
@@ -595,44 +591,6 @@ impl ClassRegistry {
     /// Reports whether `class` is currently staging a candidate.
     pub fn is_staging(&self, class: ClassId) -> bool {
         self.staged.contains_key(&class)
-    }
-
-    /// Applies one structural change to `class`, honouring an open transaction.
-    ///
-    /// `IRIS-V1-META-C034` mutates ONE implicit candidate per target for the
-    /// duration of a transaction, so a staged target ACCUMULATES the change and
-    /// publishes nothing here. Outside a transaction the change is its own
-    /// candidate and publishes immediately, which is the pre-existing
-    /// behaviour for a standalone reflective call.
-    /// Adds or removes one Module composition edge on the current candidate.
-    ///
-    /// `IRIS-V1-META-C023` targets the CURRENT transaction candidate, and
-    /// `D-175` recomputes MRO before commit, so an edge change joins the open
-    /// transaction rather than publishing a revision of its own.
-    /// `IRIS-V1-META-V340` observes the edge list reordering when a Module is
-    /// removed and re-included.
-    pub fn recompose_candidate(
-        &mut self,
-        class: ClassId,
-        module: crate::ModuleId,
-        include: bool,
-    ) -> Result<(), ClassError> {
-        self.require_meta_capability(class, crate::Capability::Modules)?;
-        self.mutate_candidate(class, |candidate| {
-            if include {
-                // D-175 recomputes MRO before commit, and one Module can hold
-                // only one position in it. Appending an edge that already
-                // exists produced a DUPLICATE entry, so a redundant
-                // `add_module` silently reordered dispatch. Including a Module
-                // already composed is therefore a no-op, and V340's reordering
-                // comes from the removal that precedes the re-inclusion.
-                if !candidate.modules.contains(&module) {
-                    candidate.add_module(module);
-                }
-            } else {
-                candidate.remove_module(module);
-            }
-        })
     }
 
     pub(crate) fn mutate_candidate(

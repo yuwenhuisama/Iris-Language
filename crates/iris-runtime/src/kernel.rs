@@ -232,6 +232,7 @@ impl From<StableHashError> for KernelError {
 #[derive(Debug)]
 pub struct Kernel {
     classes: [(BuiltinClass, ClassId); 7],
+    core_classes: Vec<(&'static str, ClassId)>,
 }
 
 impl Kernel {
@@ -264,7 +265,10 @@ impl Kernel {
             };
             classes[index] = (kind, registry.define_builtin_class(kind, spine, None)?);
         }
-        let kernel = Self { classes };
+        let kernel = Self {
+            classes,
+            core_classes: Vec::new(),
+        };
         // Object gets no native comparison selectors. IRIS-V1-RUNTIME-C083 makes
         // its `<=>` answer nil for every operand, and C084/C086 derive the six
         // comparison Methods from that response, so the native numeric bodies
@@ -427,6 +431,44 @@ impl Kernel {
             .ok_or(KernelError::Type)
     }
 
+    pub fn core_class(&self, name: &str) -> Option<ClassId> {
+        self.core_classes
+            .iter()
+            .find_map(|(held, class)| (*held == name).then_some(*class))
+    }
+
+    /// Registers decorator records and their runtime-owned support Class identities.
+    ///
+    /// Task registration exposes its nominal identity only. Source backends must
+    /// still reject ordinary Task construction and supply actual closed Task Types
+    /// from engine-owned metadata; registration does not classify Task values.
+    pub fn register_decorator_classes(
+        &mut self,
+        registry: &mut ClassRegistry,
+    ) -> Result<(), KernelError> {
+        for name in [
+            "Invocation",
+            "InvocationSignature",
+            "InvocationParameter",
+            "ArgumentChanges",
+            "DecoratorContext",
+            "Plan",
+            "Transformation",
+            "DecoratorProtocolError",
+            "Array",
+            "Hash",
+            "Task",
+        ] {
+            if self.core_class(name).is_some() {
+                continue;
+            }
+            let core = crate::CoreClass::from_name(name).ok_or(KernelError::Type)?;
+            let class = registry.register_core_class(core, self.class(BuiltinClass::Object)?)?;
+            self.core_classes.push((name, class));
+        }
+        Ok(())
+    }
+
     /// Enforces an operation against a built-in Class's active effective policy.
     pub fn require_meta_capability(
         &self,
@@ -535,8 +577,20 @@ impl Kernel {
         }
         Ok(())
     }
-    fn class_of(&self, value: &Value) -> Result<ClassId, KernelError> {
+    pub fn class_of(&self, value: &Value) -> Result<ClassId, KernelError> {
         match value {
+            Value::BlockArgument(_) => Err(KernelError::Type),
+            Value::Decorator(record) => {
+                self.core_class(record.core_name()).ok_or(KernelError::Type)
+            }
+            Value::ImmutableArray(_) => self.core_class("Array").ok_or(KernelError::Type),
+            Value::ImmutableHash(_) => self.core_class("Hash").ok_or(KernelError::Type),
+            Value::Array(_) if self.core_class("Array").is_some() => {
+                self.core_class("Array").ok_or(KernelError::Type)
+            }
+            Value::Hash(_) if self.core_class("Hash").is_some() => {
+                self.core_class("Hash").ok_or(KernelError::Type)
+            }
             Value::Nil => self.class(BuiltinClass::Nil),
             Value::Bool(_) => self.class(BuiltinClass::Bool),
             Value::Integer(_) => self.class(BuiltinClass::Integer),
@@ -578,7 +632,6 @@ impl Kernel {
             | Value::Task(_)
             | Value::Range(..)
             | Value::IterationDone
-            | Value::Transformation { .. }
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
