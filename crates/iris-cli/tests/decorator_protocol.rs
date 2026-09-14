@@ -67,6 +67,8 @@ macro_rules! protocol_cases {
 }
 
 protocol_cases! {
+    meta_c127_rejects_decorator_missing_required_transform:
+        "missing_transform" => Expected::Diagnostic { code: "TypeContractError", stdout: "" };
     meta_c127_c132_argument_changes_available_outside_phase:
         "argument_changes_available" => Expected::Stdout("true\ntrue\n");
     meta_c127_c132_argument_changes_constructor_accepts_all_public_fields:

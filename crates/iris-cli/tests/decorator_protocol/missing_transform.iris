@@ -1,0 +1,9 @@
+class MissingTransform {}
+impl MissingTransform for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+}
+class Target {
+    @MissingTransform()
+    public fun value() -> Integer { 7 }
+}
+Target.new().value()
