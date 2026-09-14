@@ -4,20 +4,63 @@ use iris_runtime::{Kernel, KernelError, NativeSelector, Runtime, Selector, Value
 
 use crate::compile::{Instruction, Program, Register};
 
+mod bound_callable;
 #[cfg(test)]
 mod boundary_tests;
+mod callable_types;
+mod callback_methods;
+pub(crate) mod code;
+mod collection;
 mod composed_types;
+mod contract_decorators;
+mod decorator_async;
+mod decorator_core;
+#[cfg(test)]
+mod decorator_core_tests;
+#[cfg(test)]
+mod decorator_gc_tests;
+mod decorator_installation;
+mod decorator_phases;
+mod decorator_preparation;
+mod decorator_wrappers;
+mod dynamic_properties;
 mod execute;
+mod execution_roots;
+mod history;
+mod history_link;
+mod immutable;
+mod method_body;
 mod method_mutation;
 mod method_removal;
+mod module_decorators;
+mod module_dispatch;
+mod module_errors;
+#[cfg(test)]
+mod module_tests;
 mod nominal_relation;
 mod operations;
+mod origin;
+#[cfg(test)]
+mod origin_tests;
+mod prepared_call;
+mod qualified_methods;
 mod reopen;
+#[cfg(test)]
+mod retained_code_tests;
 mod runtime;
 mod stdlib;
+#[cfg(test)]
+mod stored_property_tests;
+mod task_adapters;
+mod task_resume;
+mod tasks;
 
 #[derive(Clone, Debug)]
 struct ClosureRecord {
+    program: std::rc::Rc<Program>,
+    method_types: Vec<(String, Value)>,
+    callable_signature: Option<iris_runtime::CallableSignature>,
+    signature: Option<iris_syntax::MethodDeclaration>,
     function: usize,
     captures: Vec<Value>,
 }
@@ -78,6 +121,7 @@ struct IteratorRecord {
 
 type TaskOutcome = Result<Value, Box<MachineError>>;
 
+mod generic_methods;
 mod verify;
 
 pub(super) use verify::truthy;
@@ -85,12 +129,31 @@ pub use verify::{MachineError, VerifyError, verify};
 
 /// A register machine over runtime values.
 pub struct Machine {
+    history: crate::PackageHistory,
+    history_context: Option<std::rc::Rc<Program>>,
+    code: code::CodeStore,
+    method_types: Vec<(String, Value)>,
+    explicit_method_types: Vec<Value>,
+    closed_methods: Vec<generic_methods::ClosedMethod>,
+    bound_signatures:
+        std::collections::HashMap<iris_runtime::ObjectId, iris_runtime::CallableSignature>,
+    decorator_phases: Vec<iris_runtime::decorator_protocol::DecoratorPhase>,
+    decorator_planning: bool,
+    decorator_metadata: Vec<iris_runtime::ImmutableHash>,
+    contracts: std::collections::HashMap<iris_runtime::ContractId, iris_runtime::ImmutableHash>,
+    wrapper_chains:
+        std::collections::HashMap<iris_runtime::MethodId, decorator_wrappers::WrapperChain>,
+    next_continuations:
+        std::collections::HashMap<iris_runtime::ObjectId, decorator_wrappers::NextContinuation>,
+    core_support: std::collections::HashMap<&'static str, iris_runtime::ClassId>,
     method_signatures:
         std::collections::HashMap<iris_runtime::MethodId, iris_syntax::MethodDeclaration>,
+    qualified_methods: qualified_methods::QualifiedMethods,
     pending_replacements: std::collections::BTreeMap<
         (iris_runtime::ClassId, Selector, bool),
         method_removal::PendingMethod,
     >,
+    static_impl_slots: std::collections::HashSet<(iris_runtime::ClassId, Selector)>,
     natives: Option<std::rc::Rc<iris_native_host::NativeRegistry>>,
     /// Owns the class registry, the heap and the ivar tables together.
     ///
@@ -114,13 +177,17 @@ pub struct Machine {
     /// `recover` answers what the sink holds independently of what retained
     /// history still has.
     audit_sink: Option<Vec<u64>>,
-    /// A snapshot of each ACTIVE frame's registers, for the collector.
+    /// Shared ownership of each ACTIVE frame's register storage.
     ///
     /// The live frames ARE the root set, and a frame's register file lives on
     /// the Rust stack where a collector cannot walk it. Each frame therefore
     /// publishes its registers here while it runs, which is what makes a
     /// collection inside a body safe rather than unsound.
-    frame_roots: Vec<Vec<Value>>,
+    frame_roots: Vec<execution_roots::ActiveFrame>,
+    active_values: Vec<Value>,
+    local_roots: Vec<std::rc::Rc<dyn execution_roots::LocalRoots>>,
+    ready_tasks: Vec<std::collections::VecDeque<SuspendedTask>>,
+    resuming_frames: Vec<std::collections::VecDeque<PendingFrame>>,
     /// Instructions the run may still execute.
     ///
     /// A machine with no bound HANGS on a program that never terminates, which
@@ -150,6 +217,12 @@ pub struct Machine {
     next_context: u64,
     next_iterator: u64,
     tasks: std::collections::HashMap<iris_runtime::ObjectId, TaskOutcome>,
+    current_task: Option<iris_runtime::decorator_protocol::TaskId>,
+    task_types: std::collections::HashMap<iris_runtime::ObjectId, Value>,
+    task_adapters: Vec<task_adapters::TaskAdapter>,
+    observed_tasks: std::collections::HashSet<iris_runtime::ObjectId>,
+    task_owners: std::collections::HashMap<iris_runtime::ObjectId, iris_runtime::ObjectId>,
+    decorator_lifetime_diagnostics: Vec<Value>,
     unobserved_failures: Vec<iris_runtime::ObjectId>,
     async_depth: usize,
     closure_depth: usize,
@@ -181,8 +254,10 @@ pub struct Machine {
     /// time the property is read rather than when the class is defined, so a
     /// body that raises is retried on the next read and one that succeeds runs
     /// exactly once.
-    pending_class_initializers:
-        std::collections::HashMap<(iris_runtime::ClassId, iris_runtime::Selector), usize>,
+    pending_class_initializers: std::collections::HashMap<
+        (iris_runtime::ClassId, iris_runtime::Selector),
+        iris_runtime::MethodBody,
+    >,
     /// Async frames PAUSED at an `await`, in the order they suspended.
     ///
     /// `IRIS-V1-ASYNC-C014` resumes them in that order, so this is a queue
@@ -199,6 +274,8 @@ pub struct Machine {
 
 /// The register file and position an `await` paused at.
 pub(super) struct PendingFrame {
+    pub(super) program: std::rc::Rc<Program>,
+    pub(super) method_types: Vec<(String, Value)>,
     pub(super) gate: iris_runtime::ObjectId,
     pub(super) registers: Vec<Value>,
     pub(super) counter: usize,
@@ -243,8 +320,24 @@ impl Machine {
         let mut runtime = Runtime::new();
         let kernel = Kernel::new(runtime.registry_mut())?;
         Ok(Self {
+            history: crate::PackageHistory::default(),
+            history_context: None,
+            code: code::CodeStore::default(),
+            method_types: Vec::new(),
+            explicit_method_types: Vec::new(),
+            closed_methods: Vec::new(),
+            bound_signatures: std::collections::HashMap::new(),
+            decorator_phases: Vec::new(),
+            decorator_planning: false,
+            decorator_metadata: Vec::new(),
+            contracts: std::collections::HashMap::new(),
+            wrapper_chains: std::collections::HashMap::new(),
+            next_continuations: std::collections::HashMap::new(),
+            core_support: std::collections::HashMap::new(),
             method_signatures: std::collections::HashMap::new(),
+            qualified_methods: qualified_methods::QualifiedMethods::default(),
             pending_replacements: std::collections::BTreeMap::new(),
+            static_impl_slots: std::collections::HashSet::new(),
             natives: None,
             runtime,
             kernel,
@@ -258,6 +351,10 @@ impl Machine {
             revision_history: Vec::new(),
             audit_sink: None,
             frame_roots: Vec::new(),
+            active_values: Vec::new(),
+            local_roots: Vec::new(),
+            ready_tasks: Vec::new(),
+            resuming_frames: Vec::new(),
             remaining_steps: STEP_BUDGET,
             pending_cleanup_cause: None,
             revision_event_errors: Vec::new(),
@@ -270,6 +367,12 @@ impl Machine {
             next_context: 900_000,
             next_iterator: 1_000_000,
             tasks: std::collections::HashMap::new(),
+            current_task: None,
+            task_types: std::collections::HashMap::new(),
+            task_adapters: Vec::new(),
+            observed_tasks: std::collections::HashSet::new(),
+            task_owners: std::collections::HashMap::new(),
+            decorator_lifetime_diagnostics: Vec::new(),
             unobserved_failures: Vec::new(),
             async_depth: 0,
             closure_depth: 0,
@@ -295,8 +398,31 @@ impl Machine {
     /// Returns the verification failure or the kernel failure.
     pub fn execute(&mut self, program: &Program) -> Result<Value, MachineError> {
         verify(program).map_err(MachineError::Invalid)?;
+        if !program.decorator_applications.is_empty() || program.functions.iter().any(|function| function.instructions.iter().any(|instruction| matches!(instruction, Instruction::DeclareMethod { applications, .. } if !applications.is_empty()))) {
+            let mut planner = Self::new().map_err(MachineError::Kernel)?;
+            planner.decorator_planning = true;
+            let planned = planner.code.load(program)?;
+            let program = planned.as_ref();
+            planner.register_core_records()?;
+            let mut classes = planner.register_classes(program)?;
+            planner.register_callable_types(program)?;
+            planner.plan_declarations(program, &mut classes)?;
+            for instruction in program.functions.iter().flat_map(|function| &function.instructions).chain(&program.instructions) {
+                if let Instruction::DeclareMethod { applications, .. } = instruction {
+                    for application in applications {
+                        planner.execute_decorator_phase(application, program, &classes)?;
+                    }
+                }
+            }
+        }
+        let owner = self.code.load(program)?;
+        let program = owner.as_ref();
         self.bindings.clear();
         let classes = self.register_classes(program)?;
+        if crate::core_names::requires_core(program) {
+            self.register_core_records()?;
+        }
+        self.register_callable_types(program)?;
         let registers = self.run_body(
             &program.instructions,
             program.registers,
@@ -359,6 +485,9 @@ pub(super) const fn capability_name(capability: iris_runtime::Capability) -> &'s
 
 pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
     match error {
+        MachineError::Kernel(KernelError::Type) => Some("TypeError"),
+        MachineError::Kernel(KernelError::Arity) => Some("ArgumentError"),
+        MachineError::LexicalDiagnostic("IRIS-DECORATOR-KIND") => Some("IRIS-DECORATOR-KIND"),
         MachineError::IndexError => Some("IndexError"),
         MachineError::RangeError => Some("RangeError"),
         // `C012` refuses invalid UTF-8 at the boundary, and that refusal is an
@@ -430,6 +559,7 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
         // answers the FAILURE, not `:NoActiveExceptionError`.
         MachineError::MessageNotFound { .. } => Some("MessageNotFound"),
         MachineError::NameError => Some("NameError"),
+        MachineError::RevisionArtifactUnavailable => Some("RevisionArtifactUnavailableError"),
         MachineError::ClosedGenericOpenForbidden => Some("CLOSED_GENERIC_OPEN_FORBIDDEN"),
         _ => None,
     }
@@ -437,10 +567,10 @@ pub(super) fn catchable_name(error: &MachineError) -> Option<&'static str> {
 
 pub(super) fn value_class_name(value: &Value) -> &'static str {
     match value {
-        Value::Array(_) => "Array",
+        Value::Array(_) | Value::ImmutableArray(_) => "Array",
         Value::Tuple(_) => "Tuple",
         Value::Range(_) => "Range",
-        Value::Hash(_) => "Hash",
+        Value::Hash(_) | Value::ImmutableHash(_) => "Hash",
         Value::Text(_) => "String",
         Value::Integer(_) => "Integer",
         Value::Float32(_) => "Float32",
@@ -476,6 +606,7 @@ pub(super) fn value_class_name(value: &Value) -> &'static str {
         Value::Gate(_) => "Gate",
         Value::Task(..) => "Task",
         Value::ComposedType(_) => "Type",
+        Value::Decorator(record) => record.core_name(),
         _ => "Object",
     }
 }
@@ -549,6 +680,18 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
     if let Some(native) = NativeSelector::from_source(name) {
         return Some(native.id());
     }
+    if let Some(link) = &program.link {
+        return link.selectors.get(name).copied();
+    }
+    selector_names(program)
+        .iter()
+        .position(|candidate| *candidate == name)
+        .and_then(|index| u64::try_from(index).ok())
+        .and_then(|index| index.checked_add(10_000))
+        .map(Selector::new)
+}
+
+fn selector_names(program: &Program) -> Vec<&str> {
     let mut names = program
         .classes
         .iter()
@@ -569,6 +712,12 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
                         .stored_properties
                         .iter()
                         .map(|property| property.name.as_str()),
+                )
+                .chain(
+                    class
+                        .instance_fields
+                        .iter()
+                        .map(|field| field.name.as_str()),
                 )
         })
         .chain(
@@ -609,9 +758,4 @@ fn selector_id(program: &Program, name: &str) -> Option<Selector> {
     names.sort_unstable();
     names.dedup();
     names
-        .iter()
-        .position(|candidate| *candidate == name)
-        .and_then(|index| u64::try_from(index).ok())
-        .and_then(|index| index.checked_add(10_000))
-        .map(Selector::new)
 }

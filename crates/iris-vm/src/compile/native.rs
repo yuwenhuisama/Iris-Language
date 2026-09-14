@@ -39,8 +39,9 @@ pub(super) fn bind(function: &mut Function, names: &BTreeSet<String>) -> Result<
             .map_err(|_| CompileError::new("native parameter limit"))?;
         let count = u16::try_from(function.parameters)
             .map_err(|_| CompileError::new("native parameter limit"))?;
-        function.registers = function.parameters + 1;
-        function.instructions = vec![
+        function.registers = function.registers.max(function.parameters + 1);
+        function.instructions.truncate(function.body_entry);
+        function.instructions.extend([
             Instruction::NativeCall {
                 destination,
                 name: function.name.clone(),
@@ -48,7 +49,7 @@ pub(super) fn bind(function: &mut Function, names: &BTreeSet<String>) -> Result<
                 count,
             },
             Instruction::Return { value: destination },
-        ];
+        ]);
     }
     Ok(())
 }

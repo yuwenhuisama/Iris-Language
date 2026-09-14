@@ -76,7 +76,7 @@ fn small_stack_child() -> Result<(), String> {
                     0
                 }
             }
-            let log = []
+            let log = %[]
             let result = Main.run(log)
             let recorded = log.append(result)
             log

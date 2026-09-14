@@ -65,7 +65,7 @@ fn reopen_accepts_when_parameters_widen_and_returns_narrow() {
         class Rule { public fun total(value: Dog) -> Animal { value } }
         let rule = Rule.new()
         open class Rule { public override fun total(value: Animal) -> Dog { Dog.new() } }
-        rule.total(Dog.new()) is Dog
+        rule.total(Dog.new()) is? Dog
     "#;
     let program = iris_vm::compile(source).unwrap();
     let outcome = iris_vm::run(&program);

@@ -30,6 +30,12 @@ impl Machine {
             Value::ContractView(inner, _) => *inner,
             other => other,
         };
+        if matches!(selector, "==" | "!=")
+            && matches!(receiver, Value::Type(..) | Value::ComposedType(_))
+        {
+            let equal = receiver == argument;
+            return Ok(Value::Bool(if selector == "==" { equal } else { !equal }));
+        }
         // A REOPENED built-in class may redefine an operator, and `<` and `>`
         // are derived from `<=>` rather than being separate methods - so a
         // redefined `<=>` has to reach them, or `1 < 2` would keep answering
@@ -228,7 +234,7 @@ impl Machine {
         &mut self,
         value: Value,
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<String, MachineError> {
         if let Some(text) = render_text(&value) {
             return Ok(text);
@@ -245,11 +251,15 @@ impl Machine {
             .runtime
             .dispatch_instance(object, selector)
             .map_err(MachineError::Construction)?;
-        let function = usize::try_from(method.body().raw()).map_err(|_| {
-            MachineError::Invalid(VerifyError::UnknownFunction {
-                function: usize::MAX,
-            })
-        })?;
+        let function = self
+            .resolve_method_body(method.body(), program)
+            .map_err(|error| error.invalid_function())?;
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let callee = program
             .functions
             .get(function)
@@ -335,9 +345,15 @@ impl Machine {
             }
             return self.invoke_method_missing(*object, "to_bool", &[], program, classes);
         };
-        let Ok(function) = usize::try_from(method.body().raw()) else {
+        let Ok(function) = self.resolve_method_body(method.body(), program) else {
             return Ok(None);
         };
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let Some(callee) = program.functions.get(function).cloned() else {
             return Ok(None);
         };
@@ -359,6 +375,25 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Option<Value>, MachineError> {
+        let flattened =
+            super::prepared_call::native_block_arguments(receiver, selector, arguments)?;
+        let arguments = flattened.as_deref().unwrap_or(arguments);
+        if let Value::Class(class) = receiver
+            && selector == "rollback"
+        {
+            return self.rollback_class(*class, arguments).map(Some);
+        }
+        if let Some(value) = self.core_record_send(receiver, selector, arguments)? {
+            return Ok(Some(value));
+        }
+        if let Some(value) = self.immutable_send(receiver, selector, arguments)? {
+            return Ok(Some(value));
+        }
+        if let Some(value) =
+            self.immutable_callback_send(receiver, selector, arguments, program, classes)?
+        {
+            return Ok(Some(value));
+        }
         if matches!(receiver, Value::Class(_))
             && let Some(value) =
                 self.reopened_builtin_send(receiver, selector, arguments, program, classes)?
@@ -371,8 +406,9 @@ impl Machine {
                 let Value::Integer(receiver_hash) = receiver_hash else {
                     return Err(MachineError::InvalidKeyError);
                 };
-                let contract_index = usize::try_from(contract.raw().saturating_sub(1))
-                    .map_err(|_| MachineError::InvalidKeyError)?;
+                let contract_index = program
+                    .contract_index(self.contract_definition(*contract))
+                    .ok_or(MachineError::InvalidKeyError)?;
                 let contract_name = program
                     .contracts
                     .get(contract_index)
@@ -439,40 +475,6 @@ impl Machine {
             // `IRIS-V1-COLLECTIONS-C083` exposes the full match, both range
             // pairs, the Regex used, and the captures - with a group that did
             // not participate staying nil rather than an empty string.
-            // A stored PROPERTY is written through its setter selector, `a.n = 5`
-            // being a send of `n=` to the object. It is instance state rather
-            // than a method, so the write lands in the slot the declaration
-            // registered.
-            Value::Object(object)
-                if selector.ends_with('=')
-                    && arguments.len() == 1
-                    && classes
-                        .iter()
-                        .position(|known| {
-                            self.runtime
-                                .class_of(*object)
-                                .is_ok_and(|held| held == *known)
-                        })
-                        .and_then(|index| program.classes.get(index))
-                        .is_some_and(|declaration| {
-                            declaration
-                                .stored_properties
-                                .iter()
-                                .any(|property| property.name == selector.trim_end_matches('='))
-                        }) =>
-            {
-                let name = selector.trim_end_matches('=');
-                let Some(slot) = selector_id(program, name) else {
-                    return Err(MachineError::UnknownSelector(name.to_owned()));
-                };
-                let [value] = arguments else {
-                    return Err(MachineError::Kernel(iris_runtime::KernelError::Arity));
-                };
-                self.runtime
-                    .assign_raw_ivar(*object, slot, value.clone())
-                    .map_err(MachineError::Construction)?;
-                Some(value.clone())
-            }
             // A CLASS-level property is written through its setter selector,
             // `Cache.n = 9` being a send of `n=` to the Class. It is class
             // state rather than a method, so the write lands in the class
@@ -798,8 +800,9 @@ impl Machine {
             // by identity: `C.hash() == C.hash()` holds because both name the
             // same contract.
             Value::Contract(contract, _) if selector == "hash" && arguments.is_empty() => {
-                let index = usize::try_from(contract.raw().saturating_sub(1))
-                    .map_err(|_| MachineError::UnsupportedConstruct)?;
+                let index = program
+                    .contract_index(*contract)
+                    .ok_or(MachineError::UnsupportedConstruct)?;
                 let declaration = program
                     .contracts
                     .get(index)
@@ -909,18 +912,10 @@ impl Machine {
                     .cloned()
                     .ok_or(MachineError::Kernel(iris_runtime::KernelError::Type))?;
                 let selector = self.dynamic_selector(name);
-                let function = u64::try_from(closure.function).map_err(|_| {
-                    MachineError::Invalid(super::VerifyError::UnknownFunction {
-                        function: usize::MAX,
-                    })
-                })?;
+                let body = self.code.body(closure.function, &closure.program)?;
                 self.runtime
                     .registry_mut()
-                    .publish_stored_property(
-                        *class,
-                        selector,
-                        iris_runtime::MethodBody::new(function),
-                    )
+                    .publish_stored_property(*class, selector, body)
                     .map_err(MachineError::Class)?;
                 Some(Value::Nil)
             }
@@ -961,7 +956,7 @@ impl Machine {
                             program.classes[index]
                                 .contracts
                                 .iter()
-                                .any(|known| *known as u64 + 1 == contract.raw())
+                                .any(|known| program.contract_identity(*known) == *contract)
                         });
                 if declared {
                     return Err(MachineError::TypeContractError);
@@ -1029,10 +1024,7 @@ impl Machine {
                             .contracts
                             .iter()
                             .map(|contract| {
-                                Value::Contract(
-                                    iris_runtime::ContractId::new(*contract as u64 + 1),
-                                    Vec::new(),
-                                )
+                                Value::Contract(program.contract_identity(*contract), Vec::new())
                             })
                             .collect()
                     })
@@ -1058,11 +1050,11 @@ impl Machine {
                     .to_owned(),
                 )),
                 "parameters" if arguments.is_empty() => {
-                    let function = usize::try_from(method.body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
+                    let function = self
+                        .resolve_method_body(method.body(), program)
+                        .map_err(|error| error.invalid_function())?;
+                    let owner = function;
+                    let (program, function) = (owner.program.as_ref(), owner.function);
                     let metadata = program
                         .functions
                         .get(function)
@@ -1079,11 +1071,11 @@ impl Machine {
                     )))
                 }
                 "return_type" if arguments.is_empty() => {
-                    let function = usize::try_from(method.body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
+                    let function = self
+                        .resolve_method_body(method.body(), program)
+                        .map_err(|error| error.invalid_function())?;
+                    let owner = function;
+                    let (program, function) = (owner.program.as_ref(), owner.function);
                     let metadata = program
                         .functions
                         .get(function)
@@ -1093,6 +1085,10 @@ impl Machine {
                     Some(Value::Symbol(metadata.return_type.clone()))
                 }
                 "source" if arguments.is_empty() => {
+                    let body_owner = self
+                        .resolve_method_body(method.body(), program)
+                        .map_err(|error| error.invalid_function())?;
+                    let program = body_owner.program.as_ref();
                     let MethodOwner::Class(owner) = method.owner() else {
                         return Ok(Some(Value::Symbol("dynamic-only".to_owned())));
                     };
@@ -1132,6 +1128,7 @@ impl Machine {
                     }
                     .map_err(iris_runtime::ConstructionError::from)
                     .map_err(MachineError::Construction)?;
+                    self.remember_bound_signature(bound, (program, classes));
                     Some(Value::BoundMethod(bound))
                 }
                 _ => None,
@@ -1179,6 +1176,15 @@ impl Machine {
                 )))
             }
             Value::Type(class, _) if selector == "kind" && arguments.is_empty() => {
+                if let Some(callable) = self.runtime.registry().callable_type(*class) {
+                    return Ok(Some(Value::Symbol(
+                        match callable.kind() {
+                            iris_runtime::CallableKind::Closure => "closure",
+                            iris_runtime::CallableKind::BoundMethod => "bound_method",
+                        }
+                        .into(),
+                    )));
+                }
                 Some(Value::Symbol("nominal".to_owned()))
             }
             value @ (Value::Type(..) | Value::ComposedType(_))
@@ -1583,7 +1589,7 @@ impl Machine {
         selector: &str,
         arguments: &[Value],
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<Value, MachineError> {
         let Value::Object(object) = receiver else {
             return Err(MachineError::SerializationError);
@@ -1594,9 +1600,15 @@ impl Machine {
         let Ok(method) = self.runtime.dispatch_instance(*object, slot) else {
             return Err(MachineError::SerializationError);
         };
-        let Ok(function) = usize::try_from(method.body().raw()) else {
+        let Ok(function) = self.resolve_method_body(method.body(), program) else {
             return Err(MachineError::SerializationError);
         };
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let Some(callee) = program.functions.get(function).cloned() else {
             return Err(MachineError::SerializationError);
         };
@@ -1653,25 +1665,9 @@ impl Machine {
         else {
             return Err(MachineError::SerializationError);
         };
-        let function = usize::try_from(method.body().raw()).map_err(|_| {
-            MachineError::Invalid(VerifyError::UnknownFunction {
-                function: usize::MAX,
-            })
-        })?;
-        let function = &function;
-        let Some(callee) = program.functions.get(*function).cloned() else {
-            return Err(MachineError::SerializationError);
-        };
         let mut passed = vec![Value::Class(class)];
         passed.extend_from_slice(arguments);
-        let returned = self.run_body(
-            &callee.instructions,
-            callee.registers,
-            passed,
-            program,
-            classes,
-        )?;
-        Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+        self.invoke_selected_method(method, passed, program, classes)
     }
 
     /// Calls a method a REOPENED built-in class added, if it has one.
@@ -1685,7 +1681,7 @@ impl Machine {
         selector: &str,
         arguments: &[Value],
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<Option<Value>, MachineError> {
         // Only a class the reopens actually NAMED can answer, so a value of
         // any other family is left to the ordinary refusal.
@@ -1716,9 +1712,15 @@ impl Machine {
         else {
             return Ok(None);
         };
-        let Ok(function) = usize::try_from(method.body().raw()) else {
+        let Ok(function) = self.resolve_method_body(method.body(), program) else {
             return Ok(None);
         };
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let Some(callee) = program.functions.get(function).cloned() else {
             return Ok(None);
         };
@@ -2023,76 +2025,6 @@ impl Machine {
 }
 
 impl Machine {
-    /// Binds arguments to the categories `IRIS-V1-CONTROL-C023` gives.
-    ///
-    /// Positionals fill in order, `*rest` takes the remaining positionals as a
-    /// fresh Array, a `key` parameter binds by NAME rather than position, and
-    /// `**kwargs` collects the keywords no declared parameter matched. `C025`
-    /// raises ArgumentError when a required parameter is left unbound, and
-    /// `D-357` makes a DUPLICATE keyword an error rather than last-one-wins.
-    ///
-    /// The answer is a Tuple because the caller writes it straight into the
-    /// frame's leading registers, one per declared parameter.
-    pub(super) fn bind_parameters(
-        kinds: &[(crate::compile::ParameterKind, String)],
-        arguments: &[Value],
-    ) -> Result<Value, MachineError> {
-        use crate::compile::ParameterKind;
-        let mut positional = Vec::new();
-        let mut keyword: Vec<(String, Value)> = Vec::new();
-        let mut block = Value::Nil;
-        for argument in arguments {
-            match argument {
-                Value::KeywordArgument(name, value) => {
-                    if keyword.iter().any(|(seen, _)| seen == name) {
-                        return Err(MachineError::ArgumentError);
-                    }
-                    keyword.push((name.clone(), value.as_ref().clone()));
-                }
-                // A trailing Closure is the BLOCK argument, which `C023` binds
-                // to `&name` rather than to a positional slot.
-                Value::Closure(_) if matches!(kinds.last(), Some((ParameterKind::Block, _))) => {
-                    block = argument.clone();
-                }
-                value => positional.push(value.clone()),
-            }
-        }
-        let mut bound = Vec::with_capacity(kinds.len());
-        let mut next = 0usize;
-        for (kind, name) in kinds {
-            let value = match kind {
-                ParameterKind::Positional => {
-                    let value = positional.get(next).cloned();
-                    next += usize::from(value.is_some());
-                    value
-                }
-                ParameterKind::Rest => {
-                    let rest = positional.split_off(next.min(positional.len()));
-                    Some(Value::Array(iris_runtime::ArrayRef::new(rest)))
-                }
-                ParameterKind::Keyword => keyword
-                    .iter()
-                    .position(|(seen, _)| seen == name)
-                    .map(|index| keyword.remove(index).1),
-                ParameterKind::KeywordRest => {
-                    let rest = std::mem::take(&mut keyword)
-                        .into_iter()
-                        .map(|(name, value)| (Value::Symbol(name), value))
-                        .collect();
-                    Some(Value::Hash(iris_runtime::HashRef::new(rest)))
-                }
-                ParameterKind::Block => Some(block.clone()),
-            };
-            // An unfilled parameter is left nil here; a DEFAULT is written by
-            // the `DefaultParameter` that follows, and `C025`'s ArgumentError
-            // for a genuinely required one is raised by the arity check.
-            bound.push(value.unwrap_or(Value::Nil));
-        }
-        Ok(Value::Tuple(bound))
-    }
-}
-
-impl Machine {
     /// Builds and VALIDATES a Regex whose pattern was computed at run time.
     ///
     /// An interpolating literal cannot be checked when it compiles, so the
@@ -2183,22 +2115,7 @@ impl Machine {
             // from any of them survives - which is what makes the identity of
             // a retained object stable across a collection.
             ("compact_gc", []) => {
-                let mut roots: Vec<Value> = Vec::new();
-                for frame in &self.frame_roots {
-                    roots.extend(frame.iter().cloned());
-                }
-                roots.extend(self.globals.values().cloned());
-                roots.extend(self.bindings.values().cloned());
-                roots.extend(self.discarded_contexts.iter().cloned());
-                roots.extend(self.revision_event_errors.iter().cloned());
-                roots.extend(self.gates.values().flatten().cloned());
-                for record in self.closures.values() {
-                    roots.extend(record.captures.iter().cloned());
-                }
-                for task in self.suspended.iter() {
-                    roots.extend(task.frame.registers.iter().cloned());
-                }
-                let (freed, _) = self.runtime.collect_garbage(roots.iter());
+                let freed = self.collect_engine();
                 Ok(Value::Integer(
                     u64::try_from(freed).unwrap_or(u64::MAX).into(),
                 ))
@@ -2356,15 +2273,15 @@ impl Machine {
         if let Value::Object(object) = key
             && let Some(slot) = selector_id(program, "hash")
             && let Ok(method) = self.runtime.dispatch_instance(*object, slot)
-            && let Ok(function) = usize::try_from(method.body().raw())
-            && let Some(callee) = program.functions.get(function).cloned()
+            && let Ok(function) = self.resolve_method_body(method.body(), program)
+            && let Some(callee) = function.program.functions.get(function.function).cloned()
         {
             let returned = self.run_body(
                 &callee.instructions,
                 callee.registers,
                 vec![Value::Object(*object)],
-                program,
-                classes,
+                &function.program,
+                &function.classes,
             )?;
             return Ok(returned.into_iter().next().unwrap_or(Value::Nil));
         }
@@ -2469,11 +2386,15 @@ impl Machine {
         if self.runtime.dispatch_instance(object, slot).is_err() {
             return Ok(None);
         }
-        // `C099` splits a trailing Closure out of the positional snapshot.
-        let (positional, block) = match arguments {
-            [head @ .., Value::Closure(closure)] => (head.to_vec(), Value::Closure(*closure)),
-            _ => (arguments.to_vec(), Value::Nil),
-        };
+        let super::prepared_call::CallArguments {
+            positional,
+            keywords,
+            block,
+        } = super::prepared_call::CallArguments::scan(arguments)?;
+        if !keywords.is_empty() {
+            return Err(MachineError::ArgumentError);
+        }
+        let block = block.unwrap_or(Value::Nil);
         self.instance_method_value(
             &Value::Object(object),
             "method_missing",
@@ -2527,6 +2448,9 @@ fn reflect_atom(atom: &iris_runtime::TypeAtom) -> Value {
         }
         iris_runtime::TypeAtom::Union(nested) => {
             Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
+        }
+        iris_runtime::TypeAtom::Intersection(nested) => {
+            Value::ComposedType(iris_runtime::ComposedType::Intersection(nested.clone()))
         }
     }
 }

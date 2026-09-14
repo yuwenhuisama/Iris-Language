@@ -38,6 +38,13 @@ impl Machine {
         receiver: &Value,
     ) -> Result<Option<Value>, MachineError> {
         let source = match receiver {
+            Value::ImmutableArray(array) => IteratorSource::Values(array.elements().to_vec()),
+            Value::ImmutableHash(hash) => IteratorSource::Values(
+                hash.entries()
+                    .iter()
+                    .map(|(key, value)| Value::Tuple(vec![key.clone(), value.clone()]))
+                    .collect(),
+            ),
             Value::Array(source) => IteratorSource::Array {
                 expected_version: source.version(),
                 source: source.clone(),
@@ -114,6 +121,13 @@ impl Machine {
             }
             (Value::ArrayIterator(identity) | Value::HashIterator(identity), "next") => {
                 self.advance_iterator(*identity).map(Some)
+            }
+            (Value::ArrayIterator(identity), "remove_current")
+                if self.iterators.get(identity).is_some_and(|iterator| {
+                    matches!(iterator.source, Some(IteratorSource::Values(_)))
+                }) =>
+            {
+                Err(MachineError::ReadonlyMutation)
             }
             // `C026` lets a Hash iterator remove the entry it just YIELDED,
             // once. Before the first `next` there is no current entry, and a

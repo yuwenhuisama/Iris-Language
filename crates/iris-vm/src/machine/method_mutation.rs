@@ -1,6 +1,6 @@
-use super::{Machine, MachineError, OpenGroupState, VerifyError};
+use super::{Machine, MachineError, OpenGroupState};
 use crate::compile::Program;
-use iris_runtime::{ClassId, MethodBody, Selector, Visibility};
+use iris_runtime::{ClassId, Selector, Visibility};
 
 impl Machine {
     pub(super) fn alias_checked(
@@ -25,10 +25,14 @@ impl Machine {
                 .staged_method(class, alias)
                 .and_then(|method| self.runtime.registry().method_by_id(method))
                 .ok_or(MachineError::TypeContractError)?;
-            let function = usize::try_from(method.body().raw())
-                .map_err(|_| MachineError::TypeContractError)?;
+            let function = self
+                .resolve_method_body(method.body(), program)
+                .map_err(|error| error.with_overflow(MachineError::TypeContractError))?;
             if immediate {
-                self.validate_replacement(((class, alias, false), function), program)?;
+                self.validate_replacement(
+                    ((class, alias, false), function.function),
+                    &function.program,
+                )?;
                 self.runtime
                     .registry_mut()
                     .commit_transaction(class)
@@ -36,7 +40,7 @@ impl Machine {
             } else {
                 self.pending_replacements.insert(
                     (class, alias, false),
-                    super::method_removal::PendingMethod::Function(function),
+                    super::method_removal::PendingMethod::Function(method.body()),
                 );
             }
             Ok(())
@@ -65,19 +69,18 @@ impl Machine {
             } else {
                 self.validate_replacement(((class, selector, false), function), program)?;
             }
-            let body = u64::try_from(function)
-                .map_err(|_| MachineError::Invalid(VerifyError::UnknownFunction { function }))?;
+            let body = self.code.body(function, program)?;
             let method = self
                 .runtime
                 .registry_mut()
-                .publish_method(class, selector, MethodBody::new(body), Visibility::Public)
+                .publish_method(class, selector, body, Visibility::Public)
                 .map_err(MachineError::Class)?;
             self.dynamic_methods.insert(method.id());
             self.remember_signature(method, program);
             if self.open_depth > 0 {
                 self.pending_replacements.insert(
                     (class, selector, false),
-                    super::method_removal::PendingMethod::Function(function),
+                    super::method_removal::PendingMethod::Function(body),
                 );
             }
             Ok(())

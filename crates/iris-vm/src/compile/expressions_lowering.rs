@@ -27,7 +27,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if matches!(
                     name.as_str(),
                     "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
-                ) =>
+                ) || crate::core_names::core_name(name).is_some() =>
             {
                 let destination = self.allocate()?;
                 self.instructions.push(Instruction::LoadBuiltinClass {
@@ -112,7 +112,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     || self.modules.iter().any(|module| module.name == *name))
                     && self.class_index(name).is_none()
                 {
-                    self.instructions.push(Instruction::LoadSymbol {
+                    self.instructions.push(Instruction::LoadModule {
                         destination,
                         name: name.clone(),
                     });
@@ -157,6 +157,15 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Grouped(inner) => self.expression(inner),
+            Expression::NonNull(operand) => {
+                let source = self.expression(operand)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::AssertNonNil {
+                    destination,
+                    source,
+                });
+                Ok(destination)
+            }
             Expression::Await(operand) => {
                 let task = self.expression(operand)?;
                 let destination = self.allocate()?;
@@ -227,12 +236,25 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Ok(destination);
                 }
                 if *operator == BinaryOperator::As
-                    && let Expression::Name(name) = right.as_ref()
+                    && let Expression::Name(name)
+                    | Expression::ClosedGeneric { name, .. }
+                    | Expression::ReifiedType(iris_syntax::TypeExpression::Generic {
+                        name,
+                        ..
+                    }) = right.as_ref()
                     && let Some(contract) = self.contract_index(name)
                 {
                     let receiver = self.expression(left)?;
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::ContractCast {
+                        type_arguments: match right.as_ref() {
+                            Expression::ClosedGeneric { arguments, .. }
+                            | Expression::ReifiedType(iris_syntax::TypeExpression::Generic {
+                                arguments,
+                                ..
+                            }) => arguments.clone(),
+                            _ => Vec::new(),
+                        },
                         destination,
                         receiver,
                         contract,
@@ -358,9 +380,30 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     return Ok(destination);
                 }
                 if *operator == BinaryOperator::Is {
-                    if matches!(right.as_ref(), Expression::Name(name) if self.contract_index(name).is_some())
+                    if let Expression::Name(name)
+                    | Expression::ClosedGeneric { name, .. }
+                    | Expression::ReifiedType(iris_syntax::TypeExpression::Generic {
+                        name,
+                        ..
+                    }) = right.as_ref()
+                        && let Some(contract) = self.contract_index(name)
                     {
-                        return Err(CompileError::new("operator Is contract"));
+                        let receiver = self.expression(left)?;
+                        let destination = self.allocate()?;
+                        self.instructions.push(Instruction::ContractTest {
+                            type_arguments: match right.as_ref() {
+                                Expression::ClosedGeneric { arguments, .. }
+                                | Expression::ReifiedType(iris_syntax::TypeExpression::Generic {
+                                    arguments,
+                                    ..
+                                }) => arguments.clone(),
+                                _ => Vec::new(),
+                            },
+                            destination,
+                            receiver,
+                            contract,
+                        });
+                        return Ok(destination);
                     }
                     let value = self.expression(left)?;
                     let target = match right.as_ref() {
@@ -634,6 +677,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         destination,
                         receiver,
                         selector,
+                        caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                        caller_module: self.enclosing_module.clone(),
                     });
                     return Ok(destination);
                 }
@@ -667,6 +712,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     destination,
                     receiver,
                     selector: selector.clone(),
+                    caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                    caller_module: self.enclosing_module.clone(),
                 });
                 Ok(destination)
             }
@@ -691,7 +738,8 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 if !matches!(
                     name.as_str(),
                     "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
-                ) {
+                ) && crate::core_names::core_name(name).is_none()
+                {
                     return Err(CompileError::new("expression reified type"));
                 }
                 let destination = self.allocate()?;
@@ -738,7 +786,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     // naming the closed construction materializes it - so an
                     // argument that breaks the bound is refused here as it is
                     // when the Type is named or the class constructed.
-                    if self.violates_contract_bound(class, arguments) {
+                    if !self.has_owner_type_argument(arguments)
+                        && self.violates_contract_bound(class, arguments)
+                    {
                         self.instructions
                             .push(Instruction::RaiseTypeContract { destination });
                         return Ok(destination);
@@ -748,7 +798,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         class,
                         arguments: arguments.clone(),
                     });
-                } else if self.contract_index(name).is_some() {
+                } else if matches!(name.as_str(), "Array" | "Hash") {
+                    self.instructions.push(Instruction::LoadBuiltinClass {
+                        destination,
+                        name: name.clone(),
+                    });
+                } else if self.contract_index(name).is_some()
+                    || matches!(name.as_str(), "Block" | "Closure" | "BoundMethod")
+                {
                     self.instructions.push(Instruction::BuildType {
                         destination,
                         expression: iris_syntax::TypeExpression::Generic {
@@ -776,6 +833,21 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         .lookup("self")
                         .ok_or_else(|| CompileError::new("ivar"))?;
                     let value = self.expression(right)?;
+                    if let Some((mutable, annotation)) = self
+                        .instance_field(name)
+                        .map(|field| (field.mutable, field.annotation.clone()))
+                    {
+                        if !mutable {
+                            let destination = self.allocate()?;
+                            self.instructions
+                                .push(Instruction::RaiseImmutableBinding { destination });
+                            return Ok(destination);
+                        }
+                        if let Some(annotation) = annotation {
+                            self.instructions
+                                .push(Instruction::CheckAnnotation { value, annotation });
+                        }
+                    }
                     let destination = self.allocate()?;
                     self.instructions.push(Instruction::SetIvar {
                         destination,
@@ -1074,17 +1146,65 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
+            Expression::BlockArgument { value } => {
+                let value = self.expression(value)?;
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::MakeBlockArgument { destination, value });
+                Ok(destination)
+            }
             Expression::Call {
-                callee, arguments, ..
-            } => self.call(callee, arguments),
+                callee,
+                arguments,
+                type_arguments,
+            } => {
+                let result = self.call(callee, arguments)?;
+                if !type_arguments.is_empty() {
+                    let call = self
+                        .instructions
+                        .pop()
+                        .ok_or_else(|| CompileError::new("generic call"))?;
+                    if !matches!(
+                        call,
+                        Instruction::Call { .. }
+                            | Instruction::SendClass { .. }
+                            | Instruction::Send { .. }
+                            | Instruction::SendContract { .. }
+                    ) {
+                        return Err(CompileError::new("generic call target"));
+                    }
+                    self.instructions.push(Instruction::GenericCall {
+                        call: Box::new(call),
+                        type_arguments: type_arguments.clone(),
+                    });
+                }
+                Ok(result)
+            }
             Expression::Try {
                 body,
                 catches,
                 finally,
             } => self.try_body(body, catches, finally),
             Expression::Closure {
-                parameters, body, ..
-            } => self.closure(parameters, body),
+                parameters,
+                full_parameters,
+                is_async,
+                return_type,
+                body,
+                ..
+            } => {
+                let result = self.closure(parameters, body)?;
+                let Some(function) = self.closures.last_mut() else {
+                    return Err(CompileError::new("closure metadata"));
+                };
+                let mut signature = super::method_metadata::dynamic(parameters);
+                signature.parameters = full_parameters.clone();
+                signature.return_type = return_type.clone();
+                signature.is_async = *is_async;
+                function.signature = Some(signature);
+                function.is_async = *is_async;
+                Ok(result)
+            }
             other => Err(CompileError::new(construct_name(other))),
         }
     }
@@ -1104,6 +1224,9 @@ impl<'a, 'b> Lowering<'a, 'b> {
             self.program_bindings,
             false,
         );
+        lowering.current_method = self.current_method.clone();
+        lowering.open_class = self.open_class;
+        lowering.enclosing_module = self.enclosing_module.clone();
         for capture in &captures {
             let register = lowering.allocate()?;
             let mut binding = if capture.shared && capture.writable {
@@ -1130,6 +1253,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         let function = self.declared_functions + self.closures.len() + closure_functions.len();
         self.closures.extend(closure_functions);
         self.closures.push(Function {
+            body_entry: 0,
             name: "<closure>".to_owned(),
             signature: None,
             parameters: captures.len() + parameters.len(),
@@ -1167,47 +1291,36 @@ impl<'a, 'b> Lowering<'a, 'b> {
 
     pub(super) fn dynamic_method(
         &mut self,
-        parameters: &[String],
-        body: &[Statement],
+        method: &iris_syntax::MethodDeclaration,
     ) -> Result<usize, CompileError> {
         let mut nested = Vec::new();
-        let declarations = self.declarations();
-        let mut lowering = Lowering::new(
-            declarations,
+        let signature = super::declarations::Signature {
+            declaration: Some(method),
+            module: "<dynamic-method>",
+            selector: &method.selector,
+            parameters: method.parameters.iter().collect(),
+            return_type: method.return_type.as_ref(),
+            body: method
+                .body
+                .as_deref()
+                .ok_or_else(|| CompileError::new("define_method body"))?,
+            receiver: true,
+            class_method: false,
+            private: false,
+            is_async: method.is_async,
+            constants: Vec::new(),
+            expression_body: None,
+        };
+        let body = super::lowering::lower_function(
+            &signature,
+            self.declarations(),
             self.declared_functions + self.closures.len(),
             &mut nested,
             self.program_bindings,
-            false,
-        );
-        let receiver = lowering.allocate()?;
-        lowering
-            .names
-            .push(super::lowering::Binding::value("self".to_owned(), receiver));
-        for parameter in parameters {
-            let register = lowering.allocate()?;
-            lowering
-                .names
-                .push(super::lowering::Binding::value(parameter.clone(), register));
-        }
-        let value = lowering.body(body)?;
-        lowering.instructions.push(Instruction::Return { value });
-        let registers = lowering.next_register as usize;
-        let instructions = std::mem::take(&mut lowering.instructions);
-        drop(lowering);
+        )?;
         let function = self.declared_functions + self.closures.len() + nested.len();
         self.closures.extend(nested);
-        self.closures.push(Function {
-            name: "<dynamic-method>".to_owned(),
-            signature: Some(super::method_metadata::dynamic(parameters)),
-            parameters: parameters.len() + 1,
-            captures: 0,
-            fixed_arity: None,
-            parameter_types: vec!["Dynamic<Object>".to_owned(); parameters.len()],
-            return_type: "Dynamic<Object>".to_owned(),
-            is_async: false,
-            registers,
-            instructions,
-        });
+        self.closures.push(body);
         Ok(function)
     }
 }

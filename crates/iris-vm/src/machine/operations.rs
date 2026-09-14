@@ -1,15 +1,65 @@
 //! Native sends, identity, and indexed collection operations.
 
-use iris_runtime::{BuiltinClass, ClassId, KernelError, NativeSelector, Value};
+use iris_runtime::{BuiltinClass, ClassId, KernelError, NativeSelector, NominalType, Value};
 
 use super::{Machine, MachineError, resolve_index, value_class_name};
+use crate::compile::Program;
 
 pub(super) fn native_error(error: iris_native_host::NativeError) -> MachineError {
     MachineError::Raised(Box::new(error.into_propagation()))
 }
 
 impl Machine {
+    pub(super) fn contract_conforms(
+        &mut self,
+        value: &Value,
+        target: (usize, &[NominalType]),
+        context: (&Program, &[ClassId]),
+    ) -> Result<bool, MachineError> {
+        let (contract, requested) = target;
+        let (program, classes) = context;
+        let Value::Object(object) = value else {
+            let builtin = value_class_name(value);
+            return Ok(program
+                .builtin_reopens
+                .iter()
+                .any(|reopen| reopen.target == builtin && reopen.contracts.contains(&contract)));
+        };
+        let class = self
+            .runtime
+            .class_of(*object)
+            .map_err(MachineError::Construction)?;
+        let mut current = classes.iter().position(|known| *known == class);
+        while let Some(index) = current {
+            let Some(declaration) = program.classes.get(index) else {
+                break;
+            };
+            if declaration.contracts.contains(&contract) {
+                let expressions = declaration
+                    .contract_arguments
+                    .iter()
+                    .find(|(index, _)| *index == contract)
+                    .map_or(&[][..], |(_, arguments)| arguments.as_slice());
+                let bindings = self.receiver_type_bindings(value, context)?;
+                let actual = self.with_method_types(bindings, |machine| {
+                    machine.nominal_arguments(expressions, program, classes)
+                })?;
+                return Ok(actual == requested);
+            }
+            current = declaration.superclass;
+        }
+        Ok(false)
+    }
+
     pub(super) fn builtin_class(&self, name: &str) -> Result<ClassId, MachineError> {
+        let name = name.strip_prefix("Kernel::").unwrap_or(name);
+        if let Some(class) = self
+            .kernel
+            .core_class(name)
+            .or_else(|| self.core_support.get(name).copied())
+        {
+            return Ok(class);
+        }
         let kind = match name {
             "Object" => BuiltinClass::Object,
             "Nil" => BuiltinClass::Nil,
@@ -24,12 +74,30 @@ impl Machine {
     }
 
     pub(super) fn type_test(&self, value: &Value, target: &Value) -> Result<Value, MachineError> {
+        if matches!(target, Value::ComposedType(_)) {
+            return Ok(Value::Bool(self.decorator_accepts(target, value)));
+        }
         let (target, target_arguments) = match target {
             Value::Class(target) => (*target, &[][..]),
             Value::ClosedClass(target, arguments) => (*target, arguments.as_slice()),
             Value::Type(target, arguments) => (*target, arguments.as_slice()),
             _ => return Err(MachineError::Kernel(KernelError::Type)),
         };
+        if let Some(annotation) = self.runtime.registry().callable_type(target) {
+            return Ok(Value::Bool(
+                target_arguments.is_empty() && self.callable_admits(annotation, value),
+            ));
+        }
+        if self.kernel.core_class("Task") == Some(target) {
+            return Ok(Value::Bool(match (value, target_arguments) {
+                (Value::Task(_), []) => true,
+                (Value::Task(identity), [result]) => {
+                    self.task_types.get(identity)
+                        == Some(&Value::Type(result.class(), result.arguments().to_vec()))
+                }
+                _ => false,
+            }));
+        }
         if target
             == self
                 .kernel
@@ -37,6 +105,9 @@ impl Machine {
                 .map_err(MachineError::Kernel)?
         {
             return Ok(Value::Bool(true));
+        }
+        if let Some(answer) = self.core_type_test(value, target, target_arguments)? {
+            return Ok(Value::Bool(answer));
         }
         let class = match value {
             Value::Object(_) if !target_arguments.is_empty() => {
@@ -79,6 +150,9 @@ impl Machine {
     }
 
     pub(super) fn is_subtype(&self, class: ClassId, target: ClassId) -> Result<bool, MachineError> {
+        if class == target {
+            return Ok(true);
+        }
         if target
             == self
                 .kernel
@@ -86,6 +160,11 @@ impl Machine {
                 .map_err(MachineError::Kernel)?
         {
             return Ok(true);
+        }
+        if self.runtime.registry().callable_type(class).is_some()
+            || self.runtime.registry().callable_type(target).is_some()
+        {
+            return Ok(false);
         }
         Ok(self
             .runtime
@@ -103,6 +182,12 @@ impl Machine {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, MachineError> {
+        if arguments
+            .iter()
+            .any(|argument| matches!(argument, Value::BlockArgument(_)))
+        {
+            return Err(MachineError::ArgumentError);
+        }
         if let Value::ExternalResource(resource) = &receiver {
             return match (selector, arguments) {
                 ("close", []) => self
@@ -294,6 +379,15 @@ impl Machine {
 
     pub(super) fn index(&self, receiver: Value, index: Value) -> Result<Value, MachineError> {
         match receiver {
+            Value::ImmutableArray(values) => {
+                let Value::Integer(index) = index else {
+                    return Err(MachineError::Kernel(KernelError::Type));
+                };
+                Ok(resolve_index(&index, values.len())
+                    .and_then(|index| values.get(index).cloned())
+                    .unwrap_or(Value::Nil))
+            }
+            Value::ImmutableHash(values) => Ok(values.get(&index).cloned().unwrap_or(Value::Nil)),
             Value::Array(values) => {
                 let elements = values.elements();
                 // A RANGE index answers a SLICE, and the slice is its own
@@ -407,6 +501,9 @@ impl Machine {
         value: Value,
     ) -> Result<Value, MachineError> {
         match receiver {
+            Value::ImmutableArray(_) | Value::ImmutableHash(_) => {
+                Err(MachineError::ReadonlyMutation)
+            }
             Value::Array(values) => {
                 let Value::Integer(index) = index else {
                     return Err(MachineError::Kernel(KernelError::Type));

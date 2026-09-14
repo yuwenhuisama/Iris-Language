@@ -4,7 +4,7 @@ use super::super::{Machine, MachineError, truthy};
 use crate::compile::Program;
 
 impl Machine {
-    pub(super) fn hash_send(
+    pub(in crate::machine) fn hash_send(
         &mut self,
         entries: &HashRef,
         selector: &str,
@@ -22,7 +22,7 @@ impl Machine {
             ("rehash", []) => self.rehash(entries, None, program, classes)?,
             // `C032` supplies the merge as a trailing block, which reaches the
             // send as an ordinary closure argument.
-            ("rehash", [block @ Value::Closure(_)]) => {
+            ("rehash", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 self.rehash(entries, Some(block.clone()), program, classes)?
             }
             ("keys", []) => {
@@ -57,7 +57,10 @@ impl Machine {
             // may remove the entry it was just handed and the walk keeps going
             // over what remains. `each_with_iterator` hands the cursor itself
             // to the block, which is how a removal names the current entry.
-            ("each" | "each_with_iterator", [block @ Value::Closure(_)]) => {
+            (
+                "each" | "each_with_iterator",
+                [block @ (Value::Closure(_) | Value::BoundMethod(_))],
+            ) => {
                 let with_iterator = selector == "each_with_iterator";
                 let receiver = Value::Hash(entries.clone());
                 let Some(cursor) = self.open_builtin_iterator(&receiver)? else {
@@ -80,14 +83,14 @@ impl Machine {
                 }
                 receiver.clone()
             }
-            ("map", [block @ Value::Closure(_)]) => {
+            ("map", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut mapped = Vec::new();
                 for (key, value) in entries.entries() {
                     mapped.push(self.invoke_closure(block, &[key, value], program, classes)?);
                 }
                 Value::Array(ArrayRef::new(mapped))
             }
-            ("select", [block @ Value::Closure(_)]) => {
+            ("select", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut selected = Vec::new();
                 for (key, value) in entries.entries() {
                     if truthy(&self.invoke_closure(

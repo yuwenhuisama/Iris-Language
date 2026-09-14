@@ -7,6 +7,9 @@ use super::expressions;
 use super::lowering::Lowering;
 use super::{CompileError, FloatWidth, Instruction, Register};
 
+#[path = "admission.rs"]
+pub(crate) mod admission;
+
 impl<'a, 'b> Lowering<'a, 'b> {
     /// Lowers a literal by RE-LEXING its text.
     ///
@@ -177,6 +180,14 @@ impl<'a, 'b> Lowering<'a, 'b> {
         callee: &Expression,
         arguments: &[Expression],
     ) -> Result<Register, CompileError> {
+        self.call_inner(callee, arguments)
+    }
+
+    fn call_inner(
+        &mut self,
+        callee: &Expression,
+        arguments: &[Expression],
+    ) -> Result<Register, CompileError> {
         if matches!(callee, Expression::Name(name) if name == "super") {
             // A `super()` with no owning CLASS - in a module method, say - has
             // no lexical ancestor to reach. That is a program error when the
@@ -204,16 +215,12 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if matches!(callee, Expression::Name(name) if name == "using") {
-            let [resource, block] = arguments else {
-                return Err(CompileError::new("using arity"));
-            };
-            let resource = self.expression(resource)?;
-            let block = self.expression(block)?;
+            let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::Using {
                 destination,
-                resource,
-                block,
+                first,
+                count,
             });
             return Ok(destination);
         }
@@ -348,6 +355,22 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 .push(Instruction::BuildIterationYield { destination, value });
             return Ok(destination);
         }
+        if matches!(receiver.as_ref(), Expression::Name(name) if crate::core_names::core_name(name).is_some())
+        {
+            let receiver = self.expression(receiver)?;
+            let (first, count) = self.argument_window(arguments)?;
+            let destination = self.allocate()?;
+            self.instructions.push(Instruction::Send {
+                destination,
+                receiver,
+                selector: selector.clone(),
+                first,
+                count,
+                caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                caller_module: self.enclosing_module.clone(),
+            });
+            return Ok(destination);
+        }
         if selector == "define_method" {
             // `Reflection::Class.define_method(K, :m) { .. }` names its target
             // as the FIRST argument, while `self.define_method(:m) { .. }`
@@ -360,18 +383,32 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 (true, [target, rest @ ..]) => (target.clone(), rest),
                 _ => ((**receiver).clone(), arguments),
             };
-            let [
-                name,
-                Expression::Closure {
-                    parameters, body, ..
-                },
-            ] = rest
+            let [name, callback] = rest else {
+                return Err(CompileError::new("define_method arity"));
+            };
+            let callback = match callback {
+                Expression::BlockArgument { value } => value.as_ref(),
+                value => value,
+            };
+            let Expression::Closure {
+                parameters,
+                full_parameters,
+                return_type,
+                is_async,
+                body,
+                ..
+            } = callback
             else {
                 return Err(CompileError::new("define_method arity"));
             };
             let receiver = self.expression(&target)?;
             let name = self.expression(name)?;
-            let function = self.dynamic_method(parameters, body)?;
+            let mut signature = super::method_metadata::dynamic(parameters);
+            signature.parameters = full_parameters.clone();
+            signature.return_type = return_type.clone();
+            signature.is_async = *is_async;
+            signature.body = Some(body.clone());
+            let function = self.dynamic_method(&signature)?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::DefineMethod {
                 destination,
@@ -639,7 +676,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             let [callback] = arguments else {
                 return Err(CompileError::new("Class.open arity"));
             };
-            let callback = self.expression(callback)?;
+            let previous = self.open_class.replace(class);
+            let callback = self.expression(callback);
+            self.open_class = previous;
+            let callback = callback?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::OpenClass {
                 destination,
@@ -671,11 +711,10 @@ impl<'a, 'b> Lowering<'a, 'b> {
             && selector == "new"
             && let Some(class) = self.class_index(name)
         {
-            // `C067` decides a `where T: SomeContract` bound HERE, where the
-            // type arguments are concrete: the argument's class must declare
-            // the bound contract, so `Box<String>` against `Comparable<T>`
-            // fails while a declaring class passes.
-            if self.violates_contract_bound(class, type_arguments) {
+            if !self.has_owner_type_argument(type_arguments)
+                && self.violates_contract_bound(class, type_arguments)
+            {
+                self.argument_window(arguments)?;
                 let destination = self.allocate()?;
                 self.instructions
                     .push(Instruction::RaiseTypeContract { destination });
@@ -693,6 +732,16 @@ impl<'a, 'b> Lowering<'a, 'b> {
             return Ok(destination);
         }
         if selector == "new" {
+            if let Expression::Name(name) = receiver.as_ref()
+                && let Some(class) = self.class_index(name)
+                && self.classes[class].generic
+            {
+                self.argument_window(arguments)?;
+                let destination = self.allocate()?;
+                self.instructions
+                    .push(Instruction::RaiseTypeContract { destination });
+                return Ok(destination);
+            }
             if let Expression::Name(name) = receiver.as_ref()
                 && name.chars().next().is_some_and(char::is_uppercase)
                 && !is_builtin_receiver(name)
@@ -933,60 +982,28 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 return Ok(destination);
             }
-            // A resolved function binds its arguments POSITIONALLY, and the
-            // backend has no keyword parameters, so a keyword argument here
-            // would silently fill a positional slot with the wrapper - a
-            // wrong answer where the reference raises ArgumentError.
+            if self.signatures[function].receiver {
+                let receiver = self.expression(receiver)?;
+                let (first, count) = self.argument_window(arguments)?;
+                let destination = self.allocate()?;
+                self.instructions.push(Instruction::Send {
+                    destination,
+                    receiver,
+                    selector: selector.clone(),
+                    first,
+                    count,
+                    caller: self.current_method.as_ref().map(|(class, _)| *class),
+                    caller_module: self.enclosing_module.clone(),
+                });
+                return Ok(destination);
+            }
             if arguments
                 .iter()
                 .any(|argument| matches!(argument, Expression::KeywordArgument { .. }))
             {
                 return Err(CompileError::new("expression keyword argument"));
             }
-            let parameters = &self.signatures[function].parameters;
-            let required = parameters
-                .iter()
-                .take_while(|parameter| parameter.default.is_none())
-                .count();
-            // A call supplying a count the signature cannot bind is an
-            // ArgumentError the reference raises when the call RUNS, so the
-            // backend answers a program that raises it. Declining made both
-            // backends refuse the same program while describing it
-            // differently, which holds the row rather than agreeing.
-            if arguments.len() < required || arguments.len() > parameters.len() {
-                let destination = self.allocate()?;
-                self.instructions
-                    .push(Instruction::RaiseArgumentError { destination });
-                return Ok(destination);
-            }
-            let count =
-                u16::try_from(parameters.len()).map_err(|_| CompileError::new("call too wide"))?;
-            let mut lowered = Vec::with_capacity(parameters.len());
-            for argument in arguments {
-                lowered.push(self.expression(argument)?);
-            }
-            for parameter in &parameters[arguments.len()..] {
-                let default = parameter
-                    .default
-                    .as_ref()
-                    .ok_or_else(|| CompileError::new("call arity"))?;
-                lowered.push(self.expression(default)?);
-            }
-            // Arguments are copied into a CONTIGUOUS window, so the call names
-            // a range and the callee sees them as its leading registers.
-            let first = self.next_register;
-            for source in lowered {
-                let destination = self.allocate()?;
-                self.instructions.push(Instruction::Move {
-                    destination,
-                    source,
-                });
-            }
-            // A zero-argument call still needs a window start inside the file.
-            if count == 0 {
-                let destination = self.allocate()?;
-                self.instructions.push(Instruction::LoadNil { destination });
-            }
+            let (first, count) = self.argument_window(arguments)?;
             let destination = self.allocate()?;
             self.instructions.push(Instruction::Call {
                 destination,
@@ -1092,46 +1109,24 @@ impl<'a, 'b> Lowering<'a, 'b> {
         Ok(destination)
     }
 
-    /// Reports whether a closed generic construction breaks a contract bound.
-    ///
-    /// An argument this backend cannot RESOLVE to a declared class decides
-    /// nothing, so it passes: the check exists to catch a definite violation
-    /// rather than to narrow which constructions are accepted.
     pub(super) fn violates_contract_bound(
         &self,
         class: usize,
         type_arguments: &[iris_syntax::TypeExpression],
     ) -> bool {
-        // `NonNil` excludes exactly one argument, so a `Nil` in a bounded
-        // position is a definite violation.
-        if self.classes[class].non_nil_bounds.iter().any(|position| {
-            matches!(
-                type_arguments.get(*position),
-                Some(iris_syntax::TypeExpression::Name(argument)) if argument == "Nil"
-            )
-        }) {
-            return true;
-        }
-        self.classes[class]
-            .contract_bounds
+        !admission::Admission::new(self.classes, self.contracts).accepts(class, type_arguments)
+    }
+
+    pub(super) fn has_owner_type_argument(
+        &self,
+        arguments: &[iris_syntax::TypeExpression],
+    ) -> bool {
+        let Some((owner, _)) = self.current_method else {
+            return false;
+        };
+        arguments
             .iter()
-            .any(|(position, contract)| {
-                let Some(iris_syntax::TypeExpression::Name(argument)) =
-                    type_arguments.get(*position)
-                else {
-                    return false;
-                };
-                // A BUILT-IN class declares no contract, so naming one is a
-                // definite violation rather than an undecidable case: `String`
-                // against `Comparable<T>` is exactly `V244`.
-                let Some(argument) = self.class_index(argument) else {
-                    return matches!(
-                        argument.as_str(),
-                        "Object" | "Nil" | "Bool" | "Integer" | "Float32" | "Float64" | "String"
-                    );
-                };
-                !self.classes[argument].contracts.contains(contract)
-            })
+            .any(|argument| contains_name(argument, &self.classes[owner].type_parameters))
     }
 
     pub(super) fn class_index(&self, name: &str) -> Option<usize> {
@@ -1296,6 +1291,8 @@ pub(super) fn construct_name(expression: &Expression) -> String {
         Expression::ReifiedType(_) => "expression reified type",
         Expression::ClosedGeneric { .. } => "expression closed generic",
         Expression::KeywordArgument { .. } => "expression keyword argument",
+        Expression::BlockArgument { .. } => "expression block argument",
+        Expression::NonNull(_) => "expression non-null",
         Expression::ContractView { .. } => "expression contract view",
         Expression::ClassVar(_) => "expression class variable",
         Expression::Symbol(_) => "symbol",
@@ -1393,4 +1390,22 @@ fn is_builtin_receiver(name: &str) -> bool {
                 | "Closure"
                 | "Exception"
         )
+}
+
+fn contains_name(expression: &iris_syntax::TypeExpression, names: &[String]) -> bool {
+    match expression {
+        iris_syntax::TypeExpression::Name(name) => names.contains(name),
+        iris_syntax::TypeExpression::Generic { arguments, .. }
+        | iris_syntax::TypeExpression::Union(arguments)
+        | iris_syntax::TypeExpression::Intersection(arguments) => arguments
+            .iter()
+            .any(|argument| contains_name(argument, names)),
+        iris_syntax::TypeExpression::Function { parameters, result } => {
+            parameters
+                .iter()
+                .any(|parameter| contains_name(parameter, names))
+                || contains_name(result, names)
+        }
+        iris_syntax::TypeExpression::Typeof(_) => false,
+    }
 }

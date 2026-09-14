@@ -4,7 +4,7 @@ use super::super::{Machine, MachineError, resolve_index, truthy};
 use crate::compile::Program;
 
 impl Machine {
-    pub(super) fn array_send(
+    pub(in crate::machine) fn array_send(
         &mut self,
         values: &ArrayRef,
         receiver: &Value,
@@ -29,14 +29,16 @@ impl Machine {
                     .unwrap_or_default()
                     .into(),
             ),
-            ("map", [block @ Value::Closure(_)]) => Value::Array(ArrayRef::new(
-                values
-                    .elements()
-                    .into_iter()
-                    .map(|value| self.invoke_closure(block, &[value], program, classes))
-                    .collect::<Result<_, _>>()?,
-            )),
-            ("each" | "each_with_index", [block @ Value::Closure(_)]) => {
+            ("map", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
+                Value::Array(ArrayRef::new(
+                    values
+                        .elements()
+                        .into_iter()
+                        .map(|value| self.invoke_closure(block, &[value], program, classes))
+                        .collect::<Result<_, _>>()?,
+                ))
+            }
+            ("each" | "each_with_index", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 for (index, value) in values.elements().into_iter().enumerate() {
                     let arguments = if selector == "each" {
                         vec![value]
@@ -47,7 +49,7 @@ impl Machine {
                 }
                 receiver.clone()
             }
-            ("select" | "reject", [block @ Value::Closure(_)]) => {
+            ("select" | "reject", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut selected = Vec::new();
                 for value in values.elements() {
                     let decision =
@@ -58,7 +60,7 @@ impl Machine {
                 }
                 Value::Array(ArrayRef::new(selected))
             }
-            ("find", [block @ Value::Closure(_)]) => {
+            ("find", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut found = Value::Nil;
                 for value in values.elements() {
                     if truthy(&self.invoke_closure(
@@ -73,7 +75,7 @@ impl Machine {
                 }
                 found
             }
-            ("count", [block @ Value::Closure(_)]) => {
+            ("count", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut count = 0_u64;
                 for value in values.elements() {
                     if truthy(&self.invoke_closure(block, &[value], program, classes)?) {
@@ -82,10 +84,10 @@ impl Machine {
                 }
                 Value::Integer(count.into())
             }
-            ("reduce", [initial, block @ Value::Closure(_)]) => {
+            ("reduce", [initial, block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 self.reduce(values, initial.clone(), block, program, classes)?
             }
-            ("reduce", [block @ Value::Closure(_)]) => {
+            ("reduce", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let mut elements = values.elements().into_iter();
                 let Some(initial) = elements.next() else {
                     return Ok(Some(Value::Nil));
@@ -198,7 +200,7 @@ impl Machine {
             ("flatten", []) => {
                 Value::Array(ArrayRef::new(super::support::flatten(values.elements())))
             }
-            ("all?" | "any?", [block @ Value::Closure(_)]) => {
+            ("all?" | "any?", [block @ (Value::Closure(_) | Value::BoundMethod(_))]) => {
                 let seeking_all = selector == "all?";
                 let mut answer = seeking_all;
                 for value in values.elements() {

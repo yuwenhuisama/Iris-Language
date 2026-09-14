@@ -10,7 +10,9 @@ fn package_completes_when_startup_runs_inside_module() -> Result<(), String> {
         api_major: 1,
         version: "1.0.0".to_owned(),
         path: "main.ir".to_owned(),
-        source: "module Main { public module fun run() -> Nil { nil } Main.run() }".to_owned(),
+        source:
+            "module Main { public module fun run() -> Nil { nil } } open module Main { Main.run() }"
+                .to_owned(),
         allowed_imports: Default::default(),
     }];
 
@@ -36,7 +38,7 @@ fn finally_runs_when_catch_returns_from_startup() -> Result<(), String> {
                 nil
             }
         }
-        let log = []
+        let log = %[]
         let result = Main.run(log)
         log
     "#;
@@ -78,13 +80,13 @@ fn return_unwinds_scopes_in_order_when_cleanup_nests() -> Result<(), String> {
             vec!["outer", "answer"],
         ),
         (
-            "try { for item in [1] { try { return :answer } finally { log.append(:inner) } } } finally { log.append(:outer) }",
+            "try { for item in %[1] { try { return :answer } finally { log.append(:inner) } } } finally { log.append(:outer) }",
             vec!["inner", "outer", "answer"],
         ),
     ] {
         let source = format!(
             "module Main {{ public module fun run(log) {{ {body} }} }} \
-             let log = []; let result = Main.run(log); let recorded = log.append(result); log"
+             let log = %[]; let result = Main.run(log); let recorded = log.append(result); log"
         );
         let program = iris_vm::compile(&source).map_err(|error| error.construct)?;
         iris_vm::verify(&program).map_err(|error| format!("{error:?}: {body}"))?;
@@ -108,8 +110,8 @@ fn return_unwinds_scopes_in_order_when_cleanup_nests() -> Result<(), String> {
 #[test]
 fn package_errors_propagate_when_module_initialization_fails() -> Result<(), String> {
     for source in [
-        "module Main { raise :startup_failed }",
-        "module Main { return nil }",
+        "module Main {} open module Main { raise :startup_failed }",
+        "module Main {} open module Main { return nil }",
     ] {
         let registry = Rc::new(NativeRegistry::new());
         let program = iris_vm::compile_packages_with_natives(
@@ -131,6 +133,6 @@ fn script_completion_is_preserved_when_only_declarations_are_present() -> Result
 
     let result = iris_vm::run(&program);
 
-    assert_eq!(result, Err(iris_vm::MachineError::UnsupportedConstruct));
+    assert_eq!(result, Err(iris_vm::MachineError::ParseDiagnostic));
     Ok(())
 }

@@ -19,10 +19,13 @@
 //! rows would then be comparing two copies of the same bug.
 
 mod compile;
+mod core_names;
 mod machine;
 mod native;
+mod package_history;
 pub use native::{PackageIdentity, compile_package_tree_with_natives};
 pub use native::{compile_packages_with_natives, compile_with_native, run_with_natives};
+pub use package_history::{PackageHistory, RevisionArtifact};
 
 pub use compile::compile_with_natives;
 pub use compile::{
@@ -45,13 +48,13 @@ mod tests {
     fn verified_calls_never_reach_machine_dispatch_errors() {
         for source in [
             "class C { } module M { public fun r() -> Object { let a = C.new(); a.same?(a) } } M.r()",
-            "module M { public fun r() -> Object { let a = [1]; a.same?(a) } } M.r()",
-            "module M { public fun r() -> Object { let a = [1]; let b = [1]; a.same?(b) } } M.r()",
+            "module M { public fun r() -> Object { let a = %[1]; a.same?(a) } } M.r()",
+            "module M { public fun r() -> Object { let a = %[1]; let b = %[1]; a.same?(b) } } M.r()",
             "module M { public fun r() -> Object { let f = { |x|; x }; f.call(1) } } M.r()",
             "module M { public fun r() -> Object { mut n = 0; let f = { |x|; n = n + x }; f.call(3); n } } M.r()",
             "module M { public fun r() -> Object { mut n = 0; let add = { |x|; n = n + x }; let get = { ||; n }; add.call(2); get.call() } } M.r()",
-            "module M { public fun r() -> Object { mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); [inner.call(2), n] } } M.r()",
-            "module M { public fun r() -> Object { mut n = 0; let f = { ||; let n = 9; n }; [f.call(), n] } } M.r()",
+            "module M { public fun r() -> Object { mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); %[inner.call(2), n] } } M.r()",
+            "module M { public fun r() -> Object { mut n = 0; let f = { ||; let n = 9; n }; %[f.call(), n] } } M.r()",
             "class C { public fun v() -> Integer { 3 } } module M { public fun r() -> Object { let m = C.new().v; m.call() } } M.r()",
             "module M { public fun r() -> Object { (7).hash() } } M.r()",
             "module M { public fun r() -> Object { Integer.type.kind() } } M.r()",
@@ -61,23 +64,23 @@ mod tests {
             "module M { public fun r() -> Object { let value: String | Nil = nil; value } } M.r()",
             "module M { public fun r() -> Object { Integer.type.subtype?(Object.type) } } M.r()",
             "module M { public fun r() -> Object { Object.type.assignable?(Float64.type) } } M.r()",
-            "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is A } } M.r()",
+            "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is? A } } M.r()",
             "class C { public class fun v() -> Integer { 3 } } module M { public fun r() -> Object { C.v() } } M.r()",
             "class A { public fun v() -> Integer { 1 } } class B extends A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { B.new().v() } } M.r()",
             "class A { public fun v() -> Integer { 1 } } open class A { public override fun v() -> Integer { 2 } } module M { public fun r() -> Object { A.new().v() } } M.r()",
             "class A { public fun v() -> Integer { 3 } } module M { public fun make(c: Object) -> Object { c.new().v() } public fun r() -> Object { M.make(A) } } M.r()",
             "class A { public class fun v() -> Integer { 5 } } module M { public fun invoke(c: Object) -> Object { c.v() } public fun r() -> Object { M.invoke(A) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].map({ |x|; x * 2 }) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].each({ |x|; x }) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].select({ |x|; x > 1 }) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].reduce(0, { |a, x|; a + x }) } } M.r()",
-            "module M { public fun r() -> Object { let a = [1]; let b = a; a.push(2); b.pop() } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].join(\"-\") } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].find({ |x|; x > 1 }) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].count({ |x|; x > 0 }) } } M.r()",
-            "module M { public fun r() -> Object { [2, 1].sort() } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].all?({ |x|; x > 0 }) } } M.r()",
-            "module M { public fun r() -> Object { [1, 2].each_with_index({ |x, i|; x + i }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].map({ |x|; x * 2 }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].each({ |x|; x }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].select({ |x|; x > 1 }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].reduce(0, { |a, x|; a + x }) } } M.r()",
+            "module M { public fun r() -> Object { let a = %[1]; let b = a; a.push(2); b.pop() } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].join(\"-\") } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].find({ |x|; x > 1 }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].count({ |x|; x > 0 }) } } M.r()",
+            "module M { public fun r() -> Object { %[2, 1].sort() } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].all?({ |x|; x > 0 }) } } M.r()",
+            "module M { public fun r() -> Object { %[1, 2].each_with_index({ |x, i|; x + i }) } } M.r()",
             "module M { public fun r() -> Object { let h = %{ 1: 2 }.merge(%{ 1: 3 }); h[1] } } M.r()",
             "module M { public fun r() -> Object { (5).to_string() } } M.r()",
             "module M { public fun r() -> Object { %{ 1: 2 }.keys() } } M.r()",
@@ -86,7 +89,7 @@ mod tests {
             "module M { public fun r() -> Object { b\"ab\" + b\"cd\" } } M.r()",
             "module M { public fun r() -> Object { b\"ab\"[1] } } M.r()",
             "module M { public fun r() -> Object { m\"ab\".length } } M.r()",
-            "contract C { fun v() -> Integer } class A for C { public impl fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
+            "contract C { fun v() -> Integer } class A {} impl A for C { public fun v() -> Integer { 4 } } module M { public fun r() -> Object { let view = A.new() as C; view..v() } } M.r()",
             "class A { public property fun v() -> Integer { 4 } } module M { public fun r() -> Object { A.new().v } } M.r()",
             "class A { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { A.new().bump() } } M.r()",
             "mut n = 0; class A { public fun bump() -> Integer { n = n + 1 } } A.new().bump(); n",
@@ -94,8 +97,8 @@ mod tests {
             "module M { public fun r() -> Object { try { raise :x } catch e, context { context.value } } } M.r()",
             "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise :y from first } } catch e, second { second.cause.value } } } M.r()",
             "module M { public fun r() -> Object { try { try { raise :x } catch e, first { raise e } } catch e, second { second.same?(second.cause) } } } M.r()",
-            "module M { public fun r() -> Object { let it = [1].iterator(); [it.next().value, it.next().done?, it.close()] } } M.r()",
-            "class C { public fun iterator() -> Object { [7].iterator() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
+            "module M { public fun r() -> Object { let it = %[1].iterator(); %[it.next().value, it.next().done?, it.close()] } } M.r()",
+            "class C { public fun iterator() -> Object { %[7].iterator() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
             "module M { public fun r() -> Object { Iteration.yield(nil).value } } M.r()",
             "module M { public fun r() -> Object { Iteration.done.done? } } M.r()",
             "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 2 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } module M { public fun r() -> Object { mut sum = 0; for x in C.new() { sum = sum + x }; sum } } M.r()",
@@ -105,7 +108,7 @@ mod tests {
             "class A { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :value); method.bind(A.new()).call() } } M.r()",
             "module N { public fun value() -> Integer { 7 } } module M { public fun r() -> Object { Reflection::Module.method(N, :value).selector } } M.r()",
             "contract C { fun value() -> Integer } module M { public fun r() -> Object { let metadata = Reflection::Contract.requirement(C, :value); metadata[:return_type].kind() } } M.r()",
-            "class A { public property x: Integer = 1 } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); [properties[0], properties.length()] } } M.r()",
+            "class A { public property x: Integer = 1 } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); %[properties[0], properties.length()] } } M.r()",
             "class A { } module M { public fun r() -> Object { let revision = Reflection::Class.revision(A); revision[:number] } } M.r()",
             "module M { public fun r() -> Object { let closure = { |x|; x }; closure.call(7) } } M.r()",
             "module M { public fun r() -> Object { { 7 }.call() } } M.r()",
@@ -117,11 +120,11 @@ mod tests {
             "class A { } module M { public fun r() -> Object { let class_value = A; class_value.new() } } M.r()",
             "class Box<T> { public fun initialize(v: T) -> Nil { @v = v; nil } public fun get() -> T { @v } } module M { public fun r() -> Object { Box<Integer>.new(7).get() } } M.r()",
             "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.same?(Box<String>) } } M.r()",
-            "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is Box } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is? Box } } M.r()",
             "module M { public fun r() -> Object { let values = JSON.decode(\"[1,2]\"); values[1] } } M.r()",
             "module M { public fun r() -> Object { let values = JSON.decode(\"{\\\"a\\\":1}\"); values[\"a\"] } } M.r()",
             "module M { public fun r() -> Object { mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1}\") { total = total + pair[1] }; total } } M.r()",
-            "module M { public fun r() -> Object { JSON.encode([1, 2]) } } M.r()",
+            "module M { public fun r() -> Object { JSON.encode(%[1, 2]) } } M.r()",
             "module M { public fun r() -> Object { let flushed = Revision.flush(); flushed[0] } } M.r()",
             "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); B.open() { |t| 1 }; Revision.flush(); $received } } M.r()",
             "module M { public fun r() -> Object { Revision.event_errors().length() } } M.r()",
@@ -227,7 +230,7 @@ mod tests {
         for source in [
             "1 + 2",
             "let a = 2; let b = 3; a * b",
-            "[1, 2, 3]",
+            "%[1, 2, 3]",
             "-5",
             "Float32.from_bits(0x3f800001).to_bits()",
             "nil.hash()",
@@ -264,6 +267,35 @@ mod tests {
             Err(MachineError::Invalid(VerifyError::ReadBeforeWrite {
                 register: 3
             }))
+        );
+    }
+
+    #[test]
+    fn assert_non_nil_requires_an_assigned_source_register() {
+        let mut compiled = program("1");
+        compiled.registers = 2;
+        compiled.instructions.push(Instruction::AssertNonNil {
+            destination: 0,
+            source: 1,
+        });
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::ReadBeforeWrite { register: 1 })
+        );
+    }
+
+    #[test]
+    fn assert_non_nil_rejects_an_out_of_range_destination() {
+        let mut compiled = program("1");
+        compiled.instructions.push(Instruction::AssertNonNil {
+            destination: 99,
+            source: 0,
+        });
+
+        assert_eq!(
+            verify(&compiled),
+            Err(VerifyError::RegisterOutOfRange { register: 99 })
         );
     }
 
@@ -412,7 +444,7 @@ mod tests {
     /// matters is that the program does not execute.
     #[test]
     fn an_out_of_range_array_range_is_refused() {
-        let mut compiled = program("[1, 2]");
+        let mut compiled = program("%[1, 2]");
         compiled.instructions.push(Instruction::BuildArray {
             destination: 0,
             first: 0,
@@ -426,7 +458,7 @@ mod tests {
 
         // A range that stays IN range but is not fully written is refused as
         // a definite-assignment failure rather than a structural one.
-        let mut unwritten = program("[1, 2]");
+        let mut unwritten = program("%[1, 2]");
         let first = Register::try_from(unwritten.registers).unwrap_or_default();
         unwritten.registers += 2;
         unwritten.instructions.push(Instruction::BuildArray {
@@ -559,15 +591,12 @@ mod tests {
         // ANNOTATIONS the reference runs straight through, so they are no
         // longer here; the differential tests pin that they compile AND that
         // the declaration still works.
+        let legacy_class_for = compile("class A for C { } 1")
+            .expect("legacy class-for lowers to a parser diagnostic program");
+        assert_eq!(verify(&legacy_class_for), Ok(()));
+        assert_eq!(run(&legacy_class_for), Err(MachineError::ParseDiagnostic));
+
         for (source, expected, old_generic_error) in [
-            // A reopen with NO target is no longer here: the reference refuses
-            // it when the program runs, so the backend raises instead of
-            // declining, which is what agrees with it.
-            (
-                "class A for C { } 1",
-                "class contract unbound",
-                "declaration",
-            ),
             // A reopen that changes what the class IS - a superclass - stays
             // declined, while a mixin and a conformance now compose, which the
             // differential tests cover.
@@ -630,7 +659,7 @@ mod ir_document_tests {
         for source in [
             "1 + 2",
             "let a = 1; let a = 2; a",
-            "[1, 2, 3]",
+            "%[1, 2, 3]",
             "let a = 2; let b = 3; a * b",
             "Float32.from_bits(1).to_bits()",
         ] {
@@ -709,7 +738,7 @@ mod ir_document_tests {
     /// lets the instruction name a range instead of an operand list.
     #[test]
     fn array_elements_are_contiguous() {
-        let compiled = program("[1, 2]");
+        let compiled = program("%[1, 2]");
 
         let Some(Instruction::BuildArray {
             first,
@@ -755,7 +784,7 @@ mod ir_document_tests {
                  public fun f(a: Integer) -> Integer { a } } M.r()",
                 "expression keyword argument",
             ),
-            ("for [a, [b]] in [[1, [2]]] { a }", "statement for"),
+            ("for [a, [b]] in %[%[1, %[2]]] { a }", "statement for"),
         ] {
             let Err(declined) = compile(source) else {
                 unreachable!("the document says this is declined: {source}")

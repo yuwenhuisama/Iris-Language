@@ -4,6 +4,7 @@ use super::{
     Class, ClassReopen, ClassVariable, CompileError, Contract, ContractRequirement, LiteralValue,
     StoredProperty,
 };
+use crate::compile::ir::InstanceField;
 
 pub(super) struct Signature<'a> {
     pub(super) declaration: Option<&'a iris_syntax::MethodDeclaration>,
@@ -46,7 +47,7 @@ pub(super) struct CollectedDeclarations<'a> {
     pub(super) contracts: Vec<Contract>,
 }
 
-fn written_constructions(
+pub(super) fn written_constructions(
     declarations: &[iris_syntax::Declaration],
     top_level: &[Statement],
     class: &str,
@@ -70,6 +71,8 @@ fn written_constructions(
             | iris_syntax::Expression::ContractView { receiver, .. }
             | iris_syntax::Expression::Await(receiver)
             | iris_syntax::Expression::Grouped(receiver)
+            | iris_syntax::Expression::BlockArgument { value: receiver }
+            | iris_syntax::Expression::NonNull(receiver)
             | iris_syntax::Expression::Unary {
                 operand: receiver, ..
             }
@@ -183,6 +186,12 @@ fn written_constructions(
                 | Statement::SharedBinding { value, .. }
                 | Statement::GlobalBinding { value, .. }
                 | Statement::Expression(value) => visit_expression(value, class, found),
+                Statement::InstanceField {
+                    annotation, value, ..
+                } => {
+                    visit_type(annotation.as_ref(), class, found);
+                    visit_expression(value, class, found);
+                }
                 Statement::DeferredBinding { .. } | Statement::Continue(_) => {}
                 Statement::StoredProperty {
                     annotation,
@@ -293,7 +302,29 @@ fn written_constructions(
             iris_syntax::Declaration::Module(declaration) => {
                 visit_statements(&declaration.body, class, &mut found)
             }
-            _ => {}
+            iris_syntax::Declaration::Impl(declaration) => {
+                visit_type(Some(&declaration.target), class, &mut found);
+                visit_type(Some(&declaration.contract), class, &mut found);
+                for constraint in &declaration.constraints {
+                    visit_type(Some(&constraint.bound), class, &mut found);
+                }
+                for method in &declaration.methods {
+                    visit_type(method.return_type.as_ref(), class, &mut found);
+                    for parameter in &method.parameters {
+                        visit_type(parameter.annotation.as_ref(), class, &mut found);
+                        if let Some(value) = &parameter.default {
+                            visit_expression(value, class, &mut found);
+                        }
+                    }
+                    if let Some(body) = &method.body {
+                        visit_statements(body, class, &mut found);
+                    }
+                }
+            }
+            iris_syntax::Declaration::Contract(_)
+            | iris_syntax::Declaration::Import(_)
+            | iris_syntax::Declaration::Export(_)
+            | iris_syntax::Declaration::TypeAlias(_) => {}
         }
     }
     visit_statements(top_level, class, &mut found);
@@ -307,6 +338,12 @@ pub(super) fn collect_signatures<'a>(
     let mut signatures = Vec::new();
     let mut classes = Vec::new();
     let mut contracts = traversal_contracts();
+    contracts.extend(super::core_contracts::decorator_contracts());
+    for declaration in declarations {
+        if let iris_syntax::Declaration::Contract(contract) = declaration {
+            super::effective_contracts::collect(contract, &mut contracts)?;
+        }
+    }
     let mut modules = Vec::new();
     let mut builtin_reopens = Vec::new();
     // A REOPEN is collected after every origin declaration, because it names a
@@ -324,8 +361,7 @@ pub(super) fn collect_signatures<'a>(
             iris_syntax::Declaration::Class(class) if class.reopen)
         }));
     for declaration in ordered {
-        if let iris_syntax::Declaration::Contract(contract) = declaration {
-            collect_contract(contract, &mut contracts)?;
+        if let iris_syntax::Declaration::Contract(_) = declaration {
             continue;
         }
         // A TYPE ALIAS names an existing type and declares nothing the backend
@@ -342,6 +378,9 @@ pub(super) fn collect_signatures<'a>(
         if matches!(declaration, iris_syntax::Declaration::Import(_)) {
             continue;
         }
+        if matches!(declaration, iris_syntax::Declaration::Impl(_)) {
+            continue;
+        }
         let iris_syntax::Declaration::Module(module) = declaration else {
             let iris_syntax::Declaration::Class(class) = declaration else {
                 return Err(CompileError::new(match declaration {
@@ -351,6 +390,7 @@ pub(super) fn collect_signatures<'a>(
                     // where the program's statements are lowered.
                     iris_syntax::Declaration::Import(_) => "declaration import",
                     iris_syntax::Declaration::Export(_) => "declaration export",
+                    iris_syntax::Declaration::Impl(_) => "declaration impl",
                     iris_syntax::Declaration::TypeAlias(_) => "declaration type alias",
                     iris_syntax::Declaration::Class(_) | iris_syntax::Declaration::Module(_) => {
                         "declaration covered"
@@ -424,7 +464,9 @@ pub(super) fn collect_signatures<'a>(
         signatures.retain(|signature| signature.module != module.name);
         modules.retain(|known: &crate::compile::ir::ModuleDeclaration| known.name != module.name);
         modules.push(crate::compile::ir::ModuleDeclaration {
+            replay: None,
             name: module.name.clone(),
+            meta_deny: module.meta_deny.clone(),
             mixins,
         });
         // A module's `shared class property` is READ as a member - `M.first`
@@ -458,7 +500,8 @@ pub(super) fn collect_signatures<'a>(
         // must bind `self` to it or the object would land in the first
         // parameter's register. A module never composed keeps the receiverless
         // form, where `M.f()` passes only its arguments.
-        let composed = declarations.iter().any(|declaration| match declaration {
+        let composed = !module.decorators.is_empty() || module.body.iter().any(|statement|
+            matches!(statement, Statement::Method(method) if !method.decorators.is_empty())) || declarations.iter().any(|declaration| match declaration {
             iris_syntax::Declaration::Class(class) => class.mixins.iter().any(|mixin| {
                 matches!(&mixin.target,
                     TypeExpression::Name(name) | TypeExpression::Generic { name, .. }
@@ -468,6 +511,9 @@ pub(super) fn collect_signatures<'a>(
         });
         collect_methods(&module.name, &module.body, composed, &mut signatures)?;
     }
+    collect_impls(declarations, &contracts, &mut signatures, &mut classes)?;
+    super::effective_contracts::expand_conformances(&mut classes, &contracts)?;
+    super::static_obligations::validate_origins(&classes, &contracts, &signatures)?;
     // `D-173` puts the contract-visible SIGNATURE in the static spine, so a
     // member composed from a MIXIN whose parameter Type contradicts a declared
     // requirement is an incompatible replacement. That is checked here rather
@@ -476,6 +522,9 @@ pub(super) fn collect_signatures<'a>(
     for class in &classes {
         for contract in &class.contracts {
             for requirement in &contracts[*contract].requirements {
+                if class.static_impls.contains(&requirement.selector) {
+                    continue;
+                }
                 let composed = class.mixins.iter().find_map(|(mixin, _)| {
                     declarations
                         .iter()
@@ -591,6 +640,9 @@ pub(super) fn collect_signatures<'a>(
             for second in &conformances[position + 1..] {
                 for left in &contracts[*first].requirements {
                     for right in &contracts[*second].requirements {
+                        if class.static_impls.contains(&left.selector) {
+                            continue;
+                        }
                         if left.selector != right.selector {
                             continue;
                         }
@@ -615,32 +667,15 @@ pub(super) fn collect_signatures<'a>(
             }
         }
     }
-    for class in &classes {
+    for (class_index, class) in classes.iter().enumerate() {
         if class.reopens.is_empty() {
             continue;
         }
         for arguments in written_constructions(declarations, statements, &class.name) {
-            for position in &class.non_nil_bounds {
-                if matches!(arguments.get(*position), Some(TypeExpression::Name(name)) if name == "Nil")
-                {
-                    return Err(CompileError::new("closed construction bound"));
-                }
-            }
-            for (position, contract) in &class.contract_bounds {
-                let Some(argument) = arguments.get(*position) else {
-                    continue;
-                };
-                let name = match argument {
-                    TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => name,
-                    _ => continue,
-                };
-                if !classes
-                    .iter()
-                    .find(|candidate| candidate.name == *name)
-                    .is_some_and(|candidate| candidate.contracts.contains(contract))
-                {
-                    return Err(CompileError::new("closed construction bound"));
-                }
+            if !super::calls::admission::Admission::new(&classes, &contracts)
+                .accepts(class_index, &arguments)
+            {
+                return Err(CompileError::new("closed construction bound"));
             }
         }
     }
@@ -653,100 +688,183 @@ pub(super) fn collect_signatures<'a>(
     })
 }
 
-fn collect_contract(
-    declaration: &iris_syntax::ContractDeclaration,
-    contracts: &mut Vec<Contract>,
+fn collect_impls<'a>(
+    declarations: &'a [iris_syntax::Declaration],
+    contracts: &[Contract],
+    signatures: &mut Vec<Signature<'a>>,
+    classes: &mut [Class],
 ) -> Result<(), CompileError> {
-    // A decorator, a `where` constraint, a `meta deny` list and type
-    // PARAMETERS annotate the declaration without changing its REQUIREMENTS -
-    // `contract Comparable<T> {}` declares none either way - so they are
-    // accepted the way the class forms are. `open` is such an annotation too:
-    // it governs whether the contract may be REOPENED, which is a separate
-    // surface, and the requirement set is the same either way.
-    //
-    // `extends` is NOT an annotation: a child carries its parents'
-    // requirements as well as its own, so they are inherited here rather than
-    // ignored. Ignoring them would answer a requirement set that is wrong
-    // rather than merely incomplete. A parent must already be declared, since
-    // its requirements have to exist to be inherited.
-    let mut requirements = Vec::new();
-    let mut parents = Vec::new();
-    for parent in &declaration.parents {
-        // A GENERIC parent names the same contract as a bare one: the backend
-        // interns one contract per definition rather than per construction, so
-        // `extends P<Integer>` inherits `P`'s requirements.
-        let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = parent else {
-            return Err(CompileError::new("contract declaration form"));
+    let mut claimed = Vec::new();
+    for declaration in declarations {
+        let iris_syntax::Declaration::Impl(declaration) = declaration else {
+            continue;
         };
-        let Some(parent) = contracts.iter().rfind(|known| known.name == *name) else {
-            // `Iterable` and `Iterator` are KERNEL contracts rather than
-            // program declarations, so a child extending one inherits nothing
-            // this backend records - the reference runs the declaration, and a
-            // program depending on those requirements fails on the collection
-            // surface rather than here.
-            if matches!(name.as_str(), "Iterable" | "Iterator" | "Comparable") {
-                continue;
-            }
-            return Err(CompileError::new("contract parent unbound"));
+        let (TypeExpression::Name(target) | TypeExpression::Generic { name: target, .. }) =
+            &declaration.target
+        else {
+            return Err(CompileError::new("static impl"));
         };
-        parents.push(name.clone());
-        parents.extend(parent.parents.iter().cloned());
-        requirements.extend(parent.requirements.iter().cloned());
-    }
-    for statement in &declaration.body {
-        let Statement::Method(method) = statement else {
-            return Err(CompileError::new("contract body"));
+        let (TypeExpression::Name(contract_name)
+        | TypeExpression::Generic {
+            name: contract_name,
+            ..
+        }) = &declaration.contract
+        else {
+            return Err(CompileError::new("static impl"));
         };
-        if matches!(method.impl_contract, Some(Some(_))) {
-            return Err(CompileError::new("qualified contract implementation"));
-        }
-        // A requirement may carry a DEFAULT BODY, which the contract offers to
-        // an implementor rather than declaring anything else: the reference
-        // runs `contract C { fun m() -> Nil { nil } } 1` and answers `1`. The
-        // body is not lowered, because a class satisfying the requirement
-        // supplies its own - only the requirement's SHAPE is recorded.
-        if method.kind != iris_syntax::MethodKind::Instance
-            || matches!(method.impl_contract, Some(Some(_)))
-            || method.is_async
-            || !method.decorators.is_empty()
-            || !method.type_parameters.is_empty()
-        {
-            return Err(CompileError::new("contract requirement form"));
-        }
-        if method
-            .parameters
+        let Some(class) = classes.iter().position(|class| class.name == *target) else {
+            return Err(CompileError::new("static impl"));
+        };
+        let contract = contracts
             .iter()
-            .any(|parameter| parameter.category != iris_syntax::ParameterCategory::Positional)
-        {
-            return Err(CompileError::new("parameter"));
+            .rposition(|contract| contract.name == *contract_name)
+            .ok_or_else(|| CompileError::new("static impl"))?;
+        if claimed.contains(&(class, contract)) || classes[class].contracts.contains(&contract) {
+            return Err(CompileError::new("static impl"));
         }
-        requirements.push(ContractRequirement {
-            selector: method.selector.clone(),
-            arity: method.parameters.len(),
-            parameter_types: method
-                .parameters
+        if declaration.methods.iter().any(|method| {
+            method.kind != iris_syntax::MethodKind::Instance
+                || method.body.is_none()
+                || !contracts[contract]
+                    .requirements
+                    .iter()
+                    .any(|requirement| requirement.selector == method.selector)
+        }) {
+            return Err(CompileError::new("static impl"));
+        }
+        let mut method_names = Vec::new();
+        for method in &declaration.methods {
+            if method_names.contains(&method.selector) {
+                return Err(CompileError::new("static impl"));
+            }
+            method_names.push(method.selector.clone());
+        }
+        let mut selected = Vec::new();
+        for requirement in &contracts[contract].requirements {
+            let declared = declaration
+                .methods
                 .iter()
-                .map(|parameter| match parameter.annotation.as_ref() {
-                    Some(TypeExpression::Name(name)) => Some(name.clone()),
-                    _ => None,
+                .find(|method| method.selector == requirement.selector);
+            let existing = classes[class]
+                .methods
+                .iter()
+                .rev()
+                .find(|(selector, _)| *selector == requirement.selector)
+                .map(|(_, function)| *function)
+                .or_else(|| {
+                    classes[class].mixins.iter().rev().find_map(|(mixin, _)| {
+                        signatures.iter().rposition(|signature| {
+                            signature.module == mixin && signature.selector == requirement.selector
+                        })
+                    })
                 })
-                .collect(),
-            return_type: method.return_type.clone(),
-        });
+                .or_else(|| {
+                    let mut ancestor = classes[class].superclass;
+                    while let Some(index) = ancestor {
+                        if let Some((_, function)) = classes[index]
+                            .methods
+                            .iter()
+                            .rev()
+                            .find(|(selector, _)| *selector == requirement.selector)
+                        {
+                            return Some(*function);
+                        }
+                        ancestor = classes[index].superclass;
+                    }
+                    None
+                });
+            let method = declared
+                .or_else(|| existing.and_then(|function| signatures.get(function)?.declaration));
+            let promise = contracts[contract]
+                .signatures
+                .iter()
+                .rev()
+                .find(|signature| signature.selector == requirement.selector)
+                .ok_or_else(|| CompileError::new("static impl"))?;
+            let arguments = match &declaration.contract {
+                TypeExpression::Generic { arguments, .. } => arguments.as_slice(),
+                _ => &[],
+            };
+            if arguments.len() != contracts[contract].type_parameters.len() {
+                return Err(CompileError::new("static impl"));
+            }
+            let promise = super::effective_contracts::closed_requirement(
+                &contracts[contract],
+                arguments,
+                promise,
+            );
+            let compatible = method.is_some_and(|method| {
+                iris_syntax::method_signature_compatible(method, &promise, |source, target| {
+                    let mut current = classes.iter().position(|class| class.name == source);
+                    while let Some(index) = current {
+                        if classes[index].name == target {
+                            return true;
+                        }
+                        current = classes[index].superclass;
+                    }
+                    false
+                })
+            });
+            if !compatible {
+                return Err(CompileError::new("static impl"));
+            }
+            selected.push((requirement.selector.clone(), declared, existing));
+        }
+        for (selector, declared, existing) in selected {
+            let function = match declared {
+                Some(method) => {
+                    let body = method
+                        .body
+                        .as_deref()
+                        .ok_or_else(|| CompileError::new("static impl"))?;
+                    signatures.push(Signature {
+                        declaration: Some(method),
+                        module: target,
+                        selector: &method.selector,
+                        parameters: method.parameters.iter().collect(),
+                        return_type: method.return_type.as_ref(),
+                        body,
+                        receiver: true,
+                        class_method: false,
+                        private: method.visibility == iris_syntax::Visibility::Private,
+                        is_async: method.is_async,
+                        constants: Vec::new(),
+                        expression_body: None,
+                    });
+                    let function = signatures.len() - 1;
+                    classes[class].methods.push((selector.clone(), function));
+                    function
+                }
+                None => existing.ok_or_else(|| CompileError::new("static impl"))?,
+            };
+            if !classes[class].static_impls.contains(&selector) {
+                classes[class].static_impls.push(selector.clone());
+            }
+            classes[class]
+                .qualified_impls
+                .push((contract, selector, function));
+        }
+        classes[class].contracts.push(contract);
+        classes[class].contract_arguments.push((
+            contract,
+            match &declaration.contract {
+                TypeExpression::Generic { arguments, .. } => arguments.clone(),
+                _ => Vec::new(),
+            },
+        ));
+        claimed.push((class, contract));
     }
-    contracts.push(Contract {
-        parents,
-        name: declaration.name.clone(),
-        requirements,
-        meta_deny: declaration.meta_deny.clone(),
-    });
     Ok(())
 }
 
 fn traversal_contracts() -> Vec<Contract> {
-    vec![
+    let mut contracts = vec![
         Contract {
+            parent_arguments: Vec::new(),
+            core_identity: None,
             name: "Iterable".to_owned(),
+            type_parameters: vec!["T".into()],
+            signatures: Vec::new(),
             parents: Vec::new(),
             requirements: vec![ContractRequirement {
                 selector: "iterator".to_owned(),
@@ -760,7 +878,11 @@ fn traversal_contracts() -> Vec<Contract> {
             meta_deny: Vec::new(),
         },
         Contract {
+            parent_arguments: Vec::new(),
+            core_identity: None,
             name: "Iterator".to_owned(),
+            type_parameters: vec!["T".into()],
+            signatures: Vec::new(),
             parents: Vec::new(),
             requirements: vec![
                 ContractRequirement {
@@ -782,12 +904,24 @@ fn traversal_contracts() -> Vec<Contract> {
             meta_deny: Vec::new(),
         },
         Contract {
+            parent_arguments: Vec::new(),
+            core_identity: None,
             name: "Iteration".to_owned(),
+            type_parameters: vec!["T".into()],
+            signatures: Vec::new(),
             parents: Vec::new(),
             requirements: Vec::new(),
             meta_deny: Vec::new(),
         },
-    ]
+    ];
+    for contract in &mut contracts {
+        contract.signatures = contract
+            .requirements
+            .iter()
+            .map(super::effective_contracts::signature)
+            .collect();
+    }
+    contracts
 }
 
 fn collect_class<'a>(
@@ -927,7 +1061,51 @@ fn collect_class<'a>(
     // FRAME with `self` bound, appended after the class's own methods so its
     // index is stable once every declaration has been collected.
     let mut stored_properties = Vec::new();
+    let mut instance_fields = Vec::new();
     for statement in &class.body {
+        if let Statement::InstanceField {
+            mutable,
+            name,
+            annotation,
+            value,
+        } = statement
+        {
+            let field_name = format!("@{name}");
+            if instance_fields
+                .iter()
+                .any(|field: &InstanceField| field.name == field_name)
+            {
+                return Err(CompileError::new("instance field duplicate"));
+            }
+            let literal = literal_value(value, "instance field initializer");
+            let initializer_function = if literal.is_ok() {
+                None
+            } else {
+                signatures.push(Signature {
+                    declaration: None,
+                    module: &class.name,
+                    selector: name,
+                    parameters: Vec::new(),
+                    return_type: annotation.as_ref(),
+                    body: &[],
+                    receiver: true,
+                    class_method: false,
+                    private: true,
+                    is_async: false,
+                    constants: Vec::new(),
+                    expression_body: Some(value),
+                });
+                Some(signatures.len() - 1)
+            };
+            instance_fields.push(InstanceField {
+                name: field_name,
+                mutable: *mutable,
+                annotation: annotation.clone(),
+                initializer: literal.unwrap_or(LiteralValue::Nil),
+                initializer_function,
+            });
+            continue;
+        }
         let Statement::StoredProperty {
             class_level,
             shared,
@@ -1089,7 +1267,7 @@ fn collect_class<'a>(
     }
     let private_methods = signatures[first_function..]
         .iter()
-        .filter(|signature| signature.private)
+        .filter(|signature| signature.declaration.is_some() && signature.private)
         .map(|signature| signature.selector.to_owned())
         .collect();
     // `C024` forbids an OVERLOAD SET: one selector maps to at most one method
@@ -1115,6 +1293,16 @@ fn collect_class<'a>(
         declared.push(seen);
     }
     classes.push(Class {
+        constraints: class.constraints.clone(),
+        contract_arguments: conformances
+            .iter()
+            .copied()
+            .zip(class.implements.iter().map(|target| match target {
+                TypeExpression::Generic { arguments, .. } => arguments.clone(),
+                _ => Vec::new(),
+            }))
+            .collect(),
+        type_parameters: class.parameters.clone(),
         name: class.name.clone(),
         private_methods,
         override_required,
@@ -1142,9 +1330,11 @@ fn collect_class<'a>(
         mixins,
         contract_bounds,
         qualified_impls,
+        static_impls: Vec::new(),
         property_methods,
         class_variables,
         stored_properties,
+        instance_fields,
     });
     Ok(())
 }
@@ -1228,6 +1418,9 @@ fn collect_reopen<'a>(
     // reopen, since the class has only one set of bounds. Dropping it let a
     // construction the language refuses stand.
     for constraint in &class.constraints {
+        if !classes[target].constraints.contains(constraint) {
+            classes[target].constraints.push(constraint.clone());
+        }
         let (TypeExpression::Name(bound) | TypeExpression::Generic { name: bound, .. }) =
             &constraint.bound
         else {
@@ -1263,9 +1456,7 @@ fn collect_reopen<'a>(
         else {
             return Err(CompileError::new("class reopen header"));
         };
-        classes[target]
-            .mixins
-            .push((name.clone(), mixin.private_access));
+        let _ = name;
     }
     // A REOPEN replaces what the origin declared, so `C024` requires
     // `override` there too: the origin is a static fact and passes unchecked,
@@ -1305,10 +1496,15 @@ fn collect_reopen<'a>(
                 continue;
             };
             let clashes = class.body.iter().any(|statement| match statement {
-                Statement::Method(method) if method.selector == requirement.selector => method
-                    .return_type
-                    .as_ref()
-                    .is_some_and(|actual| actual != required),
+                Statement::Method(method)
+                    if method.selector == requirement.selector
+                        && !matches!(method.impl_contract, Some(Some(_))) =>
+                {
+                    method
+                        .return_type
+                        .as_ref()
+                        .is_some_and(|actual| actual != required)
+                }
                 _ => false,
             });
             if clashes {
@@ -1320,6 +1516,33 @@ fn collect_reopen<'a>(
     collect_methods(&class.name, &class.body, true, signatures)?;
     let (methods, class_methods) = collected_method_tables(signatures, first_function);
     classes[target].reopens.push(ClassReopen {
+        mixins: class
+            .mixins
+            .iter()
+            .map(|mixin| match &mixin.target {
+                TypeExpression::Name(name) | TypeExpression::Generic { name, .. } => {
+                    Ok((name.clone(), mixin.private_access))
+                }
+                _ => Err(CompileError::new("class reopen header")),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        qualified_impls: signatures[first_function..]
+            .iter()
+            .enumerate()
+            .filter_map(|(offset, signature)| {
+                let Some(Some(qualifier)) = signature.declaration?.impl_contract.as_ref() else {
+                    return None;
+                };
+                let contract = contracts
+                    .iter()
+                    .rposition(|contract| contract.name == *qualifier)?;
+                Some((
+                    contract,
+                    signature.selector.to_owned(),
+                    first_function + offset,
+                ))
+            })
+            .collect(),
         methods,
         class_methods,
     });
@@ -1334,7 +1557,7 @@ fn contract_indices(
         .implements
         .iter()
         .map(|target| {
-            let TypeExpression::Name(name) = target else {
+            let (TypeExpression::Name(name) | TypeExpression::Generic { name, .. }) = target else {
                 return Err(CompileError::new("class contract type"));
             };
             contracts
@@ -1376,7 +1599,7 @@ fn validate_contracts(
     // plain method satisfies a requirement without an `impl` marker. Refusing
     // the declaration declined programs that run, and demanding the marker
     // refused the ordinary form as well.
-    let _ = conformances;
+    super::core_contracts::validate(class, contracts, conformances)?;
     Ok(())
 }
 
@@ -1387,6 +1610,15 @@ fn collected_method_tables(
     let mut methods = Vec::new();
     let mut class_methods = Vec::new();
     for (offset, signature) in signatures[first_function..].iter().enumerate() {
+        if signature.declaration.is_none() {
+            continue;
+        }
+        if signature
+            .declaration
+            .is_some_and(|method| matches!(method.impl_contract, Some(Some(_))))
+        {
+            continue;
+        }
         let entry = (signature.selector.to_owned(), first_function + offset);
         if signature.class_method {
             class_methods.push(entry);
@@ -1423,6 +1655,9 @@ fn collect_methods<'a>(
             statement,
             Statement::SharedBinding { .. } | Statement::StoredProperty { .. }
         ) {
+            continue;
+        }
+        if matches!(statement, Statement::InstanceField { .. }) {
             continue;
         }
         // A `const` is state rather than a callable, so it contributes no
@@ -1467,15 +1702,13 @@ fn collect_methods<'a>(
         // module's ordinary `fun` is already reached: `M.f()`. On a class it
         // is a different shape, so it stays declined there.
         let module_level = !receiver && method.kind == iris_syntax::MethodKind::Module;
-        if !method.decorators.is_empty()
-            || !matches!(
-                method.kind,
-                iris_syntax::MethodKind::Instance
-                    | iris_syntax::MethodKind::Class
-                    | iris_syntax::MethodKind::Property
-                    | iris_syntax::MethodKind::Module
-            )
-            || (!receiver && !module_level && method.kind != iris_syntax::MethodKind::Instance)
+        if !matches!(
+            method.kind,
+            iris_syntax::MethodKind::Instance
+                | iris_syntax::MethodKind::Class
+                | iris_syntax::MethodKind::Property
+                | iris_syntax::MethodKind::Module
+        ) || (!receiver && !module_level && method.kind != iris_syntax::MethodKind::Instance)
             || (receiver && method.kind == iris_syntax::MethodKind::Module)
         {
             return Err(method_error(method));

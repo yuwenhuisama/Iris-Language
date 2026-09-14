@@ -1,0 +1,34 @@
+class Effects {
+ public class property origins: Integer = 0
+ public class property closed: Integer = 0
+ public class property bodies: Integer = 0
+ public class property wrappers: Integer = 0
+}
+class Wrap {}
+impl Wrap for MethodDecorator {
+ public fun plan(d, a) -> Plan {
+  if d.signature.parameters[0].type.kind != :parameter { raise :open }
+  if d.signature.parameters[0].type.name != :T { raise :name }
+  Plan.empty
+ }
+ public fun transform(d, a, c) -> Transformation {
+  if d.signature.parameters[0].type.kind != :parameter { raise :structural }
+  if c.reason == :origin { Effects.origins = Effects.origins + 1 }
+  if c.reason == :closed_materialization { Effects.closed = Effects.closed + 1 }
+  mut calls = 0
+  Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+   Effects.wrappers = Effects.wrappers + 1
+   calls = calls + 1
+   if invocation.owner_type_arguments[0] != invocation.signature.result { raise :owner }
+   if invocation.method_type_arguments.length() != 0 { raise :method }
+   if invocation.signature.parameters[0].type != invocation.signature.result { raise :signature }
+   if invocation.signature.result == Integer.type && invocation.slot[0] != Box<Integer>.type { raise :slot }
+   if invocation.signature.result == String.type && invocation.slot[0] != Box<String>.type { raise :slot }
+   let value = next.call()
+   if invocation.signature.result == Integer.type { (value as Integer) + calls } else { value }
+  })
+ }
+}
+class Box<T> {
+ @Wrap() public fun value(value: T) -> T { Effects.bodies = Effects.bodies + 1; let result: T = value; result }
+}

@@ -23,6 +23,7 @@ pub enum MachineError {
     Class(ClassError),
     Construction(ConstructionError),
     NameError,
+    RevisionArtifactUnavailable,
     /// A `break` or `continue` reached NO enclosing loop.
     ///
     /// `IRIS-V1-CONTROL-C069` requires every control transfer to have a
@@ -222,7 +223,74 @@ pub enum VerifyError {
 /// # Errors
 /// Returns the first malformation found.
 pub fn verify(program: &Program) -> Result<(), VerifyError> {
+    for instruction in program
+        .functions
+        .iter()
+        .flat_map(|function| &function.instructions)
+        .chain(&program.instructions)
+    {
+        if let Instruction::ApplyModuleDecorators { module } = instruction
+            && *module >= program.modules.len()
+        {
+            return Err(VerifyError::UnknownFunction { function: *module });
+        }
+        if let Instruction::DeclareMethod {
+            class,
+            function,
+            applications,
+        } = instruction
+        {
+            if *class >= program.classes.len() {
+                return Err(VerifyError::UnknownFunction {
+                    function: *function,
+                });
+            }
+            for application in applications {
+                if application.target != crate::compile::decorators::Target::Class(*class)
+                    || application.decorator >= program.classes.len()
+                    || application.method != Some(*function)
+                {
+                    return Err(VerifyError::UnknownFunction {
+                        function: *function,
+                    });
+                }
+            }
+        }
+    }
+    for application in &program.decorator_applications {
+        let valid_target = match application.target {
+            crate::compile::decorators::Target::Class(index) => index < program.classes.len(),
+            crate::compile::decorators::Target::Reopen { class, artifact } => program
+                .classes
+                .get(class)
+                .is_some_and(|class| artifact < class.reopens.len()),
+            crate::compile::decorators::Target::Module(index) => index < program.modules.len(),
+            crate::compile::decorators::Target::Contract(index) => {
+                index < program.contracts.len() && application.method.is_none()
+            }
+        };
+        if !valid_target
+            || application.decorator >= program.classes.len()
+            || application
+                .method
+                .is_some_and(|function| function >= program.functions.len())
+        {
+            return Err(VerifyError::UnknownFunction {
+                function: application.arguments,
+            });
+        }
+        if application.arguments >= program.functions.len() {
+            return Err(VerifyError::UnknownFunction {
+                function: application.arguments,
+            });
+        }
+    }
     for function in &program.functions {
+        if function.body_entry > function.instructions.len() {
+            return Err(VerifyError::JumpOutOfRange {
+                target: function.body_entry,
+            });
+        }
         verify_body(
             &function.instructions,
             function.registers,
@@ -277,7 +345,64 @@ fn verify_body(
                 register: *assigned,
             });
         }
+        if let Instruction::ParameterPresent { index, .. }
+        | Instruction::DefaultParameter { index, .. } = instruction
+            && *index >= parameters
+        {
+            return Err(VerifyError::RegisterOutOfRange {
+                register: Register::try_from(*index).unwrap_or(Register::MAX),
+            });
+        }
+        if let Instruction::BindParameters {
+            kinds,
+            optional,
+            first,
+            count,
+            ..
+        } = instruction
+        {
+            range(*first, *count, registers)?;
+            if kinds.len() != optional.len() || kinds.len() != usize::from(*count) {
+                return Err(VerifyError::ArrayRangeOutOfRange {
+                    first: *first,
+                    count: *count,
+                });
+            }
+        }
         match instruction {
+            Instruction::GenericCall { call, .. } => {
+                if !matches!(
+                    call.as_ref(),
+                    Instruction::Call { .. }
+                        | Instruction::SendClass { .. }
+                        | Instruction::Send { .. }
+                        | Instruction::SendContract { .. }
+                ) {
+                    return Err(VerifyError::UnknownFunction {
+                        function: functions,
+                    });
+                }
+                verify_body(
+                    std::slice::from_ref(call.as_ref()),
+                    registers,
+                    functions,
+                    registers,
+                    None,
+                )?;
+            }
+            Instruction::DeclareMethod {
+                function,
+                applications,
+                ..
+            } => {
+                for function in std::iter::once(*function)
+                    .chain(applications.iter().map(|application| application.arguments))
+                {
+                    if function >= functions {
+                        return Err(VerifyError::UnknownFunction { function });
+                    }
+                }
+            }
             Instruction::JumpUnless { target, .. } | Instruction::Jump { target } => {
                 if *target > instructions.len() {
                     return Err(VerifyError::JumpOutOfRange { target: *target });
@@ -343,6 +468,7 @@ fn verify_body(
                 }
             }
             Instruction::BuildArray { first, count, .. }
+            | Instruction::Using { first, count, .. }
             | Instruction::BuildTuple { first, count, .. }
             | Instruction::NativeCall { first, count, .. }
             | Instruction::New { first, count, .. }
@@ -547,9 +673,12 @@ fn fall_through(
 }
 
 /// Every register an instruction reads.
-fn reads(instruction: &Instruction) -> Vec<Register> {
+pub(super) fn reads(instruction: &Instruction) -> Vec<Register> {
     match instruction {
+        Instruction::GenericCall { call, .. } => reads(call),
+        Instruction::ApplyModuleDecorators { .. } | Instruction::LoadModule { .. } => Vec::new(),
         Instruction::Move { source, .. }
+        | Instruction::AssertNonNil { source, .. }
         | Instruction::MakeCell { source, .. }
         | Instruction::MakeMutableString { source, .. } => vec![*source],
         Instruction::LoadCell { cell, .. } => vec![*cell],
@@ -593,9 +722,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
             .copied()
             .chain((0..*count).map(|offset| first + offset))
             .collect(),
-        Instruction::Using {
-            resource, block, ..
-        } => vec![*resource, *block],
+        Instruction::Using { first, count, .. } => {
+            (0..*count).map(|offset| first + offset).collect()
+        }
         Instruction::Send {
             receiver,
             first,
@@ -630,7 +759,9 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => std::iter::once(*receiver)
             .chain((0..*count).map(|offset| first + offset))
             .collect(),
-        Instruction::ContractCast { receiver, .. } => vec![*receiver],
+        Instruction::ContractCast { receiver, .. } | Instruction::ContractTest { receiver, .. } => {
+            vec![*receiver]
+        }
         Instruction::Index {
             receiver, index, ..
         } => vec![*receiver, *index],
@@ -668,6 +799,10 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         } => vec![*value, *assigned],
         Instruction::GateComplete { gate, value, .. } => vec![*gate, *value],
         Instruction::DefaultParameter { source, .. } => vec![*source],
+        Instruction::ParameterPresent { .. }
+        | Instruction::ApplyDecorators { .. }
+        | Instruction::ApplyContractDecorators { .. }
+        | Instruction::DeclareMethod { .. } => Vec::new(),
         // The frame binds its own parameters from the argument window, which
         // the caller wrote before entry, so no register here is read.
         Instruction::BindParameters { .. } => Vec::new(),
@@ -686,6 +821,7 @@ fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::IrisValueDecode { stream, .. } => vec![*stream],
         Instruction::TestTruth { value, .. }
         | Instruction::NegateTruth { value, .. }
+        | Instruction::MakeBlockArgument { value, .. }
         | Instruction::MakeKeywordArgument { value, .. } => vec![*value],
         Instruction::LoadInteger { .. }
         | Instruction::LoadFloat64 { .. }

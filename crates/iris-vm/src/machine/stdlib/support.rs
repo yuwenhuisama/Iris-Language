@@ -98,19 +98,31 @@ impl Machine {
             .collect()
     }
 
-    pub(super) fn invoke_closure(
+    pub(in crate::machine) fn invoke_closure(
         &mut self,
         closure: &Value,
         arguments: &[Value],
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        if let Value::BoundMethod(bound) = closure {
+            return self.invoke_bound_callable(bound, arguments, (program, classes));
+        }
         let Value::Closure(identity) = closure else {
             return Err(MachineError::Kernel(KernelError::Type));
         };
         let Some(record) = self.closures.get(identity).cloned() else {
             return Err(MachineError::Kernel(KernelError::Type));
         };
+        let program = record.program.as_ref();
+        let owned_classes = program
+            .link
+            .as_ref()
+            .ok_or(MachineError::UnsupportedConstruct)?
+            .classes
+            .borrow()
+            .clone();
+        let classes = owned_classes.as_slice();
         let Some(Function {
             instructions,
             registers,

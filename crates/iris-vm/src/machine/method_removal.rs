@@ -1,10 +1,10 @@
-use super::{Machine, MachineError, OpenGroupState, VerifyError};
+use super::{Machine, MachineError, OpenGroupState};
 use crate::compile::Program;
 use iris_runtime::{ClassId, Method, MroEntry, Selector};
 
 #[derive(Clone, Copy)]
 pub(super) enum PendingMethod {
-    Function(usize),
+    Function(iris_runtime::MethodBody),
     Removed,
     Undefined,
 }
@@ -55,20 +55,20 @@ impl Machine {
     ) -> Result<(), MachineError> {
         let function = if slot.2 {
             match self.pending_replacements.get(&slot) {
-                Some(PendingMethod::Function(function)) => *function,
+                Some(PendingMethod::Function(body)) => self
+                    .resolve_method_body(*body, program)
+                    .map_err(|error| error.invalid_function())?,
                 Some(PendingMethod::Removed | PendingMethod::Undefined) | None => return Ok(()),
             }
         } else {
             match self.effective_candidate_method(slot.0, slot.1)? {
-                Some(method) => usize::try_from(method.body().raw()).map_err(|_| {
-                    MachineError::Invalid(VerifyError::UnknownFunction {
-                        function: usize::MAX,
-                    })
-                })?,
+                Some(method) => self
+                    .resolve_method_body(method.body(), program)
+                    .map_err(|error| error.invalid_function())?,
                 None => return Ok(()),
             }
         };
-        self.validate_replacement((slot, function), program)
+        self.validate_replacement((slot, function.function), &function.program)
     }
 
     pub(super) fn remove_checked(
@@ -77,6 +77,20 @@ impl Machine {
         program: &Program,
     ) -> Result<(), MachineError> {
         let (class, selector, undefine) = target;
+        let inherited_obligation = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(MachineError::Class)?
+            .mro()
+            .iter()
+            .any(|entry| match entry {
+                MroEntry::Class(owner) => self.static_impl_slots.contains(&(*owner, selector)),
+                MroEntry::Module(_) => false,
+            });
+        if inherited_obligation {
+            return Err(MachineError::TypeContractError);
+        }
         let slot = (class, selector, false);
         let immediate = self.open_depth == 0;
         let outcome = (|| {

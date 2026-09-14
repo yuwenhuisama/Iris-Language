@@ -14,6 +14,32 @@ pub type Register = u16;
 /// makes the verifier a single linear pass.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Instruction {
+    GenericCall {
+        call: Box<Instruction>,
+        type_arguments: Vec<iris_syntax::TypeExpression>,
+    },
+    ApplyModuleDecorators {
+        module: usize,
+    },
+    LoadModule {
+        destination: Register,
+        name: String,
+    },
+    ApplyContractDecorators {
+        contract: usize,
+    },
+    DeclareMethod {
+        class: usize,
+        function: usize,
+        applications: Vec<super::decorators::Application>,
+    },
+    ApplyDecorators {
+        class: usize,
+    },
+    ParameterPresent {
+        destination: Register,
+        index: usize,
+    },
     /// Loads an arbitrary-precision Integer, held as canonical decimal text.
     LoadInteger {
         destination: Register,
@@ -60,6 +86,10 @@ pub enum Instruction {
     /// Loads nil.
     LoadNil {
         destination: Register,
+    },
+    AssertNonNil {
+        destination: Register,
+        source: Register,
     },
     LoadIterationDone {
         destination: Register,
@@ -345,6 +375,10 @@ pub enum Instruction {
     /// A keyword argument stays in the ordinary argument list rather than
     /// forming a second channel, which is what keeps the left-to-right
     /// evaluation order `IRIS-V1-CONTROL-C026` requires across both.
+    MakeBlockArgument {
+        destination: Register,
+        value: Register,
+    },
     MakeKeywordArgument {
         destination: Register,
         name: String,
@@ -364,6 +398,7 @@ pub enum Instruction {
     BindParameters {
         destination: Register,
         kinds: Vec<(ParameterKind, String)>,
+        optional: Vec<bool>,
         /// Whether the frame's leading register holds `self`.
         receiver: bool,
         first: Register,
@@ -550,6 +585,8 @@ pub enum Instruction {
         destination: Register,
         receiver: Register,
         selector: String,
+        caller: Option<usize>,
+        caller_module: Option<String>,
     },
     Identity {
         destination: Register,
@@ -700,8 +737,8 @@ pub enum Instruction {
     },
     Using {
         destination: Register,
-        resource: Register,
-        block: Register,
+        first: Register,
+        count: u16,
     },
     New {
         destination: Register,
@@ -776,6 +813,13 @@ pub enum Instruction {
         count: u16,
     },
     ContractCast {
+        type_arguments: Vec<iris_syntax::TypeExpression>,
+        destination: Register,
+        receiver: Register,
+        contract: usize,
+    },
+    ContractTest {
+        type_arguments: Vec<iris_syntax::TypeExpression>,
         destination: Register,
         receiver: Register,
         contract: usize,
@@ -829,6 +873,13 @@ impl Instruction {
     /// The register this instruction writes, when it writes one.
     pub(crate) const fn destination(&self) -> Option<Register> {
         match self {
+            Self::GenericCall { call, .. } => call.destination(),
+            Self::ApplyDecorators { .. }
+            | Self::ApplyModuleDecorators { .. }
+            | Self::ApplyContractDecorators { .. }
+            | Self::DeclareMethod { .. } => None,
+            Self::LoadModule { destination, .. } => Some(*destination),
+            Self::ParameterPresent { destination, .. } => Some(*destination),
             Self::LoadInteger { destination, .. }
             | Self::NativeCall { destination, .. }
             | Self::LoadFloat64 { destination, .. }
@@ -840,6 +891,7 @@ impl Instruction {
             | Self::LoadSymbol { destination, .. }
             | Self::LoadBool { destination, .. }
             | Self::LoadNil { destination }
+            | Self::AssertNonNil { destination, .. }
             | Self::LoadIterationDone { destination }
             | Self::BuildIterationYield { destination, .. }
             | Self::LoadClass { destination, .. }
@@ -883,6 +935,7 @@ impl Instruction {
             | Self::DefineMethod { destination, .. }
             | Self::Json { destination, .. }
             | Self::ContractCast { destination, .. }
+            | Self::ContractTest { destination, .. }
             | Self::SendContract { destination, .. }
             | Self::GetIvar { destination, .. }
             | Self::SetIvar { destination, .. }
@@ -899,7 +952,8 @@ impl Instruction {
             Self::TestTruth { destination, .. } | Self::NegateTruth { destination, .. } => {
                 Some(*destination)
             }
-            Self::MakeKeywordArgument { destination, .. } => Some(*destination),
+            Self::MakeKeywordArgument { destination, .. }
+            | Self::MakeBlockArgument { destination, .. } => Some(*destination),
             Self::LoadRegex { destination, .. } => Some(*destination),
             Self::GateNew { destination } | Self::UnicodeVersion { destination } => {
                 Some(*destination)
@@ -981,6 +1035,7 @@ pub enum FloatWidth {
 /// which is why a collection there refuses inside a method body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Function {
+    pub(crate) body_entry: usize,
     pub(crate) signature: Option<iris_syntax::MethodDeclaration>,
     /// The name this function was declared under, for diagnostics.
     pub(crate) name: String,
@@ -1006,6 +1061,8 @@ pub struct Function {
 /// A compiled program.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Program {
+    pub(crate) link: Option<Box<crate::machine::code::CodeLink>>,
+    pub(crate) decorator_applications: Vec<super::decorators::Application>,
     pub(crate) package: Option<crate::native::PackageIdentity>,
     pub(crate) source: String,
     pub(crate) instructions: Vec<Instruction>,
@@ -1058,11 +1115,23 @@ pub enum ParameterKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ModuleDeclaration {
     pub(crate) name: String,
+    pub(crate) meta_deny: Vec<String>,
     pub(crate) mixins: Vec<String>,
+    pub(crate) replay: Option<ModuleArtifact>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ModuleArtifact {
+    pub(crate) reopen: bool,
+    pub(crate) functions: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Contract {
+    pub(crate) parent_arguments: Vec<(String, Vec<iris_syntax::TypeExpression>)>,
+    pub(crate) type_parameters: Vec<String>,
+    pub(crate) signatures: Vec<iris_syntax::MethodDeclaration>,
+    pub(crate) core_identity: Option<iris_runtime::ContractId>,
     pub(crate) parents: Vec<String>,
     pub(crate) name: String,
     pub(crate) requirements: Vec<ContractRequirement>,
@@ -1090,6 +1159,9 @@ pub(crate) struct ContractRequirement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Class {
+    pub(crate) constraints: Vec<iris_syntax::Constraint>,
+    pub(crate) contract_arguments: Vec<(usize, Vec<iris_syntax::TypeExpression>)>,
+    pub(crate) type_parameters: Vec<String>,
     pub(crate) name: String,
     /// Selectors the class declared `private`, per `IRIS-V1-RUNTIME-C077`.
     ///
@@ -1151,6 +1223,7 @@ pub(crate) struct Class {
     /// view: `(a as C)..m()` answers it while `a.m()` answers the class's
     /// ordinary method, so it cannot be published onto the class itself.
     pub(crate) qualified_impls: Vec<(usize, String, usize)>,
+    pub(crate) static_impls: Vec<String>,
     pub(crate) property_methods: Vec<String>,
     pub(crate) class_variables: Vec<ClassVariable>,
     /// Class variables declared `shared class property` on a GENERIC class.
@@ -1167,6 +1240,16 @@ pub(crate) struct Class {
     /// exists.
     pub(crate) duplicate_class_variable: Option<String>,
     pub(crate) stored_properties: Vec<StoredProperty>,
+    pub(crate) instance_fields: Vec<InstanceField>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct InstanceField {
+    pub(crate) name: String,
+    pub(crate) mutable: bool,
+    pub(crate) annotation: Option<iris_syntax::TypeExpression>,
+    pub(crate) initializer: LiteralValue,
+    pub(crate) initializer_function: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1206,6 +1289,8 @@ pub(crate) enum LiteralValue {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClassReopen {
+    pub(crate) qualified_impls: Vec<(usize, String, usize)>,
+    pub(crate) mixins: Vec<(String, bool)>,
     pub(crate) methods: Vec<(String, usize)>,
     /// A reopen may also REPLACE a class method, which is published onto the
     /// singleton rather than the instance side - the two are separate tables,

@@ -85,12 +85,6 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 });
                 Ok(destination)
             }
-            // A deferred `let`, or an unannotated one, declares a name that is
-            // never assignable, so every read of it fails definite assignment.
-            // The reference still ACCEPTS the declaration - `let x: Integer`
-            // on its own answers nil - so refusing it declined a program that
-            // runs. Only `mut` with an annotation can later be written, which
-            // is why that form alone carries an assigned flag.
             Statement::DeferredBinding { mutable, name, .. } => {
                 let register = self.allocate()?;
                 let assigned = self.allocate()?;
@@ -307,6 +301,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
             // the reference REFUSES when the program runs, as
             // UnsupportedConstruct - so refusing them here described the same
             // refusal differently and held the row.
+            Statement::Method(method) if self.open_class.is_some() => self.callback_method(method),
             Statement::Method(_) | Statement::SharedBinding { .. } => {
                 let destination = self.allocate()?;
                 self.instructions
@@ -321,6 +316,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     Statement::GlobalBinding { .. } => "global",
                     Statement::SharedBinding { .. } => "shared",
                     Statement::DeferredBinding { .. } => "deferred",
+                    Statement::InstanceField { .. } => "instance field",
                     Statement::StoredProperty { .. } => "stored property",
                     Statement::Match { .. } => "match",
                     Statement::For { .. } => "for",

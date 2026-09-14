@@ -1,9 +1,38 @@
 #![expect(
     clippy::unwrap_used,
+    clippy::expect_used,
     reason = "tests assert compilation and diagnostic category"
 )]
 
 use iris_runtime::Value;
+
+#[test]
+fn compile_rejects_invalid_deferred_binding_forms_with_analyzer_codes() {
+    for (source, code) in [
+        ("let value: Integer", "BINDING_LET_REQUIRES_INITIALIZER"),
+        ("mut value", "BINDING_MISSING_TYPE_FOR_DEFERRED_INIT"),
+    ] {
+        let outcome = iris_vm::compile(source);
+        assert_eq!(
+            outcome.unwrap_err().kind,
+            iris_vm::CompileErrorKind::StaticDiagnostic { code },
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn deferred_binding_declaration_does_not_contribute_to_program_result() {
+    let program = iris_vm::compile("mut value: Integer; value = 3; value").unwrap();
+    let outcome = iris_vm::run(&program);
+    assert_eq!(
+        outcome,
+        Ok(Value::Array(iris_runtime::ArrayRef::new(vec![
+            Value::Integer(3_u64.into()),
+            Value::Integer(3_u64.into()),
+        ])))
+    );
+}
 
 #[test]
 fn compile_rejects_when_inferred_binding_changes_type() {
@@ -113,7 +142,7 @@ fn rejection_is_catchable_when_method_local_write_crosses_boundary() {
             public module fun run(value) {
                 mut port = 8080
                 let failure = try { port = value } catch error { error }
-                [failure, port]
+                %[failure, port]
             }
         }
         Main.run("9090")
@@ -179,10 +208,10 @@ fn compound_assignment_checks_result_when_operator_changes_type() {
 fn rhs_effects_survive_when_guard_rejects_storage() {
     let source = r#"
         module Input { public module fun read(log) { log.append(:rhs); "bad" } }
-        let log = []
+        let log = %[]
         mut port = 8080
         let failure = try { port = Input.read(log) } catch error { log.append(error) }
-        [port, log]
+        %[port, log]
     "#;
     let program = iris_vm::compile(source).unwrap();
     let outcome = iris_vm::run(&program);

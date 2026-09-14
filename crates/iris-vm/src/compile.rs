@@ -8,22 +8,34 @@
 use iris_syntax::Statement;
 
 mod binding_writes;
+mod core_contracts;
 mod declarations;
+#[cfg(test)]
+mod declarations_tests;
+pub(crate) mod decorators;
 mod diagnostic;
+pub(crate) mod effective_contracts;
+pub(crate) mod history;
 mod method_metadata;
+mod qualified;
 pub use diagnostic::{CompileError, CompileErrorKind};
 mod expressions;
 
 use declarations::{CollectedDeclarations, collect_signatures};
 use lowering::{ProgramBinding, lower_function};
 
-mod calls;
+#[cfg(test)]
+mod block_argument_tests;
+mod callback_methods;
+pub(crate) mod calls;
 mod expressions_lowering;
 mod ir;
 pub(crate) mod lowering;
 mod native;
 mod return_scopes;
 mod statements;
+mod static_obligations;
+mod stored_properties;
 
 #[derive(Clone, Copy)]
 pub(crate) enum CompilationMode {
@@ -57,13 +69,22 @@ pub(crate) fn compile_in_mode(
     natives: &iris_native_host::NativeRegistry,
     mode: CompilationMode,
 ) -> Result<Program, CompileError> {
-    let mut parsed = iris_parser::parse(source);
+    let parsed = iris_parser::parse(source);
+    compile_parsed((source, natives, mode), parsed)
+}
+
+fn compile_parsed(
+    (source, natives, mode): (&str, &iris_native_host::NativeRegistry, CompilationMode),
+    mut parsed: iris_parser::ParseResult,
+) -> Result<Program, CompileError> {
     // A source the PARSER refuses is a program error the reference raises when
     // the program runs, so the backend answers a program that raises it rather
     // than declining - both refuse it either way, but only one of those can
     // agree with the reference.
     if !parsed.program_accepted {
         return Ok(Program {
+            link: None,
+            decorator_applications: Vec::new(),
             source: source.to_owned(),
             package: None,
             instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
@@ -76,11 +97,28 @@ pub(crate) fn compile_in_mode(
             builtin_reopens: Vec::new(),
         });
     }
-    if iris_parser::analyze(&parsed.program)
+    let diagnostics = iris_parser::analyze(&parsed.program);
+    if let Some(code) = diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.code == "GENERIC_ARGUMENT_INVARIANCE")
+        .map(|diagnostic| diagnostic.code)
+        .find(|code| {
+            matches!(
+                *code,
+                "BINDING_LET_REQUIRES_INITIALIZER" | "BINDING_MISSING_TYPE_FOR_DEFERRED_INIT"
+            )
+        })
     {
+        return Err(CompileError::diagnostic(code));
+    }
+    if diagnostics.iter().any(|diagnostic| {
+        matches!(
+            diagnostic.code,
+            "GENERIC_ARGUMENT_INVARIANCE" | "QUALIFIED_NAMESPACE_COLLISION"
+        )
+    }) {
         return Ok(Program {
+            link: None,
+            decorator_applications: Vec::new(),
             source: source.to_owned(),
             package: None,
             instructions: vec![Instruction::RaiseParseDiagnostic { destination: 0 }],
@@ -96,7 +134,9 @@ pub(crate) fn compile_in_mode(
 
     parsed.program = iris_parser::prepare_bindings(&parsed.program)
         .map_err(|diagnostics| CompileError::diagnostic(diagnostics[0].code))?;
+    decorators::prepare_exports(&mut parsed.program);
     let native_names = native::prepare(&mut parsed.program, natives)?;
+    stored_properties::prepare(&mut parsed.program.declarations);
 
     // A declaration naming a target that does not EXIST - a reopen of an
     // undeclared class, a contract inheriting an undeclared parent - is a
@@ -112,19 +152,26 @@ pub(crate) fn compile_in_mode(
                 | "module mixin unbound"
                 | "contract signature clash"
                 | "closed construction bound"
+                | "static impl"
+                | "instance field duplicate"
         )
     {
         // A contract SIGNATURE clash is a type failure rather than a missing
         // construct, so it raises the error the reference raises for it.
         let raise = if matches!(
             error.construct.as_str(),
-            "contract signature clash" | "closed construction bound"
+            "contract signature clash"
+                | "closed construction bound"
+                | "static impl"
+                | "instance field duplicate"
         ) {
             Instruction::RaiseTypeContract { destination: 0 }
         } else {
             Instruction::RaiseUnsupported { destination: 0 }
         };
         return Ok(Program {
+            link: None,
+            decorator_applications: Vec::new(),
             source: source.to_owned(),
             package: None,
             instructions: vec![raise],
@@ -144,12 +191,13 @@ pub(crate) fn compile_in_mode(
     // and execution IR; this is that resolution, done in one pass while the
     // covered surface is small enough not to need a separate representation.
     let CollectedDeclarations {
-        signatures,
+        mut signatures,
         classes,
         contracts,
-        modules,
+        mut modules,
         builtin_reopens,
     } = collect_signatures(&parsed.program.declarations, &parsed.program.statements)?;
+    decorators::prepare_module_replays(&parsed.program, &mut signatures, &mut modules)?;
 
     let mut functions = Vec::with_capacity(signatures.len());
     let mut closures = Vec::new();
@@ -215,11 +263,18 @@ pub(crate) fn compile_in_mode(
     let mut produced = Vec::new();
     let mut applied: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let lowering_classes = classes.clone();
+    let mut applied_modules = std::collections::BTreeMap::<String, usize>::new();
     for entry in &parsed.program.entries {
         match entry {
             iris_syntax::ProgramEntry::Statement(statement) => {
                 let value = lowering.statement(statement)?;
-                if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
+                if !matches!(
+                    statement,
+                    Statement::Binding { .. }
+                        | Statement::GlobalBinding { .. }
+                        | Statement::DeferredBinding { .. }
+                        | Statement::Method(_)
+                ) {
                     produced.push(value);
                 }
             }
@@ -264,6 +319,29 @@ pub(crate) fn compile_in_mode(
                 }
             }
             iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
+                let ordinal = applied_modules.entry(module.name.clone()).or_default();
+                if !module.reopen
+                    || modules
+                        .iter()
+                        .any(|known| known.name == module.name && known.replay.is_some())
+                {
+                    let index = modules
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, known)| known.name == module.name)
+                        .nth(*ordinal)
+                        .map(|(index, _)| index)
+                        .ok_or_else(|| CompileError::new("module declaration"))?;
+                    lowering
+                        .instructions
+                        .push(Instruction::ApplyModuleDecorators { module: index });
+                }
+                if modules
+                    .iter()
+                    .any(|known| known.name == module.name && known.replay.is_some())
+                {
+                    *ordinal += 1;
+                }
                 lowering.enclosing_module = Some(module.name.clone());
                 for statement in &module.body {
                     // A stored property DECLARES a member rather than being an
@@ -325,6 +403,9 @@ pub(crate) fn compile_in_mode(
                         )
                     })
                     .collect();
+                lowering
+                    .instructions
+                    .push(Instruction::ApplyDecorators { class: target });
                 if body.is_empty() {
                     continue;
                 }
@@ -341,6 +422,17 @@ pub(crate) fn compile_in_mode(
                     lowering.statement(statement)?;
                 }
                 lowering.names.truncate(outer);
+            }
+            iris_syntax::ProgramEntry::Declaration(iris_syntax::Declaration::Contract(
+                contract,
+            )) => {
+                let index = contracts
+                    .iter()
+                    .position(|known| known.name == contract.name)
+                    .ok_or_else(|| CompileError::new("contract parent unbound"))?;
+                lowering
+                    .instructions
+                    .push(Instruction::ApplyContractDecorators { contract: index });
             }
             iris_syntax::ProgramEntry::Declaration(_) => {}
         }
@@ -384,6 +476,12 @@ pub(crate) fn compile_in_mode(
     let instructions = std::mem::take(&mut lowering.instructions);
     drop(lowering);
     functions.extend(closures);
+    let decorator_applications = decorators::lower_applications(
+        &parsed.program,
+        declarations,
+        &mut functions,
+        &program_bindings,
+    )?;
     // Every DECLARED class carries an implicit `to_bool` answering true, which
     // is what makes an ordinary object truthy and what `A.type.members()`
     // reports. A class DECLARING its own keeps it, since the declared entry is
@@ -392,6 +490,7 @@ pub(crate) fn compile_in_mode(
     if !classes.is_empty() {
         let implicit = functions.len();
         functions.push(ir::Function {
+            body_entry: 0,
             signature: None,
             name: "to_bool".to_owned(),
             parameters: 1,
@@ -416,6 +515,8 @@ pub(crate) fn compile_in_mode(
         }
     }
     Ok(Program {
+        link: None,
+        decorator_applications,
         source: source.to_owned(),
         package: None,
         instructions,

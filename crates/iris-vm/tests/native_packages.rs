@@ -17,11 +17,8 @@ fn source(package: &str, text: &str) -> PackageSource {
 fn helper_is_callable_when_units_share_package_identity() -> Result<(), String> {
     let registry = Rc::new(NativeRegistry::new());
     let sources = [
-        source(
-            "app",
-            "module Helper { public module fun value() { 42 } } // end",
-        ),
-        source("app", "import Helper; Helper.value()"),
+        source("app", "module Helper { public module fun value() { 42 } };"),
+        source("app", "Helper.value()"),
     ];
     let program = iris_vm::compile_package_tree_with_natives(&sources, &registry)
         .map_err(|error| error.construct)?;
@@ -179,7 +176,7 @@ fn contract_hash_uses_package_identity_when_compiled_as_package() -> Result<(), 
 
 #[test]
 fn type_identity_stays_local_when_compiled_as_script() -> Result<(), String> {
-    let given = iris_vm::compile("class Widget {} [Widget.type.package, Widget.type.hash()]")
+    let given = iris_vm::compile("class Widget {} %[Widget.type.package, Widget.type.hash()]")
         .map_err(|error| error.construct)?;
     let when = iris_vm::run(&given);
     assert_eq!(given.package_identity(), None);
@@ -223,7 +220,7 @@ fn contract_view_hash_uses_declared_major() -> Result<(), String> {
         version: "2.3.4".to_owned(),
         ..source(
             "app",
-            "contract Named {} class Widget for Named { public fun hash() { 17 } } (Widget.new() as Named).hash()",
+            "contract Named {} class Widget { public fun hash() { 17 } } impl Widget for Named {} (Widget.new() as Named).hash()",
         )
     }];
     let program = iris_vm::compile_package_tree_with_natives(&given, &NativeRegistry::new())

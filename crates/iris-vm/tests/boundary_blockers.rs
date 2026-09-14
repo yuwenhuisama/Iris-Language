@@ -8,7 +8,7 @@ use iris_vm::{MachineError, compile, run};
 
 #[test]
 fn array_cell_keeps_value_when_dynamic_integer_is_rejected() {
-    let source = "module Input { public module fun read(value) { value } }; mut cell = []; let failure = try { cell = Input.read(1) } catch error { error }; [cell, failure]";
+    let source = "module Input { public module fun read(value) { value } }; mut cell = %[]; let failure = try { cell = Input.read(1) } catch error { error }; %[cell, failure]";
     let program = compile(source).unwrap();
     let result = run(&program);
     assert_eq!(
@@ -22,7 +22,7 @@ fn array_cell_keeps_value_when_dynamic_integer_is_rejected() {
 
 #[test]
 fn hash_cell_keeps_value_when_dynamic_integer_is_rejected() {
-    let source = "module Input { public module fun read(value) { value } }; mut cell = %{}; let original = cell; let failure = try { cell = Input.read(1) } catch error { error }; [cell.same?(original), failure]";
+    let source = "module Input { public module fun read(value) { value } }; mut cell = %{}; let original = cell; let failure = try { cell = Input.read(1) } catch error { error }; %[cell.same?(original), failure]";
     let program = compile(source).unwrap();
     let result = run(&program);
     assert_eq!(
@@ -36,7 +36,7 @@ fn hash_cell_keeps_value_when_dynamic_integer_is_rejected() {
 
 #[test]
 fn symbol_cell_keeps_value_when_dynamic_integer_is_rejected() {
-    let source = "module Input { public module fun read(value) { value } }; mut cell = :ready; let failure = try { cell = Input.read(1) } catch error { error }; [cell, failure]";
+    let source = "module Input { public module fun read(value) { value } }; mut cell = :ready; let failure = try { cell = Input.read(1) } catch error { error }; %[cell, failure]";
     let program = compile(source).unwrap();
     let result = run(&program);
     assert_eq!(
@@ -97,7 +97,8 @@ fn class_conformance_widening_succeeds_when_contract_parent_is_transitive() {
     let source = r#"
         contract Parent { }
         contract Child extends Parent { }
-        class Item for Child { }
+        class Item { }
+        impl Item for Child { }
         class Rule { public fun total(value: Item) -> Object { value } }
         open class Rule { public override fun total(value: Parent) -> Object { value } }
         42
@@ -149,7 +150,7 @@ fn removal_keeps_instance_and_sibling_when_inherited_signature_is_incompatible()
             candidate.define_method(:sibling) { 7 }
             candidate.remove_method(:total)
         }) } catch error { error }
-        [rule.total(), Rule.active_revision, failure, Rule.method(:sibling)]
+        %[rule.total(), Rule.active_revision, failure, Rule.method(:sibling)]
     "#;
     let program = compile(source).unwrap();
     let result = run(&program);

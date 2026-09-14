@@ -25,6 +25,28 @@ pub(super) fn lower_function(
     closures: &mut Vec<Function>,
     program_bindings: &[ProgramBinding],
 ) -> Result<Function, CompileError> {
+    let completed = super::qualified::complete(signature, declarations)?;
+    let selected;
+    let signature = match completed.as_ref() {
+        Some(method) => {
+            selected = Signature {
+                declaration: Some(method),
+                parameters: method.parameters.iter().collect(),
+                return_type: method.return_type.as_ref(),
+                module: signature.module,
+                selector: signature.selector,
+                body: signature.body,
+                receiver: signature.receiver,
+                class_method: signature.class_method,
+                private: signature.private,
+                is_async: signature.is_async,
+                constants: signature.constants.clone(),
+                expression_body: signature.expression_body,
+            };
+            &selected
+        }
+        None => signature,
+    };
     let classes = declarations.classes;
     let mut lowering = Lowering::new(
         declarations,
@@ -68,15 +90,10 @@ pub(super) fn lower_function(
             .names
             .push(Binding::value(parameter.name.clone(), register));
     }
-    // A signature with a NON-positional category binds its own parameters, so
-    // the frame reads the argument window itself. A purely positional one
-    // needs no instruction at all: the caller already wrote the values into
-    // the leading registers.
-    if signature
-        .parameters
-        .iter()
-        .any(|parameter| parameter.category != iris_syntax::ParameterCategory::Positional)
-    {
+    if signature.parameters.iter().any(|parameter| {
+        parameter.default.is_some()
+            || parameter.category != iris_syntax::ParameterCategory::Positional
+    }) {
         let kinds = signature
             .parameters
             .iter()
@@ -101,6 +118,11 @@ pub(super) fn lower_function(
         lowering.instructions.push(Instruction::BindParameters {
             destination,
             kinds,
+            optional: signature
+                .parameters
+                .iter()
+                .map(|parameter| parameter.default.is_some())
+                .collect(),
             receiver: signature.receiver,
             first,
             count,
@@ -123,6 +145,18 @@ pub(super) fn lower_function(
         })
         .collect();
     for (index, default) in defaults {
+        let present = lowering.allocate()?;
+        lowering.instructions.push(Instruction::ParameterPresent {
+            destination: present,
+            index,
+        });
+        let branch = lowering.instructions.len();
+        lowering.instructions.push(Instruction::JumpUnless {
+            condition: present,
+            target: branch + 2,
+        });
+        let skip = lowering.instructions.len();
+        lowering.instructions.push(Instruction::Jump { target: 0 });
         let source = lowering.expression(default)?;
         let destination = lowering.allocate()?;
         lowering.instructions.push(Instruction::DefaultParameter {
@@ -130,6 +164,8 @@ pub(super) fn lower_function(
             source,
             index,
         });
+        let target = lowering.instructions.len();
+        lowering.instructions[skip] = Instruction::Jump { target };
     }
     // `C004` guards an ANNOTATED parameter the way it guards a binding, so a
     // call passing a value the annotation excludes raises when the frame
@@ -144,13 +180,23 @@ pub(super) fn lower_function(
         };
         lowering.instructions.push(Instruction::CheckAnnotation {
             value,
-            annotation: annotation.clone(),
+            annotation: if parameter.category == iris_syntax::ParameterCategory::Block
+                && parameter.default.is_some()
+            {
+                iris_syntax::TypeExpression::Union(vec![
+                    annotation.clone(),
+                    iris_syntax::TypeExpression::Name("Nil".into()),
+                ])
+            } else {
+                annotation.clone()
+            },
         });
     }
     // The owner's constants are bound after them, and `lookup` searches in
     // REVERSE, so a parameter of the same name would lose to the constant.
     // A constant whose name a parameter already claims is therefore skipped,
     // which keeps `fun f(K) { K }` reading its parameter.
+    let body_entry = lowering.instructions.len();
     let constants = signature.constants.clone();
     for (name, value) in &constants {
         if signature
@@ -171,6 +217,7 @@ pub(super) fn lower_function(
         let value = lowering.expression(expression)?;
         lowering.instructions.push(Instruction::Return { value });
         return Ok(Function {
+            body_entry,
             signature: signature.declaration.map(super::method_metadata::bodyless),
             name: format!("{}.{}", signature.module, signature.selector),
             parameters: usize::from(signature.receiver),
@@ -210,6 +257,7 @@ pub(super) fn lower_function(
     }
     lowering.instructions.push(Instruction::Return { value });
     Ok(Function {
+        body_entry,
         signature: signature.declaration.map(super::method_metadata::bodyless),
         name: format!("{}.{}", signature.module, signature.selector),
         parameters: signature.parameters.len() + usize::from(signature.receiver),
@@ -250,6 +298,7 @@ fn reflected_type(annotation: Option<&iris_syntax::TypeExpression>) -> String {
 }
 
 pub(crate) struct Lowering<'a, 'b> {
+    pub(super) open_class: Option<usize>,
     pub(super) instructions: Vec<Instruction>,
     pub(super) next_register: Register,
     /// Names bound so far, each pinned to the register holding its value.
@@ -370,6 +419,20 @@ pub(super) struct LoopContext {
 }
 
 impl<'a, 'b> Lowering<'a, 'b> {
+    pub(super) fn instance_field(&self, name: &str) -> Option<&crate::compile::ir::InstanceField> {
+        let mut owner = self.current_method.as_ref().map(|(owner, _)| *owner)?;
+        loop {
+            if let Some(field) = self.classes[owner]
+                .instance_fields
+                .iter()
+                .find(|field| field.name == name)
+            {
+                return Some(field);
+            }
+            owner = self.classes[owner].superclass?;
+        }
+    }
+
     pub(super) fn validate_composed_type(
         &self,
         expression: &iris_syntax::TypeExpression,
@@ -390,6 +453,27 @@ impl<'a, 'b> Lowering<'a, 'b> {
             | iris_syntax::TypeExpression::Intersection(members) => members
                 .iter()
                 .try_for_each(|member| self.validate_composed_type(member)),
+            iris_syntax::TypeExpression::Generic { name, arguments }
+                if matches!(name.as_str(), "Block" | "Closure" | "BoundMethod") =>
+            {
+                let [iris_syntax::TypeExpression::Function { parameters, result }] =
+                    arguments.as_slice()
+                else {
+                    return Err(CompileError::new("callable signature"));
+                };
+                for parameter in parameters {
+                    self.validate_composed_type(parameter)?;
+                }
+                self.validate_composed_type(result)
+            }
+            iris_syntax::TypeExpression::Generic { name, arguments }
+                if self.class_index(name).is_some()
+                    || crate::core_names::core_name(name).is_some() =>
+            {
+                arguments
+                    .iter()
+                    .try_for_each(|argument| self.validate_composed_type(argument))
+            }
             _ => Err(CompileError::new("expression reified type")),
         }
     }
@@ -408,6 +492,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         } = declarations;
         Self {
             instructions: Vec::new(),
+            open_class: None,
             next_register: 0,
             names: Vec::new(),
             signatures,
@@ -475,7 +560,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 // leading registers with no receiver among them, so `A.m()`
                 // for an instance `m` arrived one argument short. A class
                 // receiver is dispatched elsewhere.
-                && !signature.receiver
+                && (!signature.receiver || self.modules.iter().any(|known| known.name == module))
         })
     }
 

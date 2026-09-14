@@ -1,0 +1,25 @@
+class Wrap {}
+impl Wrap for MethodDecorator {
+ public fun plan(d, a) -> Plan { Plan.empty }
+ public fun transform(d, a, c) -> Transformation {
+  mut calls = 0
+  Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+   calls = calls + 1
+   if invocation.owner_type_arguments[0] == Integer.type {
+    if invocation.slot[2] != nil { raise :qualifier }
+    if invocation.slot[0] != Box<Integer>.type { raise :owner }
+   } else {
+    if invocation.slot[2] != nil { raise :qualifier }
+    if invocation.slot[0] != Box<String>.type { raise :owner }
+   }
+   Effects.calls = calls
+   next.call()
+  })
+ }
+}
+class Effects { public class property calls: Integer = 0 }
+contract Named<Element> { fun value(value: Element) -> Element }
+class Box<T> {}
+impl Box<T> for Named<T> {
+ @Wrap() public fun value(value: T) -> T { value }
+}

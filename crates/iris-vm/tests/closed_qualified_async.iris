@@ -1,0 +1,28 @@
+class Wrap {}
+impl Wrap for MethodDecorator {
+ public fun plan(d, a) -> Plan { Plan.empty }
+ public fun transform(d, a, c) -> Transformation {
+  Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+   let result = await next.call()
+   if invocation.owner_type_arguments[0] == Integer.type {
+     if invocation.slot[2] != nil || invocation.slot[0] != Box<Integer>.type { raise :qualifier }
+   } else {
+     if invocation.slot[2] != nil || invocation.slot[0] != Box<String>.type { raise :qualifier }
+   }
+   result
+  })
+ }
+}
+contract Named<Element> { async fun value(value: Element, gate) -> Element }
+class Box<T> {}
+impl Box<T> for Named<T> {
+ @Wrap() public async fun value(value: T, gate) -> T { await gate; value }
+}
+let first_gate = Gate.new()
+let second_gate = Gate.new()
+let first = (Box<Integer>.new() as Named<Integer>)..value(7, first_gate)
+let second = (Box<String>.new() as Named<String>)..value("s", second_gate)
+let posted_second = Gate.complete(second_gate, nil)
+let second_result = Host.run(second)
+let posted_first = Gate.complete(first_gate, nil)
+%[first is? Task<Integer>, Host.run(first), second_result]

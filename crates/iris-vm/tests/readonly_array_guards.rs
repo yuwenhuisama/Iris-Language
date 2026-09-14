@@ -6,7 +6,7 @@ fn array_cell_admits_readonly_representation_when_assigned_properties() -> Resul
 {
     let source = r#"
         class Sample { public property value: Integer = 1 }
-        mut properties = []
+        mut properties = %[]
         let assigned = properties = Sample.properties
         properties
     "#;
@@ -25,9 +25,9 @@ fn array_cell_admits_readonly_representation_when_assigned_properties() -> Resul
 fn array_cell_retains_old_value_when_dynamic_integer_is_rejected() -> Result<(), CompileError> {
     let source = r#"
         module Input { public module fun read(value) { value } }
-        mut properties = [:original]
+        mut properties = %[:original]
         let failure = try { properties = Input.read(7) } catch error { error }
-        [failure, properties]
+        %[failure, properties]
     "#;
     let program = compile(source)?;
 
@@ -47,7 +47,7 @@ fn array_cell_retains_old_value_when_dynamic_integer_is_rejected() -> Result<(),
 fn readonly_mutation_is_rejected_when_properties_pass_array_guard() -> Result<(), CompileError> {
     let source = r#"
         class Sample { public property value: Integer = 1 }
-        mut properties = []
+        mut properties = %[]
         let assigned = properties = Sample.properties
         properties.append(:extra)
     "#;
@@ -63,8 +63,8 @@ fn readonly_mutation_is_rejected_when_properties_pass_array_guard() -> Result<()
 fn mutable_array_stays_mutable_when_replacement_passes_array_guard() -> Result<(), CompileError> {
     let source = r#"
         module Input { public module fun read(value) { value } }
-        mut properties = []
-        let assigned = properties = Input.read([:replacement])
+        mut properties = %[]
+        let assigned = properties = Input.read(%[:replacement])
         let appended = properties.append(:extra)
         properties
     "#;

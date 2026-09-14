@@ -168,8 +168,15 @@ impl Machine {
                     .runtime
                     .dispatch_instance(*object, selector)
                     .map_err(|_| MachineError::SerializationError)?;
-                let function = usize::try_from(method.body().raw())
+                let function = self
+                    .resolve_method_body(method.body(), program)
                     .map_err(|_| MachineError::SerializationError)?;
+                let owner = function;
+                let (program, classes, function) = (
+                    owner.program.as_ref(),
+                    owner.classes.as_slice(),
+                    owner.function,
+                );
                 let callee = program
                     .functions
                     .get(function)

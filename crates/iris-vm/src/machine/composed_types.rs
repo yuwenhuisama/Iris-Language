@@ -4,13 +4,29 @@ use iris_syntax::TypeExpression;
 use super::{Machine, MachineError};
 use crate::compile::Program;
 
+#[cfg(test)]
+#[path = "composed_types_tests.rs"]
+mod tests;
+
 impl Machine {
     pub(super) fn reify_type(
-        &self,
+        &mut self,
         expression: &TypeExpression,
         program: &Program,
         classes: &[iris_runtime::ClassId],
     ) -> Result<Value, MachineError> {
+        if let TypeExpression::Name(name) = expression
+            && let Some((_, value)) = self
+                .method_types
+                .iter()
+                .find(|(parameter, _)| parameter == name)
+        {
+            return Ok(value.clone());
+        }
+        if matches!(expression, TypeExpression::Generic { name, .. } if matches!(name.as_str(), "Block" | "Closure" | "BoundMethod"))
+        {
+            return self.reify_callable(expression, (program, classes));
+        }
         // A CLOSED generic names one Type per ARGUMENT list: `Box<String>` and
         // `Box<Integer>` are two Types of one class, so the arguments are
         // carried rather than dropped - without them the two are the same
@@ -30,16 +46,14 @@ impl Machine {
                 }
                 TypeAtom::Contract(contract, _) => {
                     let arguments = self.nominal_arguments(arguments, program, classes)?;
-                    return Ok(Value::ComposedType(ComposedType::Intersection(vec![
-                        TypeAtom::Contract(contract, arguments),
-                    ])));
+                    return Ok(Value::Contract(contract, arguments));
                 }
                 TypeAtom::Iteration(arguments) => {
                     return Ok(Value::ComposedType(ComposedType::Intersection(vec![
                         TypeAtom::Iteration(arguments),
                     ])));
                 }
-                TypeAtom::NonNil | TypeAtom::Union(_) => {
+                TypeAtom::NonNil | TypeAtom::Union(_) | TypeAtom::Intersection(_) => {
                     return Err(MachineError::UnsupportedConstruct);
                 }
             }
@@ -54,7 +68,8 @@ impl Machine {
                     TypeAtom::NonNil
                     | TypeAtom::Contract(_, _)
                     | TypeAtom::Iteration(_)
-                    | TypeAtom::Union(_) => {
+                    | TypeAtom::Union(_)
+                    | TypeAtom::Intersection(_) => {
                         Value::ComposedType(ComposedType::Intersection(members))
                     }
                 }
@@ -64,7 +79,7 @@ impl Machine {
     }
 
     fn normalize_type(
-        &self,
+        &mut self,
         expression: &TypeExpression,
         program: &Program,
         classes: &[iris_runtime::ClassId],
@@ -82,9 +97,17 @@ impl Machine {
             ])),
             TypeExpression::Union(members) => {
                 let mut atoms = Vec::new();
-                for member in members {
+                let mut pending: Vec<_> = members.iter().collect();
+                while let Some(member) = pending.pop() {
+                    if let TypeExpression::Union(nested) = member {
+                        pending.extend(nested);
+                        continue;
+                    }
                     match self.normalize_type(member, program, classes)? {
                         ComposedType::Never => {}
+                        ComposedType::Intersection(nested) if nested.len() > 1 => {
+                            atoms.push(TypeAtom::Intersection(nested));
+                        }
                         ComposedType::Union(members) | ComposedType::Intersection(members) => {
                             atoms.extend(members);
                         }
@@ -97,7 +120,12 @@ impl Machine {
             }
             TypeExpression::Intersection(members) => {
                 let mut atoms = Vec::new();
-                for member in members {
+                let mut pending: Vec<_> = members.iter().collect();
+                while let Some(member) = pending.pop() {
+                    if let TypeExpression::Intersection(nested) = member {
+                        pending.extend(nested);
+                        continue;
+                    }
                     match self.normalize_type(member, program, classes)? {
                         ComposedType::Never => return Ok(ComposedType::Never),
                         ComposedType::Union(nested) if nested.len() > 1 => {
@@ -119,9 +147,25 @@ impl Machine {
                     self.nominal_arguments(arguments, program, classes)?,
                 )]))
             }
-            TypeExpression::Typeof(_)
-            | TypeExpression::Generic { .. }
-            | TypeExpression::Function { .. } => Err(MachineError::UnsupportedConstruct),
+            TypeExpression::Generic { .. } => {
+                match self.reify_type(expression, program, classes)? {
+                    Value::Contract(contract, arguments) => {
+                        Ok(ComposedType::Union(vec![TypeAtom::Contract(
+                            contract, arguments,
+                        )]))
+                    }
+                    Value::Type(class, arguments) => {
+                        Ok(ComposedType::Union(vec![TypeAtom::Nominal(
+                            class, arguments,
+                        )]))
+                    }
+                    Value::ComposedType(form) => Ok(form),
+                    _ => Err(MachineError::UnsupportedConstruct),
+                }
+            }
+            TypeExpression::Typeof(_) | TypeExpression::Function { .. } => {
+                Err(MachineError::UnsupportedConstruct)
+            }
         }
     }
 
@@ -131,12 +175,28 @@ impl Machine {
         program: &Program,
         classes: &[iris_runtime::ClassId],
     ) -> Result<TypeAtom, MachineError> {
+        if let Some((_, value)) = self
+            .method_types
+            .iter()
+            .find(|(parameter, _)| parameter == name)
+        {
+            return match value {
+                Value::Type(class, arguments) => Ok(TypeAtom::Nominal(*class, arguments.clone())),
+                _ => Err(MachineError::UnsupportedConstruct),
+            };
+        }
         if let Some(index) = program.classes.iter().position(|class| class.name == name) {
             return classes
                 .get(index)
                 .copied()
-                .map(|class| TypeAtom::Nominal(class, Vec::new()))
-                .ok_or(MachineError::NameError);
+                .ok_or(MachineError::NameError)
+                .and_then(|class| {
+                    self.runtime
+                        .registry()
+                        .class(class)
+                        .map_err(MachineError::Class)?;
+                    Ok(TypeAtom::Nominal(class, Vec::new()))
+                });
         }
         if let Some(index) = program
             .contracts
@@ -144,7 +204,7 @@ impl Machine {
             .rposition(|contract| contract.name == name)
         {
             return Ok(TypeAtom::Contract(
-                iris_runtime::ContractId::new(index as u64 + 1),
+                program.contract_identity(index),
                 Vec::new(),
             ));
         }
@@ -153,7 +213,7 @@ impl Machine {
     }
 
     pub(super) fn nominal_arguments(
-        &self,
+        &mut self,
         arguments: &[TypeExpression],
         program: &Program,
         classes: &[iris_runtime::ClassId],
@@ -166,19 +226,28 @@ impl Machine {
     }
 
     fn nominal_type(
-        &self,
+        &mut self,
         expression: &TypeExpression,
         program: &Program,
         classes: &[iris_runtime::ClassId],
     ) -> Result<NominalType, MachineError> {
         match expression {
             TypeExpression::Name(name) => {
-                let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
+                let TypeAtom::Nominal(class, arguments) = self.type_atom(name, program, classes)?
+                else {
                     return Err(MachineError::UnsupportedConstruct);
                 };
-                Ok(NominalType::new(class, Vec::new()))
+                Ok(NominalType::new(class, arguments))
             }
             TypeExpression::Generic { name, arguments } => {
+                if matches!(name.as_str(), "Closure" | "BoundMethod") {
+                    let Value::Type(class, arguments) =
+                        self.reify_callable(expression, (program, classes))?
+                    else {
+                        return Err(MachineError::UnsupportedConstruct);
+                    };
+                    return Ok(NominalType::new(class, arguments));
+                }
                 let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
                     return Err(MachineError::UnsupportedConstruct);
                 };
@@ -195,7 +264,7 @@ impl Machine {
     }
 
     pub(super) fn reify_contract_requirement_type(
-        &self,
+        &mut self,
         expression: &TypeExpression,
         arguments: &[NominalType],
         program: &Program,
@@ -209,7 +278,12 @@ impl Machine {
             return self.reify_type(expression, program, classes);
         };
         if !matches!(parameters.as_slice(), [TypeExpression::Name(parameter)] if parameter == "T") {
-            return self.reify_type(expression, program, classes);
+            return Ok(match self.reify_type(expression, program, classes)? {
+                Value::Contract(contract, arguments) => Value::ComposedType(
+                    ComposedType::Intersection(vec![TypeAtom::Contract(contract, arguments)]),
+                ),
+                reified => reified,
+            });
         }
         let argument = arguments
             .first()
@@ -229,30 +303,38 @@ impl Machine {
     }
 
     fn absorb(&self, mut atoms: Vec<TypeAtom>, union: bool) -> Result<Vec<TypeAtom>, MachineError> {
+        atoms.sort();
+        atoms.dedup();
         if !union && atoms.contains(&TypeAtom::NonNil) {
             let nil = self.builtin_class("Nil")?;
-            if atoms.len() == 1 {
-                return Ok(atoms);
-            }
-            for atom in &mut atoms {
-                if let TypeAtom::Union(nested) = atom {
-                    nested.retain(
-                        |member| !matches!(member, TypeAtom::Nominal(class, _) if *class == nil),
-                    );
-                    if nested.len() == 1 {
-                        *atom = nested[0].clone();
+            let object = self.builtin_class("Object")?;
+            let mut narrowed = Vec::new();
+            while let Some(atom) = atoms.pop() {
+                match atom {
+                    TypeAtom::Nominal(class, _) if class == nil => return Ok(Vec::new()),
+                    TypeAtom::Union(mut nested) => {
+                        nested.retain(
+                            |member| !matches!(member, TypeAtom::Nominal(class, _) if *class == nil),
+                        );
+                        match nested.len() {
+                            0 => return Ok(Vec::new()),
+                            1 => atoms.extend(nested),
+                            _ => narrowed.push(TypeAtom::Union(nested)),
+                        }
                     }
+                    TypeAtom::Intersection(nested) => atoms.extend(nested),
+                    atom => narrowed.push(atom),
                 }
             }
-            let had_other = atoms
+            if narrowed
                 .iter()
-                .any(|atom| !matches!(atom, TypeAtom::Nominal(class, _) if *class == nil))
-                && atoms.iter().any(|atom| *atom != TypeAtom::NonNil);
-            atoms.retain(|atom| !matches!(atom, TypeAtom::Nominal(class, _) if *class == nil));
-            atoms.retain(|atom| *atom != TypeAtom::NonNil);
-            if !had_other {
-                return Ok(Vec::new());
+                .any(|atom| *atom != TypeAtom::NonNil && provably_non_nil(atom, (nil, object)))
+            {
+                narrowed.retain(|atom| *atom != TypeAtom::NonNil);
             }
+            atoms = narrowed;
+            atoms.sort();
+            atoms.dedup();
         }
         let mut kept = Vec::new();
         for atom in atoms {
@@ -290,34 +372,111 @@ impl Machine {
     ) -> ComposedType {
         atoms.sort();
         atoms.dedup();
-        if atoms.is_empty() {
-            return ComposedType::Never;
+        match atoms.as_slice() {
+            [] => ComposedType::Never,
+            [TypeAtom::Union(members)] => ComposedType::Union(members.clone()),
+            [TypeAtom::Intersection(members)] => ComposedType::Intersection(members.clone()),
+            _ => build(atoms),
         }
-        build(atoms)
+    }
+}
+
+fn provably_non_nil(
+    atom: &TypeAtom,
+    (nil, object): (iris_runtime::ClassId, iris_runtime::ClassId),
+) -> bool {
+    match atom {
+        TypeAtom::Nominal(class, _) => *class != nil && *class != object,
+        TypeAtom::NonNil => true,
+        TypeAtom::Union(members) => members
+            .iter()
+            .all(|member| provably_non_nil(member, (nil, object))),
+        TypeAtom::Intersection(members) => members
+            .iter()
+            .any(|member| provably_non_nil(member, (nil, object))),
+        TypeAtom::Contract(_, _) | TypeAtom::Iteration(_) => false,
     }
 }
 
 impl Machine {
     /// Reports whether a value satisfies an annotation.
     ///
-    /// `IRIS-V1-TYPES-C004` guards the return boundary with this. An
-    /// annotation the backend cannot DECIDE admits every value, so an
-    /// unmodelled Type stays permissive rather than refusing a program the
-    /// reference runs - the check exists to catch a definite mismatch, not to
-    /// narrow the accepted surface.
+    /// Unknown or unsupported annotations are rejected at the boundary.
     pub(super) fn annotation_admits(
-        &self,
+        &mut self,
         value: &Value,
         annotation: &TypeExpression,
         program: &crate::compile::Program,
         classes: &[iris_runtime::ClassId],
     ) -> Result<bool, MachineError> {
-        match annotation {
-            TypeExpression::Name(name) if name == "Array" => {
-                Ok(matches!(value, Value::Array(_) | Value::ReadonlyArray(_)))
+        if let TypeExpression::Name(name) | TypeExpression::Generic { name, .. } = annotation
+            && let Some(contract) = program
+                .contracts
+                .iter()
+                .rposition(|known| known.name == *name)
+        {
+            let arguments = match annotation {
+                TypeExpression::Generic { arguments, .. } => arguments.as_slice(),
+                _ => &[],
+            };
+            let requested = self.nominal_arguments(arguments, program, classes)?;
+            let receiver = match value {
+                Value::ContractView(receiver, _) => receiver.as_ref(),
+                value => value,
+            };
+            let Value::Object(object) = receiver else {
+                return Ok(false);
+            };
+            let class = self
+                .runtime
+                .class_of(*object)
+                .map_err(MachineError::Construction)?;
+            let mut current = classes.iter().position(|known| *known == class);
+            while let Some(index) = current {
+                if let Some((_, expressions)) = program.classes[index]
+                    .contract_arguments
+                    .iter()
+                    .find(|(index, _)| *index == contract)
+                {
+                    let bindings = self.receiver_type_bindings(receiver, (program, classes))?;
+                    let actual = self.with_method_types(bindings, |machine| {
+                        machine.nominal_arguments(expressions, program, classes)
+                    })?;
+                    return Ok(actual == requested);
+                }
+                current = program.classes[index].superclass;
             }
-            TypeExpression::Name(name) if name == "Hash" => Ok(matches!(value, Value::Hash(_))),
+            return Ok(false);
+        }
+        if let TypeExpression::Name(name) = annotation
+            && let Some((_, target)) = self
+                .method_types
+                .iter()
+                .find(|(parameter, _)| parameter == name)
+        {
+            return Ok(self.decorator_accepts(target, value));
+        }
+        match annotation {
+            TypeExpression::Generic { name, arguments }
+                if matches!(name.as_str(), "Task" | "Kernel::Task") =>
+            {
+                let (Value::Task(identity), [result]) = (value, arguments.as_slice()) else {
+                    return Ok(false);
+                };
+                let expected = self.reify_type(result, program, classes)?;
+                Ok(self.task_types.get(identity) == Some(&expected))
+            }
+            TypeExpression::Name(name) if name == "Array" => Ok(matches!(
+                value,
+                Value::Array(_) | Value::ReadonlyArray(_) | Value::ImmutableArray(_)
+            )),
+            TypeExpression::Name(name) if name == "Hash" => {
+                Ok(matches!(value, Value::Hash(_) | Value::ImmutableHash(_)))
+            }
             TypeExpression::Name(name) if name == "Symbol" => Ok(matches!(value, Value::Symbol(_))),
+            TypeExpression::Name(name) if matches!(name.as_str(), "Bytes" | "Kernel::Bytes") => {
+                Ok(matches!(value, Value::Bytes(_)))
+            }
             // `C011` admits every value EXCEPT nil, and `C023` makes `Never`
             // uninhabited, so neither resolves through a declared class.
             TypeExpression::Name(name) if name == "NonNil" => Ok(!matches!(value, Value::Nil)),
@@ -331,10 +490,10 @@ impl Machine {
                             .iter()
                             .position(|declaration| declaration.name == *name)
                         else {
-                            return Ok(true);
+                            return Err(MachineError::NameError);
                         };
                         let Some(class) = classes.get(index).copied() else {
-                            return Ok(true);
+                            return Err(MachineError::NameError);
                         };
                         class
                     }
@@ -377,20 +536,47 @@ impl Machine {
             // `Closure<..>` names a closure: neither admits the other, however
             // alike their call signatures look. Admitting every generic left
             // `let m: BoundMethod<..> = { |x| x }` accepted.
-            TypeExpression::Generic { name, .. } if name == "BoundMethod" => {
-                Ok(matches!(value, Value::BoundMethod(_) | Value::Method(_)))
-            }
-            TypeExpression::Generic { name, .. } if name == "Closure" => {
-                Ok(matches!(value, Value::Closure(_)))
+            TypeExpression::Generic { name, .. }
+                if matches!(name.as_str(), "BoundMethod" | "Block" | "Closure") =>
+            {
+                let target = self.reify_callable(annotation, (program, classes))?;
+                Ok(self.decorator_accepts(&target, value))
             }
             TypeExpression::Generic { name, arguments } => {
+                match (name.as_str(), arguments.as_slice(), value) {
+                    ("Array", [element], Value::Array(array)) => {
+                        for value in array.elements() {
+                            if !self.annotation_admits(&value, element, program, classes)? {
+                                return Ok(false);
+                            }
+                        }
+                        return Ok(true);
+                    }
+                    ("Hash", [key_type, value_type], Value::Hash(hash)) => {
+                        for (key, value) in hash.entries() {
+                            if !self.annotation_admits(&key, key_type, program, classes)?
+                                || !self.annotation_admits(&value, value_type, program, classes)?
+                            {
+                                return Ok(false);
+                            }
+                        }
+                        return Ok(true);
+                    }
+                    _ => {}
+                }
+                if matches!(value, Value::ImmutableArray(_) | Value::ImmutableHash(_)) {
+                    let target = self.reify_type(annotation, program, classes)?;
+                    return Ok(self.type_test(value, &target)? == Value::Bool(true));
+                }
                 let TypeAtom::Nominal(class, _) = self.type_atom(name, program, classes)? else {
-                    return Ok(true);
+                    return Err(MachineError::UnsupportedConstruct);
                 };
                 let target_arguments = self.nominal_arguments(arguments, program, classes)?;
                 self.instance_admits(value, class, &target_arguments)
             }
-            TypeExpression::Typeof(_) | TypeExpression::Function { .. } => Ok(true),
+            TypeExpression::Typeof(_) | TypeExpression::Function { .. } => {
+                Err(MachineError::UnsupportedConstruct)
+            }
         }
     }
 

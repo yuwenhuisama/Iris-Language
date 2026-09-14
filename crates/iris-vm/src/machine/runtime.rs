@@ -9,7 +9,8 @@ use crate::compile::Program;
 
 use super::{Machine, MachineError, literal_runtime_value, selector_id};
 use crate::VerifyError;
-use crate::compile::Instruction;
+
+type ConstructionOwner = Option<(std::rc::Rc<Program>, Vec<ClassId>)>;
 
 impl Machine {
     pub(super) fn invoke_function(
@@ -26,8 +27,13 @@ impl Machine {
             .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
                 function,
             }))?;
-        if arguments.len() != callee.parameters {
-            return Err(MachineError::Kernel(KernelError::Arity));
+        if callee.fixed_arity.is_some() && arguments.len() != callee.parameters {
+            return Err(MachineError::ArgumentError);
+        }
+        if self.decorator_planning && callee.is_async {
+            return Err(MachineError::LexicalDiagnostic(
+                "IRIS-DECORATOR-NONDETERMINISTIC",
+            ));
         }
         if !callee.is_async {
             let returned = self.run_body(
@@ -49,189 +55,49 @@ impl Machine {
         )
     }
 
-    /// Runs an ASYNC body eagerly and answers its Task.
-    ///
-    /// The body runs at CALL time - `C012` makes creating the Task and
-    /// starting its first run one operation - so a body with no `await` is
-    /// already finished when the Task is answered. A body that parks on a
-    /// pending Gate is neither finished nor failed, and its outcome is
-    /// recorded only when the Gate completes.
-    pub(super) fn spawn_task(
-        &mut self,
-        function: usize,
-        registers: usize,
-        instructions: &[Instruction],
-        arguments: Vec<Value>,
-        program: &Program,
-        classes: &[ClassId],
-    ) -> Result<Value, MachineError> {
-        self.async_depth += 1;
-        let outcome = self
-            .run_body(instructions, registers, arguments, program, classes)
-            .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil));
-        self.async_depth -= 1;
-        let identity = iris_runtime::ObjectId::new(self.next_context);
-        self.next_context = self.next_context.saturating_add(1);
-        // A body that SUSPENDED is not finished and not failed: it is parked
-        // on a Gate. The Task is answered now, and the outcome is recorded
-        // only when the Gate completes and the frame runs to its end.
-        if let Err(MachineError::Suspended(_)) = outcome {
-            if let Some(mut frame) = self.pending_frame.take() {
-                if frame.function.is_none() {
-                    frame.function = Some(function);
-                }
-                self.suspended.push(super::SuspendedTask {
-                    identity,
-                    frame,
-                    function,
-                });
-            }
-            return Ok(Value::Task(identity));
-        }
-        if outcome.is_err() {
-            self.unobserved_failures.push(identity);
-        }
-        self.tasks.insert(identity, outcome.map_err(Box::new));
-        Ok(Value::Task(identity))
-    }
-
-    /// Runs every parked frame whose Gate has COMPLETED, in suspension order.
-    pub(super) fn drive_ready(
-        &mut self,
-        program: &Program,
-        classes: &[ClassId],
-    ) -> Result<(), MachineError> {
-        let ready: Vec<iris_runtime::ObjectId> = self
-            .suspended
-            .iter()
-            .filter(|task| matches!(self.gates.get(&task.frame.gate), Some(Some(_))))
-            .map(|task| task.frame.gate)
-            .collect();
-        for gate in ready {
-            self.resume_gate(gate, program, classes)?;
-        }
-        Ok(())
-    }
-
-    /// Resumes every frame parked on `gate`, in SUSPENSION order.
-    ///
-    /// `IRIS-V1-ASYNC-C014` fixes that order, so two tasks awaiting one Gate
-    /// observe their effects in the order they paused rather than in whatever
-    /// order a map happened to hold them.
-    pub(super) fn resume_gate(
-        &mut self,
-        gate: iris_runtime::ObjectId,
-        program: &Program,
-        classes: &[ClassId],
-    ) -> Result<(), MachineError> {
-        let posted = self
-            .gates
-            .get(&gate)
-            .cloned()
-            .flatten()
-            .unwrap_or(Value::Nil);
-        let mut ready = Vec::new();
-        let mut held = Vec::new();
-        for task in std::mem::take(&mut self.suspended) {
-            if task.frame.gate == gate {
-                ready.push(task);
-            } else {
-                held.push(task);
-            }
-        }
-        self.suspended = held;
-        for task in ready {
-            let super::SuspendedTask {
-                identity,
-                mut frame,
-                function,
-            } = task;
-            let cleanup = frame.cleanup.clone();
-            let mut frames = std::mem::take(&mut frame.continuations);
-            frames.reverse();
-            frames.push(frame);
-            self.pending_frame = None;
-            self.async_depth += 1;
-            let outcome = frames.into_iter().try_fold(posted.clone(), |value, frame| {
-                let function = frame.function.unwrap_or(function);
-                let callee =
-                    program
-                        .functions
-                        .get(function)
-                        .cloned()
-                        .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
-                            function,
-                        }))?;
-                self.run_frame_from(
-                    &callee.instructions,
-                    callee.registers,
-                    Vec::new(),
-                    program,
-                    classes,
-                    Some((frame, value)),
-                )
-                .map(|returned| returned.into_iter().next().unwrap_or(Value::Nil))
-            });
-            self.async_depth -= 1;
-            let outcome = match cleanup {
-                Some(resource) if !matches!(outcome, Err(MachineError::Suspended(_))) => {
-                    self.close_after(resource, outcome, program, classes)
-                }
-                _ => outcome,
-            };
-            // A resumed frame may await AGAIN, on another Gate, so it parks
-            // once more under the same Task identity rather than completing.
-            if let Err(MachineError::Suspended(_)) = outcome {
-                if let Some(frame) = self.pending_frame.take() {
-                    self.suspended.push(super::SuspendedTask {
-                        identity,
-                        frame,
-                        function,
-                    });
-                }
-                continue;
-            }
-            if outcome.is_err() {
-                self.unobserved_failures.push(identity);
-            }
-            self.tasks.insert(identity, outcome.map_err(Box::new));
-        }
-        Ok(())
-    }
-
-    pub(super) fn observe_task(
-        &mut self,
-        task: Value,
-        program: &Program,
-        classes: &[ClassId],
-    ) -> Result<Value, MachineError> {
-        let Value::Task(identity) = task else {
-            return Err(MachineError::Kernel(KernelError::Type));
-        };
-        // Observing is what DRIVES a parked frame: `C014` readies a frame when
-        // its Gate completes, but the continuation runs here, so the effect
-        // becomes visible only once something observes the Task.
-        self.drive_ready(program, classes)?;
-        let outcome = self
-            .tasks
-            .get(&identity)
-            .cloned()
-            .ok_or(MachineError::UnsupportedConstruct)?;
-        self.unobserved_failures.retain(|held| *held != identity);
-        outcome.map_err(|error| *error)
-    }
-
     pub(super) fn invoke_using(
         &mut self,
-        resource: Value,
-        block: Value,
+        arguments: &[Value],
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
-        let Value::Closure(callback) = block else {
-            return Err(MachineError::Kernel(KernelError::Type));
+        let super::prepared_call::CallArguments {
+            positional,
+            keywords,
+            block,
+        } = super::prepared_call::CallArguments::scan(arguments)?;
+        if !keywords.is_empty() {
+            return Err(MachineError::ArgumentError);
+        }
+        let (resource, block) = match (positional.as_slice(), block) {
+            ([resource], Some(block)) => (resource.clone(), block),
+            ([resource, callback], None) => (resource.clone(), callback.clone()),
+            _ => return Err(MachineError::ArgumentError),
         };
-        let outcome = self.invoke_closure_value(callback, &[], program, classes);
+        let arity = match &block {
+            Value::Closure(callback) => self.closures.get(callback).map(|closure| {
+                closure.program.functions[closure.function].parameters - closure.captures.len()
+            }),
+            Value::BoundMethod(bound) => self
+                .method_signatures
+                .get(&bound.method().id())
+                .map(|signature| signature.parameters.len()),
+            _ => return Err(MachineError::Kernel(KernelError::Type)),
+        };
+        let arguments = if arity == Some(0) {
+            &[][..]
+        } else {
+            std::slice::from_ref(&resource)
+        };
+        let outcome = match block {
+            Value::Closure(callback) => {
+                self.invoke_closure_value(callback, arguments, program, classes)
+            }
+            Value::BoundMethod(bound) => {
+                self.invoke_bound_callable(&bound, arguments, (program, classes))
+            }
+            _ => return Err(MachineError::Kernel(KernelError::Type)),
+        };
         // `C013` makes a suspension a REGISTERED CONTINUATION, not an exit, so
         // the protected region has not been left and the resource must stay
         // open. Closing here would run cleanup once on the way out and again
@@ -252,7 +118,9 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
-        let closed = self.close_resource(resource, program, classes);
+        let (outcome, closed) = self.with_local_roots(outcome, |machine, _| {
+            machine.close_resource(resource, program, classes)
+        });
         match (outcome, closed) {
             (Ok(value), Ok(())) => Ok(value),
             (Ok(_), Err(error)) => Err(error),
@@ -283,7 +151,7 @@ impl Machine {
         &mut self,
         resource: Value,
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<(), MachineError> {
         if let Value::ExternalResource(_) = &resource {
             return self.send("close", resource, &[]).map(|_| ());
@@ -300,11 +168,15 @@ impl Machine {
             .runtime
             .dispatch_instance(object, selector)
             .map_err(MachineError::Construction)?;
-        let function = usize::try_from(method.body().raw()).map_err(|_| {
-            MachineError::Invalid(super::VerifyError::UnknownFunction {
-                function: usize::MAX,
-            })
-        })?;
+        let function = self
+            .resolve_method_body(method.body(), program)
+            .map_err(|error| error.invalid_function())?;
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let callee = program
             .functions
             .get(function)
@@ -329,37 +201,100 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        if self.next_continuations.contains_key(&callback) {
+            return self.invoke_next(callback, arguments, program, classes);
+        }
+        if arguments
+            .iter()
+            .any(|argument| matches!(argument, Value::BlockArgument(_)))
+        {
+            return Err(MachineError::ArgumentError);
+        }
         let closure = self
             .closures
             .get(&callback)
             .cloned()
             .ok_or(MachineError::Kernel(KernelError::Type))?;
-        let callee =
-            program
-                .functions
-                .get(closure.function)
-                .cloned()
-                .ok_or(MachineError::Invalid(super::VerifyError::UnknownFunction {
-                    function: closure.function,
-                }))?;
-        let mut passed = closure.captures;
-        passed.extend_from_slice(arguments);
-        self.closure_depth += 1;
-        let returned = self.run_body(
-            &callee.instructions,
-            callee.registers,
-            passed,
-            program,
-            classes,
-        );
-        self.closure_depth -= 1;
-        if returned.is_err()
-            && let Some(frame) = self.pending_frame.as_mut()
-        {
-            frame.function = Some(closure.function);
-        }
-        let returned = returned?;
-        Ok(returned.into_iter().next().unwrap_or(Value::Nil))
+        let program = closure.program.as_ref();
+        let owned_classes = program
+            .link
+            .as_ref()
+            .ok_or(MachineError::UnsupportedConstruct)?
+            .classes
+            .borrow()
+            .clone();
+        let classes = owned_classes.as_slice();
+        let previous = std::mem::replace(&mut self.method_types, closure.method_types);
+        self.active_values.push(Value::Closure(callback));
+        let result =
+            (|| {
+                let callee = program.functions.get(closure.function).cloned().ok_or(
+                    MachineError::Invalid(super::VerifyError::UnknownFunction {
+                        function: closure.function,
+                    }),
+                )?;
+                let mut passed = closure.captures;
+                if let Some(signature) = &callee.signature {
+                    for (parameter, argument) in signature.parameters.iter().zip(arguments) {
+                        if let Some(annotation) = &parameter.annotation
+                            && !self.annotation_admits(argument, annotation, program, classes)?
+                        {
+                            return Err(self.decorator_type_error());
+                        }
+                    }
+                }
+                if callee.is_async && !self.decorator_phases.is_empty() {
+                    return Err(MachineError::UnsupportedConstruct);
+                }
+                if callee.signature.as_ref().is_some_and(|signature| {
+                    signature.parameters.iter().all(|parameter| {
+                        parameter.default.is_none()
+                            && parameter.category == iris_syntax::ParameterCategory::Positional
+                    })
+                }) && passed.len() + arguments.len() != callee.parameters
+                {
+                    return Err(MachineError::ArgumentError);
+                }
+                passed.extend_from_slice(arguments);
+                if callee.is_async {
+                    return self.spawn_task(
+                        closure.function,
+                        callee.registers,
+                        &callee.instructions,
+                        passed,
+                        program,
+                        classes,
+                    );
+                }
+                self.closure_depth += 1;
+                let returned = self.run_body(
+                    &callee.instructions,
+                    callee.registers,
+                    passed,
+                    program,
+                    classes,
+                );
+                self.closure_depth -= 1;
+                if returned.is_err()
+                    && let Some(frame) = self.pending_frame.as_mut()
+                {
+                    frame.function = Some(closure.function);
+                }
+                let returned = returned?;
+                let value = returned.into_iter().next().unwrap_or(Value::Nil);
+                if let Some(annotation) = callee
+                    .signature
+                    .as_ref()
+                    .and_then(|signature| signature.return_type.as_ref())
+                    && !self.annotation_admits(&value, annotation, program, classes)?
+                {
+                    return Err(self.decorator_type_error());
+                }
+                Ok(value)
+            })();
+        self.method_types = previous;
+        self.active_values.pop();
+        result
     }
 
     pub(super) fn dynamic_selector(&mut self, name: &str) -> iris_runtime::Selector {
@@ -377,34 +312,38 @@ impl Machine {
         program: &Program,
         selector: iris_runtime::Selector,
     ) -> Option<String> {
-        self.dynamic_selectors
-            .iter()
-            .find_map(|(name, known)| (*known == selector).then(|| name.clone()))
-            .or_else(|| {
-                program
-                    .classes
-                    .iter()
-                    .flat_map(|class| {
-                        class.methods.iter().chain(&class.class_methods).chain(
-                            class.reopens.iter().flat_map(|reopen| {
-                                reopen.methods.iter().chain(&reopen.class_methods)
-                            }),
+        self.code.selector_name(selector).or_else(|| {
+            self.dynamic_selectors
+                .iter()
+                .find_map(|(name, known)| (*known == selector).then(|| name.clone()))
+                .or_else(|| {
+                    program
+                        .classes
+                        .iter()
+                        .flat_map(|class| {
+                            class.methods.iter().chain(&class.class_methods).chain(
+                                class.reopens.iter().flat_map(|reopen| {
+                                    reopen.methods.iter().chain(&reopen.class_methods)
+                                }),
+                            )
+                        })
+                        .map(|(name, _)| name.as_str())
+                        .chain(
+                            program
+                                .classes
+                                .iter()
+                                .flat_map(|class| class.stored_properties.iter())
+                                .map(|property| property.name.as_str()),
                         )
-                    })
-                    .map(|(name, _)| name.as_str())
-                    .chain(
-                        program
-                            .classes
-                            .iter()
-                            .flat_map(|class| class.stored_properties.iter())
-                            .map(|property| property.name.as_str()),
-                    )
-                    .chain(program.functions.iter().filter_map(|function| {
-                        function.name.split_once('.').map(|(_, selector)| selector)
-                    }))
-                    .find(|name| selector_id(program, name).is_some_and(|known| known == selector))
-                    .map(str::to_owned)
-            })
+                        .chain(program.functions.iter().filter_map(|function| {
+                            function.name.split_once('.').map(|(_, selector)| selector)
+                        }))
+                        .find(|name| {
+                            selector_id(program, name).is_some_and(|known| known == selector)
+                        })
+                        .map(str::to_owned)
+                })
+        })
     }
 
     pub(super) fn require_reflection(
@@ -438,6 +377,8 @@ impl Machine {
         &mut self,
         program: &Program,
     ) -> Result<Vec<ClassId>, MachineError> {
+        let owner = self.code.register(program)?;
+        let program = owner.as_ref();
         self.modules.clear();
         // A module is DECLARED, and also discovered from the names of its
         // functions - a module with methods but no declaration entry is still
@@ -500,6 +441,38 @@ impl Machine {
         }
         for module in &ordered {
             let module = module.as_str();
+            if program
+                .modules
+                .iter()
+                .any(|known| known.name == module && known.replay.is_some())
+            {
+                continue;
+            }
+            if program
+                .modules
+                .iter()
+                .position(|known| known.name == module)
+                .is_some_and(|index| {
+                    program.decorator_applications.iter().any(|application| {
+                        application.target == crate::compile::decorators::Target::Module(index)
+                    })
+                })
+            {
+                continue;
+            }
+            if program
+                .modules
+                .iter()
+                .find(|known| known.name == module)
+                .is_some_and(|declaration| {
+                    declaration
+                        .mixins
+                        .iter()
+                        .any(|needed| !self.modules.iter().any(|(name, _)| name == needed))
+                })
+            {
+                continue;
+            }
             let components: Vec<iris_runtime::ModuleId> = program
                 .modules
                 .iter()
@@ -519,7 +492,16 @@ impl Machine {
             let module_id = self
                 .runtime
                 .registry_mut()
-                .define_module(&components)
+                .define_module_with_capabilities(
+                    &components,
+                    meta_capabilities(
+                        program
+                            .modules
+                            .iter()
+                            .find(|known| known.name == module)
+                            .map_or(&[], |known| known.meta_deny.as_slice()),
+                    )?,
+                )
                 .map_err(MachineError::Class)?;
             self.modules.push((module.to_owned(), module_id));
             for (function, method) in program.functions.iter().enumerate() {
@@ -537,8 +519,16 @@ impl Machine {
                     .define_module_method(
                         module_id,
                         selector,
-                        MethodBody::new(function as u64),
-                        Visibility::Public,
+                        self.code.body(function, program)?,
+                        match method
+                            .signature
+                            .as_ref()
+                            .map(|signature| signature.visibility)
+                        {
+                            Some(iris_syntax::Visibility::Private) => Visibility::Private,
+                            Some(iris_syntax::Visibility::Protected) => Visibility::Protected,
+                            Some(iris_syntax::Visibility::Public) | None => Visibility::Public,
+                        },
                     )
                     .map_err(MachineError::Class)?;
                 self.remember_signature(method, program);
@@ -546,6 +536,22 @@ impl Machine {
         }
         let mut classes = Vec::with_capacity(program.classes.len());
         for (index, declaration) in program.classes.iter().enumerate() {
+            if program.instructions.iter().take_while(|instruction| !matches!(instruction,
+                crate::Instruction::ApplyDecorators { class } if *class == index)).any(|instruction|
+                    matches!(instruction, crate::Instruction::ApplyModuleDecorators { module }
+                        if !self.modules.iter().any(|(name, _)| name == &program.modules[*module].name))) {
+                break;
+            }
+            let before_class = program.instructions.iter().take_while(|instruction| !matches!(instruction, crate::Instruction::ApplyDecorators { class } if *class == index));
+            if before_class.into_iter().any(|instruction| matches!(instruction,
+                crate::Instruction::ApplyContractDecorators { contract } if program.decorator_applications.iter().any(|application| application.target == crate::compile::decorators::Target::Contract(*contract)))) {
+                break;
+            }
+            if program.decorator_applications.iter().any(|application| {
+                application.target == crate::compile::decorators::Target::Class(index)
+            }) {
+                break;
+            }
             let superclass = declaration
                 .superclass
                 .and_then(|parent| classes.get(parent).copied());
@@ -583,7 +589,7 @@ impl Machine {
                                 .define_module_method(
                                     module,
                                     selector,
-                                    MethodBody::new(*function as u64),
+                                    self.code.body(*function, program)?,
                                     Visibility::Public,
                                 )
                                 .map_err(MachineError::Class)?;
@@ -656,12 +662,26 @@ impl Machine {
                 // object's behalf rather than from any caller's frame, so a
                 // class declaring it without `public` must still be
                 // constructible.
-                let visibility =
-                    if declaration.private_methods.contains(selector) && selector != "initialize" {
+                let visibility = match program.functions[*function]
+                    .signature
+                    .as_ref()
+                    .map(|signature| signature.visibility)
+                {
+                    Some(iris_syntax::Visibility::Private) if selector != "initialize" => {
                         Visibility::Private
-                    } else {
-                        Visibility::Public
-                    };
+                    }
+                    Some(iris_syntax::Visibility::Protected) => Visibility::Protected,
+                    Some(iris_syntax::Visibility::Private | iris_syntax::Visibility::Public)
+                    | None => {
+                        if declaration.private_methods.contains(selector)
+                            && selector != "initialize"
+                        {
+                            Visibility::Private
+                        } else {
+                            Visibility::Public
+                        }
+                    }
+                };
                 let selector = selector_id(program, selector)
                     .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                 let method = self
@@ -670,7 +690,7 @@ impl Machine {
                     .publish_origin_method(
                         class,
                         selector,
-                        MethodBody::new(*function as u64),
+                        self.code.body(*function, program)?,
                         visibility,
                     )
                     .map_err(MachineError::Class)?;
@@ -696,7 +716,7 @@ impl Machine {
                 // evaluated where the class is defined.
                 if let Some(function) = variable.initializer_function {
                     self.pending_class_initializers
-                        .insert((class, selector), function);
+                        .insert((class, selector), self.code.body(function, program)?);
                 }
             }
             for (selector, function) in &declaration.class_methods {
@@ -708,11 +728,17 @@ impl Machine {
                     .publish_singleton_method(
                         class,
                         selector,
-                        MethodBody::new(*function as u64),
+                        self.code.body(*function, program)?,
                         Visibility::Public,
                     )
                     .map_err(MachineError::Class)?;
                 self.remember_signature(method, program);
+            }
+            self.register_qualified_methods((class, index), program)?;
+            for selector in &declaration.static_impls {
+                let selector = selector_id(program, selector)
+                    .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                self.static_impl_slots.insert((class, selector));
             }
             self.runtime
                 .registry_mut()
@@ -721,6 +747,7 @@ impl Machine {
             // A reopen is NOT applied here: it takes effect where it was
             // written, so `ApplyReopen` drives it from that position.
             classes.push(class);
+            self.code.retain_classes(program, &classes)?;
         }
         // A reopen of a BUILT-IN class publishes onto the kernel's own class,
         // which has no entry in `classes`. That is what makes the added method
@@ -740,6 +767,8 @@ impl Machine {
                 (
                     class,
                     &crate::compile::ClassReopen {
+                        mixins: Vec::new(),
+                        qualified_impls: Vec::new(),
                         methods: reopen.methods.clone(),
                         class_methods: Vec::new(),
                     },
@@ -747,6 +776,12 @@ impl Machine {
                 program,
             )?;
         }
+        program
+            .link
+            .as_ref()
+            .ok_or(MachineError::UnsupportedConstruct)?
+            .modules
+            .replace(self.modules.clone());
         Ok(classes)
     }
 
@@ -757,6 +792,12 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<bool, MachineError> {
+        if self.kernel.core_class(name).is_some() || self.core_support.contains_key(name) {
+            return Ok(
+                self.type_test(value, &Value::Class(self.builtin_class(name)?))?
+                    == Value::Bool(true),
+            );
+        }
         let filter = match name {
             "Symbol" => return Ok(matches!(value, Value::Symbol(_))),
             "Integer" => return Ok(matches!(value, Value::Integer(_))),
@@ -794,6 +835,192 @@ impl Machine {
                 return Ok(false);
             };
             class = superclass;
+        }
+    }
+
+    pub(super) fn admit_construction(
+        &self,
+        class: ClassId,
+        arguments: &[iris_runtime::NominalType],
+    ) -> Result<ConstructionOwner, MachineError> {
+        let Some((program, index)) = self.code.class_owner(class) else {
+            return Ok(None);
+        };
+        let classes = program
+            .link
+            .as_ref()
+            .ok_or(MachineError::UnsupportedConstruct)?
+            .classes
+            .borrow()
+            .clone();
+        let expressions = arguments
+            .iter()
+            .map(|argument| self.nominal_expression(argument, &program))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(MachineError::TypeContractError)?;
+        if !crate::compile::calls::admission::Admission::new(&program.classes, &program.contracts)
+            .accepts(index, &expressions)
+        {
+            return Err(MachineError::TypeContractError);
+        }
+        Ok(Some((program, classes)))
+    }
+
+    fn nominal_expression(
+        &self,
+        nominal: &iris_runtime::NominalType,
+        program: &Program,
+    ) -> Option<iris_syntax::TypeExpression> {
+        if let Some(callable) = self.runtime.registry().callable_type(nominal.class()) {
+            let name = match callable.kind() {
+                iris_runtime::CallableKind::Closure => "Closure",
+                iris_runtime::CallableKind::BoundMethod => "BoundMethod",
+            };
+            let parameters = callable
+                .signature()
+                .parameters()
+                .iter()
+                .map(|parameter| self.signature_expression(parameter, program))
+                .collect::<Option<Vec<_>>>()?;
+            let result = self.signature_expression(callable.signature().result(), program)?;
+            return Some(iris_syntax::TypeExpression::Generic {
+                name: name.to_owned(),
+                arguments: vec![iris_syntax::TypeExpression::Function {
+                    parameters,
+                    result: Box::new(result),
+                }],
+            });
+        }
+        let name = self.code.class_owner(nominal.class()).map_or_else(
+            || {
+                self.core_support
+                    .iter()
+                    .find_map(|(name, class)| {
+                        (*class == nominal.class()).then(|| (*name).to_owned())
+                    })
+                    .or_else(|| {
+                        [
+                            "Object", "Nil", "Bool", "Integer", "Float32", "Float64", "String",
+                        ]
+                        .into_iter()
+                        .find(|name| {
+                            self.builtin_class(name)
+                                .is_ok_and(|class| class == nominal.class())
+                        })
+                        .map(str::to_owned)
+                    })
+            },
+            |(program, index)| Some(program.classes[index].name.clone()),
+        )?;
+        let arguments = nominal
+            .arguments()
+            .iter()
+            .map(|argument| self.nominal_expression(argument, program))
+            .collect::<Option<Vec<_>>>()?;
+        Some(if arguments.is_empty() {
+            iris_syntax::TypeExpression::Name(name)
+        } else {
+            iris_syntax::TypeExpression::Generic { name, arguments }
+        })
+    }
+
+    fn signature_expression(
+        &self,
+        signature: &iris_runtime::SignatureType,
+        program: &Program,
+    ) -> Option<iris_syntax::TypeExpression> {
+        match signature {
+            iris_runtime::SignatureType::Nominal(nominal) => {
+                self.nominal_expression(nominal, program)
+            }
+            iris_runtime::SignatureType::Composed(composed) => {
+                self.composed_expression(composed, program)
+            }
+        }
+    }
+
+    fn composed_expression(
+        &self,
+        composed: &iris_runtime::ComposedType,
+        program: &Program,
+    ) -> Option<iris_syntax::TypeExpression> {
+        match composed {
+            iris_runtime::ComposedType::Never => {
+                Some(iris_syntax::TypeExpression::Name("Never".to_owned()))
+            }
+            iris_runtime::ComposedType::Union(members) => Some(iris_syntax::TypeExpression::Union(
+                members
+                    .iter()
+                    .map(|member| self.type_atom_expression(member, program))
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            iris_runtime::ComposedType::Intersection(members) => {
+                Some(iris_syntax::TypeExpression::Intersection(
+                    members
+                        .iter()
+                        .map(|member| self.type_atom_expression(member, program))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+        }
+    }
+
+    fn type_atom_expression(
+        &self,
+        atom: &iris_runtime::TypeAtom,
+        program: &Program,
+    ) -> Option<iris_syntax::TypeExpression> {
+        match atom {
+            iris_runtime::TypeAtom::Nominal(class, arguments) => self.nominal_expression(
+                &iris_runtime::NominalType::new(*class, arguments.clone()),
+                program,
+            ),
+            iris_runtime::TypeAtom::NonNil => {
+                Some(iris_syntax::TypeExpression::Name("NonNil".to_owned()))
+            }
+            iris_runtime::TypeAtom::Contract(contract, arguments) => {
+                let name =
+                    program
+                        .contracts
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, declaration)| {
+                            (program.contract_identity(index) == *contract)
+                                .then(|| declaration.name.clone())
+                        })?;
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.nominal_expression(argument, program))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(if arguments.is_empty() {
+                    iris_syntax::TypeExpression::Name(name)
+                } else {
+                    iris_syntax::TypeExpression::Generic { name, arguments }
+                })
+            }
+            iris_runtime::TypeAtom::Iteration(arguments) => {
+                Some(iris_syntax::TypeExpression::Generic {
+                    name: "Iteration".to_owned(),
+                    arguments: arguments
+                        .iter()
+                        .map(|argument| self.nominal_expression(argument, program))
+                        .collect::<Option<Vec<_>>>()?,
+                })
+            }
+            iris_runtime::TypeAtom::Union(members) => Some(iris_syntax::TypeExpression::Union(
+                members
+                    .iter()
+                    .map(|member| self.type_atom_expression(member, program))
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            iris_runtime::TypeAtom::Intersection(members) => {
+                Some(iris_syntax::TypeExpression::Intersection(
+                    members
+                        .iter()
+                        .map(|member| self.type_atom_expression(member, program))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
         }
     }
 
@@ -878,6 +1105,34 @@ impl Machine {
                     .assign_raw_ivar(object, selector, value)
                     .map_err(MachineError::Construction)?;
             }
+            for field in &program.classes[index].instance_fields {
+                let selector = selector_id(program, &field.name)
+                    .ok_or_else(|| MachineError::UnknownSelector(field.name.clone()))?;
+                let value = match field.initializer_function {
+                    Some(function) => {
+                        let callee = program.functions.get(function).cloned().ok_or(
+                            MachineError::Invalid(VerifyError::UnknownFunction { function }),
+                        )?;
+                        let returned = self.run_body(
+                            &callee.instructions,
+                            callee.registers,
+                            vec![Value::Object(object)],
+                            program,
+                            classes,
+                        )?;
+                        returned.into_iter().next().unwrap_or(Value::Nil)
+                    }
+                    None => literal_runtime_value(&field.initializer)?,
+                };
+                if let Some(annotation) = &field.annotation
+                    && !self.annotation_admits(&value, annotation, program, classes)?
+                {
+                    return Err(MachineError::TypeContractError);
+                }
+                self.runtime
+                    .assign_raw_ivar(object, selector, value)
+                    .map_err(MachineError::Construction)?;
+            }
             let declared = program.classes[index]
                 .stored_properties
                 .iter()
@@ -895,11 +1150,15 @@ impl Machine {
                 if declared.contains(&property.selector()) {
                     continue;
                 }
-                let function = usize::try_from(property.initializer().raw()).map_err(|_| {
-                    MachineError::Invalid(VerifyError::UnknownFunction {
-                        function: usize::MAX,
-                    })
-                })?;
+                let function = self
+                    .resolve_method_body(property.initializer(), program)
+                    .map_err(|error| error.invalid_function())?;
+                let owner = function;
+                let (program, classes, function) = (
+                    owner.program.as_ref(),
+                    owner.classes.as_slice(),
+                    owner.function,
+                );
                 let callee =
                     program
                         .functions
@@ -941,6 +1200,14 @@ impl Machine {
         classes: &[ClassId],
     ) -> Result<iris_runtime::Method, iris_runtime::ConstructionError> {
         let class = self.runtime.class_of(object)?;
+        if let Some(method) = self.historical_instance_method(object, selector) {
+            if method.visibility() != Visibility::Public
+                && caller.and_then(|index| classes.get(index)).copied() != Some(class)
+            {
+                return Err(iris_runtime::DispatchError::VisibilityDenied { selector }.into());
+            }
+            return Ok(method);
+        }
         let module = caller_module.and_then(|name| {
             self.modules
                 .iter()
@@ -1027,7 +1294,7 @@ impl Machine {
         &mut self,
         iterator: &Value,
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<(), MachineError> {
         if self.iteration_send(iterator, "close", &[])?.is_some() {
             return Ok(());
@@ -1044,11 +1311,15 @@ impl Machine {
             .runtime
             .dispatch_instance(*object, selector)
             .map_err(MachineError::Construction)?;
-        let function = usize::try_from(method.body().raw()).map_err(|_| {
-            MachineError::Invalid(super::VerifyError::UnknownFunction {
-                function: usize::MAX,
-            })
-        })?;
+        let function = self
+            .resolve_method_body(method.body(), program)
+            .map_err(|error| error.invalid_function())?;
+        let owner = function;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let callee = program
             .functions
             .get(function)
@@ -1072,7 +1343,9 @@ impl Machine {
 /// `IRIS-V1-META-C081` fixes the capability vocabulary, so a name outside it
 /// is a diagnostic rather than a silently ignored denial - registering every
 /// class with the full policy let a denied operation succeed anyway.
-fn meta_capabilities(names: &[String]) -> Result<iris_runtime::MetaCapabilities, MachineError> {
+pub(super) fn meta_capabilities(
+    names: &[String],
+) -> Result<iris_runtime::MetaCapabilities, MachineError> {
     let mut denied = Vec::with_capacity(names.len());
     for name in names {
         denied.push(match name.as_str() {
@@ -1105,7 +1378,7 @@ impl Machine {
         class: iris_runtime::ClassId,
         selector: iris_runtime::Selector,
         program: &Program,
-        classes: &[ClassId],
+        _classes: &[ClassId],
     ) -> Result<(), MachineError> {
         let Some(function) = self
             .pending_class_initializers
@@ -1114,6 +1387,14 @@ impl Machine {
         else {
             return Ok(());
         };
+        let owner = self
+            .resolve_method_body(function, program)
+            .map_err(|error| error.invalid_function())?;
+        let (program, classes, function) = (
+            owner.program.as_ref(),
+            owner.classes.as_slice(),
+            owner.function,
+        );
         let callee = program
             .functions
             .get(function)
@@ -1169,5 +1450,72 @@ impl Machine {
             self.force_class_initializer(class, selector, program, classes)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod construction_admission_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_closed_runtime_values_are_rejected() {
+        let program = crate::compile(
+            "contract Comparable<T> {}; class Key {}; impl Key for Comparable<Key> {}; class Other {}; class Inner<T> {}; class Box<T, U> where T: Comparable<T> { } nil",
+        )
+        .expect("program");
+        let mut machine = Machine::new().expect("machine");
+        let classes = machine.register_classes(&program).expect("classes");
+        let box_class = classes[3];
+        let key = iris_runtime::NominalType::new(classes[0], Vec::new());
+        let other = iris_runtime::NominalType::new(classes[1], Vec::new());
+        let raw_inner = iris_runtime::NominalType::new(classes[2], Vec::new());
+
+        for arguments in [
+            vec![key.clone()],
+            vec![key.clone(), other.clone(), other.clone()],
+            vec![key, raw_inner],
+            vec![other.clone(), other],
+        ] {
+            assert_eq!(
+                machine.admit_construction(box_class, &arguments),
+                Err(MachineError::TypeContractError)
+            );
+        }
+    }
+
+    #[test]
+    fn f_bounded_closed_runtime_value_is_admitted() {
+        let program = crate::compile(
+            "contract Comparable<T> {}; class Key<T> {}; impl Key<T> for Comparable<Key<T>> {}; class Box<T> where T: Comparable<T> { } nil",
+        )
+        .expect("program");
+        let mut machine = Machine::new().expect("machine");
+        let classes = machine.register_classes(&program).expect("classes");
+        let integer = machine.builtin_class("Integer").expect("Integer");
+        let key = iris_runtime::NominalType::new(
+            classes[0],
+            vec![iris_runtime::NominalType::new(integer, Vec::new())],
+        );
+
+        assert!(matches!(
+            machine.admit_construction(classes[1], &[key]),
+            Ok(Some(_))
+        ));
+    }
+
+    #[test]
+    fn nested_intersection_atom_reconstructs_intersection_syntax() {
+        let machine = Machine::new().expect("machine");
+        let program = crate::compile("nil").expect("program");
+        let atom = iris_runtime::TypeAtom::Intersection(vec![iris_runtime::TypeAtom::NonNil]);
+
+        let expression = machine.type_atom_expression(&atom, &program);
+
+        assert_eq!(
+            expression,
+            Some(iris_syntax::TypeExpression::Intersection(vec![
+                iris_syntax::TypeExpression::Name("NonNil".to_owned()),
+            ]))
+        );
     }
 }

@@ -1,8 +1,8 @@
 //! Register-frame instruction execution.
 
 use iris_runtime::{
-    BoundReceiver, ClassError, ClassId, ComposedType, ConstructionError, ContractId, KernelError,
-    MethodOwner, NumericError, Selector, TypeAtom, Value,
+    BoundReceiver, ClassError, ClassId, ComposedType, ConstructionError, KernelError, MethodOwner,
+    NumericError, TypeAtom, Value,
 };
 
 use crate::compile::{FloatWidth, Instruction, Program, Register};
@@ -13,11 +13,11 @@ use super::{
 };
 
 struct FrameState {
-    registers: Vec<Value>,
+    registers: std::rc::Rc<std::cell::RefCell<Vec<Value>>>,
     counter: usize,
     handlers: Vec<(usize, Register, Register)>,
-    converted: Option<MachineError>,
     arity: usize,
+    supplied: Vec<bool>,
 }
 
 enum InstructionAction {
@@ -49,14 +49,16 @@ macro_rules! instruction_group {
                 $program: &Program,
                 $classes: &[ClassId],
             ) -> Result<InstructionAction, MachineError> {
-                let $registers = &mut $state.registers;
+                let register_file = std::rc::Rc::clone(&$state.registers);
+                let $registers = &mut super::execution_roots::RegisterWindow::new(&register_file);
                 let _ = (&$registers, &$program, &$classes);
                 $(macro_rules! $run_frame {
                     ($label:lifetime, $call:expr) => {
                         match $call {
                             Ok(value) => value,
-                            Err(error) => {
-                                $machine.handle_frame_error($state, error)?;
+                             Err(error) => {
+                                 $registers.release();
+                                 $machine.handle_frame_error($state, error)?;
                                 return Ok(InstructionAction::Continue);
                             }
                         }
@@ -92,7 +94,20 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Vec<Value>, MachineError> {
-        self.run_frame_from(instructions, size, arguments, program, classes, None)
+        let owner = self.code.register(program)?;
+        let program = owner.as_ref();
+        let mut bindings = self.method_types.clone();
+        bindings.extend(
+            arguments
+                .first()
+                .map(|receiver| self.receiver_type_bindings(receiver, (program, classes)))
+                .transpose()?
+                .unwrap_or_default(),
+        );
+        let previous = std::mem::replace(&mut self.method_types, bindings);
+        let result = self.run_frame_from(instructions, size, arguments, program, classes, None);
+        self.method_types = previous;
+        result
     }
 
     /// Runs a frame, optionally RESUMING one that suspended at an `await`.
@@ -109,7 +124,27 @@ impl Machine {
         classes: &[ClassId],
         resume: Option<(PendingFrame, Value)>,
     ) -> Result<Vec<Value>, MachineError> {
+        if !instructions
+            .iter()
+            .any(|instruction| matches!(instruction, Instruction::BindParameters { .. }))
+            && arguments
+                .iter()
+                .any(|argument| matches!(argument, Value::BlockArgument(_)))
+        {
+            return Err(MachineError::ArgumentError);
+        }
+        let owner = self.code.owner(program)?;
+        let link = owner
+            .link
+            .as_ref()
+            .ok_or(MachineError::UnsupportedConstruct)?;
+        let previous_modules = std::mem::replace(&mut self.modules, link.modules.borrow().clone());
+        let previous_history = std::mem::replace(
+            &mut self.history_context,
+            (!link.history_methods.borrow().is_empty()).then(|| std::rc::Rc::clone(&owner)),
+        );
         // Verification proved every read is in range and written, so indexing
+        let mut declaration_classes = classes.to_vec();
         // below cannot be out of bounds and no operand check is repeated.
         // A caller may pass MORE arguments than the signature declares - two
         // keywords for one `key` parameter, or extra positionals for a
@@ -139,188 +174,307 @@ impl Machine {
                 registers[destination as usize] = posted;
             }
         }
-        // A NAMED runtime error is catchable, so it is handed to a handler as
-        // a Symbol. If no handler answers it, the program must still fail with
-        // the ORIGINAL error rather than with a raised Symbol: an uncaught
-        // ConcurrentModification is that error, not `Raised(:...)`.
         let mut state = FrameState {
-            registers,
+            registers: std::rc::Rc::new(std::cell::RefCell::new(registers)),
             counter,
             handlers,
-            converted: None,
             arity,
+            supplied: vec![true; arity],
         };
-        while let Some(instruction) = instructions.get(state.counter) {
-            state.counter += 1;
-            // A run that never terminates would HANG here, so each instruction
-            // charges a step and the run fails once the budget is gone.
-            self.remaining_steps = self
-                .remaining_steps
-                .checked_sub(1)
-                .ok_or(MachineError::StepBudgetExhausted)?;
-            let action = match instruction {
-                Instruction::LoadInteger { .. }
-                | Instruction::LoadFloat64 { .. }
-                | Instruction::LoadFloat32 { .. }
-                | Instruction::LoadText { .. }
-                | Instruction::LoadBytes { .. }
-                | Instruction::LoadByteArray { .. }
-                | Instruction::MakeMutableString { .. }
-                | Instruction::LoadSymbol { .. }
-                | Instruction::LoadBool { .. }
-                | Instruction::LoadNil { .. }
-                | Instruction::LoadIterationDone { .. }
-                | Instruction::BuildIterationYield { .. }
-                | Instruction::LoadClass { .. }
-                | Instruction::LoadClosedClass { .. }
-                | Instruction::LoadType { .. }
-                | Instruction::LoadContract { .. }
-                | Instruction::BindModuleMethod { .. }
-                | Instruction::LoadGlobal { .. }
-                | Instruction::StoreGlobal { .. }
-                | Instruction::PublishBinding { .. }
-                | Instruction::LoadBinding { .. }
-                | Instruction::StoreBinding { .. }
-                | Instruction::Move { .. }
-                | Instruction::MakeCell { .. }
-                | Instruction::LoadCell { .. }
-                | Instruction::StoreCell { .. }
-                | Instruction::DeclareDeferred { .. }
-                | Instruction::MarkAssigned { .. }
-                | Instruction::ReadDeferred { .. }
-                | Instruction::TestTruth { .. }
-                | Instruction::MakeKeywordArgument { .. } => {
-                    self.execute_load(instruction, &mut state, program, classes)
+        let frame_index = self.frame_roots.len();
+        self.frame_roots.push(super::execution_roots::ActiveFrame {
+            registers: std::rc::Rc::clone(&state.registers),
+            selected: None,
+            converted: Vec::new(),
+        });
+        let result = (|| {
+            while let Some(instruction) = instructions.get(state.counter) {
+                self.frame_roots[frame_index].selected = match instruction {
+                    Instruction::NativeFixture { .. } => Some(instruction.roots().to_vec()),
+                    _ => None,
+                };
+                if let Instruction::ApplyDecorators { class } = instruction
+                    && *class == declaration_classes.len()
+                {
+                    self.publish_origin(program, &mut declaration_classes)?;
                 }
-                Instruction::RaiseEncodingSelection { .. }
-                | Instruction::EncodingDecode { .. }
-                | Instruction::FfiOpen { .. }
-                | Instruction::IrisValueEncode { .. }
-                | Instruction::IrisValueDecode { .. }
-                | Instruction::EscapeRegex { .. }
-                | Instruction::MakeRegex { .. }
-                | Instruction::CheckAnnotation { .. }
-                | Instruction::CheckReturn { .. }
-                | Instruction::ApplyReopen { .. }
-                | Instruction::Print { .. }
-                | Instruction::NativeCall { .. }
-                | Instruction::NativeFixture { .. }
-                | Instruction::DiscardedContexts { .. }
-                | Instruction::PackageValidate { .. }
-                | Instruction::UnicodeVersion { .. }
-                | Instruction::GateNew { .. }
-                | Instruction::GateComplete { .. }
-                | Instruction::LoadRegex { .. }
-                | Instruction::NegateTruth { .. }
-                | Instruction::RaiseUnsupported { .. } => {
-                    self.execute_builtin(instruction, &mut state, program, classes)
-                }
-                Instruction::BindParameters { .. }
-                | Instruction::DefaultParameter { .. }
-                | Instruction::RaiseLoopTransfer { .. }
-                | Instruction::RaiseParseDiagnostic { .. }
-                | Instruction::RaiseNameError { .. }
-                | Instruction::DestructureElement { .. }
-                | Instruction::RaiseTypeContract { .. }
-                | Instruction::RaiseType { .. }
-                | Instruction::RaiseArgumentError { .. }
-                | Instruction::RaiseImmutableBinding { .. }
-                | Instruction::RaiseMessageNotFound { .. }
-                | Instruction::RaiseVisibilityDenied { .. }
-                | Instruction::Binary { .. }
-                | Instruction::Unary { .. } => {
-                    self.execute_operand(instruction, &mut state, program, classes)
-                }
-                Instruction::BuildArray { .. }
-                | Instruction::LoadBuiltinType { .. }
-                | Instruction::BuildType { .. }
-                | Instruction::LoadBuiltinClass { .. }
-                | Instruction::BuildTuple { .. }
-                | Instruction::BuildRange { .. }
-                | Instruction::BuildHash { .. }
-                | Instruction::MakeClosure { .. }
-                | Instruction::Index { .. }
-                | Instruction::SetIndex { .. } => {
-                    self.execute_collection(instruction, &mut state, program, classes)
-                }
-                Instruction::BindMember { .. } => {
-                    self.execute_member(instruction, &mut state, program, classes)
-                }
-                Instruction::Identity { .. }
-                | Instruction::TypeTest { .. }
-                | Instruction::FromBits { .. } => {
-                    self.execute_value(instruction, &mut state, program, classes)
-                }
-                Instruction::Await { .. }
-                | Instruction::HostRun { .. }
-                | Instruction::UnobservedFailures { .. } => {
-                    self.execute_task(instruction, &mut state, program, classes)
-                }
-                Instruction::JumpUnless { .. }
-                | Instruction::Jump { .. }
-                | Instruction::ArrayVersion { .. }
-                | Instruction::ArrayNext { .. }
-                | Instruction::RangeNext { .. }
-                | Instruction::IteratorOpen { .. }
-                | Instruction::IteratorNext { .. }
-                | Instruction::IteratorClose { .. } => {
-                    self.execute_iteration(instruction, &mut state, program, classes)
-                }
-                Instruction::EnterTry { .. }
-                | Instruction::CatchMatch { .. }
-                | Instruction::EnterCleanup { .. }
-                | Instruction::LeaveTry
-                | Instruction::Raise { .. }
-                | Instruction::ReRaise { .. }
-                | Instruction::RaiseNoActiveException
-                | Instruction::Propagate { .. }
-                | Instruction::Return { .. } => {
-                    self.execute_transfer(instruction, &mut state, program, classes)
-                }
-                Instruction::Call { .. } | Instruction::BareCall { .. } => {
-                    self.execute_call(instruction, &mut state, program, classes)
-                }
-                Instruction::Using { .. } | Instruction::New { .. } => {
-                    self.execute_construction(instruction, &mut state, program, classes)
-                }
-                Instruction::Send { .. } => {
-                    self.execute_send(instruction, &mut state, program, classes)
-                }
-                Instruction::SendSuper { .. } | Instruction::SendClass { .. } => {
-                    self.execute_class_send(instruction, &mut state, program, classes)
-                }
-                Instruction::Reflection { .. } => {
-                    self.execute_reflection(instruction, &mut state, program, classes)
-                }
-                Instruction::Revision { .. } => {
-                    self.execute_revision(instruction, &mut state, program, classes)
-                }
-                Instruction::OpenClass { .. }
-                | Instruction::DefineMethod { .. }
-                | Instruction::Json { .. } => {
-                    self.execute_mutation(instruction, &mut state, program, classes)
-                }
-                Instruction::ContractCast { .. } | Instruction::SendContract { .. } => {
-                    self.execute_contract(instruction, &mut state, program, classes)
-                }
-                Instruction::GetIvar { .. }
-                | Instruction::SetIvar { .. }
-                | Instruction::GetClassVar { .. }
-                | Instruction::SetClassVar { .. } => {
-                    self.execute_slot(instruction, &mut state, program, classes)
-                }
-            }?;
-            match action {
-                InstructionAction::Produced(value) => {
-                    if let Some(destination) = instruction.destination() {
-                        state.registers[destination as usize] = value;
+                let classes = declaration_classes.as_slice();
+                self.check_decorator_effect(instruction)?;
+                state.counter += 1;
+                // A run that never terminates would HANG here, so each instruction
+                // charges a step and the run fails once the budget is gone.
+                self.remaining_steps = self
+                    .remaining_steps
+                    .checked_sub(1)
+                    .ok_or(MachineError::StepBudgetExhausted)?;
+                let action = match instruction {
+                    Instruction::GenericCall {
+                        call,
+                        type_arguments,
+                    } => {
+                        let types = type_arguments
+                            .iter()
+                            .map(|annotation| self.reify_type(annotation, program, classes))
+                            .collect::<Result<Vec<_>, _>>();
+                        match types {
+                            Err(error) => {
+                                self.handle_frame_error(&mut state, error)?;
+                                Ok(InstructionAction::Continue)
+                            }
+                            Ok(types) => {
+                                if let Instruction::Send { receiver, .. } = call.as_ref()
+                                    && !matches!(
+                                        &state.registers.borrow()[usize::from(*receiver)],
+                                        Value::Class(_) | Value::Object(_) | Value::Symbol(_)
+                                    )
+                                {
+                                    return Err(MachineError::UnsupportedConstruct);
+                                }
+                                let previous =
+                                    std::mem::replace(&mut self.explicit_method_types, types);
+                                let result =
+                                    match call.as_ref() {
+                                        Instruction::Call { .. } => {
+                                            self.execute_call(call, &mut state, program, classes)
+                                        }
+                                        Instruction::SendClass { .. } => self
+                                            .execute_class_send(call, &mut state, program, classes),
+                                        Instruction::Send { .. } => {
+                                            self.execute_send(call, &mut state, program, classes)
+                                        }
+                                        Instruction::SendContract { .. } => self
+                                            .execute_contract(call, &mut state, program, classes),
+                                        _ => Err(MachineError::UnsupportedConstruct),
+                                    };
+                                self.explicit_method_types = previous;
+                                result
+                            }
+                        }
                     }
+                    Instruction::LoadInteger { .. }
+                    | Instruction::LoadFloat64 { .. }
+                    | Instruction::LoadFloat32 { .. }
+                    | Instruction::LoadText { .. }
+                    | Instruction::LoadBytes { .. }
+                    | Instruction::LoadByteArray { .. }
+                    | Instruction::MakeMutableString { .. }
+                    | Instruction::LoadSymbol { .. }
+                    | Instruction::LoadModule { .. }
+                    | Instruction::LoadBool { .. }
+                    | Instruction::LoadNil { .. }
+                    | Instruction::AssertNonNil { .. }
+                    | Instruction::LoadIterationDone { .. }
+                    | Instruction::BuildIterationYield { .. }
+                    | Instruction::LoadClass { .. }
+                    | Instruction::LoadClosedClass { .. }
+                    | Instruction::LoadType { .. }
+                    | Instruction::LoadContract { .. }
+                    | Instruction::BindModuleMethod { .. }
+                    | Instruction::LoadGlobal { .. }
+                    | Instruction::StoreGlobal { .. }
+                    | Instruction::PublishBinding { .. }
+                    | Instruction::LoadBinding { .. }
+                    | Instruction::StoreBinding { .. }
+                    | Instruction::Move { .. }
+                    | Instruction::MakeCell { .. }
+                    | Instruction::LoadCell { .. }
+                    | Instruction::StoreCell { .. }
+                    | Instruction::DeclareDeferred { .. }
+                    | Instruction::MarkAssigned { .. }
+                    | Instruction::ReadDeferred { .. }
+                    | Instruction::TestTruth { .. }
+                    | Instruction::MakeKeywordArgument { .. }
+                    | Instruction::MakeBlockArgument { .. } => {
+                        self.execute_load(instruction, &mut state, program, classes)
+                    }
+                    Instruction::RaiseEncodingSelection { .. }
+                    | Instruction::EncodingDecode { .. }
+                    | Instruction::FfiOpen { .. }
+                    | Instruction::IrisValueEncode { .. }
+                    | Instruction::IrisValueDecode { .. }
+                    | Instruction::EscapeRegex { .. }
+                    | Instruction::MakeRegex { .. }
+                    | Instruction::CheckAnnotation { .. }
+                    | Instruction::CheckReturn { .. }
+                    | Instruction::ApplyReopen { .. }
+                    | Instruction::Print { .. }
+                    | Instruction::NativeCall { .. }
+                    | Instruction::NativeFixture { .. }
+                    | Instruction::DiscardedContexts { .. }
+                    | Instruction::PackageValidate { .. }
+                    | Instruction::UnicodeVersion { .. }
+                    | Instruction::GateNew { .. }
+                    | Instruction::GateComplete { .. }
+                    | Instruction::LoadRegex { .. }
+                    | Instruction::NegateTruth { .. }
+                    | Instruction::RaiseUnsupported { .. } => {
+                        self.execute_builtin(instruction, &mut state, program, classes)
+                    }
+                    Instruction::BindParameters { .. }
+                    | Instruction::ParameterPresent { .. }
+                    | Instruction::DefaultParameter { .. }
+                    | Instruction::RaiseLoopTransfer { .. }
+                    | Instruction::RaiseParseDiagnostic { .. }
+                    | Instruction::RaiseNameError { .. }
+                    | Instruction::DestructureElement { .. }
+                    | Instruction::RaiseTypeContract { .. }
+                    | Instruction::RaiseType { .. }
+                    | Instruction::RaiseArgumentError { .. }
+                    | Instruction::RaiseImmutableBinding { .. }
+                    | Instruction::RaiseMessageNotFound { .. }
+                    | Instruction::RaiseVisibilityDenied { .. }
+                    | Instruction::Binary { .. }
+                    | Instruction::Unary { .. } => {
+                        self.execute_operand(instruction, &mut state, program, classes)
+                    }
+                    Instruction::DeclareMethod {
+                        class,
+                        function,
+                        applications,
+                    } => {
+                        match self.declare_callback_method(
+                            (*class, *function),
+                            applications,
+                            program,
+                            classes,
+                        ) {
+                            Ok(()) => Ok(InstructionAction::Continue),
+                            Err(error) => {
+                                self.handle_frame_error(&mut state, error)?;
+                                Ok(InstructionAction::Continue)
+                            }
+                        }
+                    }
+                    Instruction::ApplyDecorators { .. } => Ok(InstructionAction::Continue),
+                    Instruction::ApplyModuleDecorators { module } => {
+                        self.publish_module(*module, program, classes)?;
+                        Ok(InstructionAction::Continue)
+                    }
+                    Instruction::ApplyContractDecorators { contract } => {
+                        self.publish_contract(*contract, program, classes)?;
+                        Ok(InstructionAction::Continue)
+                    }
+                    Instruction::BuildArray { .. }
+                    | Instruction::LoadBuiltinType { .. }
+                    | Instruction::BuildType { .. }
+                    | Instruction::LoadBuiltinClass { .. }
+                    | Instruction::BuildTuple { .. }
+                    | Instruction::BuildRange { .. }
+                    | Instruction::BuildHash { .. }
+                    | Instruction::MakeClosure { .. }
+                    | Instruction::Index { .. }
+                    | Instruction::SetIndex { .. } => {
+                        self.execute_collection(instruction, &mut state, program, classes)
+                    }
+                    Instruction::BindMember { .. } => {
+                        self.execute_member(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Identity { .. }
+                    | Instruction::TypeTest { .. }
+                    | Instruction::FromBits { .. } => {
+                        self.execute_value(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Await { .. }
+                    | Instruction::HostRun { .. }
+                    | Instruction::UnobservedFailures { .. } => {
+                        self.execute_task(instruction, &mut state, program, classes)
+                    }
+                    Instruction::JumpUnless { .. }
+                    | Instruction::Jump { .. }
+                    | Instruction::ArrayVersion { .. }
+                    | Instruction::ArrayNext { .. }
+                    | Instruction::RangeNext { .. }
+                    | Instruction::IteratorOpen { .. }
+                    | Instruction::IteratorNext { .. }
+                    | Instruction::IteratorClose { .. } => {
+                        self.execute_iteration(instruction, &mut state, program, classes)
+                    }
+                    Instruction::EnterTry { .. }
+                    | Instruction::CatchMatch { .. }
+                    | Instruction::EnterCleanup { .. }
+                    | Instruction::LeaveTry
+                    | Instruction::Raise { .. }
+                    | Instruction::ReRaise { .. }
+                    | Instruction::RaiseNoActiveException
+                    | Instruction::Propagate { .. }
+                    | Instruction::Return { .. } => {
+                        self.execute_transfer(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Call { .. } | Instruction::BareCall { .. } => {
+                        self.execute_call(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Using { .. } | Instruction::New { .. } => {
+                        self.execute_construction(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Send { .. } => {
+                        self.execute_send(instruction, &mut state, program, classes)
+                    }
+                    Instruction::SendSuper { .. } | Instruction::SendClass { .. } => {
+                        self.execute_class_send(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Reflection { .. } => {
+                        self.execute_reflection(instruction, &mut state, program, classes)
+                    }
+                    Instruction::Revision { .. } => {
+                        self.execute_revision(instruction, &mut state, program, classes)
+                    }
+                    Instruction::OpenClass { .. }
+                    | Instruction::DefineMethod { .. }
+                    | Instruction::Json { .. } => {
+                        self.execute_mutation(instruction, &mut state, program, classes)
+                    }
+                    Instruction::ContractCast { .. }
+                    | Instruction::ContractTest { .. }
+                    | Instruction::SendContract { .. } => {
+                        self.execute_contract(instruction, &mut state, program, classes)
+                    }
+                    Instruction::GetIvar { .. }
+                    | Instruction::SetIvar { .. }
+                    | Instruction::GetClassVar { .. }
+                    | Instruction::SetClassVar { .. } => {
+                        self.execute_slot(instruction, &mut state, program, classes)
+                    }
+                };
+                let action = match action {
+                    Ok(action) => action,
+                    Err(error) => {
+                        self.handle_frame_error(&mut state, error)?;
+                        continue;
+                    }
+                };
+                match action {
+                    InstructionAction::Produced(value) => {
+                        if let Some(destination) = instruction.destination() {
+                            state.registers.borrow_mut()[destination as usize] = value;
+                        }
+                    }
+                    InstructionAction::Continue => {}
+                    InstructionAction::Return(value) => return Ok(vec![value]),
                 }
-                InstructionAction::Continue => {}
-                InstructionAction::Return(value) => return Ok(vec![value]),
+            }
+            Ok(std::mem::take(&mut *state.registers.borrow_mut()))
+        })();
+        let frame = self.frame_roots.pop();
+        link.modules.replace(self.modules.clone());
+        if !self.frame_roots.is_empty() {
+            self.modules = previous_modules;
+        }
+        self.history_context = previous_history;
+        if let (Some(mut frame), Err(MachineError::Raised(propagation))) = (frame, &result)
+            && let Value::ExceptionContext(identity, ..) = &propagation.1
+            && let Some(index) = frame
+                .converted
+                .iter()
+                .position(|(held, _)| held == identity)
+        {
+            let original = frame.converted.remove(index);
+            if let Some(parent) = self.frame_roots.last_mut() {
+                parent.converted.push(original);
+            } else {
+                return Err(original.1);
             }
         }
-        Ok(state.registers)
+        result
     }
 
     #[inline(never)]
@@ -335,16 +489,25 @@ impl Machine {
                 let Some((handler, exception, context_register)) = state.handlers.pop() else {
                     return Err(MachineError::Raised(Box::new((value, context))));
                 };
-                state.registers[exception as usize] = value;
-                state.registers[context_register as usize] = context;
+                state.registers.borrow_mut()[exception as usize] = value;
+                state.registers.borrow_mut()[context_register as usize] = context;
                 state.counter = handler;
             }
-            error => match (super::catchable_name(&error), state.handlers.pop()) {
+            error => match (
+                super::catchable_name(&error),
+                state.handlers.last().copied(),
+            ) {
                 (Some(name), Some((handler, exception, context_register))) => {
-                    let value = Value::Symbol(name.to_owned());
-                    state.registers[exception as usize] = value.clone();
-                    state.registers[context_register as usize] = self.named_failure_context(value);
-                    state.converted = Some(error);
+                    let value = self.core_boundary_value(Value::Symbol(name.to_owned()))?;
+                    let context = self.named_failure_context(value.clone());
+                    if let Value::ExceptionContext(identity, ..) = &context
+                        && let Some(frame) = self.frame_roots.last_mut()
+                    {
+                        frame.converted.push((*identity, error));
+                    }
+                    state.handlers.pop();
+                    state.registers.borrow_mut()[exception as usize] = value.clone();
+                    state.registers.borrow_mut()[context_register as usize] = context;
                     state.counter = handler;
                 }
                 _ => return Err(error),
@@ -377,8 +540,19 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     Value::MutableString(iris_runtime::MutableStringRef::new(text.clone()))
                 }
                 Instruction::LoadSymbol { name, .. } => Value::Symbol(name.clone()),
+                Instruction::LoadModule { name, .. } => {
+                    self.active_module_id(name)?;
+                    Value::Symbol(name.clone())
+                }
                 Instruction::LoadBool { value, .. } => Value::Bool(*value),
                 Instruction::LoadNil { .. } => Value::Nil,
+                Instruction::AssertNonNil { source, .. } => {
+                    let value = registers[*source as usize].clone();
+                    if value == Value::Nil {
+                        dispatch!(Err(MachineError::Kernel(KernelError::Type))?);
+                    }
+                    value
+                }
                 Instruction::LoadIterationDone { .. } => Value::IterationDone,
                 Instruction::BuildIterationYield { value, .. } => {
                     Value::IterationYield(Box::new(registers[*value as usize].clone()))
@@ -387,6 +561,7 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     let Some(class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
                     };
+                    self.runtime.registry().class(class).map_err(MachineError::Class)?;
                     Value::Class(class)
                 }
                 Instruction::LoadClosedClass {
@@ -395,6 +570,7 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     let Some(class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
                     };
+                    self.runtime.registry().class(class).map_err(MachineError::Class)?;
                     run_frame!(
                         'frame,
                         self.materialize_closed_class(class, arguments, program, classes)
@@ -405,10 +581,18 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     let Some(class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
                     };
+                    self.runtime.registry().class(class).map_err(MachineError::Class)?;
                     Value::Type(class, Vec::new())
                 }
                 Instruction::LoadContract { contract, .. } => {
-                    Value::Contract(ContractId::new(*contract as u64 + 1), Vec::new())
+                    {
+                        let identity = program.contract_identity(*contract);
+                        if program.decorator_applications.iter().any(|application| application.target == crate::compile::decorators::Target::Contract(*contract))
+                            && !self.contracts.contains_key(&identity) {
+                            return Err(MachineError::NameError);
+                        }
+                        Value::Contract(identity, Vec::new())
+                    }
                 }
                 Instruction::BindModuleMethod {
                     module, selector, ..
@@ -428,13 +612,13 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                             receiver_class: "Module".to_owned(),
                             selector: selector.clone(),
                         })?;
-                    Value::BoundMethod(
-                        self.runtime
+                    let bound = self.runtime
                             .registry_mut()
                             .bind_retained_module(module_id, method)
                             .map_err(ConstructionError::from)
-                            .map_err(MachineError::Construction)?,
-                    )
+                            .map_err(MachineError::Construction)?;
+                    self.remember_bound_signature(bound, (program, classes));
+                    Value::BoundMethod(bound)
                 }
                 Instruction::LoadGlobal { name, .. } => self
                     .globals
@@ -495,7 +679,7 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     value
                 }
                 Instruction::DeclareDeferred { assigned, .. } => {
-                    registers[*assigned as usize] = Value::Bool(false);
+                    registers.write(*assigned as usize, Value::Bool(false));
                     Value::Nil
                 }
                 Instruction::MarkAssigned { .. } => Value::Bool(true),
@@ -518,6 +702,8 @@ instruction_group!(execute_load, (self, instruction, state, registers, program, 
                     name.clone(),
                     Box::new(registers[*value as usize].clone()),
                 ),
+                Instruction::MakeBlockArgument { value, .. } =>
+                    Value::BlockArgument(Box::new(registers[usize::from(*value)].clone())),
 });
 
 instruction_group!(execute_builtin, (self, instruction, state, registers, program, classes), {
@@ -635,21 +821,7 @@ instruction_group!(execute_builtin, (self, instruction, state, registers, progra
                 } => {
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
-                    // A frame's NAMED bindings are its roots, not its whole
-                    // register file: a temporary that the source never bound -
-                    // `A.new().hash()` - is unreachable once its expression
-                    // finished, and rooting every register would keep it alive
-                    // forever. The compiler knows which registers a name
-                    // claims, so only those are published.
-                    self.frame_roots.push(
-                        instruction
-                            .roots()
-                            .iter()
-                            .map(|register| registers[*register as usize].clone())
-                            .collect(),
-                    );
                     let answered = self.native_fixture(selector, &arguments);
-                    self.frame_roots.pop();
                     dispatch!(answered?)
                 }
                 Instruction::DiscardedContexts { .. } => {
@@ -706,6 +878,7 @@ instruction_group!(execute_operand, (self, instruction, state, registers, progra
                 // dynamic send does not know the signature until dispatch.
                 Instruction::BindParameters {
                     kinds,
+                    optional,
                     receiver,
                     first,
                     count,
@@ -723,12 +896,11 @@ instruction_group!(execute_operand, (self, instruction, state, registers, progra
                     let start = *first as usize;
                     let end = state.arity.max(start).min(registers.len());
                     let supplied = registers[start..end].to_vec();
-                    let bound = dispatch!(Self::bind_parameters(kinds, &supplied)?);
-                    let Value::Tuple(bound) = bound else {
-                        return Err(MachineError::Kernel(KernelError::Type));
-                    };
+                    let (bound, supplied) = run_frame!('frame, Self::bind_prepared(kinds, optional, &supplied));
+                    state.supplied = vec![true; usize::from(*receiver)];
+                    state.supplied.extend(supplied);
                     for (slot, value) in bound.into_iter().enumerate() {
-                        registers[slot + usize::from(*receiver)] = value;
+                        registers.write(slot + usize::from(*receiver), value);
                     }
                     Value::Nil
                 }
@@ -741,13 +913,14 @@ instruction_group!(execute_operand, (self, instruction, state, registers, progra
                     // default whenever a keyword or block argument padded the
                     // count past the positional slot, so `m(1, k: 5)` left
                     // `b = 2` unapplied.
-                    if !matches!(registers[*index], Value::Nil) {
+                    if state.supplied.get(*index).copied().unwrap_or(false) {
                         return Ok(InstructionAction::Continue);
                     }
                     let value = registers[*source as usize].clone();
-                    registers[*index] = value.clone();
+                    registers.write(*index, value.clone());
                     value
                 }
+                Instruction::ParameterPresent { index, .. } => Value::Bool(state.supplied.get(*index).copied().unwrap_or(false)),
                 Instruction::RaiseLoopTransfer { .. } => {
                     return Err(MachineError::LoopTransferOutsideLoop);
                 }
@@ -832,7 +1005,7 @@ instruction_group!(execute_operand, (self, instruction, state, registers, progra
                         self.authored_send(&operand, selector, &[], program, classes)
                     ) {
                         if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = value;
+                            registers.write(destination as usize, value);
                         }
                         return Ok(InstructionAction::Continue);
                     }
@@ -922,11 +1095,26 @@ instruction_group!(execute_collection, (self, instruction, state, registers, pro
                     let start = *first as usize;
                     let identity = iris_runtime::ObjectId::new(self.next_closure);
                     self.next_closure = self.next_closure.saturating_add(1);
+                    let callable_signature = program.functions[*function].signature.as_ref()
+                        .and_then(|signature| self.callable_signature(signature, (program, classes)).ok());
                     self.closures.insert(
                         identity,
                         ClosureRecord {
+                            program: self.code.owner(program)?,
+                            method_types: self.method_types.clone(),
+                            callable_signature,
+                            signature: program.functions[*function].signature.clone(),
                             function: *function,
-                            captures: registers[start..start + *count as usize].to_vec(),
+                            captures: registers[start..start + *count as usize].iter().enumerate().map(|(slot, value)| {
+                                let used = program.functions[*function].instructions.iter().any(|instruction| {
+                                    let mut reads = super::verify::reads(instruction);
+                                    if let Instruction::Print { first, count, .. } | Instruction::NativeFixture { first, count, .. } = instruction {
+                                        reads.extend((0..*count).map(|offset| first + offset));
+                                    }
+                                    reads.iter().chain(instruction.roots()).any(|read| usize::from(*read) == slot)
+                                });
+                                if used { value.clone() } else { Value::Nil }
+                            }).collect(),
                         },
                     );
                     Value::Closure(identity)
@@ -988,8 +1176,17 @@ instruction_group!(execute_collection, (self, instruction, state, registers, pro
 
 instruction_group!(execute_member, (self, instruction, state, registers, program, classes), {
                 Instruction::BindMember {
-                    receiver, selector, ..
+                    receiver, selector, caller, caller_module, ..
                 } => {
+                    if let Some(value) = run_frame!('frame, self.dynamic_property_send((&registers[*receiver as usize], selector, &[]), program)) {
+                        return Ok(InstructionAction::Produced(value));
+                    }
+                    if let Some(value) = run_frame!('frame, self.core_record_send(&registers[*receiver as usize], selector, &[])) {
+                        return Ok(InstructionAction::Produced(value));
+                    }
+                    if let Some(value) = run_frame!('frame, self.immutable_send(&registers[*receiver as usize], selector, &[])) {
+                        return Ok(InstructionAction::Produced(value));
+                    }
                     if let Value::ClosedClass(class, arguments) = &registers[*receiver as usize] {
                         if selector == "type" {
                             Value::Type(*class, arguments.clone())
@@ -1290,9 +1487,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                                             .iter()
                                             .map(|contract| {
                                                 Value::Contract(
-                                                    iris_runtime::ContractId::new(
-                                                        *contract as u64 + 1,
-                                                    ),
+                                                    program.contract_identity(*contract),
                                                     Vec::new(),
                                                 )
                                             })
@@ -1348,7 +1543,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                                     )
                                 ) {
                                     if let Some(destination) = instruction.destination() {
-                                        registers[destination as usize] = value;
+                                        registers.write(destination as usize, value);
                                     }
                                     return Ok(InstructionAction::Continue);
                                 }
@@ -1361,7 +1556,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                                     && let Ok(value) = self.send(selector, Value::Class(class), &[])
                                 {
                                     if let Some(destination) = instruction.destination() {
-                                        registers[destination as usize] = value;
+                                        registers.write(destination as usize, value);
                                     }
                                     return Ok(InstructionAction::Continue);
                                 }
@@ -1428,7 +1623,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                             };
                             if let Some(value) = answered {
                                 if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = value;
+                                    registers.write(destination as usize, value);
                                 }
                                 return Ok(InstructionAction::Continue);
                             }
@@ -1442,7 +1637,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                                 selector: selector.clone(),
                             })?);
                             if let Some(destination) = instruction.destination() {
-                                registers[destination as usize] = refused;
+                                registers.write(destination as usize, refused);
                             }
                             return Ok(InstructionAction::Continue);
                         };
@@ -1463,32 +1658,32 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                             .iter()
                             .position(|known| *known == class)
                             .ok_or(MachineError::Class(ClassError::ClassIdentityExhausted))?;
-                        if self
-                            .runtime
-                            .registry()
-                            .visible_properties(class)
-                            .map_err(MachineError::Class)?
-                            .contains(&bound_selector)
-                        {
-                            self.runtime
-                                .raw_ivar(object, bound_selector)
-                                .map_err(MachineError::Construction)?
-                        } else if program.classes[class_index]
+                        if program.classes[class_index]
                             .property_methods
                             .iter()
                             .any(|property| property == selector)
+                            || self.runtime
+                                .dispatch_instance(object, bound_selector)
+                                .ok()
+                                .and_then(|method| self.method_signatures.get(&method.id()))
+                                .is_some_and(|signature| {
+                                    signature.kind == iris_syntax::MethodKind::Property
+                                        && !signature.selector.ends_with('=')
+                                })
                         {
                             let selector_id = selector_id(program, selector)
                                 .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
-                            let method = self
-                                .runtime
-                                .dispatch_instance(object, selector_id)
-                                .map_err(MachineError::Construction)?;
-                            let function = usize::try_from(method.body().raw()).map_err(|_| {
-                                MachineError::Invalid(VerifyError::UnknownFunction {
-                                    function: usize::MAX,
-                                })
-                            })?;
+                            let method = run_frame!('frame, self
+                                .dispatch_from(object, selector_id, *caller, caller_module.as_deref(), classes)
+                                .map_err(MachineError::Construction));
+                            if self.wrapper_chains.contains_key(&method.id()) {
+                                let value = run_frame!('frame, self.invoke_wrapped(method, vec![Value::Object(object)], program, classes));
+                                return Ok(InstructionAction::Produced(value));
+                            }
+                            let function = self.resolve_method_body(method.body(), program)
+                                .map_err(|error| error.invalid_function())?;
+                            let owner = function;
+                            let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                             let callee = program.functions.get(function).cloned().ok_or(
                                 MachineError::Invalid(VerifyError::UnknownFunction { function }),
                             )?;
@@ -1501,12 +1696,13 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                             ));
                             returned.into_iter().next().unwrap_or(Value::Nil)
                         } else {
-                            self.runtime
+                            let bound = self.runtime
                                 .registry_mut()
                                 .bind_instance(object, class, bound_selector)
-                                .map(Value::BoundMethod)
                                 .map_err(iris_runtime::ConstructionError::from)
-                                .map_err(MachineError::Construction)?
+                                .map_err(MachineError::Construction)?;
+                            self.remember_bound_signature(bound, (program, classes));
+                            Value::BoundMethod(bound)
                         }
                     }
                 }
@@ -1570,7 +1766,9 @@ instruction_group!(execute_task, (self, instruction, state, registers, program, 
                             Some(Some(posted)) => posted,
                             Some(None) => {
                                 self.pending_frame = Some(PendingFrame {
+                                    program: self.code.owner(program)?,
                                     gate: identity,
+                                    method_types: self.method_types.clone(),
                                     registers: registers.clone(),
                                     // `counter` was already advanced past this
                                     // instruction at the top of the loop, so
@@ -1588,7 +1786,24 @@ instruction_group!(execute_task, (self, instruction, state, registers, program, 
                         }
                     } else {
                         let task = registers[*task as usize].clone();
-                        dispatch!(self.observe_task(task, program, classes)?)
+                        let Value::Task(identity) = task else {
+                            return Err(MachineError::Kernel(KernelError::Type));
+                        };
+                        self.settle_adapters();
+                        self.mark_task_observed(identity);
+                        match self.tasks.get(&identity).cloned() {
+                            Some(outcome) => dispatch!(outcome.map_err(|error| *error)?),
+                            None => {
+                                self.pending_frame = Some(PendingFrame {
+                                    program: self.code.owner(program)?,
+                                    gate: identity, registers: registers.clone(), counter: state.counter - 1,
+                                    method_types: self.method_types.clone(),
+                                    destination: None, handlers: state.handlers.clone(), cleanup: None,
+                                    function: None, continuations: Vec::new(),
+                                });
+                                return Err(MachineError::Suspended(identity));
+                            }
+                        }
                     }
                 }
                 Instruction::HostRun { task, .. } => {
@@ -1784,11 +1999,10 @@ instruction_group!(execute_iteration, (self, instruction, state, registers, prog
                             }
                             Err(error) => return Err(MachineError::Construction(error)),
                         };
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
+                        let function = self.resolve_method_body(method.body(), program)
+                            .map_err(|error| error.invalid_function())?;
+                        let owner = function;
+                        let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
@@ -1826,11 +2040,10 @@ instruction_group!(execute_iteration, (self, instruction, state, registers, prog
                             .runtime
                             .dispatch_instance(object, selector)
                             .map_err(MachineError::Construction)?;
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
+                        let function = self.resolve_method_body(method.body(), program)
+                            .map_err(|error| error.invalid_function())?;
+                        let owner = function;
+                        let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
@@ -1874,9 +2087,9 @@ instruction_group!(execute_iteration, (self, instruction, state, registers, prog
                         ) => {
                             suppressed.push(cleanup.1);
                             if let Some(register) = context {
-                                registers[*register as usize] = Value::ExceptionContext(
+                                registers.write(*register as usize, Value::ExceptionContext(
                                     identity, value, cause, suppressed, sites, location,
-                                );
+                                ));
                             }
                         }
                         (None, Err(error)) => {
@@ -1966,8 +2179,8 @@ instruction_group!(execute_transfer, (self, instruction, state, registers, progr
                     let Some((handler, exception, context_register)) = state.handlers.pop() else {
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
-                    registers[exception as usize] = value;
-                    registers[context_register as usize] = context;
+                    registers.write(exception as usize, value);
+                    registers.write(context_register as usize, context);
                     state.counter = handler;
                     return Ok(InstructionAction::Continue);
                 }
@@ -1997,8 +2210,8 @@ instruction_group!(execute_transfer, (self, instruction, state, registers, progr
                     let Some((handler, exception, context_register)) = state.handlers.pop() else {
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
-                    registers[exception as usize] = value;
-                    registers[context_register as usize] = context;
+                    registers.write(exception as usize, value);
+                    registers.write(context_register as usize, context);
                     state.counter = handler;
                     return Ok(InstructionAction::Continue);
                 }
@@ -2010,17 +2223,10 @@ instruction_group!(execute_transfer, (self, instruction, state, registers, progr
                     let value = registers[*value as usize].clone();
                     let context = registers[*context as usize].clone();
                     let Some((handler, exception, context_register)) = state.handlers.pop() else {
-                        // Cleanup ran and nothing answered it, so a converted
-                        // error leaves as ITSELF. Re-raising the Symbol would
-                        // report `Raised(:IndexError)` where the reference
-                        // reports IndexError.
-                        if let Some(error) = state.converted.take() {
-                            return Err(error);
-                        }
                         return Err(MachineError::Raised(Box::new((value, context))));
                     };
-                    registers[exception as usize] = value;
-                    registers[context_register as usize] = context;
+                    registers.write(exception as usize, value);
+                    registers.write(context_register as usize, context);
                     state.counter = handler;
                     return Ok(InstructionAction::Continue);
                 }
@@ -2055,7 +2261,7 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
                 } => {
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
-                    run_frame!('frame, self.invoke_function(
+                    run_frame!('frame, self.invoke_resolved_function(
                         *function,
                         arguments,
                         program,
@@ -2105,7 +2311,7 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
                             return Ok(InstructionAction::Continue);
                         };
                         if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = converted;
+                            registers.write(destination as usize, converted);
                         }
                         return Ok(InstructionAction::Continue);
                     };
@@ -2131,7 +2337,7 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
                                     .into(),
                                 ));
                             }
-                            (None, None)
+                            (None, self.module_main_receiver(bound.method(), program))
                         }
                     };
                     if let (Some(class), _) = receiver {
@@ -2141,17 +2347,20 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
                             .map_err(ConstructionError::from)
                             .map_err(MachineError::Construction)?;
                     }
-                    let function = usize::try_from(bound.method().body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
+                    let function = self.resolve_method_body(bound.method().body(), program)
+                        .map_err(|error| error.invalid_function())?;
+                    let owner = function;
+                    let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                     let start = *first as usize;
                     let mut passed = Vec::with_capacity(*count as usize + 1);
                     if let (_, Some(receiver)) = receiver {
                         passed.push(receiver);
                     }
                     passed.extend_from_slice(&registers[start..start + *count as usize]);
+                    if self.wrapper_chains.contains_key(&bound.method().id()) {
+                        let value = run_frame!('frame, self.invoke_wrapped(bound.method(), passed, program, classes));
+                        return Ok(InstructionAction::Produced(value));
+                    }
                     let callee =
                         program
                             .functions
@@ -2176,10 +2385,9 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
 
 instruction_group!(execute_construction, (self, instruction, state, registers, program, classes), {
                 Instruction::Using {
-                    resource, block, ..
+                    first, count, ..
                 } => match self.invoke_using(
-                    registers[*resource as usize].clone(),
-                    registers[*block as usize].clone(),
+                    &registers[usize::from(*first)..usize::from(*first) + usize::from(*count)],
                     program,
                     classes,
                 ) {
@@ -2187,7 +2395,9 @@ instruction_group!(execute_construction, (self, instruction, state, registers, p
                     Err(MachineError::Suspended(gate)) => {
                         if let Some(mut frame) = self.pending_frame.take() {
                             frame.continuations.push(PendingFrame {
+                                program: self.code.owner(program)?,
                                 gate,
+                                method_types: self.method_types.clone(),
                                 registers: registers.clone(),
                                 counter: state.counter,
                                 destination: instruction.destination(),
@@ -2217,33 +2427,31 @@ instruction_group!(execute_construction, (self, instruction, state, registers, p
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
                     let argument_count = arguments.len();
+                    let nominal_arguments = self.nominal_arguments(type_arguments, program, classes)?;
+                    run_frame!(
+                        'frame,
+                        self.admit_construction(class, &nominal_arguments)
+                    );
                     run_frame!(
                         'frame,
                         self.materialize_closed_class(class, type_arguments, program, classes)
                     );
                     let object = self
                         .runtime
-                        .allocate_closed(
-                            class,
-                            self.nominal_arguments(type_arguments, program, classes)?,
-                        )
+                        .allocate_closed(class, nominal_arguments)
                         .map_err(MachineError::Construction)?;
                     // The construction resolves `initialize` BEFORE the
                     // property initializers run: a body that REDEFINES the
                     // method arms it for the NEXT construction, not the one
                     // already under way. Resolving afterwards let a class
                     // replace its own initializer mid-construction.
-                    let resolved = self
-                        .runtime
-                        .dispatch_instance(object, Selector::INITIALIZE)
-                        .ok();
+                    let resolved = self.constructor_method(object);
                     self.initialize_properties(program, classes, class, object)?;
                     if let Some(method) = resolved {
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
+                        let function = self.resolve_method_body(method.body(), program)
+                            .map_err(|error| error.invalid_function())?;
+                        let owner = function;
+                        let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                         let mut passed = Vec::with_capacity(arguments.len() + 1);
                         passed.push(Value::Object(object));
                         passed.extend(arguments);
@@ -2282,6 +2490,14 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                     let start = *first as usize;
                     let arguments = registers[start..start + *count as usize].to_vec();
                     let argument_count = arguments.len();
+                    if let Value::Symbol(name) = &receiver
+                        && self.modules.iter().any(|(known, _)| known == name)
+                    {
+                        let value = run_frame!('frame, self.invoke_module_member(
+                            (name, selector, caller_module.as_deref()), arguments, program, classes
+                        ));
+                        return Ok(InstructionAction::Produced(value));
+                    }
                     // A cast produces a ContractView at RUN time, so a send to
                     // one arrives here rather than through `SendContract`,
                     // whose receiver the compiler could name statically. It
@@ -2291,6 +2507,9 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                         Value::ContractView(inner, _) if selector != "hash" => *inner,
                         other => other,
                     };
+                    if let Some(value) = run_frame!('frame, self.dynamic_property_send((&receiver, selector, &arguments), program)) {
+                        return Ok(InstructionAction::Produced(value));
+                    }
                     if let Some(value) = run_frame!(
                         'frame,
                         self.authored_send(
@@ -2302,7 +2521,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                         )
                     ) {
                         if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = value;
+                            registers.write(destination as usize, value);
                         }
                         return Ok(InstructionAction::Continue);
                     }
@@ -2322,116 +2541,50 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                             })
                             .collect();
                         if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = Value::ReadonlyArray(properties);
+                            registers.write(destination as usize, Value::ReadonlyArray(properties));
                         }
                         return Ok(InstructionAction::Continue);
                     }
                     if selector == "call" {
-                        let (callee, passed) = match receiver {
+                        if let Value::Closure(identity) = receiver {
+                            let value = run_frame!('frame, self.invoke_closure_value(identity, &arguments, program, classes));
+                            return Ok(InstructionAction::Produced(value));
+                        }
+                        match receiver {
                             Value::Closure(identity) => {
-                                let Some(closure) = self.closures.get(&identity).cloned() else {
-                                    return Err(MachineError::Kernel(KernelError::Type));
-                                };
-                                let Some(callee) = program.functions.get(closure.function).cloned()
-                                else {
-                                    return Err(MachineError::Invalid(
-                                        VerifyError::UnknownFunction {
-                                            function: closure.function,
-                                        },
-                                    ));
-                                };
-                                let mut passed = closure.captures;
-                                passed.extend(arguments);
-                                (callee, passed)
+                                self.invoke_closure_value(identity, &arguments, program, classes)?
                             }
                             Value::BoundMethod(bound) => {
-                                let receiver = match bound.receiver() {
-                                    BoundReceiver::Object(object) => (
-                                        Some(
-                                            self.runtime
-                                                .class_of(object)
-                                                .map_err(MachineError::Construction)?,
-                                        ),
-                                        Some(Value::Object(object)),
-                                    ),
-                                    BoundReceiver::Class(class) => {
-                                        (Some(class), Some(Value::Class(class)))
-                                    }
-                                    BoundReceiver::Module(module) => {
-                                        if bound.method().owner() != MethodOwner::Module(module) {
-                                            return Err(MachineError::Construction(
-                                                iris_runtime::DispatchError::MethodBinding {
-                                                    selector: bound.method().selector(),
-                                                }
-                                                .into(),
-                                            ));
-                                        }
-                                        (None, None)
-                                    }
-                                };
-                                if let (Some(class), _) = receiver {
-                                    self.runtime
-                                        .registry()
-                                        .validate_method_binding(class, bound.method())
-                                        .map_err(ConstructionError::from)
-                                        .map_err(MachineError::Construction)?;
-                                }
-                                let function = usize::try_from(bound.method().body().raw())
-                                    .map_err(|_| {
-                                        MachineError::Invalid(VerifyError::UnknownFunction {
-                                            function: usize::MAX,
-                                        })
-                                    })?;
-                                let Some(callee) = program.functions.get(function).cloned() else {
-                                    return Err(MachineError::Invalid(
-                                        VerifyError::UnknownFunction { function },
-                                    ));
-                                };
-                                let mut passed = Vec::with_capacity(arguments.len() + 1);
-                                if let (_, Some(receiver)) = receiver {
-                                    passed.push(receiver);
-                                }
-                                passed.extend(arguments);
-                                (callee, passed)
+                                let value = run_frame!('frame, self.invoke_bound_callable(&bound, &arguments, (program, classes)));
+                                return Ok(InstructionAction::Produced(value));
                             }
                             receiver => {
                                 let value = self.send(selector, receiver, &arguments)?;
-                                if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = value;
-                                }
-                                return Ok(InstructionAction::Continue);
+                                return Ok(InstructionAction::Produced(value));
                             }
-                        };
-                        if passed.len() != callee.parameters {
-                            return Err(MachineError::Kernel(KernelError::Arity));
                         }
-                        let returned = run_frame!('frame, self.run_body(
-                            &callee.instructions,
-                            callee.registers,
-                            passed,
-                            program,
-                            classes,
-                        ));
-                        returned.into_iter().next().unwrap_or(Value::Nil)
                     } else {
                         let object = match receiver {
                             Value::Class(class) if selector == "new" => {
+                                let owner = run_frame!('frame, self.admit_construction(class, &[]));
+                                let owner_program = owner.as_ref().map_or(program, |(owner, _)| owner.as_ref());
+                                let owner_classes = owner.as_ref().map_or(classes, |(_, classes)| classes.as_slice());
                                 let object = self
                                     .runtime
                                     .allocate(class)
                                     .map_err(MachineError::Construction)?;
-                                let resolved = self
-                                    .runtime
-                                    .dispatch_instance(object, Selector::INITIALIZE)
-                                    .ok();
-                                self.initialize_properties(program, classes, class, object)?;
+                                let resolved = self.constructor_method(object);
+                                self.initialize_properties(
+                                    owner_program,
+                                    owner_classes,
+                                    class,
+                                    object,
+                                )?;
                                 if let Some(method) = resolved {
-                                    let function =
-                                        usize::try_from(method.body().raw()).map_err(|_| {
-                                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                                function: usize::MAX,
-                                            })
-                                        })?;
+                                    let function = self.resolve_method_body(method.body(), program)
+                                        .map_err(|error| error.invalid_function())?;
+                                    let owner = function;
+                                    let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                                     let mut passed = Vec::with_capacity(arguments.len() + 1);
                                     passed.push(Value::Object(object));
                                     passed.extend(arguments);
@@ -2455,27 +2608,33 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                     ));
                                 }
                                 if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = Value::Object(object);
+                                    registers.write(destination as usize, Value::Object(object));
                                 }
                                 return Ok(InstructionAction::Continue);
                             }
                             Value::ClosedClass(class, type_arguments) if selector == "new" => {
+                                let owner = run_frame!(
+                                    'frame,
+                                    self.admit_construction(class, &type_arguments)
+                                );
+                                let owner_program = owner.as_ref().map_or(program, |(owner, _)| owner.as_ref());
+                                let owner_classes = owner.as_ref().map_or(classes, |(_, classes)| classes.as_slice());
                                 let object = self
                                     .runtime
                                     .allocate_closed(class, type_arguments)
                                     .map_err(MachineError::Construction)?;
-                                let resolved = self
-                                    .runtime
-                                    .dispatch_instance(object, Selector::INITIALIZE)
-                                    .ok();
-                                self.initialize_properties(program, classes, class, object)?;
+                                let resolved = self.constructor_method(object);
+                                self.initialize_properties(
+                                    owner_program,
+                                    owner_classes,
+                                    class,
+                                    object,
+                                )?;
                                 if let Some(method) = resolved {
-                                    let function =
-                                        usize::try_from(method.body().raw()).map_err(|_| {
-                                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                                function: usize::MAX,
-                                            })
-                                        })?;
+                                    let function = self.resolve_method_body(method.body(), program)
+                                        .map_err(|error| error.invalid_function())?;
+                                    let owner = function;
+                                    let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                                     let mut passed = Vec::with_capacity(arguments.len() + 1);
                                     passed.push(Value::Object(object));
                                     passed.extend(arguments);
@@ -2499,7 +2658,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                     ));
                                 }
                                 if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = Value::Object(object);
+                                    registers.write(destination as usize, Value::Object(object));
                                 }
                                 return Ok(InstructionAction::Continue);
                             }
@@ -2518,8 +2677,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                         })
                                         .collect();
                                     if let Some(destination) = instruction.destination() {
-                                        registers[destination as usize] =
-                                            Value::ReadonlyArray(properties);
+                                        registers.write(destination as usize, Value::ReadonlyArray(properties));
                                     }
                                     return Ok(InstructionAction::Continue);
                                 }
@@ -2559,30 +2717,12 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                         }
                                     }
                                 };
-                                let function =
-                                    usize::try_from(method.body().raw()).map_err(|_| {
-                                        MachineError::Invalid(VerifyError::UnknownFunction {
-                                            function: usize::MAX,
-                                        })
-                                    })?;
                                 let mut passed = Vec::with_capacity(arguments.len() + 1);
                                 passed.push(Value::Class(class));
                                 passed.extend(arguments);
-                                let callee = program.functions.get(function).cloned().ok_or(
-                                    MachineError::Invalid(VerifyError::UnknownFunction {
-                                        function,
-                                    }),
-                                )?;
-                                let returned = run_frame!('frame, self.run_body(
-                                    &callee.instructions,
-                                    callee.registers,
-                                    passed,
-                                    program,
-                                    classes,
-                                ));
-                                let value = returned.into_iter().next().unwrap_or(Value::Nil);
+                                let value = run_frame!('frame, self.invoke_selected_method(method, passed, program, classes));
                                 if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = value;
+                                    registers.write(destination as usize, value);
                                 }
                                 return Ok(InstructionAction::Continue);
                             }
@@ -2590,7 +2730,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                             receiver => {
                                 let value = self.send(selector, receiver, &arguments)?;
                                 if let Some(destination) = instruction.destination() {
-                                    registers[destination as usize] = value;
+                                    registers.write(destination as usize, value);
                                 }
                                 return Ok(InstructionAction::Continue);
                             }
@@ -2640,7 +2780,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                         )
                                     ) {
                                         if let Some(destination) = instruction.destination() {
-                                            registers[destination as usize] = value;
+                                            registers.write(destination as usize, value);
                                         }
                                         return Ok(InstructionAction::Continue);
                                     }
@@ -2659,29 +2799,27 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                                 // A VISIBILITY refusal is an ordinary catchable
                                 // Iris error, so it goes through the handler
                                 // dispatch rather than escaping the frame.
-                                let error = MachineError::Construction(error);
-                                let Some(name) = super::catchable_name(&error) else {
-                                    return Err(error);
-                                };
-                                let Some((handler, exception, context_register)) = state.handlers.pop()
-                                else {
-                                    return Err(error);
-                                };
-                                registers[exception as usize] = Value::Symbol(name.to_owned());
-                                registers[context_register as usize] = Value::Nil;
-                                state.converted = Some(error);
-                                state.counter = handler;
-                                return Ok(InstructionAction::Continue);
+                                return Err(MachineError::Construction(error));
                             }
                         };
-                        let function = usize::try_from(method.body().raw()).map_err(|_| {
-                            MachineError::Invalid(VerifyError::UnknownFunction {
-                                function: usize::MAX,
-                            })
-                        })?;
+                        let function = self.resolve_method_body(method.body(), program)
+                            .map_err(|error| error.invalid_function())?;
+                        let owner = function;
+                        let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                         let mut arguments = Vec::with_capacity(*count as usize + 1);
                         arguments.push(Value::Object(object));
                         arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                        if !self.explicit_method_types.is_empty() || program.functions.get(function)
+                            .and_then(|callee| callee.signature.as_ref())
+                            .is_some_and(|signature| !signature.type_parameters.is_empty())
+                            || !self.direct_owner_bindings(method, arguments.first(), (program, classes))?.is_empty() {
+                            let value = run_frame!('frame, self.invoke_selected_method(method, arguments, program, classes));
+                            return Ok(InstructionAction::Produced(value));
+                        }
+                        if self.wrapper_chains.contains_key(&method.id()) {
+                            let value = run_frame!('frame, self.invoke_wrapped(method, arguments, program, classes));
+                            return Ok(InstructionAction::Produced(value));
+                        }
                         let callee = program.functions.get(function).cloned().ok_or(
                             MachineError::Invalid(VerifyError::UnknownFunction { function }),
                         )?;
@@ -2747,7 +2885,7 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                             self.class_super_value(class, selector, &arguments, program, classes)
                         );
                         if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = value;
+                            registers.write(destination as usize, value);
                         }
                         return Ok(InstructionAction::Continue);
                     }
@@ -2762,7 +2900,11 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                     let lexical_method = match self
                         .runtime
                         .registry()
-                        .dispatch(owner, selector)
+                        .dispatch_with_context(
+                            owner,
+                            selector,
+                            iris_runtime::DispatchContext::implementation(owner, true),
+                        )
                         .map_err(KernelError::from)
                         .map_err(MachineError::Kernel)?
                     {
@@ -2783,15 +2925,20 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                         .dispatch_super_selector(class, lexical_method, selector)
                         .map_err(KernelError::from)
                         .map_err(MachineError::Kernel)?;
-                    let function = usize::try_from(method.body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
+                    let function = self.resolve_method_body(method.body(), program)
+                        .map_err(|error| error.invalid_function())?;
+                    let owner = function;
+                    let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                     let start = *first as usize;
                     let mut arguments = Vec::with_capacity(*count as usize + 1);
                     arguments.push(Value::Object(object));
                     arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                    if self.wrapper_chains.contains_key(&method.id()) {
+                        let value = run_frame!('frame, self.invoke_wrapped(
+                            method, arguments, program, classes
+                        ));
+                        return Ok(InstructionAction::Produced(value));
+                    }
                     let callee =
                         program
                             .functions
@@ -2800,7 +2947,7 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                             .ok_or(MachineError::Invalid(VerifyError::UnknownFunction {
                                 function,
                             }))?;
-                    if arguments.len() != callee.parameters {
+                    if callee.fixed_arity.is_some() && arguments.len() != callee.parameters {
                         return Err(MachineError::Kernel(KernelError::Arity));
                     }
                     run_frame!('frame, self.invoke_function(
@@ -2836,17 +2983,12 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                             ));
                         }
                     };
-                    let function = usize::try_from(method.body().raw()).map_err(|_| {
-                        MachineError::Invalid(VerifyError::UnknownFunction {
-                            function: usize::MAX,
-                        })
-                    })?;
                     let start = *first as usize;
                     let mut arguments = Vec::with_capacity(*count as usize + 1);
                     arguments.push(Value::Class(class));
                     arguments.extend_from_slice(&registers[start..start + *count as usize]);
-                    run_frame!('frame, self.invoke_function(
-                        function,
+                    run_frame!('frame, self.invoke_selected_method(
+                        method,
                         arguments,
                         program,
                         classes,
@@ -2864,6 +3006,30 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                 } => dispatch!({
                     let start = *first as usize;
                     let arguments = &registers[start..start + *count as usize];
+                    if matches!(namespace.as_str(), "Reflection::Class" | "Reflection::Module")
+                        && selector == "invoke"
+                        && let [Value::Method(method), receiver, Value::Array(extra)] = arguments
+                        && matches!(method.owner(), MethodOwner::Module(_))
+                        && self.wrapper_chains.contains_key(&method.id()) {
+                        let class = match receiver {
+                            Value::Object(object) => Some(self.runtime.class_of(*object).map_err(MachineError::Construction)?),
+                            Value::Class(class) => Some(*class),
+                            Value::Symbol(name) => {
+                                if method.owner() != MethodOwner::Module(self.active_module_id(name)?) {
+                                    return Err(MachineError::TypeContractError);
+                                }
+                                None
+                            }
+                            _ => return Err(MachineError::TypeContractError),
+                        };
+                        if let Some(class) = class {
+                            self.runtime.registry().validate_method_binding(class, *method)
+                                .map_err(iris_runtime::ConstructionError::from).map_err(MachineError::Construction)?;
+                        }
+                        let mut passed = vec![receiver.clone()];
+                        passed.extend(extra.elements());
+                        return self.invoke_wrapped(*method, passed, program, classes);
+                    }
                     match (namespace.as_str(), selector.as_str(), arguments) {
                         (_, _, [Value::Symbol(target), ..])
                             if self
@@ -2974,15 +3140,17 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                                     ))?;
                                 }
                             }
-                            let function = usize::try_from(method.body().raw()).map_err(|_| {
-                                MachineError::Invalid(VerifyError::UnknownFunction {
-                                    function: usize::MAX,
-                                })
-                            })?;
+                            let function = self.resolve_method_body(method.body(), program)
+                                .map_err(|error| error.invalid_function())?;
+                            let owner = function;
+                            let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                             let callee = program.functions.get(function).cloned().ok_or(
                                 MachineError::Invalid(VerifyError::UnknownFunction { function }),
                             )?;
                             let mut passed = Vec::new();
+                            if callee.fixed_arity.is_some_and(|arity| extra.elements().len() != arity) {
+                                return Err(MachineError::ArgumentError);
+                            }
                             if !matches!(receiver, Value::Symbol(_)) {
                                 passed.push(receiver.clone());
                             }
@@ -3044,11 +3212,10 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                                     ))?;
                                 }
                             }
-                            let function = usize::try_from(method.body().raw()).map_err(|_| {
-                                MachineError::Invalid(VerifyError::UnknownFunction {
-                                    function: usize::MAX,
-                                })
-                            })?;
+                            let function = self.resolve_method_body(method.body(), program)
+                                .map_err(|error| error.invalid_function())?;
+                            let owner = function;
+                            let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                             let callee = program.functions.get(function).cloned().ok_or(
                                 MachineError::Invalid(VerifyError::UnknownFunction { function }),
                             )?;
@@ -3200,10 +3367,7 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                             "requirement",
                             [Value::Contract(contract, arguments), Value::Symbol(name)],
                         ) => {
-                            let Some(index) = contract
-                                .raw()
-                                .checked_sub(1)
-                                .and_then(|raw| usize::try_from(raw).ok())
+                            let Some(index) = program.contract_index(*contract)
                             else {
                                 return Err(MachineError::Kernel(KernelError::Type));
                             };
@@ -3243,10 +3407,7 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                             else {
                                 return Err(MachineError::Kernel(KernelError::Type));
                             };
-                            let Some(index) = contract
-                                .raw()
-                                .checked_sub(1)
-                                .and_then(|raw| usize::try_from(raw).ok())
+                            let Some(index) = program.contract_index(*contract)
                             else {
                                 return Err(MachineError::Kernel(KernelError::Type));
                             };
@@ -3356,6 +3517,9 @@ instruction_group!(execute_revision, (self, instruction, state, registers, progr
                 } => dispatch!({
                     let start = *first as usize;
                     let arguments = &registers[start..start + *count as usize];
+                    let flattened = super::prepared_call::native_block_arguments(
+                        &Value::Symbol(namespace.clone()), selector, arguments)?;
+                    let arguments = flattened.as_deref().unwrap_or(arguments);
                     match (namespace.as_str(), selector.as_str(), arguments) {
                         // `C051` bounds the queue at a capacity the subscriber
                         // names, so one that falls behind loses its OLDEST
@@ -3554,7 +3718,11 @@ instruction_group!(execute_mutation, (self, instruction, state, registers, progr
                     let Some(runtime_class) = classes.get(*class).copied() else {
                         return Err(MachineError::Class(ClassError::ClassIdentityExhausted));
                     };
-                    let Value::Closure(callback) = registers[*callback as usize] else {
+                    let callback = match &registers[usize::from(*callback)] {
+                        Value::BlockArgument(value) => value.as_ref(),
+                        value => value,
+                    };
+                    let Value::Closure(callback) = *callback else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
                     // C022 makes the body a transaction over a CANDIDATE that
@@ -3670,55 +3838,44 @@ instruction_group!(execute_mutation, (self, instruction, state, registers, progr
 
 instruction_group!(execute_contract, (self, instruction, state, registers, program, classes), {
                 Instruction::ContractCast {
-                    receiver, contract, ..
+                    receiver, contract, type_arguments, ..
                 } => {
-                    let receiver = registers[*receiver as usize].clone();
-                    // A BUILT-IN value conforms when a reopen of its class
-                    // declared the contract: `open class Integer for N { .. }`
-                    // makes `1 as N` a legitimate view even though Integer is
-                    // the kernel's class and has no entry in `classes`.
-                    let Value::Object(object) = receiver else {
-                        let builtin = crate::machine::value_class_name(&receiver);
-                        let conforms = program.builtin_reopens.iter().any(|reopen| {
-                            reopen.target == builtin && reopen.contracts.contains(contract)
-                        });
-                        if !conforms {
-                            return Err(MachineError::Kernel(KernelError::Type));
-                        }
-                        if let Some(destination) = instruction.destination() {
-                            registers[destination as usize] = Value::ContractView(
-                                Box::new(receiver),
-                                ContractId::new(*contract as u64 + 1),
-                            );
-                        }
-                        return Ok(InstructionAction::Continue);
+                    let requested = self.nominal_arguments(type_arguments, program, classes)?;
+                    let receiver = match registers[*receiver as usize].clone() {
+                        Value::ContractView(receiver, _) => *receiver,
+                        receiver => receiver,
                     };
-                    let class = self
-                        .runtime
-                        .class_of(object)
-                        .map_err(MachineError::Construction)?;
-                    // A subclass INHERITS its superclass's conformances, so the
-                    // ancestry is walked rather than only the class's own list:
-                    // `class A extends B` is viewable through `B`'s contract.
-                    let mut conforms = false;
-                    let mut current = classes.iter().position(|known| *known == class);
-                    while let Some(index) = current {
-                        let Some(declaration) = program.classes.get(index) else {
-                            break;
-                        };
-                        if declaration.contracts.contains(contract) {
-                            conforms = true;
-                            break;
-                        }
-                        current = declaration.superclass;
+                    if !self.contract_conforms(
+                        &receiver,
+                        (*contract, &requested),
+                        (program, classes),
+                    )? {
+                        dispatch!(Err::<Value, _>(self.decorator_type_error())?);
                     }
-                    if !conforms {
-                        return Err(MachineError::Kernel(KernelError::Type));
-                    }
+                    let Value::Object(object) = receiver else {
+                        return Ok(InstructionAction::Produced(Value::ContractView(
+                            Box::new(receiver),
+                            program.contract_identity(*contract),
+                        )));
+                    };
                     Value::ContractView(
                         Box::new(Value::Object(object)),
-                        ContractId::new(*contract as u64 + 1),
+                        self.intern_contract_view(program.contract_identity(*contract), requested)?,
                     )
+                }
+                Instruction::ContractTest {
+                    receiver, contract, type_arguments, ..
+                } => {
+                    let requested = self.nominal_arguments(type_arguments, program, classes)?;
+                    let receiver = match &registers[*receiver as usize] {
+                        Value::ContractView(receiver, _) => receiver.as_ref(),
+                        receiver => receiver,
+                    };
+                    Value::Bool(self.contract_conforms(
+                        receiver,
+                        (*contract, &requested),
+                        (program, classes),
+                    )?)
                 }
                 Instruction::SendContract {
                     receiver,
@@ -3735,15 +3892,15 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                     let Value::Object(object) = *receiver else {
                         return Err(MachineError::Kernel(KernelError::Type));
                     };
-                    let contract_index = usize::try_from(contract.raw().saturating_sub(1))
-                        .map_err(|_| MachineError::Kernel(KernelError::Type))?;
+                    let contract_index = program
+                        .contract_index(self.contract_definition(contract))
+                        .ok_or(MachineError::Kernel(KernelError::Type))?;
                     let required = program
                         .contracts
                         .get(contract_index)
                         .is_some_and(|contract| {
                             contract.requirements.iter().any(|requirement| {
                                 requirement.selector == *selector
-                                    && requirement.arity == *count as usize
                             })
                         });
                     // A QUALIFIED `impl fun C::m()` supplies the member itself,
@@ -3753,18 +3910,9 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                         .runtime
                         .class_of(object)
                         .map_err(MachineError::Construction)?;
-                    let qualified = classes
-                        .iter()
-                        .position(|known| *known == class)
-                        .and_then(|index| program.classes.get(index))
-                        .and_then(|declaration| {
-                            declaration.qualified_impls.iter().find_map(
-                                |(contract, name, function)| {
-                                    (*contract == contract_index && name == selector)
-                                        .then_some(*function)
-                                },
-                            )
-                        });
+                    let qualified_selector = selector_id(program, selector)
+                        .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
+                    let qualified = self.qualified_method((class, self.contract_definition(contract), qualified_selector));
                     if !required && qualified.is_none() {
                         // `C050` makes a VIEW answer only what the contract
                         // declares, with NO ordinary fallback - so a selector
@@ -3776,16 +3924,7 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                             .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
                         dispatch!(Err(MachineError::Construction(
                             iris_runtime::DispatchError::ContractDispatch {
-                                // The three KERNEL traversal contracts -
-                                // `Iterable`, `Iterator`, `Iteration` - are
-                                // registered before any declaration, so a
-                                // program's first contract is the fourth
-                                // identity. Numbering from the declaration
-                                // alone named a different contract in the
-                                // diagnostic than the one that refused.
-                                contract: iris_runtime::ModuleId::new(
-                                    contract.raw().saturating_add(2),
-                                ),
+                                contract: iris_runtime::ModuleId::new(contract.raw()),
                                 contract_name: program
                                     .contracts
                                     .get(contract_index)
@@ -3799,7 +3938,16 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                     // view, so it wins over ordinary dispatch: `(a as C)..m()`
                     // answers it while `a.m()` answers the class's own method.
                     let function = match qualified {
-                        Some(function) => function,
+                        Some(method) => {
+                                let start = *first as usize;
+                                let mut arguments = vec![Value::Object(object)];
+                                arguments.extend_from_slice(&registers[start..start + *count as usize]);
+                                let value = run_frame!('frame, self.invoke_selected_method(method, arguments, program, classes));
+                                if let Some(destination) = instruction.destination() {
+                                    registers.write(destination as usize, value);
+                                }
+                                return Ok(InstructionAction::Continue);
+                        }
                         None => {
                             let selector_id = selector_id(program, selector)
                                 .ok_or_else(|| MachineError::UnknownSelector(selector.clone()))?;
@@ -3807,13 +3955,12 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                                 .runtime
                                 .dispatch_instance(object, selector_id)
                                 .map_err(MachineError::Construction)?;
-                            usize::try_from(method.body().raw()).map_err(|_| {
-                                MachineError::Invalid(VerifyError::UnknownFunction {
-                                    function: usize::MAX,
-                                })
-                            })?
+                            self.resolve_method_body(method.body(), program)
+                                .map_err(|error| error.invalid_function())?
                         }
                     };
+                    let owner = function;
+                    let (program, classes, function) = (owner.program.as_ref(), owner.classes.as_slice(), owner.function);
                     let callee =
                         program
                             .functions
@@ -3999,7 +4146,7 @@ impl Machine {
     /// A program reads `c.value` and the decoder diagnostic off the context a
     /// catch binds, so a named failure needs one of its own - binding nil left
     /// the catch holding nothing to ask.
-    fn named_failure_context(&mut self, value: Value) -> Value {
+    pub(super) fn named_failure_context(&mut self, value: Value) -> Value {
         let identity = iris_runtime::ObjectId::new(self.next_context);
         self.next_context = self.next_context.saturating_add(1);
         Value::ExceptionContext(
