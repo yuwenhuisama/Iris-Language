@@ -18,6 +18,9 @@ impl Aliases<'_> {
             }
             | Statement::SharedBinding {
                 annotation, value, ..
+            }
+            | Statement::InstanceField {
+                annotation, value, ..
             } => {
                 self.optional(annotation);
                 self.expression(value);

@@ -5,8 +5,17 @@ impl Aliases<'_> {
     pub(super) fn expression(&mut self, expression: &mut Expression) {
         match expression {
             Expression::Closure {
-                return_type, body, ..
+                full_parameters,
+                return_type,
+                body,
+                ..
             } => {
+                for parameter in full_parameters {
+                    self.optional(&mut parameter.annotation);
+                    if let Some(default) = &mut parameter.default {
+                        self.expression(default);
+                    }
+                }
                 self.optional(return_type);
                 self.body(body);
             }
@@ -56,6 +65,8 @@ impl Aliases<'_> {
             | Expression::Await(value)
             | Expression::Unary { operand: value, .. }
             | Expression::KeywordArgument { value, .. }
+            | Expression::BlockArgument { value }
+            | Expression::NonNull(value)
             | Expression::Member {
                 receiver: value, ..
             }

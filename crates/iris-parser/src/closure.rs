@@ -1,5 +1,5 @@
 use crate::{Parser, source};
-use iris_syntax::{Expression, ParameterCategory};
+use iris_syntax::Expression;
 
 impl Parser {
     pub(crate) fn closure_literal(&mut self) -> Option<Expression> {
@@ -19,9 +19,13 @@ impl Parser {
             .enter_scope(source::ScopeKind::Closure, self.current_offset());
         self.expect("{")?;
         self.skip_newlines();
-        let mut parameters = Vec::new();
+        let mut full_parameters = Vec::new();
         let mut return_type = None;
         let mut has_header = false;
+        let is_async = self.check("async") && matches!(self.peek_next(), Some("|" | "||"));
+        if is_async {
+            self.advance();
+        }
         // `closure_header ::= "|" closure_parameters? "|" ...` admits an EMPTY
         // parameter list, but `||` lexes as ONE logical-or token, so a bare
         // `{ ||; ... }` never reached the header at all. An empty header is
@@ -48,27 +52,15 @@ impl Parser {
         } else if self.consume("|") {
             has_header = true;
             let outer = std::mem::replace(&mut self.no_type_union, true);
+            let outer_default = std::mem::replace(&mut self.closure_default, true);
             self.skip_newlines();
             while !self.check("|") && !self.at_end() {
-                let frame = self.recorder.begin(self.current_offset());
-                let Some(parameter) = self.binding_name() else {
-                    self.recorder.finish(frame, self.consumed_end, None);
+                let Some(parameter) = self.with_layout(true, Self::parameter) else {
                     self.no_type_union = outer;
+                    self.closure_default = outer_default;
                     return None;
                 };
-                parameters.push(parameter);
-                if self.consume(":") && self.type_expression().is_none() {
-                    self.recorder.finish(frame, self.consumed_end, None);
-                    self.no_type_union = outer;
-                    return None;
-                }
-                let kind = self
-                    .source_declaration(frame.id, source::DeclarationKind::Parameter)
-                    .map_or(source::SourceKind::Statement, |value| {
-                        source::SourceKind::Declaration(Box::new(value))
-                    });
-                self.record_parameter_slot(frame.id, ParameterCategory::Positional);
-                self.recorder.finish(frame, self.consumed_end, Some(kind));
+                full_parameters.push(parameter);
                 self.skip_newlines();
                 if !self.consume(",") {
                     break;
@@ -78,7 +70,11 @@ impl Parser {
             // The union level is restored BEFORE the return annotation, which
             // sits outside the parameter list and may legitimately be a union.
             self.no_type_union = outer;
+            self.closure_default = outer_default;
             self.expect("|")?;
+            if !Self::parameters_in_channel_order(&full_parameters) {
+                self.error("PARSE_BAD_PARAMETER_ORDER");
+            }
             if self.consume("-") {
                 self.expect(">")?;
                 // C017 needs the annotation to SURVIVE parsing: an annotated
@@ -111,7 +107,12 @@ impl Parser {
         );
         closed?;
         Some(Expression::Closure {
-            parameters,
+            parameters: full_parameters
+                .iter()
+                .map(|value| value.name.clone())
+                .collect(),
+            full_parameters,
+            is_async,
             return_type,
             has_header,
             body,

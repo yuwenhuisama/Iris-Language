@@ -55,6 +55,11 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
                     .collect::<Vec<_>>()
                     .join(", ")
             )),
+            Declaration::Impl(value) => Some(format!(
+                "Impl(target={}, contract={})",
+                type_expression_shape(&value.target),
+                type_expression_shape(&value.contract)
+            )),
             Declaration::Module(_) => None,
         })
         .collect::<Vec<_>>();
@@ -65,6 +70,7 @@ pub fn render_parse_shapes(program: &Program) -> Vec<String> {
             .filter_map(|statement| match statement {
                 Statement::Expression(expression) => Some(source_shape(expression, 0)),
                 Statement::GlobalBinding { .. }
+                | Statement::InstanceField { .. }
                 | Statement::SharedBinding { .. }
                 | Statement::Binding { .. }
                 | Statement::DeferredBinding { .. }
@@ -120,6 +126,10 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
         Expression::KeywordArgument { name, value } => {
             (format!("{name}: {}", source_shape(value, 0)), 17)
         }
+        Expression::BlockArgument { value } => {
+            (format!("block_argument({})", source_shape(value, 0)), 17)
+        }
+        Expression::NonNull(value) => (format!("{}!", source_shape(value, 17)), 17),
         Expression::Index { receiver, index } => (
             format!("{}[{}]", source_shape(receiver, 17), source_shape(index, 0)),
             17,
@@ -237,6 +247,10 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::KeywordArgument { name, value } => {
             format!("keyword({name}, {})", structural_shape(value))
         }
+        Expression::BlockArgument { value } => {
+            format!("block_argument({})", structural_shape(value))
+        }
+        Expression::NonNull(value) => format!("nonnull({})", structural_shape(value)),
         Expression::Index { receiver, index } => format!(
             "index({}, {})",
             structural_shape(receiver),
@@ -436,7 +450,7 @@ const fn binary_operator(operator: &BinaryOperator) -> &'static str {
         BinaryOperator::NotMatch => "!~",
         BinaryOperator::RegexMatches => "=~",
         BinaryOperator::RegexDoesNotMatch => "!~",
-        BinaryOperator::Is => "is",
+        BinaryOperator::Is => "is?",
         BinaryOperator::As => "as",
         BinaryOperator::AsOptional => "as?",
         BinaryOperator::Equal => "==",

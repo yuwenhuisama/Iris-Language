@@ -33,7 +33,7 @@ fn child_texts<'text>(
 
 #[test]
 fn collection_facts_when_literals_have_nested_children() -> Result<(), &'static str> {
-    let text = "[1, (2,), %{3: [4], 5: 6}]";
+    let text = "%[1, (2,), %{3: %[4], 5: 6}]";
     let result = parse_with_source(text);
     assert!(
         result.parse.program_accepted,
@@ -47,7 +47,7 @@ fn collection_facts_when_literals_have_nested_children() -> Result<(), &'static 
     assert_eq!(elements, &array.children);
     assert_eq!(
         child_texts(&result.source, text, elements),
-        ["1", "(2,)", "%{3: [4], 5: 6}"]
+        ["1", "(2,)", "%{3: %[4], 5: 6}"]
     );
     let tuple = result.source.node(elements[1]);
     let SourceKind::Expression(ExpressionFact::Tuple { elements }) = &tuple.kind else {
@@ -55,7 +55,7 @@ fn collection_facts_when_literals_have_nested_children() -> Result<(), &'static 
     };
     assert_eq!(elements, &tuple.children);
     assert_eq!(child_texts(&result.source, text, elements), ["2"]);
-    let hash = expression_at(&result.source, text, "%{3: [4], 5: 6}")?;
+    let hash = expression_at(&result.source, text, "%{3: %[4], 5: 6}")?;
     let SourceKind::Expression(ExpressionFact::Hash { entries }) = &hash.kind else {
         return Err("typed hash fact");
     };
@@ -66,17 +66,17 @@ fn collection_facts_when_literals_have_nested_children() -> Result<(), &'static 
     assert_eq!(children, hash.children);
     assert_eq!(
         child_texts(&result.source, text, &children),
-        ["3", "[4]", "5", "6"]
+        ["3", "%[4]", "5", "6"]
     );
     Ok(())
 }
 
 #[test]
 fn collection_facts_when_literals_are_empty() -> Result<(), &'static str> {
-    let text = "[]; (); %{}";
+    let text = "%[]; (); %{}";
     let result = parse_with_source(text);
     assert!(result.parse.program_accepted);
-    assert!(matches!(&expression_at(&result.source, text, "[]")?.kind,
+    assert!(matches!(&expression_at(&result.source, text, "%[]")?.kind,
         SourceKind::Expression(ExpressionFact::Array { elements }) if elements.is_empty()));
     assert!(matches!(&expression_at(&result.source, text, "()")?.kind,
         SourceKind::Expression(ExpressionFact::Tuple { elements }) if elements.is_empty()));
@@ -131,7 +131,7 @@ fn range_facts_when_operators_have_distinct_bounds() -> Result<(), &'static str>
 
 #[test]
 fn receiver_facts_when_collection_and_range_are_grouped() -> Result<(), &'static str> {
-    for literal in ["[1]", "(1, 2)", "%{1: 2}", "1 ..< 3"] {
+    for literal in ["%[1]", "(1, 2)", "%{1: 2}", "1 ..< 3"] {
         let text = format!("(({literal})).size()");
         let result = parse_with_source(&text);
         assert!(result.parse.program_accepted);
@@ -164,7 +164,7 @@ fn receiver_facts_when_collection_and_range_are_grouped() -> Result<(), &'static
 
 #[test]
 fn receiver_facts_when_editor_member_is_incomplete() -> Result<(), &'static str> {
-    for literal in ["[1]", "(1,)", "%{1: 2}", "(1 ..= 3)"] {
+    for literal in ["%[1]", "(1,)", "%{1: 2}", "(1 ..= 3)"] {
         let text = format!("{literal}.");
         let result = parse_editor(&text);
         assert!(!result.parse.program_accepted);
@@ -182,8 +182,8 @@ fn receiver_facts_when_editor_member_is_incomplete() -> Result<(), &'static str>
 
 #[test]
 fn receiver_facts_when_failed_parent_rolls_back_children() {
-    for broken in ["[1,", "(1,", "%{1:", "1 ..=", "1 ..<", "[1, (2 ..= 3),"] {
-        let text = format!("let kept = []; let broken = {broken}");
+    for broken in ["%[1,", "(1,", "%{1:", "1 ..=", "1 ..<", "%[1, (2 ..= 3),"] {
+        let text = format!("let kept = %[]; let broken = {broken}");
         let result = parse_editor(&text);
         assert!(!result.parse.program_accepted);
         let expressions: Vec<_> = result
@@ -208,14 +208,14 @@ fn receiver_facts_when_failed_parent_rolls_back_children() {
 #[test]
 fn strict_parse_when_receiver_facts_are_recorded_is_unchanged() {
     for text in [
-        "[]; (); %{}",
-        "[1, (2,), %{3: [4]}]",
+        "%[]; (); %{}",
+        "%[1, (2,), %{3: %[4]}]",
         "(1 ..= 3).size()",
         "(1 ..< 3).size()",
-        "[1,",
+        "%[1,",
         "1 ..=",
         "1 ..< 2 ..< 3",
-        "[1].",
+        "%[1].",
     ] {
         let strict = parse(text);
         let result = parse_with_source(text);
@@ -225,7 +225,7 @@ fn strict_parse_when_receiver_facts_are_recorded_is_unchanged() {
 
 #[test]
 fn binary_facts_when_operator_is_not_a_range_remain_unsupported() -> Result<(), &'static str> {
-    for text in ["1 + 2", "1 < 2", "1 same? 2", "1 is Integer"] {
+    for text in ["1 + 2", "1 < 2", "1 same? 2", "1 is? Integer"] {
         let result = parse_with_source(text);
         assert!(result.parse.program_accepted);
         assert!(matches!(

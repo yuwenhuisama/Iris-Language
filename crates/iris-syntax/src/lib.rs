@@ -1,8 +1,10 @@
 //! Syntax tree types shared by the Iris v1 front end.
 
+mod property;
 mod shape;
 mod signature;
 
+pub use property::{PropertyAccessor, PropertyAccessorKind, PropertyAccessors};
 pub use shape::{PRECEDENCE_ROWS_COVERED, render_parse_shape, render_parse_shapes};
 pub use signature::method_signature_compatible;
 
@@ -24,6 +26,7 @@ pub enum Declaration {
     Class(ClassDeclaration),
     Module(ModuleDeclaration),
     Contract(ContractDeclaration),
+    Impl(ImplDeclaration),
     /// `import_decl ::= "import" qualified_type_name import_alias?
     ///                 | "from" qualified_type_name "import" import_spec_list`.
     Import(ImportDeclaration),
@@ -34,6 +37,14 @@ pub enum Declaration {
     /// `IRIS-V1-TYPES-C004` makes a Type alias TARGET an annotated boundary, so
     /// the target is retained rather than parsed and discarded.
     TypeAlias(TypeAliasDeclaration),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImplDeclaration {
+    pub target: TypeExpression,
+    pub contract: TypeExpression,
+    pub constraints: Vec<Constraint>,
+    pub methods: Vec<MethodDeclaration>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,6 +184,12 @@ pub enum TypeExpression {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Statement {
+    InstanceField {
+        mutable: bool,
+        name: String,
+        annotation: Option<TypeExpression>,
+        value: Expression,
+    },
     /// `global_decl ::= "global" ("let" | "mut") global_name type_annotation? "=" expression`.
     ///
     /// `IRIS-V1-CONTROL-C013` makes `$name` reachable ONLY through a `global
@@ -224,6 +241,11 @@ pub enum Statement {
     },
     StoredProperty {
         decorators: Vec<Decorator>,
+        /// Declaration visibility, defaulting to private under RUNTIME-C077.
+        visibility: Visibility,
+        /// Written accessor block; `None` preserves omitted shorthand without
+        /// inventing accessor slots. `Some` retains exactly the written members.
+        accessors: Option<PropertyAccessors>,
         /// Whether the source wrote `shared` before `property`.
         ///
         /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the
@@ -463,7 +485,12 @@ pub enum Expression {
     /// identity, so the node describes the code and the evaluator allocates a
     /// distinct Closure each time it is reached.
     Closure {
+        /// Compatibility names, derived from `full_parameters` by the parser.
         parameters: Vec<String>,
+        /// Canonical parameter declarations, including categories, annotations and defaults.
+        full_parameters: Vec<Parameter>,
+        /// The `async` header modifier of `IRIS-V1-ASYNC-C004`.
+        is_async: bool,
         /// The `-> Type` header annotation, absent when omitted.
         ///
         /// `IRIS-V1-CONTROL-C017` diagnoses an omitted Closure return
@@ -506,6 +533,10 @@ pub enum Expression {
         name: String,
         value: Box<Expression>,
     },
+    BlockArgument {
+        value: Box<Expression>,
+    },
+    NonNull(Box<Expression>),
     Unary {
         operator: UnaryOperator,
         operand: Box<Expression>,

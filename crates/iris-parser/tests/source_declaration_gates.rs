@@ -5,12 +5,12 @@ use iris_parser::{parse, parse_with_source};
 fn nominal_value_metadata_when_headers_contain_types() -> Result<(), &'static str> {
     for (text, kind, types) in [
         (
-            "class Box extends Base for Show mixin Helpers { let value: Integer = 1 }",
+            "class Box extends Base mixin Helpers { let @value: Integer = 1 } impl Box for Show {}",
             DeclarationKind::Class,
-            vec!["Base", "Show", "Helpers"],
+            vec!["Base", "Helpers", "Integer"],
         ),
         (
-            "module Main mixin Helpers { let value: Integer = 1 }",
+            "module Main mixin Helpers { const value: Integer = 1 }",
             DeclarationKind::Module,
             vec!["Helpers"],
         ),

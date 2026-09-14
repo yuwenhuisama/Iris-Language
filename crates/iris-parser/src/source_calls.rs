@@ -89,15 +89,16 @@ impl Parser {
                 }
                 let start = parser.current_offset();
                 let outer = std::mem::replace(&mut parser.call_argument_recovery, true);
-                let kind = match parser.peek_keyword_argument_name() {
-                    Some(text) => ArgumentKind::Keyword(NameSite {
+                let kind = match (parser.check("&"), parser.peek_keyword_argument_name()) {
+                    (true, _) => ArgumentKind::Block,
+                    (false, Some(text)) => ArgumentKind::Keyword(NameSite {
                         span: Span {
                             start,
                             end: start + text.len(),
                         },
                         text,
                     }),
-                    None => ArgumentKind::Positional,
+                    (false, None) => ArgumentKind::Positional,
                 };
                 let recovery = parser.recorder.document.recovery.len();
                 let value = parser.argument();
@@ -179,6 +180,8 @@ impl Parser {
             site.incomplete |= incomplete;
             site.end = self.consumed_end;
         }
-        Some(result)
+        Some(iris_syntax::Expression::BlockArgument {
+            value: Box::new(result),
+        })
     }
 }

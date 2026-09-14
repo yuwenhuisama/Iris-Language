@@ -16,7 +16,7 @@ pub(super) struct Checkpoint {
     scope: ScopeId,
     damaged: Vec<(ScopeId, bool)>,
     consumed_end: usize,
-    flags: [bool; 5],
+    flags: [bool; 6],
 }
 
 impl Parser {
@@ -55,6 +55,7 @@ impl Parser {
                 self.no_trailing_block,
                 self.no_type_union,
                 self.empty_closure_header,
+                self.closure_default,
                 self.delimited_layout,
                 self.call_argument_recovery,
             ],
@@ -69,6 +70,7 @@ impl Parser {
             self.no_trailing_block,
             self.no_type_union,
             self.empty_closure_header,
+            self.closure_default,
             self.delimited_layout,
             self.call_argument_recovery,
         ] = checkpoint.flags;

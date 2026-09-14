@@ -4,7 +4,7 @@ use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
 #[test]
 fn parses_array_literals_with_named_infix_and_unary_elements() {
     // Given
-    let source = "[-5 div 2, 5 div -2, -5 div -2]";
+    let source = "%[-5 div 2, 5 div -2, -5 div -2]";
 
     // When
     let result = parse(source);
@@ -24,7 +24,7 @@ fn parses_array_literals_with_named_infix_and_unary_elements() {
 #[test]
 fn parses_empty_and_trailing_comma_arrays() {
     // Given
-    let source = "[]; [1,]";
+    let source = "%[]; %[1,]";
 
     // When
     let result = parse(source);
@@ -43,7 +43,7 @@ fn parses_empty_and_trailing_comma_arrays() {
 #[test]
 fn reports_a_parse_diagnostic_when_an_array_element_is_missing() {
     // Given
-    let source = "[1,";
+    let source = "%[1,";
 
     // When
     let result = parse(source);
@@ -194,7 +194,7 @@ fn accepts_if_in_expression_positions() {
     // Given
     let sources = [
         "let result = if true { :yes } else { :no }; result",
-        "[if true { :yes } else { :no }]",
+        "%[if true { :yes } else { :no }]",
         "let result = if false { :yes }; result",
         "let result = if false { :first } else if true { :second } else { :third }; result",
     ];

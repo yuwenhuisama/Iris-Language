@@ -20,9 +20,16 @@ of 64 times the token count plus 1024. Exceeding a limit rejects the program wit
 bounds, not new language grammar restrictions. Ordinary long sequences of
 independent statements do not share the expression-unit bound.
 
-The existing syntax tree does not model stored-property accessor metadata or
-method/type-alias `where` clauses. This layout repair does not add those semantic
-representations; property accessor validation preserves the existing AST shape.
+`Statement::StoredProperty` retains declaration `visibility` and
+`accessors: Option<PropertyAccessors>`. `None` means the accessor block was
+omitted, not that an explicit block declared both accessors. A present block
+retains ordered `members: Vec<PropertyAccessor>`, each carrying
+`kind: PropertyAccessorKind::{Get, Set}` and accessor-local `visibility`.
+Declaration and accessor visibility default to private (RUNTIME-C077, D-445).
+An explicit empty block stays empty; repeated members remain source-ordered
+because the grammar does not prohibit them. No runtime accessor wrappers or
+shorthand accessor inventory are synthesized by this syntax representation.
+Method/type-alias `where` clauses remain unmodeled.
 
 Run parser-only verification with `cargo test -p iris-parser`. The integration
 tests exercise the public API against the real lexer, compare compact and laid
@@ -54,7 +61,7 @@ retain the normalized AST type plus source-only child name/type sites; optional
 
 Expression facts link names, literals, member receivers, calls and their ordered
 arguments, index receivers/indexes, assignments, grouping, generic construction, reified types, closures,
-keyword arguments, and collection/range shapes (Array, Tuple, Hash, Range). Other
+keyword arguments, explicit block arguments with operand edges, and collection/range shapes (Array, Tuple, Hash, Range). Other
 expression forms explicitly report `Unsupported` with production children, rather
 than claiming an inferred type. Imports retain per-segment targets, per-spec names,
 aliases, and replacement authorization.
@@ -96,7 +103,8 @@ The graph records syntax, not resolved symbols or inferred types.
 
 Current conservative limits: malformed headers and lexer failures do not retain
 partial declarations; recovery is not arbitrary token insertion. Property
-accessor metadata is still not modeled. Class-header type children preserve
+accessors are retained in the canonical AST, not separate source-graph nodes.
+Class-header type children preserve
 source facts but are not labeled by extends/implements/mixin role. Destructuring
 patterns do not model extraction types or alternative-binding unification.
 Control-flow expression result inference is unsupported. Recovery preserves
@@ -142,7 +150,11 @@ The following additive `SourceDocument` vectors are public through `source`:
   this call's `commas`, ordered `arguments: Vec<ArgumentSlot>`, bounded `end`,
   and `incomplete`. Each argument has `span`, `kind: ArgumentKind`, optional
   `expression`, and `incomplete`. Kinds are `Positional`, `Keyword(NameSite)`,
-  and `TrailingBlock`. Trailing commas before an actual `)` add no empty slot;
+  `Block` for `&expr`, and `TrailingBlock`. Explicit block argument nodes and
+  slots include the `&` in their spans; their operand edges exclude it.
+  Both block spellings produce canonical `Expression::BlockArgument` values
+  in the ordinary AST. Duplicate blocks remain ordered for runtime validation.
+  Trailing commas before an actual `)` add no empty slot;
   missing arguments at an editor boundary do. Nested separators belong only to
   the production that consumed them. The call vector is completion order, not
   source order; use the node graph for ancestry.

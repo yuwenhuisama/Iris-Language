@@ -39,6 +39,25 @@ impl Aliases<'_> {
                 }
                 self.body(&mut value.body);
             }
+            Declaration::Impl(value) => {
+                self.annotation(&mut value.target);
+                self.annotation(&mut value.contract);
+                for constraint in &mut value.constraints {
+                    self.annotation(&mut constraint.bound);
+                }
+                for method in &mut value.methods {
+                    for parameter in &mut method.parameters {
+                        self.optional(&mut parameter.annotation);
+                        if let Some(default) = &mut parameter.default {
+                            self.expression(default);
+                        }
+                    }
+                    self.optional(&mut method.return_type);
+                    if let Some(body) = &mut method.body {
+                        self.body(body);
+                    }
+                }
+            }
             Declaration::Export(export) => match export.as_mut() {
                 ExportDeclaration::Declaration(inner) => self.declaration(inner),
                 ExportDeclaration::Names(_) => {}

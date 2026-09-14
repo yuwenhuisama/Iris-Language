@@ -52,7 +52,7 @@ fn import_provenance_when_dotted_and_qualified_names_match() {
 
 #[test]
 fn composition_flags_when_nominal_headers_are_present() -> Result<(), &'static str> {
-    let text = "class Box<T> extends Base<T> for Show mixin Helpers where T: Object meta deny method_set {} module Main mixin Helpers {} contract Show extends Parent {}";
+    let text = "class Box<T> extends Base<T> mixin Helpers where T: Object meta deny method_set {} impl Box<T> for Show {} module Main mixin Helpers {} contract Show extends Parent {}";
     let result = parse_with_source(text);
     assert_eq!(result.parse, parse(text));
     assert!(result.parse.program_accepted);
@@ -67,7 +67,7 @@ fn composition_flags_when_nominal_headers_are_present() -> Result<(), &'static s
         .collect();
     assert_eq!(headers.len(), 3);
     let class = headers.first().ok_or("class header")?;
-    assert!(class.complete && class.has_extends && class.has_implements && class.has_mixins);
+    assert!(class.complete && class.has_extends && class.has_mixins);
     assert!(class.has_type_parameters && class.has_constraints && class.has_meta_policy);
     assert_eq!(&text[class.span.end..class.span.end + 1], "{");
     assert!(headers[1].has_mixins);
@@ -77,7 +77,7 @@ fn composition_flags_when_nominal_headers_are_present() -> Result<(), &'static s
 
 #[test]
 fn header_completeness_when_only_body_closer_is_missing() {
-    let result = parse_editor("class Box { let value = 1");
+    let result = parse_editor("class Box { let @value = 1");
     assert!(!result.parse.program_accepted);
     assert!(result.source.nodes.iter().any(|node| matches!(&node.kind,
         SourceKind::Declaration(value) if value.header.as_ref().is_some_and(|header| header.complete))));

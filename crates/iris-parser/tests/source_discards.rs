@@ -46,8 +46,8 @@ fn callable_scope_when_method_parameter_discards() -> Result<(), &'static str> {
 #[test]
 fn callable_scope_when_closure_parameter_discards_and_body_captures() -> Result<(), &'static str> {
     for text in [
-        "module Main { let outer=1; let block={ |_, arg|; arg; outer } }",
-        "module Main { let outer=1; let block={ |_: Integer, arg: String|; arg; outer } }",
+        "module Main { fun run() { let outer=1; let block={ |_, arg|; arg; outer } } }",
+        "module Main { fun run() { let outer=1; let block={ |_: Integer, arg: String|; arg; outer } } }",
     ] {
         let result = parse_with_source(text);
 

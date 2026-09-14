@@ -1011,6 +1011,25 @@ impl Analyzer {
     }
 
     fn program(&mut self, program: &Program) {
+        for declaration in program.declarations.iter().map(unwrap_export) {
+            let iris_syntax::Declaration::Impl(value) = declaration else {
+                continue;
+            };
+            let (
+                iris_syntax::TypeExpression::Name(class),
+                iris_syntax::TypeExpression::Name(contract),
+            ) = (&value.target, &value.contract)
+            else {
+                continue;
+            };
+            self.class_contracts
+                .push((class.clone(), vec![contract.clone()]));
+            self.declared_conformance
+                .push((class.clone(), vec![contract.clone()]));
+            if decorator_target(contract).is_some() {
+                self.decorator_kinds.push((class.clone(), contract.clone()));
+            }
+        }
         for entry in &program.entries {
             match entry {
                 ProgramEntry::Statement(statement) => {
@@ -1028,9 +1047,51 @@ impl Analyzer {
         // still an open of that origin. Checking markers during the ordered
         // walk made the origin look like the replacement, which V437 observes.
         self.check_deferred_override_markers(program);
+        self.check_impl_requirement_compatibility(program);
         self.check_decorator_targets(program);
         self.check_decorator_determinism(program);
         self.check_static_member_existence(program);
+    }
+
+    fn check_impl_requirement_compatibility(&mut self, program: &Program) {
+        let implementations: Vec<(&str, &str)> = program
+            .declarations
+            .iter()
+            .map(unwrap_export)
+            .filter_map(|declaration| match declaration {
+                iris_syntax::Declaration::Impl(value) => match (&value.target, &value.contract) {
+                    (
+                        iris_syntax::TypeExpression::Name(target),
+                        iris_syntax::TypeExpression::Name(contract),
+                    ) => Some((target.as_str(), contract.as_str())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        for (target, contract) in &implementations {
+            for (_, other_contract) in implementations
+                .iter()
+                .filter(|(other_target, _)| other_target == target)
+            {
+                for (_, selector, parameters, result) in self
+                    .requirement_signatures
+                    .iter()
+                    .filter(|(owner, _, _, _)| owner == contract)
+                {
+                    if self.requirement_signatures.iter().any(
+                        |(owner, other_selector, other_parameters, other_result)| {
+                            owner == other_contract
+                                && other_selector == selector
+                                && (other_parameters != parameters || other_result != result)
+                        },
+                    ) {
+                        self.report("CONTRACT_REQUIREMENT_INCOMPATIBLE");
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     /// Rejects a STATIC call to a member the receiver's Class never declared.
@@ -1098,22 +1159,16 @@ impl Analyzer {
             .iter()
             .map(unwrap_export)
             .filter_map(|declaration| match declaration {
-                iris_syntax::Declaration::Class(value) => Some(value),
-                _ => None,
-            })
-            .filter(|value| {
-                // Only a decorator Class has a static phase to constrain.
-                self.decorator_kinds
-                    .iter()
-                    .any(|(name, _)| name == &value.name)
-            })
-            .flat_map(|value| &value.body)
-            .filter_map(|statement| match statement {
-                iris_syntax::Statement::Method(method) if method.selector == "plan" => {
-                    method.body.as_ref()
+                iris_syntax::Declaration::Impl(value)
+                    if matches!(&value.target, iris_syntax::TypeExpression::Name(name) if self.decorator_kinds.iter().any(|(declared, _)| declared == name)) =>
+                {
+                    Some(&value.methods)
                 }
                 _ => None,
             })
+            .flatten()
+            .filter(|method| method.selector == "plan")
+            .filter_map(|method| method.body.as_ref())
             .filter(|body| body.iter().any(statement_reads_global))
             .count();
         for _ in 0..violations {
@@ -1405,6 +1460,14 @@ impl Analyzer {
                     }
                 }
                 (&value.name, None)
+            }
+            iris_syntax::Declaration::Impl(value) => {
+                self.check_raw_generic(&value.target);
+                self.check_raw_generic(&value.contract);
+                for method in &value.methods {
+                    self.statement(&Statement::Method(method.clone()), Control::top_level());
+                }
+                return;
             }
         };
         // A REOPEN names the Class its origin declaration already published, so
@@ -2226,6 +2289,15 @@ impl Analyzer {
                 self.check_raw_generic(annotation);
                 self.check_annotated_value(annotation, initializer);
             }
+            Statement::InstanceField {
+                annotation, value, ..
+            } => {
+                self.expression(value, control);
+                if let Some(annotation) = annotation {
+                    self.check_raw_generic(annotation);
+                    self.check_annotated_value(annotation, value);
+                }
+            }
         }
     }
 
@@ -2403,7 +2475,10 @@ impl Analyzer {
                 self.expression(right, control);
             }
             Expression::Unary { operand, .. } => self.expression(operand, control),
-            Expression::Grouped(value) | Expression::KeywordArgument { value, .. } => {
+            Expression::Grouped(value)
+            | Expression::KeywordArgument { value, .. }
+            | Expression::BlockArgument { value }
+            | Expression::NonNull(value) => {
                 self.expression(value, control);
             }
             Expression::Member { receiver, .. } | Expression::ContractView { receiver, .. } => {
@@ -2530,9 +2605,9 @@ mod tests {
 
         // A Class that does declare the matching Contract is admitted, and a
         // mismatched category stays the IRIS-DECORATOR-KIND it already was.
-        assert!(codes("class S for ClassDecorator { } @S() class A { }").is_empty());
+        assert!(codes("class S {} impl S for ClassDecorator {} @S() class A { }").is_empty());
         assert_eq!(
-            codes("class S for MethodDecorator { } @S() class A { }"),
+            codes("class S {} impl S for MethodDecorator {} @S() class A { }"),
             vec!["IRIS-DECORATOR-KIND"]
         );
 
@@ -2684,18 +2759,18 @@ mod tests {
         // C053: union alternatives MUST bind identical names, so alternatives
         // binding different names are refused.
         assert_eq!(
-            codes("match [1] { [a] | [b] => 1, _ => 0 }"),
+            codes("match %[1] { [a] | [b] => 1, _ => 0 }"),
             vec!["PATTERN_UNION_BINDING_MISMATCH"]
         );
         assert_eq!(
-            codes("match [1] { [a] | [a, c] => 1, _ => 0 }"),
+            codes("match %[1] { [a] | [a, c] => 1, _ => 0 }"),
             vec!["PATTERN_UNION_BINDING_MISMATCH"]
         );
 
         // Identical bindings are admitted, and `_` discards rather than
         // binding, so it creates no mismatch.
-        assert!(codes("match [1] { [a] | [a] => a, _ => 0 }").is_empty());
-        assert!(codes("match [1] { [_] | [_] => 1, _ => 0 }").is_empty());
+        assert!(codes("match %[1] { [a] | [a] => a, _ => 0 }").is_empty());
+        assert!(codes("match %[1] { [_] | [_] => 1, _ => 0 }").is_empty());
     }
 
     #[test]
@@ -2764,7 +2839,7 @@ mod tests {
         // inside its own loop is ordinary.
         assert!(codes("let c = { return 1 }").is_empty());
         assert!(codes("mut i = 0; while i < 3 { i = i + 1; break }").is_empty());
-        assert!(codes("for x in [1, 2] { continue }").is_empty());
+        assert!(codes("for x in %[1, 2] { continue }").is_empty());
         assert!(codes("class C { public fun m() { return 1 } }").is_empty());
     }
 
@@ -2828,7 +2903,7 @@ mod tests {
         let plain_module = "module M {}";
         // The same clause on a Class is ordinary conformance and is accepted.
         let class_for =
-            "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil { nil } }";
+            "contract C { fun m() -> Nil } class A {} impl A for C { fun m() -> Nil { nil } }";
 
         // When / Then
         assert_eq!(codes(module_for), vec!["CONTRACT_FOR_CLASS_ONLY"]);
@@ -2840,12 +2915,12 @@ mod tests {
     fn d233_requires_impl_on_a_member_satisfying_a_requirement() {
         // C046 rejects an unmarked Class-provided implementation where an
         // explicit one is required, which is what V248 observes.
-        let unmarked = "contract C { fun m() -> Nil } class A for C { fun m() -> Nil {} }";
-        let marked = "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil {} }";
+        let unmarked =
+            "contract C { fun m() -> Nil } class A { fun m() -> Nil {} } impl A for C {}";
+        let marked = "contract C { fun m() -> Nil } class A {} impl A for C { fun m() -> Nil {} }";
         // A member whose selector NO listed Contract requires is an ordinary
         // Method, so it is left alone rather than swept up by the check.
-        let unrelated =
-            "contract C { fun m() -> Nil } class A for C { impl fun m() -> Nil {} fun other() {} }";
+        let unrelated = "contract C { fun m() -> Nil } class A { fun other() {} } impl A for C { fun m() -> Nil {} }";
         // Without `for C` the Class declares no conformance at all.
         let no_conformance = "contract C { fun m() -> Nil } class A { fun m() -> Nil {} }";
 
@@ -2985,12 +3060,12 @@ mod tests {
         // C047 merges COMPATIBLE same-name requirements into one obligation but
         // forbids choosing by Contract order or forming an overload set when
         // they are incompatible. V224 names the code.
-        let incompatible = "contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X for A, B { public impl fun m(x: Object) -> String { \"x\" } }";
+        let incompatible = "contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X {} impl X for A { public fun m(x: Object) -> String { \"x\" } } impl X for B { public fun m(x: Object) -> String { \"x\" } }";
         // Two requirements with the SAME signature merge, which is what lets
         // one `impl` member satisfy both.
-        let compatible = "contract A { fun m(x: Object) -> String } contract B { fun m(x: Object) -> String } class X for A, B { public impl fun m(x: Object) -> String { \"x\" } }";
+        let compatible = "contract A { fun m(x: Object) -> String } contract B { fun m(x: Object) -> String } class X {} impl X for A { public fun m(x: Object) -> String { \"x\" } } impl X for B { public fun m(x: Object) -> String { \"x\" } }";
         // A single Contract has nothing to be incompatible WITH.
-        let single = "contract A { fun m(x: String) -> String } class X for A { public impl fun m(x: String) -> String { \"x\" } }";
+        let single = "contract A { fun m(x: String) -> String } class X {} impl X for A { public fun m(x: String) -> String { \"x\" } }";
 
         // When / Then
         assert_eq!(
@@ -3086,14 +3161,16 @@ class B { public fun m() -> Integer { 2 } } let value: A | B = A.new(); value.m(
         // C070 lets an explicit expected result infer Method type arguments,
         // including for argument-free factories, but a STANDALONE unconstrained
         // call MUST NOT default the parameter to `Object`.
-        let standalone = "module M { fun make<T>() -> T { nil } make() } 1";
+        let standalone = "module M { fun make<T>() -> T { nil } } open module M { make() } 1";
         // An annotated assignment supplies the expected result C070 permits.
-        let expected = "module M { fun make<T>() -> T { 1 } let u: Integer = make() } 1";
+        let expected =
+            "module M { fun make<T>() -> T { 1 } } open module M { let u: Integer = make() } 1";
         // A parameter an ARGUMENT binds is inferred under C068, so it is not
         // unconstrained even in a standalone position.
-        let from_argument = "module M { fun make<T>(x: T) -> T { x } make(1) } 1";
+        let from_argument = "module M { fun make<T>(x: T) -> T { x } } open module M { make(1) } 1";
         // Explicit type arguments leave nothing to infer.
-        let explicit = "module M { fun make<T>() -> T { nil } make<Integer>() } 1";
+        let explicit =
+            "module M { fun make<T>() -> T { nil } } open module M { make<Integer>() } 1";
 
         // When / Then
         assert_eq!(codes(standalone), vec!["GENERIC_INFERENCE_UNCONSTRAINED"]);
@@ -3108,16 +3185,12 @@ class B { public fun m() -> Integer { 2 } } let value: A | B = A.new(); value.m(
         // trailing type argument is an arity error and NEVER means `Object` or
         // an inferred default. C071 supplies `_` for the positions the caller
         // still wants inferred, which is why the placeholder form is full arity.
-        let short = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
-choose<String>(\"x\", 1) } 1";
-        let explicit = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
-choose<String, Integer>(\"x\", 1) } 1";
-        let placeholder = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
-choose<String, _>(\"x\", 1) } 1";
+        let short = "module M { fun choose<T,U>(x: T, y: U) -> U { y } } open module M { choose<String>(\"x\", 1) } 1";
+        let explicit = "module M { fun choose<T,U>(x: T, y: U) -> U { y } } open module M { choose<String, Integer>(\"x\", 1) } 1";
+        let placeholder = "module M { fun choose<T,U>(x: T, y: U) -> U { y } } open module M { choose<String, _>(\"x\", 1) } 1";
         // A call with no explicit type arguments at all is inference, not a
         // short list, so it carries no arity obligation.
-        let inferred = "module M { fun choose<T,U>(x: T, y: U) -> U { y } \
-choose(\"x\", 1) } 1";
+        let inferred = "module M { fun choose<T,U>(x: T, y: U) -> U { y } } open module M { choose(\"x\", 1) } 1";
 
         // When / Then
         assert_eq!(codes(short), vec!["GENERIC_ARGUMENT_ARITY"]);
@@ -3134,15 +3207,15 @@ choose(\"x\", 1) } 1";
         // `pair("x", 1)` infers `String | Integer` rather than picking the
         // first argument.
         let widened = "module M { fun pair<T>(a: T, b: T) -> T { a } \
-let narrowed: String = pair(\"x\", 1) } 1";
+public fun run() { let narrowed: String = pair(\"x\", 1) } } 1";
         // Two candidates of one Type union to that Type, so the annotated
         // target accepts it.
         let uniform = "module M { fun pair<T>(a: T, b: T) -> T { a } \
-let narrowed: String = pair(\"x\", \"y\") } 1";
+public fun run() { let narrowed: String = pair(\"x\", \"y\") } } 1";
         // A target wide enough for the union accepts it, which is what shows
         // the rejection above is the UNION and not the call itself.
         let widened_target = "module M { fun pair<T>(a: T, b: T) -> T { a } \
-let wide: Object = pair(\"x\", 1) } 1";
+public fun run() { let wide: Object = pair(\"x\", 1) } } 1";
 
         // When / Then
         assert_eq!(codes(widened), vec!["BINDING_FIXED_LOCAL_TYPE"]);
@@ -3283,7 +3356,7 @@ mod discard_binding_tests {
         // Binding to `_` remains legal wherever binding patterns allow it, and
         // a sibling binding in the same clause is still readable.
         assert!(codes("try { raise :x } catch _, context { context.value }").is_empty());
-        assert!(codes("mut n = 0; for _ in [1, 2] { n = n + 1 }; n").is_empty());
+        assert!(codes("mut n = 0; for _ in %[1, 2] { n = n + 1 }; n").is_empty());
     }
 }
 
@@ -3315,7 +3388,7 @@ mod immutable_binding_tests {
             ["BINDING_ASSIGN_TO_IMMUTABLE"]
         );
         assert_eq!(
-            codes("for x in [1, 2] { x = 9 }"),
+            codes("for x in %[1, 2] { x = 9 }"),
             ["BINDING_ASSIGN_TO_IMMUTABLE"]
         );
 
@@ -3676,7 +3749,7 @@ mod qualified_namespace_tests {
 
         // The dotted form is admitted ONLY before the `::`. A `.` elsewhere
         // keeps its member-access meaning.
-        assert!(codes("module M { let a = 1; public fun f() { a.to_text() } }").is_empty());
+        assert!(codes("module M { public fun f() { let a = 1; a.to_text() } }").is_empty());
 
         // A path with no `::` still names a Module in the current package,
         // which IRIS-V1-CONTROL-V351 depends on.
@@ -3836,7 +3909,9 @@ fn static_calls_on(program: &Program, class: &str) -> Vec<String> {
             }
             return;
         }
-        if let Expression::Member { receiver, .. } = expression {
+        if let Expression::Member { receiver, .. } | Expression::BlockArgument { value: receiver } =
+            expression
+        {
             walk(receiver, class, found);
         }
     }
@@ -3878,6 +3953,7 @@ fn statement_reads_global(statement: &iris_syntax::Statement) -> bool {
 fn expression_reads_global(expression: &Expression) -> bool {
     match expression {
         Expression::GlobalVar(_) => true,
+        Expression::BlockArgument { value } => expression_reads_global(value),
         Expression::Member { receiver, .. } | Expression::Index { receiver, .. } => {
             expression_reads_global(receiver)
         }
@@ -4032,7 +4108,7 @@ mod override_marker_tests {
         // consulting the ORIGIN's list, a reopen replacing a Contract slot
         // reported the override diagnostic, while V440 requires the `impl` one.
         let reopened = "contract A { fun m(value: Object) -> String } \
-                        class Host for A { public impl fun m(value: Object) -> String { \"host\" } } \
+                        class Host {} impl Host for A { public fun m(value: Object) -> String { \"host\" } } \
                         open class Host { public fun m(value: Object) -> String { \"x\" } }";
         assert_eq!(codes(reopened), ["CONTRACT_IMPLEMENTATION_REQUIRES_IMPL"]);
 
@@ -4048,12 +4124,9 @@ mod override_marker_tests {
         // A member satisfying a declared Contract requirement is an `impl`
         // obligation, not an `override` one. Reporting both would make one
         // member carry two diagnostics for a single missing marker.
-        let contract_slot = "contract C { fun tag() -> Symbol } \
-                             class A for C { public fun tag() -> Symbol { :a } }";
-        assert_eq!(
-            codes(contract_slot),
-            ["CONTRACT_IMPLEMENTATION_REQUIRES_IMPL"]
-        );
+        let contract_slot = "contract C { fun tag() -> Symbol } class A {} \
+                             impl A for C { public fun tag() -> Symbol { :a } }";
+        assert!(codes(contract_slot).is_empty());
     }
 }
 
@@ -4076,15 +4149,13 @@ mod decorator_kind_tests {
         // which makes a violation decidable, and names mutable global process
         // state as forbidden. C125 reports it as IRIS-DECORATOR-NONDETERMINISTIC.
         let reads_global = "contract ClassDecorator { fun plan(d, a) } \
-                            global mut $tick: Integer = 0 \
-                            class Stamp for ClassDecorator { \
-                              public impl fun plan(d, a) -> Integer { $tick } }";
+                            global mut $tick: Integer = 0 class Stamp {} \
+                            impl Stamp for ClassDecorator { public fun plan(d, a) -> Integer { $tick } }";
         assert_eq!(codes(reads_global), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
 
         // A plan confined to whitelisted inputs is accepted.
-        let pure = "contract ClassDecorator { fun plan(d, a) } \
-                    class Stamp for ClassDecorator { \
-                      public impl fun plan(d, a) -> Integer { 0 } }";
+        let pure = "contract ClassDecorator { fun plan(d, a) } class Stamp {} \
+                    impl Stamp for ClassDecorator { public fun plan(d, a) -> Integer { 0 } }";
         assert!(codes(pure).is_empty());
 
         // Only a decorator Class has a static phase to constrain, so an
@@ -4100,15 +4171,14 @@ mod decorator_kind_tests {
         // dependency publishes is written `export class`. Both C125 checks scan
         // whole programs rather than recursing, so without unwrapping the
         // export an imported decorator would be invisible to them.
-        let exported = "contract ClassDecorator { fun plan(d, a) } \
-                        global mut $tick: Integer = 0 \
-                        export class Stamp for ClassDecorator { \
-                          public impl fun plan(d, a) -> Integer { $tick } }";
+        let exported = "contract ClassDecorator { fun plan(d, a) } global mut $tick: Integer = 0 \
+                        export class Stamp {} export impl Stamp for ClassDecorator { \
+                          public fun plan(d, a) -> Integer { $tick } }";
         assert_eq!(codes(exported), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
 
         let exported_mismatch = "contract ModuleDecorator { fun plan(d, a) } \
-                                 export class AsModule for ModuleDecorator { \
-                                   public impl fun plan(d, a) -> Nil { nil } } \
+                                 export class AsModule {} export impl AsModule for ModuleDecorator { \
+                                   public fun plan(d, a) -> Nil { nil } } \
                                  @AsModule() class Box { }";
         assert_eq!(codes(exported_mismatch), ["IRIS-DECORATOR-KIND"]);
     }
@@ -4120,16 +4190,14 @@ mod decorator_kind_tests {
         // Module. Applying it to a Class is the category mismatch C125 reports
         // as IRIS-DECORATOR-KIND, and C086 and C091 already require the target
         // to retain no candidate.
-        let mismatched = "contract ModuleDecorator { fun plan(d, a) } \
-                          class AsModule for ModuleDecorator { \
-                            public impl fun plan(d, a) -> Nil { nil } } \
+        let mismatched = "contract ModuleDecorator { fun plan(d, a) } class AsModule {} \
+                          impl AsModule for ModuleDecorator { public fun plan(d, a) -> Nil { nil } } \
                           @AsModule() class Box { }";
         assert_eq!(codes(mismatched), ["IRIS-DECORATOR-KIND"]);
 
         // The matching Contract is accepted.
-        let matched = "contract ClassDecorator { fun plan(d, a) } \
-                       class Stamp for ClassDecorator { \
-                         public impl fun plan(d, a) -> Nil { nil } } \
+        let matched = "contract ClassDecorator { fun plan(d, a) } class Stamp {} \
+                       impl Stamp for ClassDecorator { public fun plan(d, a) -> Nil { nil } } \
                        @Stamp() class Box { }";
         assert!(codes(matched).is_empty());
 
@@ -4140,10 +4208,9 @@ mod decorator_kind_tests {
 
         // The decorator may be declared AFTER its application, which is why the
         // check runs once every declaration is collected.
-        let later = "@AsModule() class Box { } \
-                     contract ModuleDecorator { fun plan(d, a) } \
-                     class AsModule for ModuleDecorator { \
-                       public impl fun plan(d, a) -> Nil { nil } }";
+        let later = "@AsModule() class Box { } contract ModuleDecorator { fun plan(d, a) } \
+                     class AsModule {} impl AsModule for ModuleDecorator { \
+                       public fun plan(d, a) -> Nil { nil } }";
         assert_eq!(codes(later), ["IRIS-DECORATOR-KIND"]);
     }
 }
@@ -4220,6 +4287,6 @@ mod generic_type_tests {
 
         // An ordinary index expression still uses square brackets, so the
         // rejection is confined to Type position.
-        assert!(codes("let a = [1, 2]; a[0]").is_empty());
+        assert!(codes("let a = %[1, 2]; a[0]").is_empty());
     }
 }

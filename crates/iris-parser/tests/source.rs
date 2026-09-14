@@ -130,7 +130,8 @@ fn imports_when_segments_have_aliases() {
 
 #[test]
 fn scopes_when_shadowing_initializer_reads_outer() -> Result<(), &'static str> {
-    let text = "module Main { let value = 1; if true { let value = value; value } }";
+    let text =
+        "module Main {} open module Main { let value = 1; if true { let value = value; value } }";
     let result = parse_with_source(text);
     assert_eq!(result.parse, parse(text));
     let bindings: Vec<_> = result
@@ -158,7 +159,7 @@ fn scopes_when_shadowing_initializer_reads_outer() -> Result<(), &'static str> {
 
 #[test]
 fn editor_anchor_when_member_and_brace_are_incomplete() {
-    let text = "module Main { let value = 1; value.";
+    let text = "module Main {} open module Main { let value = 1; value.";
     let result = parse_editor(text);
     assert!(!result.parse.program_accepted);
     assert!(result.source.nodes.iter().any(|node| matches!(

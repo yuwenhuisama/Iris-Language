@@ -128,7 +128,12 @@ impl Parser {
             self.recorder.finish(frame, self.consumed_end, kind);
             result
         } else {
-            self.postfix()
+            let outer_default = std::mem::replace(&mut self.closure_default, false);
+            let outer_union = std::mem::replace(&mut self.no_type_union, false);
+            let result = self.postfix();
+            self.closure_default = outer_default;
+            self.no_type_union = outer_union;
+            result
         }
     }
 
@@ -180,7 +185,19 @@ impl Parser {
             self.expression_layout();
             self.expression_node()?;
             let receiver = self.recorder.last();
-            if self.consume(".") {
+            if self.consume("!") {
+                expression = Expression::NonNull(Box::new(expression));
+                if let Some(value) = receiver {
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::NonNull { value }),
+                    );
+                }
+            } else if self.consume(".") {
                 let dot = Span {
                     start: self.consumed_end - 1,
                     end: self.consumed_end,
@@ -257,10 +274,7 @@ impl Parser {
                     receiver: Box::new(expression),
                     selector,
                 };
-            } else if self.check("[") && !self.newline_before_cursor() {
-                // A `[` on the SAME logical line is an index, while one that
-                // starts a line is an Array literal statement. Without this the
-                // postfix form would swallow a following literal.
+            } else if self.check("[") {
                 self.advance();
                 let index = self.with_layout(true, |parser| parser.expression(0))?;
                 let index_node = self.recorder.last();
@@ -289,7 +303,10 @@ impl Parser {
                 // otherwise, so reaching here means the `(` is already next.
                 self.expect("(")?;
                 let (mut arguments, mut site) = self.call_arguments()?;
-                if self.check("{") && !self.no_trailing_block {
+                if self.check("{")
+                    && !self.no_trailing_block
+                    && !self.property_accessor_block_start()
+                {
                     arguments.push(self.trailing_call_block(&mut site)?);
                 }
                 expression = Expression::Call {
@@ -300,10 +317,10 @@ impl Parser {
                 self.record_call((mark, start, receiver), site);
             } else if self.consume("(") {
                 let (mut arguments, mut site) = self.call_arguments()?;
-                // `trailing_block ::= closure_literal` is a postfix part, so a
-                // Closure written after the argument list is one more argument.
-                // IRIS-V1-RUNTIME-C099 receives it as the `block` parameter.
-                if self.check("{") && !self.no_trailing_block {
+                if self.check("{")
+                    && !self.no_trailing_block
+                    && !self.property_accessor_block_start()
+                {
                     arguments.push(self.trailing_call_block(&mut site)?);
                 }
                 expression = Expression::Call {
@@ -485,8 +502,14 @@ impl Parser {
             self.advance();
             return self.with_layout(true, Self::grouped_or_tuple);
         }
-        if self.consume("[") {
+        if self.consume("%[") {
             return self.array();
+        }
+        if self.check("[") {
+            self.advance();
+            let _ = self.array();
+            self.error("PARSE_ARRAY_PREFIX_REQUIRED");
+            return None;
         }
         if self.consume("%{") {
             return self.with_layout(true, Self::hash_literal);
@@ -540,7 +563,10 @@ impl Parser {
     }
 
     fn primary_value(&mut self) -> Option<Expression> {
-        if self.editor && self.call_argument_recovery && matches!(self.peek(), Some(")" | "}" | "]")) {
+        if self.editor
+            && self.call_argument_recovery
+            && matches!(self.peek(), Some(")" | "}" | "]"))
+        {
             self.error("PARSE_UNEXPECTED_TOKEN");
             return None;
         }
@@ -581,6 +607,10 @@ impl Parser {
         }
         if self.is_name() {
             let name = self.qualified_name()?;
+            if self.check("!") && self.peek_next() == Some("(") {
+                self.advance();
+                return Some(Expression::Name(format!("{name}!")));
+            }
             // C063 admits a CLOSED generic construction in expression position.
             // C020 is not weakened, so the generic reading is taken only when
             // the name is a Type name AND the bracket pair closes with a `>`
@@ -679,6 +709,25 @@ impl Parser {
     /// writes the colon BEFORE the name, so an identifier followed by a colon
     /// is unambiguously a keyword argument.
     pub(super) fn argument(&mut self) -> Option<Expression> {
+        if self.check("&") {
+            let start = self.current_offset();
+            let mark = self.recorder.mark();
+            self.advance();
+            let value = self.expression(0)?;
+            if let Some(value) = self.recorder.last() {
+                self.recorder.wrap(
+                    mark,
+                    Span {
+                        start,
+                        end: self.consumed_end,
+                    },
+                    SourceKind::Expression(ExpressionFact::BlockArgument { value }),
+                );
+            }
+            return Some(Expression::BlockArgument {
+                value: Box::new(value),
+            });
+        }
         if let Some(name) = self.peek_keyword_argument_name() {
             if is_reserved_keyword(&name) {
                 self.error("PARSE_UNEXPECTED_TOKEN");
@@ -751,12 +800,13 @@ impl Parser {
             ">>" => (10, Associativity::Left),
             "&" => (9, Associativity::Left),
             "^" => (8, Associativity::Left),
+            "|" if self.closure_default => return None,
             "|" => (7, Associativity::Left),
             "..=" | "..<" => (6, Associativity::NonAssociative),
             // C016 lists `=~` and `!~` among the fixed spellings, and
             // `relational_expr` places them with the other relational
             // operators.
-            "<" | "<=" | ">" | ">=" | "<=>" | "=~" | "!~" | "is" | "as" | "as?" => {
+            "<" | "<=" | ">" | ">=" | "<=>" | "=~" | "!~" | "is" | "is?" | "as" | "as?" => {
                 (5, Associativity::NonAssociative)
             }
             "==" | "!=" => (4, Associativity::NonAssociative),
@@ -793,7 +843,11 @@ impl Parser {
             "<=>" => BinaryOperator::Compare,
             "=~" => BinaryOperator::Match,
             "!~" => BinaryOperator::NotMatch,
-            "is" => BinaryOperator::Is,
+            "is?" => BinaryOperator::Is,
+            "is" => {
+                self.error("PARSE_IS_QUESTION_REQUIRED");
+                BinaryOperator::Is
+            }
             "as" => BinaryOperator::As,
             "as?" => BinaryOperator::AsOptional,
             "==" => BinaryOperator::Equal,

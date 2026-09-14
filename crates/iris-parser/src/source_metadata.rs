@@ -53,5 +53,6 @@ pub struct ArgumentSlot {
 pub enum ArgumentKind {
     Positional,
     Keyword(NameSite),
+    Block,
     TrailingBlock,
 }

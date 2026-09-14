@@ -41,7 +41,7 @@ fn equivalent_ast_when_branches_continue_on_new_lines() {
 fn equivalent_ast_when_delimited_lists_span_lines() {
     let pairs = [
         ("f(1, option: 2,)", "f(\n1,\noption:\n2,\n)"),
-        ("[1, 2,]", "[\n1,\n2,\n]"),
+        ("%[1, 2,]", "%[\n1,\n2,\n]"),
         ("%{a: 1, b: 2,}", "%{\na:\n1,\nb: 2,\n}"),
         ("(1, 2,)", "(\n1,\n2,\n)"),
         ("(1 + 2)", "(1\n+ 2)"),
@@ -78,9 +78,9 @@ fn equivalent_ast_when_delimited_lists_span_lines() {
 fn preserves_complete_statement_boundaries_when_newlines_are_present() {
     let pairs = [
         ("1; +2", "1\n+2"),
-        ("f(); [1]", "f()\n[1]"),
+        ("f(); %[1]", "f()\n%[1]"),
         ("return; 1", "return\n1"),
-        ("if true { 1 }; [2]", "if true { 1 }\n[2]"),
+        ("if true { 1 }; %[2]", "if true { 1 }\n%[2]"),
         ("f({ 1; +2 }, 3)", "f({ 1\n+2 },\n3)"),
         (
             "contract C { fun first() -> A; fun second() -> B }",

@@ -3,7 +3,7 @@ use iris_parser::{parse, parse_editor, parse_with_source};
 
 #[test]
 fn separators_when_nested_expressions_contain_commas() -> Result<(), &'static str> {
-    let text = "target<A,B>(nested(1,2), [3,4], %{5:6,7:8}, 'comma,', label: 9) { |arg|; arg }";
+    let text = "target<A,B>(nested(1,2), %[3,4], %{5:6,7:8}, 'comma,', label: 9) { |arg|; arg }";
     let result = parse_with_source(text);
     assert_eq!(result.parse, parse(text));
     assert!(

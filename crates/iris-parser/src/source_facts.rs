@@ -78,6 +78,7 @@ impl Parser {
             Statement::GlobalBinding { .. } => DeclarationKind::Global,
             Statement::SharedBinding { .. } => DeclarationKind::Shared,
             Statement::StoredProperty { .. } => DeclarationKind::Property,
+            Statement::InstanceField { .. } => DeclarationKind::Property,
             Statement::Method(_) => DeclarationKind::Method,
             _ => return SourceKind::Statement,
         };
@@ -89,6 +90,10 @@ impl Parser {
             | Statement::DeferredBinding { mutable, .. }
             | Statement::GlobalBinding { mutable, .. }
             | Statement::SharedBinding { mutable, .. } => declaration.modifiers.mutable = *mutable,
+            Statement::InstanceField { mutable, .. } => {
+                declaration.modifiers.mutable = *mutable;
+                declaration.surface = Some(iris_syntax::MethodKind::Instance);
+            }
             Statement::StoredProperty {
                 shared,
                 class_level,

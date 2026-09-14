@@ -70,6 +70,7 @@ impl Parser {
                     header.has_implements = true;
                     self.advance();
                     implements = self.type_list();
+                    self.error("PARSE_LEGACY_CLASS_FOR");
                 }
                 3 => {
                     header.has_mixins = true;
@@ -91,7 +92,7 @@ impl Parser {
             self.skip_newlines();
         }
         self.finish_header(header, recovery);
-        let body = self.body()?;
+        let body = self.nominal_body(reopen, true)?;
         Some(ClassDeclaration {
             decorators,
             reopen,

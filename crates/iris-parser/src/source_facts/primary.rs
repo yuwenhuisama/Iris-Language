@@ -90,6 +90,10 @@ impl Parser {
             Expression::KeywordArgument { .. } => ExpressionFact::Unsupported {
                 form: "keyword-argument",
             },
+            Expression::BlockArgument { .. } => ExpressionFact::Unsupported {
+                form: "block-argument",
+            },
+            Expression::NonNull(_) => ExpressionFact::Unsupported { form: "nonnull" },
         }
     }
 }

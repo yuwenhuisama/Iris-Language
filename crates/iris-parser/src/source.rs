@@ -240,6 +240,12 @@ pub enum ExpressionFact {
         name: NameSite,
         value: SyntaxId,
     },
+    BlockArgument {
+        value: SyntaxId,
+    },
+    NonNull {
+        value: SyntaxId,
+    },
     /// No inferred result is promised. The node still retains production children.
     Unsupported {
         form: &'static str,

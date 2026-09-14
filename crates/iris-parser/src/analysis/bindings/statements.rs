@@ -7,6 +7,16 @@ impl Analyzer {
             Declaration::Class(value) => &mut value.body,
             Declaration::Module(value) => &mut value.body,
             Declaration::Contract(value) => &mut value.body,
+            Declaration::Impl(value) => {
+                for method in &mut value.methods {
+                    let mut statement = Statement::Method(method.clone());
+                    self.prepare_statement(&mut statement);
+                    if let Statement::Method(prepared) = statement {
+                        *method = prepared;
+                    }
+                }
+                return;
+            }
             Declaration::Export(value) => {
                 if let ExportDeclaration::Declaration(inner) = value.as_mut() {
                     self.prepare_declaration(inner);
@@ -58,6 +68,7 @@ impl Analyzer {
                 self.scopes = outer_scopes;
             }
             Statement::Expression(value)
+            | Statement::InstanceField { value, .. }
             | Statement::GlobalBinding { value, .. }
             | Statement::SharedBinding { value, .. }
             | Statement::StoredProperty {

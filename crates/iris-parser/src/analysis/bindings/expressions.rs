@@ -5,11 +5,16 @@ impl Analyzer {
     pub(super) fn prepare_expression(&mut self, expression: &mut Expression) {
         match expression {
             Expression::Closure {
-                parameters, body, ..
+                full_parameters,
+                body,
+                ..
             } => {
                 self.scopes.push(Vec::new());
-                for name in parameters {
-                    self.declare(name, false);
+                for parameter in full_parameters {
+                    if let Some(default) = &mut parameter.default {
+                        self.prepare_expression(default);
+                    }
+                    self.declare_parameter(parameter);
                 }
                 for statement in body {
                     self.prepare_statement(statement);
@@ -67,6 +72,8 @@ impl Analyzer {
             | Expression::Await(value)
             | Expression::Unary { operand: value, .. }
             | Expression::KeywordArgument { value, .. }
+            | Expression::BlockArgument { value }
+            | Expression::NonNull(value)
             | Expression::Member {
                 receiver: value, ..
             }

@@ -9,12 +9,12 @@ mod limits;
 mod recording;
 pub mod source;
 mod source_calls;
+mod source_documentation;
 mod source_entry;
 mod source_facts;
 mod source_headers;
 mod source_imports;
 mod source_metadata;
-mod source_documentation;
 mod source_parameters;
 mod source_patterns;
 
@@ -32,8 +32,8 @@ pub use analysis::{
 
 use iris_syntax::{
     CatchBinding, CatchClause, Constraint, ContractDeclaration, Declaration, Decorator, Expression,
-    MatchBody, MethodDeclaration, MethodKind, MixinEntry, ModuleDeclaration, Parameter,
-    ParameterCategory, Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression,
+    ImplDeclaration, MatchBody, MethodDeclaration, MethodKind, MixinEntry, ModuleDeclaration,
+    Parameter, ParameterCategory, Pattern, Program, ProgramEntry, Raise, Statement, TypeExpression,
     Visibility,
 };
 
@@ -111,8 +111,10 @@ fn parse_internal(source: &str, recording: bool, editor: bool) -> source::Source
         cursor: 0,
         diagnostics: Vec::new(),
         no_trailing_block: false,
+        property_initializer: false,
         no_type_union: false,
         empty_closure_header: false,
+        closure_default: false,
         delimited_layout: false,
         call_argument_recovery: false,
         depth: 0,
@@ -178,6 +180,18 @@ fn combine_operators(raw: &[(&str, usize, usize, TokenKind)]) -> Vec<Token> {
                 kind,
             });
             cursor += 2;
+        } else if text == "%"
+            && raw
+                .get(cursor + 1)
+                .is_some_and(|(next, next_offset, _, _)| *next == "[" && *next_offset == end)
+        {
+            tokens.push(Token {
+                text: "%[".into(),
+                offset,
+                end: raw[cursor + 1].2,
+                kind,
+            });
+            cursor += 2;
         } else if text == "as"
             && raw
                 .get(cursor + 1)
@@ -188,6 +202,18 @@ fn combine_operators(raw: &[(&str, usize, usize, TokenKind)]) -> Vec<Token> {
             // than leaving `as` to bind and the `?` to dangle.
             tokens.push(Token {
                 text: "as?".into(),
+                offset,
+                end: raw[cursor + 1].2,
+                kind,
+            });
+            cursor += 2;
+        } else if text == "is"
+            && raw
+                .get(cursor + 1)
+                .is_some_and(|(next, next_offset, _, _)| *next == "?" && *next_offset == end)
+        {
+            tokens.push(Token {
+                text: "is?".into(),
                 offset,
                 end: raw[cursor + 1].2,
                 kind,
@@ -222,6 +248,7 @@ struct Parser {
     /// grammar resolves this by position, and this flag carries that position
     /// down through the expression parser.
     pub(crate) no_trailing_block: bool,
+    property_initializer: bool,
     /// Suppresses the `type_union` level while parsing a closure header.
     ///
     /// `|` both separates union members and CLOSES a closure parameter list, so
@@ -230,6 +257,7 @@ struct Parser {
     no_type_union: bool,
     /// Set when a `||` token was rewritten into an empty closure header.
     empty_closure_header: bool,
+    closure_default: bool,
     delimited_layout: bool,
     call_argument_recovery: bool,
     depth: usize,
@@ -287,6 +315,11 @@ impl Parser {
                 }),
                 Some("module") => self.module_declaration(decorators).map(|value| {
                     let declaration = Declaration::Module(value);
+                    program.declarations.push(declaration.clone());
+                    program.entries.push(ProgramEntry::Declaration(declaration));
+                }),
+                Some("impl") => self.impl_declaration(decorators).map(|value| {
+                    let declaration = Declaration::Impl(value);
                     program.declarations.push(declaration.clone());
                     program.entries.push(ProgramEntry::Declaration(declaration));
                 }),
@@ -444,7 +477,68 @@ impl Parser {
             mixins,
             constraints,
             meta_deny,
-            body: self.body()?,
+            body: self.nominal_body(reopen, false)?,
+        })
+    }
+
+    fn impl_declaration(&mut self, decorators: Vec<Decorator>) -> Option<ImplDeclaration> {
+        if !decorators.is_empty() {
+            self.error("PARSE_UNEXPECTED_TOKEN");
+            return None;
+        }
+        self.expect("impl")?;
+        let target = self.type_expression()?;
+        self.expect("for")?;
+        let contract = self.type_expression()?;
+        if self.check(",") {
+            self.error("PARSE_IMPL_REQUIRES_ONE_CONTRACT");
+            while !self.check("{") && !self.at_end() {
+                self.advance();
+            }
+            if self.consume("{") {
+                self.skip_braced_body();
+            }
+            return None;
+        }
+        let constraints = if self.consume("where") {
+            self.constraints()
+        } else {
+            Vec::new()
+        };
+        self.skip_newlines();
+        self.expect("{")?;
+        self.skip_newlines();
+        let mut methods = Vec::new();
+        while !self.check("}") && !self.at_end() {
+            let start = self.cursor;
+            if matches!(self.peek(), Some("let" | "mut")) && self.peek_next() == Some("@") {
+                self.error("PARSE_IMPL_METHODS_ONLY");
+                self.skip_braced_body();
+                return None;
+            }
+            match self.statement() {
+                Some(Statement::Method(method)) if method.impl_contract.is_none() => {
+                    methods.push(method);
+                }
+                Some(Statement::Method(_)) => {
+                    self.skip_braced_body();
+                    return None;
+                }
+                Some(_) => {
+                    self.error("PARSE_IMPL_METHODS_ONLY");
+                    return None;
+                }
+                None => self.advance_to_terminator(),
+            }
+            self.consume_terminators();
+            self.ensure_progress(start);
+        }
+        self.expect("}")?;
+        Some(ImplDeclaration {
+            target,
+            contract,
+            constraints,
+            methods,
         })
     }
 
@@ -526,26 +620,38 @@ impl Parser {
 
     fn export_contents(&mut self) -> Option<iris_syntax::ExportDeclaration> {
         self.expect("export")?;
+        let decorators = self.decorators();
         // `export <declaration>` publishes the declaration it wraps; anything
         // else is a list of already-declared names.
-        let declaration = match self.peek() {
-            Some("class") | Some("open") => self
-                .class_declaration(Vec::new())
+        let declaration = match (self.peek(), self.peek_next()) {
+            (Some("class"), _) | (Some("open"), Some("class")) => self
+                .class_declaration(decorators)
                 .map(|value| Box::new(iris_syntax::Declaration::Class(value))),
-            Some("module") => self
-                .module_declaration(Vec::new())
+            (Some("module"), _) | (Some("open"), Some("module")) => self
+                .module_declaration(decorators)
                 .map(|value| Box::new(iris_syntax::Declaration::Module(value))),
-            Some("contract") => self
-                .contract_declaration(Vec::new())
+            (Some("contract"), _) => self
+                .contract_declaration(decorators)
                 .map(|value| Box::new(iris_syntax::Declaration::Contract(value))),
+            (Some("impl"), _) => self
+                .impl_declaration(decorators)
+                .map(|value| Box::new(iris_syntax::Declaration::Impl(value))),
+            (Some("open"), _) => {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            }
             // `export_decl ::= "export" (declaration | ...)` and `declaration`
             // derives `import_decl`, so `export import pkg::M` and
             // `export from pkg::M import Name` are the facade re-export forms
             // IRIS-V1-META-C015 names. Only the three declaration keywords were
             // accepted, so both spellings failed to parse.
-            Some("import") | Some("from") => self
+            (Some("import" | "from"), _) if decorators.is_empty() => self
                 .import_declaration()
                 .map(|value| Box::new(iris_syntax::Declaration::Import(value))),
+            _ if !decorators.is_empty() => {
+                self.error("PARSE_UNEXPECTED_TOKEN");
+                return None;
+            }
             _ => None,
         };
         if let Some(declaration) = declaration {
@@ -737,6 +843,93 @@ impl Parser {
         Some(body)
     }
 
+    pub(crate) fn nominal_body(
+        &mut self,
+        reopen: bool,
+        instance_fields: bool,
+    ) -> Option<Vec<Statement>> {
+        if reopen {
+            return self.body();
+        }
+        self.skip_newlines();
+        self.expect("{")?;
+        let mut body = Vec::new();
+        self.skip_newlines();
+        while !self.check("}") && !self.at_end() {
+            let start = self.cursor;
+            let statement = if instance_fields
+                && matches!(self.peek(), Some("let" | "mut"))
+                && self.peek_next() == Some("@")
+            {
+                self.instance_field()
+            } else {
+                self.statement()
+            };
+            match statement {
+                Some(statement @ (Statement::Method(_) | Statement::StoredProperty { .. })) => {
+                    body.push(statement);
+                }
+                Some(statement @ Statement::InstanceField { .. }) => body.push(statement),
+                Some(
+                    statement @ (Statement::SharedBinding { .. }
+                    | Statement::Binding { constant: true, .. }),
+                ) => {
+                    body.push(statement);
+                }
+                Some(_) => {
+                    self.error("PARSE_ORIGIN_BODY_REQUIRES_DECLARATION");
+                    self.skip_braced_body();
+                    return None;
+                }
+                None => self.advance_to_terminator(),
+            }
+            self.consume_terminators();
+            self.ensure_progress(start);
+        }
+        self.expect("}")?;
+        Some(body)
+    }
+
+    fn instance_field(&mut self) -> Option<Statement> {
+        let mutable = if self.consume("let") {
+            false
+        } else {
+            self.expect("mut")?;
+            true
+        };
+        self.expect("@")?;
+        let name = self.binding_name()?;
+        let annotation = if self.consume(":") {
+            Some(self.type_expression()?)
+        } else {
+            None
+        };
+        self.expect("=")?;
+        let value = self.expression(0)?;
+        Some(Statement::InstanceField {
+            mutable,
+            name,
+            annotation,
+            value,
+        })
+    }
+
+    fn skip_braced_body(&mut self) {
+        let mut depth = 0usize;
+        while !self.at_end() {
+            match self.peek() {
+                Some("{") => depth += 1,
+                Some("}") if depth == 0 => {
+                    self.advance();
+                    return;
+                }
+                Some("}") => depth -= 1,
+                _ => {}
+            }
+            self.advance();
+        }
+    }
+
     /// Consumes an optional `visibility`, which `method_decl` and
     /// `property_decl` share.
     fn method_visibility(&mut self) -> Option<Visibility> {
@@ -883,6 +1076,9 @@ impl Parser {
             visibility = self.method_visibility();
         }
         let is_impl = self.consume("impl");
+        if is_impl {
+            self.error("PARSE_LEGACY_METHOD_IMPL");
+        }
         if visibility.is_none() {
             visibility = self.method_visibility();
         }
@@ -906,11 +1102,13 @@ impl Parser {
         } else {
             level.unwrap_or(MethodKind::Instance)
         };
-        let visibility = visibility.unwrap_or(match kind {
-            MethodKind::Property => Visibility::Public,
-            MethodKind::Instance | MethodKind::Class | MethodKind::Module => Visibility::Private,
-        });
         if self.consume("fun") {
+            let visibility = visibility.unwrap_or(match kind {
+                MethodKind::Property => Visibility::Public,
+                MethodKind::Instance | MethodKind::Class | MethodKind::Module => {
+                    Visibility::Private
+                }
+            });
             let mut impl_contract = is_impl.then_some(None);
             let mut selector = self.selector()?;
             if is_impl && self.consume("::") {
@@ -985,15 +1183,19 @@ impl Parser {
             return Some(statement);
         }
         if kind == MethodKind::Property {
+            let visibility = visibility.unwrap_or(Visibility::Private);
             let name = self.name()?;
             self.expect(":")?;
             let annotation = self.type_expression()?;
             let initializer = if self.consume("=") {
-                self.expression(0)?
+                let outer = std::mem::replace(&mut self.property_initializer, true);
+                let initializer = self.expression(0);
+                self.property_initializer = outer;
+                initializer?
             } else {
                 Expression::Literal("nil".into())
             };
-            self.validate_property_accessors()?;
+            let accessors = self.property_accessors()?;
             if let Some(id) = self.recorder.frames.last().copied()
                 && let Some(mut declaration) =
                     self.source_declaration(id, source::DeclarationKind::Property)
@@ -1006,6 +1208,8 @@ impl Parser {
             }
             return Some(Statement::StoredProperty {
                 decorators,
+                visibility,
+                accessors,
                 shared,
                 class_level: level.is_some(),
                 name,
@@ -1638,6 +1842,14 @@ impl Parser {
                 // accepted spelling under IRIS-V1-GRAMMAR-C020, so `Box[String]`
                 // is rejected here rather than derailing the whole annotation.
                 self.error("GENERIC_BRACKET_SYNTAX_FORBIDDEN");
+                self.advance();
+                while !self.check("]") && !self.at_end() {
+                    self.advance();
+                }
+                self.consume("]");
+                while !matches!(self.peek(), None | Some(";" | "\n" | "}")) {
+                    self.advance();
+                }
                 return None;
             } else {
                 TypeExpression::Name(name)
@@ -2126,7 +2338,10 @@ impl Parser {
     /// alone.
     fn peek_keyword_argument_name(&self) -> Option<String> {
         let name = self.peek()?;
-        if self.peek_next() != Some(":") || (is_reserved_keyword(name) && !(self.editor && self.call_argument_recovery && name == "key")) {
+        if self.peek_next() != Some(":")
+            || (is_reserved_keyword(name)
+                && !(self.editor && self.call_argument_recovery && name == "key"))
+        {
             return None;
         }
         if !name
@@ -2137,18 +2352,6 @@ impl Parser {
             return None;
         }
         Some(name.to_owned())
-    }
-    /// Reports whether the token before the cursor ends the logical line.
-    ///
-    /// `a[0]` is an index, but a `[` that STARTS a line is an Array literal
-    /// statement. Distinguishing them keeps the postfix index from swallowing a
-    /// following literal.
-    fn newline_before_cursor(&self) -> bool {
-        self.cursor == 0
-            || self
-                .tokens
-                .get(self.cursor - 1)
-                .is_some_and(|token| matches!(token.text.as_str(), "\n" | ";"))
     }
     /// The byte offset of the token at the cursor.
     fn current_offset(&self) -> usize {
@@ -2460,9 +2663,9 @@ mod decorator_application_tests {
         let source = "contract ClassDecorator { \
                         fun plan(declaration, arguments) \
                         fun transform(declaration, arguments, context) } \
-                      class Stamp for ClassDecorator { \
-                        public impl fun plan(declaration, arguments) -> Nil { nil } \
-                        public impl fun transform(declaration, arguments, context) -> Nil { nil } } \
+                      class Stamp {} impl Stamp for ClassDecorator { \
+                        public fun plan(declaration, arguments) -> Nil { nil } \
+                        public fun transform(declaration, arguments, context) -> Nil { nil } } \
                       @Stamp() class Box { }";
         assert!(accepted(source));
     }
@@ -2474,9 +2677,9 @@ mod decorator_application_tests {
         // since only Classes declare conformance. No declaration production is
         // needed, so IRIS-V1-CONTROL-C014's three callable kinds stay intact.
         let source = "contract ClassDecorator { fun plan(d, a) fun transform(d, a) } \
-                      class Stamp for ClassDecorator { \
-                        public impl fun plan(d, a) -> Nil { nil } \
-                        public impl fun transform(d, a) -> Nil { nil } } \
+                      class Stamp {} impl Stamp for ClassDecorator { \
+                        public fun plan(d, a) -> Nil { nil } \
+                        public fun transform(d, a) -> Nil { nil } } \
                       @Stamp() class Box { }";
         assert!(accepted(source));
 
@@ -2528,7 +2731,7 @@ mod tests {
     #[test]
     fn reordered_header_has_the_stable_diagnostic() {
         let result = parse("class A for C extends B {}");
-        assert_eq!(result.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+        assert_eq!(result.diagnostics[0].code, "PARSE_LEGACY_CLASS_FOR");
         assert!(!result.program_accepted);
     }
     #[test]
@@ -2582,7 +2785,10 @@ mod tests {
         let body_meta = parse("class A { meta deny shape }");
 
         assert_eq!(empty.diagnostics[0].code, "PARSE_EMPTY_STATEMENT");
-        assert_eq!(body_meta.diagnostics[0].code, "PARSE_BAD_HEADER_ORDER");
+        assert_eq!(
+            body_meta.diagnostics[0].code,
+            "PARSE_CALL_REQUIRES_PARENTHESES"
+        );
     }
 
     #[test]
