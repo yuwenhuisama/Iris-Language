@@ -18,7 +18,7 @@ fn module_instance_method_dispatches_on_a_mixed_in_class_instance() {
 #[test]
 fn module_instance_method_reads_and_writes_the_receiver_raw_ivar() {
     // Given
-    let source = "module M { public fun write() -> Integer { @x = 1 } public fun read() -> Integer { @x } }; class A mixin M { }; let a = A.new(); [a.write(), a.read()]";
+    let source = "module M { public fun write() -> Integer { @x = 1 } public fun read() -> Integer { @x } }; class A mixin M { }; let a = A.new(); %[a.write(), a.read()]";
 
     // When
     let result = evaluate(source);
@@ -37,7 +37,7 @@ fn module_instance_method_reads_and_writes_the_receiver_raw_ivar() {
 fn private_mixin_authorization_changes_private_selector_access_but_not_raw_ivar_access() {
     // Given
     let authorized = "module M { public fun bump() -> Integer { @x = 1; secret() } }; class A mixin M private { private fun secret() -> Integer { @x } }; A.new().bump()";
-    let unauthorized = "module M { public fun bump() -> Integer { @x = 1; secret() } public fun read() -> Integer { @x } }; class A mixin M { private fun secret() -> Integer { @x } }; let a = A.new(); [a.bump(), a.read()]";
+    let unauthorized = "module M { public fun bump() -> Integer { @x = 1; secret() } public fun read() -> Integer { @x } }; class A mixin M { private fun secret() -> Integer { @x } }; let a = A.new(); %[a.bump(), a.read()]";
 
     // When
     let authorized_result = evaluate(authorized);

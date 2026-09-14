@@ -7,7 +7,7 @@ use iris_runtime::Value;
 
 #[test]
 fn inferred_collection_rejects_dynamic_write_and_retains_old_cell() {
-    for initial in ["[]", "%{}", ":old"] {
+    for initial in ["%[]", "%{}", ":old"] {
         let mut given = SourceEvaluator::new_in_package(LOCAL_PACKAGE).unwrap();
         execute(&mut given, &format!("module Input {{ public module fun read(value) {{ value }} }}; mut cell = {initial}; nil")).unwrap();
         let before = given.names["cell"].value();
@@ -19,14 +19,14 @@ fn inferred_collection_rejects_dynamic_write_and_retains_old_cell() {
 
 #[test]
 fn replacement_accepts_contract_parameter_contravariance() {
-    let given = "contract Parent { }; contract Child extends Parent { }; class Dog for Child { }; class Rule { public fun choose(value: Child) -> Integer { 1 } }; open class Rule { public override fun choose(value: Parent) -> Integer { 2 } }; Rule.new().choose(Dog.new())";
+    let given = "contract Parent { }; contract Child extends Parent { }; class Dog { }; impl Dog for Child {}; class Rule { public fun choose(value: Child) -> Integer { 1 } }; open class Rule { public override fun choose(value: Parent) -> Integer { 2 } }; Rule.new().choose(Dog.new())";
     let when = crate::evaluate(given);
     assert_eq!(when, Ok(Value::Integer(2_u8.into())));
 }
 
 #[test]
 fn replacement_accepts_class_return_covariance_through_parent_contract() {
-    let given = "contract Parent { }; contract Child extends Parent { }; class Dog for Child { }; class Rule { public fun choose() -> Parent { Dog.new() } }; open class Rule { public override fun choose() -> Dog { Dog.new() } }; Rule.new().choose() is Dog";
+    let given = "class Parent { }; class Dog extends Parent { }; class Rule { public fun choose() -> Parent { Dog.new() } }; open class Rule { public override fun choose() -> Dog { Dog.new() } }; Rule.new().choose() is? Dog";
     let when = crate::evaluate(given);
     assert_eq!(when, Ok(Value::Bool(true)));
 }
@@ -158,7 +158,7 @@ fn prior_alias_normalizes_later_method_parameter_and_return_contracts() {
 #[test]
 fn contract_binding_rejects_nonconformer_and_retains_old_cell() {
     let mut given = SourceEvaluator::new_in_package(LOCAL_PACKAGE).unwrap();
-    execute(&mut given, "contract Parent { }; contract Child extends Parent { }; class Dog for Child { }; module Input { public module fun read(value) { value } }; mut pet: Parent = Dog.new(); nil").unwrap();
+    execute(&mut given, "contract Parent { }; contract Child extends Parent { }; class Dog { }; impl Dog for Child {}; module Input { public module fun read(value) { value } }; mut pet: Parent = Dog.new(); nil").unwrap();
     let before = given.names["pet"].value();
     let when = execute(&mut given, "pet = Input.read(1)");
     assert_eq!(when, Err(EvaluationError::TypeContractError));

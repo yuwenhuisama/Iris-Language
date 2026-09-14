@@ -1,5 +1,8 @@
 use super::evaluate;
 
+#[path = "fixture_contract_tests.rs"]
+mod fixture_contract_tests;
+
 fn rendered(source: &str) -> String {
     match evaluate(source) {
         Ok(value) => format!("{value:?}"),
@@ -10,7 +13,7 @@ fn rendered(source: &str) -> String {
 #[test]
 fn c091_bool_defines_a_total_order_within_bool() {
     // Given
-    let source = "[false <=> false, false <=> true, true <=> false, true <=> true]";
+    let source = "%[false <=> false, false <=> true, true <=> false, true <=> true]";
 
     // When
     let result = rendered(source);
@@ -26,7 +29,7 @@ fn c091_bool_defines_a_total_order_within_bool() {
 #[test]
 fn c091_bool_derived_relations_place_false_below_true() {
     // Given
-    let source = "[false < true, true > false, false <= false, true >= true, true < false]";
+    let source = "%[false < true, true > false, false <= false, true >= true, true < false]";
 
     // When
     let result = rendered(source);
@@ -41,7 +44,7 @@ fn c091_bool_derived_relations_place_false_below_true() {
 #[test]
 fn c091_bool_is_never_equal_or_ordered_with_a_numeric() {
     // Given
-    let source = "[true == 1, false == 0, 1 == true, true < 1, 1 < true, true <=> 1, 1 <=> true]";
+    let source = "%[true == 1, false == 0, 1 == true, true < 1, 1 < true, true <=> 1, 1 <=> true]";
 
     // When
     let result = rendered(source);
@@ -56,7 +59,7 @@ fn c091_bool_is_never_equal_or_ordered_with_a_numeric() {
 #[test]
 fn c092_nil_is_order_equivalent_only_to_itself() {
     // Given
-    let source = "[nil <=> nil, nil == nil, nil != nil, nil <= nil, nil >= nil]";
+    let source = "%[nil <=> nil, nil == nil, nil != nil, nil <= nil, nil >= nil]";
 
     // When
     let result = rendered(source);
@@ -71,7 +74,7 @@ fn c092_nil_is_order_equivalent_only_to_itself() {
 #[test]
 fn c092_nil_is_neither_a_global_minimum_nor_a_global_maximum() {
     // Given
-    let source = "class A { }; [nil < 1, nil > 1, nil < A.new(), nil > A.new(), nil <=> false]";
+    let source = "class A { }; %[nil < 1, nil > 1, nil < A.new(), nil > A.new(), nil <=> false]";
 
     // When
     let result = rendered(source);
@@ -86,7 +89,7 @@ fn c092_nil_is_neither_a_global_minimum_nor_a_global_maximum() {
 #[test]
 fn c091_and_c092_cross_category_comparison_is_symmetric() {
     // Given
-    let source = "[1 <=> nil, nil <=> 1, true <=> nil, nil <=> true]";
+    let source = "%[1 <=> nil, nil <=> 1, true <=> nil, nil <=> true]";
 
     // When
     let result = rendered(source);
@@ -99,7 +102,7 @@ fn c091_and_c092_cross_category_comparison_is_symmetric() {
 fn c115_signaling_nan_is_classified_without_being_quieted() {
     // Given
     let source = "let x = Float64.from_bits(0x7ff0000000000001); \
-                  [x.is_nan(), x.is_signaling_nan(), x.is_infinite(), x.to_bits()]";
+                  %[x.is_nan(), x.is_signaling_nan(), x.is_infinite(), x.to_bits()]";
 
     // When
     let result = rendered(source);
@@ -115,7 +118,7 @@ fn c115_signaling_nan_is_classified_without_being_quieted() {
 #[test]
 fn c115_canonical_nan_is_quiet_and_infinity_is_not_nan() {
     // Given
-    let source = "[Float64.nan.is_nan(), Float64.nan.is_signaling_nan(), \
+    let source = "%[Float64.nan.is_nan(), Float64.nan.is_signaling_nan(), \
                   Float64.infinity.is_infinite(), Float64.infinity.is_nan()]";
 
     // When
@@ -133,7 +136,7 @@ fn c115_classifies_finite_subnormal_zero_and_sign() {
     // Given
     let source = "let s = Float64.from_bits(0x0000000000000001); \
                   let n = Float64.from_bits(0x8000000000000000); \
-                  [s.is_subnormal(), s.is_normal(), s.is_finite(), n.is_zero(), n.sign_bit()]";
+                  %[s.is_subnormal(), s.is_normal(), s.is_finite(), n.is_zero(), n.sign_bit()]";
 
     // When
     let result = rendered(source);
@@ -149,7 +152,7 @@ fn c115_classifies_finite_subnormal_zero_and_sign() {
 fn c114_float32_bit_classification_round_trips_through_to_bits() {
     // Given
     let source = "let f = Float32.from_bits(0x7f800001); \
-                  [f.is_nan(), f.is_signaling_nan(), f.is_finite(), f.to_bits()]";
+                  %[f.is_nan(), f.is_signaling_nan(), f.is_finite(), f.to_bits()]";
 
     // When
     let result = rendered(source);
@@ -164,9 +167,9 @@ fn c114_float32_bit_classification_round_trips_through_to_bits() {
 #[test]
 fn c086_equality_tests_identity_before_consulting_spaceship() {
     // Given
-    let source = "mut calls = []; class P { public fun <=>(o) { calls.append(:c); nil } }; \
+    let source = "mut calls = %[]; class P { public fun <=>(o) { calls.append(:c); nil } }; \
                   let a = P.new(); let same = a; let b = P.new(); \
-                  let r = [a == same, a <=> b, a == b, a != b, a < b]; [r, calls]";
+                  let r = %[a == same, a <=> b, a == b, a != b, a < b]; %[r, calls]";
 
     // When
     let result = rendered(source);
@@ -182,7 +185,7 @@ fn c086_equality_tests_identity_before_consulting_spaceship() {
 #[test]
 fn c083_root_spaceship_answers_nil_for_every_operand() {
     // Given
-    let source = "class Q { }; let a = Q.new(); let b = Q.new(); [a <=> b, a <=> 1, a <=> nil]";
+    let source = "class Q { }; let a = Q.new(); let b = Q.new(); %[a <=> b, a <=> 1, a <=> nil]";
 
     // When
     let result = rendered(source);
@@ -195,9 +198,9 @@ fn c083_root_spaceship_answers_nil_for_every_operand() {
 fn c084_derives_all_six_relations_from_the_visible_spaceship() {
     // Given
     let zero = "class D { public fun <=>(o) { 0 } }; let x = D.new(); let y = D.new(); \
-                [x == y, x < y, x <= y, x > y, x >= y, x != y]";
+                %[x == y, x < y, x <= y, x > y, x >= y, x != y]";
     let less = "class E { public fun <=>(o) { 0 - 1 } }; let x = E.new(); let y = E.new(); \
-                [x == y, x < y, x <= y, x > y, x >= y, x != y]";
+                %[x == y, x < y, x <= y, x > y, x >= y, x != y]";
 
     // When
     let zero = rendered(zero);
@@ -218,7 +221,7 @@ fn c084_derives_all_six_relations_from_the_visible_spaceship() {
 fn c084_nil_spaceship_makes_every_ordered_relation_false() {
     // Given
     let source = "class P { public fun <=>(o) { nil } }; let x = P.new(); let y = P.new(); \
-                  [x == y, x != y, x < y, x <= y, x > y, x >= y]";
+                  %[x == y, x != y, x < y, x <= y, x > y, x >= y]";
 
     // When
     let result = rendered(source);
@@ -258,7 +261,7 @@ fn c075_shares_a_hierarchy_cell_while_class_object_ivars_stay_distinct() {
                   class B extends A { }; \
                   let s1 = A.set_shared(1); let s2 = B.set_shared(2); \
                   let o1 = A.set_own(:a); let o2 = B.set_own(:b); \
-                  [A.shared(), B.shared(), A.own(), B.own()]";
+                  %[A.shared(), B.shared(), A.own(), B.own()]";
 
     // When
     let result = rendered(source);
@@ -291,7 +294,7 @@ fn c162_rejects_a_subclass_redeclaring_an_anchored_cell() {
 #[test]
 fn d446_runs_property_initializers_superclass_first_then_initialize() {
     // Given
-    let source = "mut log = []; \
+    let source = "mut log = %[]; \
                   class Base { property b: Nil = log.append(:base); } \
                   class Child extends Base { property c: Nil = log.append(:child); \
                   fun initialize() { log.append(:initialize) } } \
@@ -310,10 +313,10 @@ fn d446_runs_property_initializers_superclass_first_then_initialize() {
 #[test]
 fn c061_quoted_symbol_names_a_setter_selector_for_reflection() {
     // Given
-    let source = "class P { property v: Nil = nil; }; \
+    let source = "class P { public property v: Nil = nil; }; \
                   let getter = Reflection::Class.method(P, :v); \
                   let setter = Reflection::Class.method(P, :\"v=\"); \
-                  [getter same? getter, setter same? setter, getter same? setter]";
+                  %[getter same? getter, setter same? setter, getter same? setter]";
 
     // When
     let result = rendered(source);
@@ -329,7 +332,7 @@ fn c148_composes_a_module_into_a_built_in_class_without_weakening_c150() {
                     open class Nil mixin Marker { }; \
                     open class Bool { public fun mark() { :bool } } \
                     open class Integer { public fun mark() { :integer } } \
-                    let n = 1; [nil.marker(), true.mark(), n.mark(), nil same? nil]";
+                    let n = 1; %[nil.marker(), true.mark(), n.mark(), nil same? nil]";
     let state = "open class Integer { \
                  public property fun px=(value: Integer) -> Integer { @x = value } }; \
                  let n = 1; n.px = 2";
@@ -349,9 +352,9 @@ fn c148_composes_a_module_into_a_built_in_class_without_weakening_c150() {
 #[test]
 fn c028_is_tests_current_runtime_ancestry_not_static_declaration() {
     // Given
-    let before = "class A { } class N { } let a = A.new(); a is N";
+    let before = "class A { } class N { } let a = A.new(); a is? N";
     let after = "class A { } class N { } let a = A.new(); \
-                 let committed = Reflection::Class.set_superclass(A, N); a is N";
+                 let committed = Reflection::Class.set_superclass(A, N); a is? N";
 
     // When
     let before = rendered(before);
@@ -366,7 +369,7 @@ fn c028_is_tests_current_runtime_ancestry_not_static_declaration() {
 fn c009_every_value_is_an_object_and_unrelated_classes_are_not() {
     // Given
     let source = "class A { } class B { } let a = A.new(); \
-                  [a is A, a is B, a is Object, 1 is Integer, 1 is Object, nil is Nil]";
+                  %[a is? A, a is? B, a is? Object, 1 is? Integer, 1 is? Object, nil is? Nil]";
 
     // When
     let result = rendered(source);
@@ -381,7 +384,7 @@ fn c009_every_value_is_an_object_and_unrelated_classes_are_not() {
 #[test]
 fn c076_a_type_object_is_interned_and_distinct_from_its_class() {
     // Given
-    let source = "class A { }; [A.type same? A.type, A.type same? A]";
+    let source = "class A { }; %[A.type same? A.type, A.type same? A]";
 
     // When
     let result = rendered(source);
@@ -394,7 +397,7 @@ fn c076_a_type_object_is_interned_and_distinct_from_its_class() {
 fn c079_subtype_uses_the_same_ancestry_that_is_consults() {
     // Given
     let source = "class A { } class B extends A { } class C { } \
-                  [B.type.subtype?(A.type), A.type.subtype?(B.type), \
+                  %[B.type.subtype?(A.type), A.type.subtype?(B.type), \
                    C.type.subtype?(A.type), A.type.subtype?(Object.type)]";
 
     // When
@@ -411,7 +414,7 @@ fn c079_subtype_uses_the_same_ancestry_that_is_consults() {
 fn c076_contract_objects_carry_identity_distinct_from_classes_and_modules() {
     // Given
     let source = "contract C { } contract D { } class A { } module M { } \
-                  [C same? C, C same? D, A same? A, M same? M]";
+                  %[C same? C, C same? D, A same? A, M same? M]";
 
     // When
     let result = rendered(source);
@@ -426,7 +429,7 @@ fn c076_contract_objects_carry_identity_distinct_from_classes_and_modules() {
 #[test]
 fn c043_contract_inheritance_records_parents_without_an_implementation_mro() {
     // Given
-    let source = "contract Parent { } contract Child extends Parent { } [Child same? Child, Child same? Parent]";
+    let source = "contract Parent { } contract Child extends Parent { } %[Child same? Child, Child same? Parent]";
 
     // When
     let result = rendered(source);
@@ -469,10 +472,11 @@ fn c024_publishes_no_class_when_a_declaration_is_rejected() {
 }
 
 #[test]
-fn c049_qualified_and_ordinary_selector_namespaces_stay_separate() {
+fn c049_contract_and_ordinary_dispatch_share_one_selector_surface() {
     // Given
-    let source = "contract C { } class A for C { impl fun C::m() { :qualified } \
-                  public fun m() { :ordinary } } let a = A.new(); [(a as C)..m(), a.m()]";
+    let source = "contract C { fun m() -> Symbol } class A { \
+                  public fun m() -> Symbol { :ordinary } } impl A for C { } \
+                  let a = A.new(); %[(a as C)..m(), a.m()]";
 
     // When
     let result = rendered(source);
@@ -480,7 +484,7 @@ fn c049_qualified_and_ordinary_selector_namespaces_stay_separate() {
     // Then
     assert_eq!(
         result,
-        "Array([Symbol(\"qualified\"), Symbol(\"ordinary\")])"
+        "Array([Symbol(\"ordinary\"), Symbol(\"ordinary\")])"
     );
 }
 
@@ -498,23 +502,24 @@ fn c049_rejects_a_view_the_receiver_never_declared_with_for() {
 }
 
 #[test]
-fn c048_a_qualified_impl_is_unreachable_through_ordinary_dispatch() {
+fn c048_an_impl_method_joins_ordinary_dispatch() {
     // Given
-    let source = "contract C { } class A for C { impl fun C::only() { :qualified } } \
+    let source = "contract C { fun only() -> Symbol } class A { } \
+                  impl A for C { public fun only() -> Symbol { :ordinary } } \
                   let a = A.new(); a.only()";
 
     // When
     let result = rendered(source);
 
     // Then
-    assert!(result.contains("MessageNotFound"));
+    assert_eq!(result, "Symbol(\"ordinary\")");
 }
 
 #[test]
 fn c042_each_closure_evaluation_creates_a_distinct_identity() {
     // Given
     let source = "let mk = { { :v } }; let a = mk.call(); let b = mk.call(); \
-                  [a same? a, a same? b, a == a, a == b]";
+                  %[a same? a, a same? b, a == a, a == b]";
 
     // When
     let result = rendered(source);
@@ -544,9 +549,9 @@ fn c072_an_escaped_closure_keeps_writing_its_captured_receiver() {
 #[test]
 fn c099_passes_a_trailing_block_as_the_separate_block_parameter() {
     // Given
-    let with_block = "class A { public fun method_missing(s, a, b) { [s, a, b.call()] } } \
+    let with_block = "class A { public fun method_missing(s, a, b) { %[s, a, b.call()] } } \
                       let o = A.new(); o.missing(1) { :block }";
-    let without = "class A { public fun method_missing(s, a, b) { [s, a] } } \
+    let without = "class A { public fun method_missing(s, a, b) { %[s, a] } } \
                    let o = A.new(); o.missing(1)";
 
     // When
@@ -567,7 +572,7 @@ fn c099_passes_a_trailing_block_as_the_separate_block_parameter() {
 #[test]
 fn a_local_callable_shadows_a_self_send_without_recursing() {
     // Given
-    let called = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :v })";
+    let called = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m() { :v }";
     // A nil block must fail cleanly rather than recurse through method_missing.
     let nil_block = "class A { public fun method_missing(s, a, b) { b.call() } } \
                      let o = A.new(); o.missing(1)";
@@ -587,7 +592,7 @@ fn c076_call_is_the_sole_invocation_spelling() {
     // Given
     let closure = "let c = { :v }; c.call()";
     let bound = "class A { public fun m() { :x } } let o = A.new(); o.m.call()";
-    let block = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :blk })";
+    let block = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m() { :blk }";
     let direct = "let c = { :v }; c()";
 
     // When
@@ -607,8 +612,8 @@ fn c076_call_is_the_sole_invocation_spelling() {
 fn c023_block_parameter_carries_a_function_type_annotation() {
     // Given
     let annotated = "class A { public fun m(&b: Block<(Integer) -> Symbol>) { b.call(1) } } \
-                     let o = A.new(); o.m({ |x| :got })";
-    let unannotated = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m({ :v })";
+                     let o = A.new(); o.m() { |x: Integer| -> Symbol :got }";
+    let unannotated = "class A { public fun m(&b) { b.call() } } let o = A.new(); o.m() { :v }";
 
     // When
     let annotated = rendered(annotated);
@@ -636,9 +641,9 @@ fn c025_an_omitted_optional_block_binds_nil() {
 fn c094_and_c095_require_a_callable_annotation_to_name_its_kind() {
     // Given
     let block = "class A { public fun m(&b: Block<(Integer) -> Symbol>) { b.call(1) } } \
-                 let o = A.new(); o.m({ |x| :got })";
+                 let o = A.new(); o.m() { |x: Integer| -> Symbol :got }";
     let closure = "class A { public fun m(&b: Closure<(Integer) -> Symbol>) { b.call(1) } } \
-                   let o = A.new(); o.m({ |x| :c })";
+                   let o = A.new(); o.m(&{ |x: Integer| -> Symbol :c })";
     // C094 makes the bare signature not a Type on its own.
     let bare = "class A { public fun m(&b: (Integer) -> Symbol) { b.call(1) } } \
                 let o = A.new(); o.m({ |x| :x })";
@@ -659,7 +664,7 @@ fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
     // Given
     let raises = "class P { public fun to_bool() -> Bool { raise :sentinel } } \
                   mut x = P.new(); x &&= 1";
-    let skipped = "mut log = []; mut x = nil; let r = x &&= log.append(:ran); log";
+    let skipped = "mut log = %[]; mut x = nil; let r = x &&= log.append(:ran); log";
     let written = "mut x: Bool | Integer = true; let r = x &&= 5; x";
 
     // When
@@ -678,7 +683,7 @@ fn c037_logical_assignment_truth_tests_before_evaluating_the_right_side() {
 fn c037_or_assignment_writes_only_on_the_falsy_path() {
     // Given
     let written = "mut x: Nil | Integer = nil; let r = x ||= 7; x";
-    let skipped = "mut log = []; mut x = true; let r = x ||= log.append(:ran); log";
+    let skipped = "mut log = %[]; mut x = true; let r = x ||= log.append(:ran); log";
 
     // When
     let written = rendered(written);
@@ -729,7 +734,7 @@ fn c014_dynamic_entry_yields_the_value_without_widening_visibility() {
 fn c088_an_ordinary_object_has_a_stable_identity_hash() {
     // Given
     let stable = "class A { } let a = A.new(); let before = a.hash(); \
-                  let others = [A.new(), A.new(), A.new()]; let after = a.hash(); before == after";
+                  let others = %[A.new(), A.new(), A.new()]; let after = a.hash(); before == after";
     let distinct = "class A { } let a = A.new(); let b = A.new(); a.hash() == b.hash()";
     // C088 must not disturb the specification-stable numeric hash.
     let numeric = "Integer(1).hash()";
@@ -771,7 +776,7 @@ fn c043_while_tests_before_each_iteration_and_break_carries_the_loop_result() {
 #[test]
 fn c044_for_iterates_until_done_and_c046_closes_the_iterator() {
     // Given
-    let source = "mut log = []; mut n = 0; \
+    let source = "mut log = %[]; mut n = 0; \
                   class It { public fun next() { n = n + 1; \
                   if n == 1 { Iteration.yield(nil) } else { Iteration.done } } \
                   public fun close() { log.append(:closed); nil } } \
@@ -795,7 +800,7 @@ fn c044_each_iteration_binds_in_a_fresh_scope() {
                   class Src { public fun iterator() { It.new() } } \
                   mut first: Object = nil; mut second: Object = nil; \
                   for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; \
-                  [first.call(), second.call()]";
+                  %[first.call(), second.call()]";
 
     // When
     let result = rendered(source);
@@ -809,7 +814,7 @@ fn c048_labels_target_the_named_loop_and_bare_control_targets_the_nearest() {
     // Given
     let labelled = "outer: while true { while true { break outer: 7 } }";
     let nearest = "mut n = 0; outer: while n < 2 { n = n + 1; while true { break } }; n";
-    let skipped = "mut n = 0; mut log = []; \
+    let skipped = "mut n = 0; mut log = %[]; \
                    while n < 3 { n = n + 1; continue; log.append(:unreachable) }; log";
 
     // When
@@ -852,13 +857,13 @@ fn c045_for_destructuring_binds_or_raises_pattern_match_error() {
     // Given
     let matched = "mut n = 0; \
                    class It { public fun next() { n = n + 1; \
-                   if n < 2 { Iteration.yield([1, 2]) } else { Iteration.done } } \
+                   if n < 2 { Iteration.yield(%[1, 2]) } else { Iteration.done } } \
                    public fun close() { nil } } \
                    class Src { public fun iterator() { It.new() } } \
                    mut got: Object = nil; for [a, b] in Src.new() { got = a }; got";
     let mismatched = "mut n = 0; \
                       class It { public fun next() { n = n + 1; \
-                      if n < 2 { Iteration.yield([1, 2, 3]) } else { Iteration.done } } \
+                      if n < 2 { Iteration.yield(%[1, 2, 3]) } else { Iteration.done } } \
                       public fun close() { nil } } \
                       class Src { public fun iterator() { It.new() } } \
                       for [a, b] in Src.new() { a }";
@@ -877,7 +882,12 @@ fn c056_and_c057_give_each_raise_a_context_with_an_optional_cause() {
     // Given
     let value = "try { raise :x } catch e: Symbol, c { c.value }";
     let unchained = "try { raise :x from nil } catch e: Symbol, c { c.cause }";
-    let bad_cause = "try { raise :x from :plain } catch e: Symbol, c { c }";
+    let bad_cause = "mut symbol_catches = 0; \
+        try { try { raise :x from :plain } catch e: Symbol, c { \
+            symbol_catches = symbol_catches + 1; c } } \
+        catch error: TypeError, context { \
+            %[error.class == TypeError, !(error is? Symbol), \
+             context.value same? error, symbol_catches] }";
     // C058: a bare raise continues the current propagation, and outside a catch
     // extent there is nothing to continue.
     let no_active = "raise";
@@ -891,7 +901,10 @@ fn c056_and_c057_give_each_raise_a_context_with_an_optional_cause() {
     // Then
     assert_eq!(value, "Symbol(\"x\")");
     assert_eq!(unchained, "Nil");
-    assert!(bad_cause.contains("Type"));
+    assert_eq!(
+        bad_cause,
+        "Array([Bool(true), Bool(true), Bool(true), Integer(IntegerValue(0))])"
+    );
     assert_eq!(no_active, "NoActiveExceptionError");
 }
 
@@ -989,7 +1002,7 @@ fn c027_hash_literals_build_a_hash_and_c134_still_rejects_a_nan_key() {
 #[test]
 fn c023_keyword_rest_collects_the_unmatched_keywords_into_a_hash() {
     // Given a call supplying one keyword a parameter names and one it does not.
-    let source = "class A { public fun m(key k, **kw) { [k, kw] } } A.new().m(k: 5, z: 6)";
+    let source = "class A { public fun m(key k, **kw) { %[k, kw] } } A.new().m(k: 5, z: 6)";
     let none_left_over = "class A { public fun m(key k, **kw) { kw } } A.new().m(k: 5)";
 
     // When / Then
@@ -1034,15 +1047,15 @@ fn c036_compound_assignment_applies_its_operator_to_the_read_value() {
 fn c036_index_assignment_evaluates_receiver_index_and_rhs_exactly_once() {
     // Given a side-effectful index and right-hand side, each counting its own
     // evaluations. D-347 requires exactly one evaluation of each.
-    let counted = "mut index_calls = 0; mut rhs_calls = 0; mut a = [1, 2]; \
+    let counted = "mut index_calls = 0; mut rhs_calls = 0; mut a = %[1, 2]; \
                    class C { public fun index() { index_calls = index_calls + 1; 0 } \
                    public fun rhs() { rhs_calls = rhs_calls + 1; 5 } } \
-                   let c = C.new(); a[c.index()] += c.rhs(); [a[0], index_calls, rhs_calls]";
+                   let c = C.new(); a[c.index()] += c.rhs(); %[a[0], index_calls, rhs_calls]";
     // A missing Hash key and an out-of-range Array index read `nil` rather than
     // raising, and a written value must survive into the next read.
-    let array_round_trip = "mut a = [1, 2]; a[0] = 9; a[0]";
+    let array_round_trip = "mut a = %[1, 2]; a[0] = 9; a[0]";
     let hash_round_trip = "mut h = %{ 1: 2 }; h[7] = 3; h[7]";
-    let absent = "let h = %{ 1: 2 }; [h[9], [1, 2][9]]";
+    let absent = "let h = %{ 1: 2 }; %[h[9], %[1, 2][9]]";
 
     // When / Then
     assert!(rendered(counted).ends_with(
@@ -1071,14 +1084,14 @@ fn c047_binds_a_context_reporting_the_primary_not_the_cleanup_failure() {
                   public fun close() { raise :close } } \
                   class Src { public fun iterator() { It.new() } } \
                   try { for x in Src.new() { raise :body } } \
-                  catch e, c { [e, c.value, c.suppressed] }";
+                  catch e, c { %[e, c.value, c.suppressed] }";
     // A cleanup that SUCCEEDS must leave the primary context untouched.
     let clean = "mut n = 0; \
                  class It { public fun next() { n = n + 1; \
                  if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                  public fun close() { nil } } \
                  class Src { public fun iterator() { It.new() } } \
-                 try { for x in Src.new() { raise :body } } catch e, c { [e, c.value] }";
+                 try { for x in Src.new() { raise :body } } catch e, c { %[e, c.value] }";
 
     // When / Then the caught value and its bound context AGREE on the primary,
     // and the cleanup failure appears only in `suppressed`.
@@ -1113,13 +1126,13 @@ fn c056_gives_every_propagation_event_a_distinct_identity() {
     // the handled one.
     let reraised = "try { raise :same } catch value, first { \
                     try { raise value } catch _, second { \
-                    [second same? first, second.cause same? first] } }";
+                    %[second same? first, second.cause same? first] } }";
     // A context is still `same?` itself, so the identity is stable rather than
     // merely always-unequal.
     let reflexive = "try { raise :x } catch _, c { c same? c }";
     // An explicit cause links to the captured context without becoming it.
     let chained = "try { try { raise :first } catch _, f { raise :second from f } } \
-                   catch _, s { [s.value, s.cause.value, s.cause same? s] }";
+                   catch _, s { %[s.value, s.cause.value, s.cause same? s] }";
 
     // When / Then
     assert_eq!(rendered(reraised), "Array([Bool(false), Bool(true)])");
@@ -1174,14 +1187,14 @@ fn the_execution_bounds_admit_ordinary_loops_and_recursion() {
 #[test]
 fn c011_makes_an_array_iterable_through_the_ordinary_iterator_protocol() {
     // Given `for` over an Array, which C012 drives through iterator()/next().
-    let summed = "mut total = 0; for x in [1, 2, 3] { total = total + x }; total";
-    let empty = "mut count = 0; for x in [] { count = count + 1 }; count";
+    let summed = "mut total = 0; for x in %[1, 2, 3] { total = total + x }; total";
+    let empty = "mut count = 0; for x in %[] { count = count + 1 }; count";
     // Each iterator() call must allocate an INDEPENDENT cursor, or a nested
     // traversal of the same Array would share one position and stop early.
-    let nested = "let a = [1, 2]; mut count = 0; \
+    let nested = "let a = %[1, 2]; mut count = 0; \
                   for x in a { for y in a { count = count + 1 } }; count";
     // C013 returns the same done singleton on every call after exhaustion.
-    let exhausted = "let i = [1].iterator(); [i.next(), i.next(), i.next()]";
+    let exhausted = "let i = %[1].iterator(); %[i.next(), i.next(), i.next()]";
 
     // When / Then
     assert!(rendered(summed).ends_with("Integer(IntegerValue(6))])"));
@@ -1201,13 +1214,13 @@ fn c028_lets_a_nested_block_shadow_a_captured_binding_without_replacing_it() {
     // binding map, so the inner `let` replaced the outer name and the captured
     // Closure observed 2 instead of 1.
     let shadowed = "let value = 1; let c = { value }; \
-                    let inner = { let value = 2; value }; [inner.call(), c.call()]";
+                    let inner = { let value = 2; value }; %[inner.call(), c.call()]";
     // Capture by REFERENCE is unaffected: a Closure that assigns the captured
     // binding is still seen by the enclosing scope.
-    let shared_cell = "mut v = 1; let c = { v = v + 1; v }; let a = c.call(); [a, v + 3]";
+    let shared_cell = "mut v = 1; let c = { v = v + 1; v }; let a = c.call(); %[a, v + 3]";
     // Each loop iteration owns a fresh cell, so two escaping Closures differ.
-    let per_iteration = "mut fs = []; for x in [1, 2] { fs.append({ x }) }; \
-                         [fs[0].call(), fs[1].call()]";
+    let per_iteration = "mut fs = %[]; for x in %[1, 2] { fs.append({ x }) }; \
+                         %[fs[0].call(), fs[1].call()]";
 
     // When / Then
     assert_eq!(
@@ -1229,8 +1242,7 @@ fn d421_returns_to_the_nearest_callable_boundary_only() {
     // Given a `return` inside a Closure inside a Method. D-421 ends only that
     // CLOSURE invocation: v1 has no nonlocal-return Closure, so the Method
     // continues and returns its own final expression.
-    let closure_boundary =
-        "class C { public fun m() { let c = { return 4 }; let a = c.call(); [a, 5] } } C.new().m()";
+    let closure_boundary = "class C { public fun m() { let c = { return 4 }; let a = c.call(); %[a, 5] } } C.new().m()";
     let method_return = "class C { public fun m() { return 1; 2 } } C.new().m()";
     let bare_return = "class C { public fun m() { return } } C.new().m()";
     // A `return` inside a loop still leaves the Method, not just the loop.
@@ -1273,12 +1285,12 @@ fn a_try_in_expression_position_yields_the_clause_that_supplied_the_result() {
     let catch_supplies = "let result = try { raise :x } catch _: Symbol { :caught }; result";
     // A normally completing `finally` must NOT replace the provisional value.
     let finally_does_not_replace = "let a = try { 1 } finally { 2 }; let b = try { raise :x } catch _ { 3 } finally { 4 }; \
-         [a, b]";
+         %[a, b]";
     // Clause order is observable, and the handler result is the value.
-    let ordered = "mut log = []; \
+    let ordered = "mut log = %[]; \
                    let r = try { log.append(:try); raise :x } \
                    catch _ { log.append(:catch); :handled } \
-                   finally { log.append(:finally) }; [log, r]";
+                   finally { log.append(:finally) }; %[log, r]";
 
     // When / Then
     assert_eq!(rendered(body_supplies), "Symbol(\"try_value\")");
@@ -1303,7 +1315,7 @@ fn d159_makes_the_exception_context_payload_read_only() {
     // The context stays usable after its catch and can chain a later raise.
     let outlives_catch = "let saved = try { raise :x } catch _, c { c }; \
                           let read = saved.value; \
-                          try { raise :next from saved } catch _, n { [read, n.cause same? saved] }";
+                          try { raise :next from saved } catch _, n { %[read, n.cause same? saved] }";
 
     // When / Then
     assert_eq!(rendered(read), "Symbol(\"x\")");
@@ -1354,7 +1366,7 @@ fn a_rejected_operator_does_not_degrade_into_a_bare_name() {
     // only because the stray name failed later for an unrelated reason.
     let rejected = "let n = 5; n % 2";
     // The named-infix spelling is the supported one and must still work.
-    let named_infix = "let n = 5; [n.mod(2), n mod 2]";
+    let named_infix = "let n = 5; %[n.mod(2), n mod 2]";
 
     // When / Then
     assert_eq!(rendered(rejected), "ParseDiagnostic");
@@ -1371,13 +1383,13 @@ fn c035_yields_the_setter_result_for_a_property_write() {
     // whatever its setter Method returned.
     let both_writes = "class Box { public property fun name=(value) -> Symbol { :written } } \
                        mut local = 0; let local_result = (local = 1); \
-                       let property_result: Object = (Box.new().name = 2); [local_result, property_result]";
+                       let property_result: Object = (Box.new().name = 2); %[local_result, property_result]";
     // Assignment is right-associative, so the inner setter runs first and the
     // outer setter receives its RESULT rather than the original operand.
-    let nested = "mut log = []; \
+    let nested = "mut log = %[]; \
                   class Box { public property fun name=(value) -> Symbol { log.append(:set); value } } \
                   let outer = Box.new(); let inner = Box.new(); \
-                  let r = (outer.name = (inner.name = :inner)); [r, log]";
+                  let r = (outer.name = (inner.name = :inner)); %[r, log]";
 
     // When / Then
     assert_eq!(
@@ -1397,10 +1409,10 @@ fn c011_does_not_invoke_a_bare_callable_value() {
     // from "it was invoked and happened to return the same value".
     let counted = "mut calls = 0; class C { public fun f() { calls = calls + 1; 1 } } \
                    let c = C.new(); let bare = c.f; let after_bind = calls; \
-                   let invoked = bare.call(); [after_bind, invoked, calls]";
+                   let invoked = bare.call(); %[after_bind, invoked, calls]";
     // A compound index assignment evaluates receiver, index and RHS exactly
     // once each, in that order.
-    let ordered = "mut events = []; mut store = [1, 2]; \
+    let ordered = "mut events = %[]; mut store = %[1, 2]; \
                    class P { public fun factory() { events.append(:factory); store } \
                    public fun idx() { events.append(:index); 0 } \
                    public fun rhs() { events.append(:rhs); 5 } } \
@@ -1427,9 +1439,9 @@ fn c047_distinguishes_a_cleanup_failure_with_and_without_a_pending_exception() {
                         if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
                         public fun close() { raise :close } } \
                         class Src { public fun iterator() { It.new() } } \
-                        try { for x in Src.new() { nil } } catch _, c { [c.value, c.suppressed] }";
+                        try { for x in Src.new() { nil } } catch _, c { %[c.value, c.suppressed] }";
     // A `break` still runs cleanup exactly once on its way out.
-    let break_closes = "mut log = []; \
+    let break_closes = "mut log = %[]; \
                         class It { public fun next() { Iteration.yield(1) } \
                         public fun close() { log.append(:close) } } \
                         class Src { public fun iterator() { It.new() } } \
@@ -1454,7 +1466,7 @@ fn c042_calls_to_bool_once_per_tested_operand_and_short_circuits() {
                    let negated = !P.new(); \
                    let conjoined = P.new() && :yes; \
                    let disjoined = P.new() || (rhs_ran = 1); \
-                   [negated, conjoined, calls, rhs_ran]";
+                   %[negated, conjoined, calls, rhs_ran]";
 
     // When / Then three operands are tested, and the right side never runs.
     assert_eq!(
@@ -1470,7 +1482,7 @@ fn c094_makes_every_value_answer_to_bool_through_root_object() {
     // ordinary Objects rather than values without a Class. Resolving them to an
     // error made `if :sym`, `if [1]` and `if %{}` fail outright.
     let symbol = "if :sym { :yes } else { :no }";
-    let array = "if [1] { :yes } else { :no }";
+    let array = "if %[1] { :yes } else { :no }";
     let hash = "if %{} { :yes } else { :no }";
     // Only `Nil` is false and `Bool` returns itself.
     let nil = "if nil { :yes } else { :no }";
@@ -1513,7 +1525,7 @@ fn c088_lets_an_exception_context_serve_as_a_hash_key() {
     let source = "let first = try { raise :same } catch _, c { c }; \
                   let second = try { raise :same } catch _, c { c }; \
                   let h = %{ first: 1, second: 2 }; \
-                  [first == second, first same? second, h[first], h[second]]";
+                  %[first == second, first same? second, h[first], h[second]]";
 
     // When / Then
     assert_eq!(
@@ -1528,7 +1540,7 @@ fn d155_appends_one_re_raise_site_per_bare_raise_in_occurrence_order() {
     // continues, without replacing the root stack or creating a fresh context.
     let one_site = "mut captured: Object = nil; \
                     try { try { raise :x } catch _, c { captured = c; raise } } \
-                    catch _, o { [o same? captured, o.re_raise_sites] }";
+                    catch _, o { %[o same? captured, o.re_raise_sites] }";
     let two_sites = "try { try { try { raise :x } catch _, c { raise } } \
                      catch _, m { raise } } catch _, o { o.re_raise_sites }";
     let no_site = "try { raise :x } catch _, c { c.re_raise_sites }";
@@ -1562,31 +1574,18 @@ fn c067_keeps_distinct_events_unequal_under_identity_comparison() {
 }
 
 #[test]
-fn c012_makes_a_top_level_call_a_privileged_implicit_send_to_main() {
-    // Given a Module body declaring a top-level helper and calling it. C012
-    // installs the helper on the Module's `main`, private by default, and makes
-    // the bare call a PRIVILEGED send that reaches it.
-    //
-    // A Module body yields no value of its own, so the call's EFFECT is what is
-    // observed: a helper that never ran would leave the counter at 0.
-    let called = "mut log = 0; \
-                  module M { fun helper() -> Integer { log = 1; 1 } helper() } log";
-    let not_called = "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } } log";
-    // D-433: a bare unresolved name is still a NameError rather than an
-    // implicit send, so the privilege does not make every name resolvable.
-    let unresolved = "module M { fun helper() -> Integer { 1 } helper_missing }";
-    // A helper declared LATER in the body is still callable, since declarations
-    // are published before any executable statement runs.
-    // The call and the declaration need a separator: C078 makes a bare
-    // `f 1` the parenthesis-less call form, so two statements must be split.
-    let forward = "mut log = 0; \
-                   module M { later(); fun later() -> Integer { log = 2; 1 } } log";
+fn v136_rejects_executable_module_origin_statements() {
+    let sources = [
+        "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } helper() } log",
+        "module M { fun helper() -> Integer { 1 } helper_missing }",
+        "mut log = 0; module M { later(); fun later() -> Integer { log = 2; 1 } } log",
+    ];
 
-    // When / Then
-    assert_eq!(rendered(called), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(not_called), "Integer(IntegerValue(0))");
-    assert_eq!(rendered(unresolved), "NameError");
-    assert_eq!(rendered(forward), "Integer(IntegerValue(2))");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
 }
 
 #[test]
@@ -1611,7 +1610,7 @@ fn c079_exposes_source_locations_with_one_based_line_and_column() {
     // C079 makes `line` and `column` ONE-BASED, so the first character of a
     // program is line 1, column 1, and `raise` at column 7 reports 7 rather
     // than a byte offset.
-    let single_line = "try { raise :x } catch _, c { [c.raise_location.line, \
+    let single_line = "try { raise :x } catch _, c { %[c.raise_location.line, \
                        c.raise_location.column] }";
     // The location must track real position, so a raise on the third line
     // reports 3 rather than always reporting 1.
@@ -1668,7 +1667,7 @@ fn d415_names_three_callable_kinds_and_no_function() {
     let kinds = "class C { public fun m(x: Integer) -> Integer { x } } \
                  let method = Reflection::Class.method(C, :m); \
                  let bound = C.new().m; let closure = { |x: Integer| x }; \
-                 [method.class_name, bound.class_name, closure.class_name]";
+                 %[method.class_name, bound.class_name, closure.class_name]";
     // The absence is part of the requirement, so it is asserted rather than
     // left unchecked.
     let absent = "Function";
@@ -1690,9 +1689,9 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
     // the C094 default while `method_missing` runs zero times.
     let dispatched = "mut calls = 0; mut seen: Object = nil; \
                       class C { public fun method_missing(selector, args, block) { \
-                      calls = calls + 1; seen = [selector, args, block]; true } } \
+                      calls = calls + 1; seen = %[selector, args, block]; true } } \
                       C.undef_method(:to_bool); \
-                      let result = if C.new() { :then } else { :else }; [result, calls, seen]";
+                      let result = if C.new() { :then } else { :else }; %[result, calls, seen]";
     // The fallback's Bool result is used directly, so returning false selects
     // the else branch rather than being truth-tested again.
     let falsehood = "class C { public fun method_missing(s, a, b) { false } } \
@@ -1701,7 +1700,7 @@ fn c096_dispatches_an_absent_to_bool_through_method_missing() {
     // is never consulted.
     let present = "mut calls = 0; \
                    class C { public fun method_missing(s, a, b) { calls = calls + 1; true } } \
-                   let result = if C.new() { :then } else { :else }; [result, calls]";
+                   let result = if C.new() { :then } else { :else }; %[result, calls]";
 
     // When / Then
     assert!(rendered(dispatched).ends_with(
@@ -1745,11 +1744,11 @@ fn raw_ivar_slots_are_dynamic_and_per_instance() {
     // Integer and then a Symbol in the same slot, and a SECOND instance is
     // unaffected: the slot belongs to the receiver rather than the Class.
     let per_instance = "class A { public fun w(v) { @x = v } public fun r() { @x } } \
-                        let a = A.new(); let b = A.new(); a.w(1); a.w(:s); [a.r(), b.r()]";
+                        let a = A.new(); let b = A.new(); a.w(1); a.w(:s); %[a.r(), b.r()]";
     // A Closure created in an instance Method captures its CURRENT receiver and
     // keeps mutating that receiver's raw ivars after the Method returns.
     let escaped = "class A { public fun m() { @x = 0; { @x = @x + 1; @x } } } \
-                   let c = A.new().m(); [c.call(), c.call()]";
+                   let c = A.new().m(); %[c.call(), c.call()]";
 
     // When / Then
     assert!(rendered(per_instance).ends_with("Array([Symbol(\"s\"), Nil])])"));
@@ -1773,7 +1772,7 @@ fn c041_and_c043_make_string_a_value_with_exact_scalar_equality() {
     let cross_type = "\"1\" == 1";
     // C041 gives String its own builtin Class, so `is String` resolves it like
     // the numeric value Classes rather than as an ordinary Object.
-    let typed = "let v = \"iris\"; [v is String, v is Object, 1 is String]";
+    let typed = "let v = \"iris\"; %[v is? String, v is? Object, 1 is? String]";
 
     // When / Then
     assert_eq!(rendered(literal), "Text(\"iris\")");
@@ -1794,7 +1793,7 @@ fn c030_makes_a_safe_cast_yield_the_same_value_or_nil() {
     // converts, which is what separates it from a coercion.
     let failed = "let v = \"iris\"; v as? Integer";
     let succeeded = "let v = 1; v as? Integer";
-    let combined = "let value: Object = \"iris\"; [value is String, value as? Integer]";
+    let combined = "let value: Object = \"iris\"; %[value is? String, value as? Integer]";
 
     // When / Then
     assert_eq!(rendered(failed), "Nil");
@@ -1893,11 +1892,11 @@ fn c065_guards_a_stored_property_slot_against_a_raw_write() {
     let raw_violation = "class A { property n: Integer = 0
   public fun bad(x) { @n = x } }
 let a = A.new(); a.bad(nil)";
-    let raw_satisfied = "class A { property n: Integer = 0
+    let raw_satisfied = "class A { public property n: Integer = 0
   public fun ok(x) { @n = x } }
 let a = A.new(); a.ok(7); a.n";
     // The generated setter guards the same slot from outside.
-    let setter_violation = "class A { property n: Integer = 0 }
+    let setter_violation = "class A { public property n: Integer = 0 }
 let a = A.new(); a.n = nil";
     // C066 makes slot identity `(receiver, name)` rather than the declaring
     // Class, so a subclass Method writing an inherited slot meets the SAME
@@ -2004,15 +2003,15 @@ fn c064_keeps_generic_class_storage_per_closed_construction() {
     // closed construction. v1 interns one Class per generic definition, so
     // `Cache<String>` and `Cache<Integer>` reach the same ClassId and shared
     // one bucket: a read answered the other construction's last write.
-    let independent = "class Cache<T> { class property value: T } \
+    let independent = "class Cache<T> { public class property value: T } \
 Cache<String>.value = \"s\"; Cache<Integer>.value = 1; \
-[Cache<String>.value, Cache<Integer>.value]";
+%[Cache<String>.value, Cache<Integer>.value]";
     // The SAME construction keeps one bucket, so a second write is visible to
     // its own read rather than creating a third slot.
-    let same_construction = "class Cache<T> { class property value: T } \
+    let same_construction = "class Cache<T> { public class property value: T } \
 Cache<String>.value = \"s\"; Cache<String>.value = \"t\"; Cache<String>.value";
     // A non-generic Class is unaffected: it has no arguments to qualify with.
-    let non_generic = "class Cache { class property value: Object } \
+    let non_generic = "class Cache { public class property value: Object } \
 Cache.value = \"s\"; Cache.value";
 
     // When / Then
@@ -2025,17 +2024,17 @@ Cache.value = \"s\"; Cache.value";
 fn c064_puts_a_shared_class_property_on_the_unapplied_definition() {
     // C064 puts class-level storage on the CLASS OBJECT. It was installed as an
     // instance property, so `A.n` was unresolvable and reading it answered nil.
-    let class_level_read = "class A { class property n: Integer = 5 } A.n";
-    let class_level_write = "class A { class property n: Integer = 5 } A.n = 9; A.n";
+    let class_level_read = "class A { public class property n: Integer = 5 } A.n";
+    let class_level_write = "class A { public class property n: Integer = 5 } A.n = 9; A.n";
     // A `shared class property` belongs to the UNAPPLIED definition, so the
     // bare Class reads its declared initializer. The V238 vector asserts the
     // closed-access error; this covers the read the vector cannot also carry.
-    let shared_read = "class Cache<T> { shared class property count: Integer = 0 } Cache.count";
+    let shared_read =
+        "class Cache<T> { public shared class property count: Integer = 0 } Cache.count";
     // An ordinary class-level property stays per closed construction.
-    let per_construction =
-        "class Cache<T> { class property v: Integer = 7 } Cache<String>.v = 3; Cache<String>.v";
+    let per_construction = "class Cache<T> { public class property v: Integer = 7 } Cache<String>.v = 3; Cache<String>.v";
     // An instance property is unaffected by the class-level path.
-    let instance = "class A { property n: Integer = 5 } A.new().n";
+    let instance = "class A { public property n: Integer = 5 } A.new().n";
 
     // When / Then
     assert_eq!(rendered(class_level_read), "Integer(IntegerValue(5))");
@@ -2072,7 +2071,7 @@ fn c047_and_c050_govern_contract_view_dispatch_and_identity() {
     // whose `impl fun m` is unqualified could never be reached through its own
     // Contract view.
     let declared = "contract C { fun m() -> String } \
-class X for C { public impl fun m() -> String { \"c\" } } ";
+class X { } impl X for C { public fun m() -> String { \"c\" } } ";
     let qualified_send = format!("{declared}let view = X.new() as C; view..m()");
     // C032 keeps an ordinary `view.member()` an unqualified message forwarded
     // to the receiver, so both spellings reach the one implementation.
@@ -2097,26 +2096,24 @@ class Y { public fun m() -> String { \"y\" } } let v = Y.new() as C; v..m()";
 #[test]
 fn c050_compares_contract_views_by_receiver_and_contract() {
     // C050 defines built-in view equality as the SAME Contract identity plus
-    // receiver identity for an identity-bearing receiver, or receiver equality
-    // under current equality for an identity-LESS one. Forwarding `==` to the
-    // receiver would have ignored the Contract identity entirely.
+    // receiver identity for an identity-bearing receiver. Forwarding `==` to
+    // the receiver would have ignored the Contract identity entirely.
     let declared = "contract N { fun m() -> Integer } \
-open class Integer for N { public impl fun m() -> Integer { 1 } } ";
-    let same_receiver = format!("{declared}(1 as N) == (1 as N)");
-    let different_receiver = format!("{declared}(1 as N) == (2 as N)");
-    let negated = format!("{declared}(1 as N) != (2 as N)");
+                    class A { } impl A for N { public fun m() -> Integer { 1 } } ";
+    let same_receiver = format!("{declared}let a = A.new(); (a as N) == (a as N)");
+    let different_receiver =
+        format!("{declared}let a = A.new(); let b = A.new(); (a as N) == (b as N)");
+    let negated = format!("{declared}let a = A.new(); let b = A.new(); (a as N) != (b as N)");
     // A view is never equal to a NON-view, so the wrapper is not transparent.
-    let view_versus_value = format!("{declared}(1 as N) == 1");
-    // C050 also defines equality over identity-LESS receivers, which is why a
-    // value Class may be viewed at all.
-    let value_view = format!("{declared}1 as N");
+    let view_versus_value = format!("{declared}let a = A.new(); (a as N) == a");
+    let value_view = format!("{declared}A.new() as N");
 
     // When / Then
     assert_eq!(rendered(&same_receiver), "Bool(true)");
     assert_eq!(rendered(&different_receiver), "Bool(false)");
     assert_eq!(rendered(&negated), "Bool(true)");
     assert_eq!(rendered(&view_versus_value), "Bool(false)");
-    assert!(rendered(&value_view).starts_with("ContractView(Integer"));
+    assert!(rendered(&value_view).starts_with("ContractView(Object"));
 }
 
 #[test]
@@ -2128,15 +2125,29 @@ fn c058_needs_explicit_conformance_for_an_f_bounded_constraint() {
     // C067 validates this at closed generic materialization and RAISES.
     let unsatisfied =
         "contract Comparable<T> {} class Box<T> where T: Comparable<T> {} Box<String>.new()";
-    let satisfied = "contract Comparable<T> {} class Ok for Comparable {} \
+    let satisfied = "contract Comparable<T> {} class Ok {} impl Ok for Comparable<Ok> {} \
 class Box<T> where T: Comparable<T> {} Box<Ok>.new()";
     // A Class with no `where` clause has no bound to violate.
     let unconstrained = "class Box<T> {} Box<String>.new()";
 
     // When / Then
     assert_eq!(rendered(unsatisfied), "TypeContractError");
-    assert!(rendered(satisfied).starts_with("Object("));
+    let result = evaluate(satisfied);
+    assert!(
+        matches!(result, Ok(iris_runtime::Value::Object(_))),
+        "{result:?}: {satisfied}"
+    );
     assert!(rendered(unconstrained).starts_with("Object("));
+    for source in [
+        "contract Comparable<T> {} class Ok {} impl Ok for Comparable {} class Box<T> where T: Comparable<T> {} Box<Ok>.new()",
+        "contract Comparable<T> {} class Ok {} impl Ok for Comparable<String> {} class Box<T> where T: Comparable<T> {} Box<Ok>.new()",
+    ] {
+        assert_eq!(
+            evaluate(source),
+            Err(crate::EvaluationError::TypeContractError),
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -2180,13 +2191,14 @@ fn c047_lets_one_impl_satisfy_two_compatible_contracts() {
     // listing targets.
     let source = "contract A { fun m(x: Object) -> String } \
 contract B { fun m(x: Object) -> String } \
-class X for A, B { public impl fun m(x: Object) -> String { \"x\" } } \
-let x = X.new(); [(x as A)..m(1), (x as B)..m(1)]";
+class X { public fun m(x: Object) -> String { \"x\" } } \
+impl X for A { } impl X for B { } \
+let x = X.new(); %[(x as A)..m(1), (x as B)..m(1)]";
     // A Contract the Class does NOT declare cannot be viewed, which keeps the
     // merge from reaching an undeclared conformance.
     let undeclared = "contract A { fun m(x: Object) -> String } \
 contract B { fun m(x: Object) -> String } \
-class X for A { public impl fun m(x: Object) -> String { \"x\" } } \
+class X { public fun m(x: Object) -> String { \"x\" } } impl X for A { } \
 (X.new() as B)..m(1)";
 
     // When / Then
@@ -2195,34 +2207,18 @@ class X for A { public impl fun m(x: Object) -> String { \"x\" } } \
 }
 
 #[test]
-fn c013_reads_a_top_level_helper_as_a_bound_method() {
-    // C012 puts top-level executable code inside a Module body, and C013
-    // resolves a bare name against visible DECLARATIONS as well as lexical
-    // bindings. C014 makes reading a Method create a BoundMethod rather than
-    // exposing a Function runtime kind, so a helper is readable as a value and
-    // not only callable.
-    let read = "mut r: Object = 0; module M { fun f() -> Integer { 1 } r = f } r";
-    // A Module body is where top-level executable code lives, which includes
-    // BINDINGS; only expressions ran, so every `let` there was skipped.
-    let binding = "mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r";
-    // C037: a parameter is CONTRAVARIANT, so a wider declared parameter accepts
-    // a narrower argument, through a bound helper as through a direct call.
-    let contravariant = "mut r: Object = 0; \
-module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; r = f(\"x\") } r";
-    // Narrowing the parameter reverses the relation, which proves the
-    // acceptance is variance and not an absence of checking.
-    let narrowed = "mut r = 0; \
-module M { fun accept(x: String) -> String { \"ok\" } let f = accept; r = f(1) } r";
-    // C011 keeps an unresolved bare name a NameError, so the declaration lookup
-    // does not make every name resolvable.
-    let unresolved = "module M { fun f() -> Integer { 1 } missing }";
+fn v136_rejects_module_origin_bindings_and_expressions() {
+    let sources = [
+        "mut r: Object = 0; module M { fun f() -> Integer { 1 } r = f } r",
+        "mut r = 0; module M { fun f() -> Integer { 1 } let g = 5; r = g } r",
+        "module M { fun f() -> Integer { 1 } missing }",
+    ];
 
-    // When / Then
-    assert!(rendered(read).starts_with("BoundMethod("));
-    assert_eq!(rendered(binding), "Integer(IntegerValue(5))");
-    assert_eq!(rendered(contravariant), "Text(\"ok\")");
-    assert_eq!(rendered(narrowed), "TypeContractError");
-    assert_eq!(rendered(unresolved), "NameError");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
 }
 
 #[test]
@@ -2230,16 +2226,16 @@ fn c059_infers_a_method_type_argument_from_the_call_site() {
     // `method_decl` spells `"fun" selector generic_params? parameter_list`, so
     // a Method may declare its OWN type parameters. They were never read, which
     // made `fun id<T>(x: T) -> T` a parse error rather than a generic Method.
-    let inferred = "mut result: String = \"z\"; \
-module M { fun id<T>(x: T) -> T { x } let bound: String = id(\"iris\"); result = bound } result";
+    let inferred = "module M { fun id<T>(x: T) -> T { x } \
+public fun run() -> String { let bound: String = id(\"iris\"); bound } } M.run()";
     // The inferred argument must be OBSERVED, not merely returned. A `let` with
     // a written Type is the boundary C004 guards AT RUNTIME, so a mismatched
     // call raises there. A `mut` reassignment reports only statically, which
     // would have let this pass for the wrong reason.
-    let mismatched = "mut result: String = \"z\"; \
-module M { fun id<T>(x: T) -> T { x } let bound: String = id(1); result = bound } result";
+    let mismatched = "module M { fun id<T>(x: T) -> T { x } \
+public fun run() -> String { let bound: String = id(1); bound } } M.run()";
     // A non-generic Method with the same shape is unaffected.
-    let plain = "mut result: Object = 0; module M { fun id(x) { x } result = id(\"iris\") } result";
+    let plain = "module M { fun id(x) { x } public fun run() -> Object { id(\"iris\") } } M.run()";
 
     // When / Then
     assert_eq!(rendered(inferred), "Text(\"iris\")");
@@ -2259,8 +2255,11 @@ fn c013_makes_a_global_a_declared_cell() {
     let undeclared = "$missing";
 
     // When / Then
-    assert!(rendered(read).ends_with("Integer(IntegerValue(1))])"));
-    assert!(rendered(assigned).ends_with("Integer(IntegerValue(2))])"));
+    assert_eq!(rendered(read), "Integer(IntegerValue(1))");
+    assert_eq!(
+        rendered(assigned),
+        "Array([Integer(IntegerValue(2)), Integer(IntegerValue(2))])"
+    );
     assert_eq!(rendered(immutable), "ImmutableBinding");
     assert_eq!(rendered(undeclared), "NameError");
 }
@@ -2289,15 +2288,15 @@ fn c003_reflects_only_the_written_signature_annotations() {
     // `Dynamic<Object>`, and D-452 keeps body-local inference OUT of signature
     // metadata. Nothing reflected a signature at all.
     let omitted = "class A { public fun f(value) { value } } \
-[A.method(:f).parameters, A.method(:f).return_type]";
+%[A.method(:f).parameters, A.method(:f).return_type]";
     // A written annotation reflects as itself.
     let written = "class A { public fun f(value: Integer) -> String { \"x\" } } \
-[A.method(:f).parameters, A.method(:f).return_type]";
+%[A.method(:f).parameters, A.method(:f).return_type]";
     // The BODY must not contribute: returning an Integer from an unannotated
     // Method leaves the reflected return `Dynamic<Object>`, which is what
     // "body-local inference is absent" means.
     let body_typed = "class A { public fun f(value) { 1 } } \
-[A.method(:f).parameters, A.method(:f).return_type]";
+%[A.method(:f).parameters, A.method(:f).return_type]";
 
     // When / Then
     assert_eq!(
@@ -2356,23 +2355,22 @@ fn c067_interns_no_identity_for_a_constraint_violation() {
 }
 
 #[test]
-fn c012_runs_a_raise_and_a_class_property_in_a_module_body() {
-    // C012 makes a Module body the home of top-level EXECUTABLE code, so a
-    // `raise` there is ordinary control flow. The declaration pass rejected it
-    // outright, and a class-level property in a Module body was unsupported
-    // even though C064 puts that storage on the Module's own object.
-    let raised = "module M { raise :stop } 1";
-    let declared = "module M { shared class property first: Integer = 1 } 1";
-    // A raise in a Module body propagates, so statements after it do not run.
-    let halted =
-        "mut r = 0; module M { shared class property first: Integer = 1; r = 5; raise :stop } r";
-    let completed = "mut r = 0; module M { shared class property first: Integer = 1; r = 5 } r";
+fn v136_rejects_control_flow_in_module_origins() {
+    let sources = [
+        "module M { raise :stop } 1",
+        "mut r = 0; module M { shared class property first: Integer = 1; r = 5; raise :stop } r",
+        "mut r = 0; module M { shared class property first: Integer = 1; r = 5 } r",
+    ];
 
-    // When / Then
-    assert_eq!(rendered(raised), "Raised(Symbol(\"stop\"))");
-    assert_eq!(rendered(declared), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(halted), "Raised(Symbol(\"stop\"))");
-    assert_eq!(rendered(completed), "Integer(IntegerValue(5))");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
+    assert_eq!(
+        rendered("module M { shared class property first: Integer = 1 } 1"),
+        "Integer(IntegerValue(1))"
+    );
 }
 
 #[test]
@@ -2383,7 +2381,7 @@ fn v214_keeps_a_union_member_inside_an_intersection() {
     // structure both rows describe was not represented at all.
     let declared = "class A {} class B {} class C {} ";
     let reflected =
-        format!("{declared}let t = (A & (B | C)).type; [t.kind, (B | C).type same? t.members[1]]");
+        format!("{declared}let t = (A & (B | C)).type; %[t.kind, (B | C).type same? t.members[1]]");
     // A flat intersection has no nested member to report.
     let flat = format!("{declared}(A & B).type.kind");
     // V014 and V221 still remove `Nil` from a NESTED union, so the constraint
@@ -2407,17 +2405,17 @@ fn v240_runs_a_per_closed_initializer_once_per_construction() {
     // C066 runs a per-closed class property initializer ONCE when the closed
     // Class is first materialized, not once at the generic declaration. The
     // initializer never ran at all, so every closed construction answered nil.
-    let declared = "mut n = 0; mut log = []; class Box<T> { class property tag: Integer = \
+    let declared = "mut n = 0; mut log = %[]; class Box<T> { public class property tag: Integer = \
                     { n = n + 1; log.append(n); n }.call() } ";
     // Two requests for the SAME construction reuse the first materialization.
     let repeated = format!(
         "{declared}let a = Box<String>.tag; let b = Box<String>.tag; \
-         let c = Box<Integer>.tag; [log, a, b, c]"
+         let c = Box<Integer>.tag; %[log, a, b, c]"
     );
     // C064 keeps ordinary generic class-level storage independent per closed
     // construction.
-    let independent = "class Box<T> { class property tag: Integer = 7 } \
-                       [Box<String>.tag, Box<Integer>.tag]";
+    let independent = "class Box<T> { public class property tag: Integer = 7 } \
+                       %[Box<String>.tag, Box<Integer>.tag]";
 
     // When / Then
     assert_eq!(
@@ -2441,13 +2439,13 @@ fn a_failed_materialization_reports_a_type_contract_error() {
     // C066 does NOT undo external side effects and lets a later request retry,
     // so both attempts survive in the external log. IRIS-V1-TYPES-V241
     // observes exactly that.
-    let retried = "mut log = []; class Box<T> { class property tag: Integer = \
+    let retried = "mut log = %[]; class Box<T> { public class property tag: Integer = \
                    { log.append(:attempt); raise :boom; 1 }.call() } \
                    let a = try { Box<String>.tag } catch e { e }; \
-                   let b = try { Box<String>.tag } catch e { e }; [a, b, log]";
+                   let b = try { Box<String>.tag } catch e { e }; %[a, b, log]";
     // C066 publishes nothing for the failed construction, so an UNRELATED
     // construction still materializes normally afterwards.
-    let unaffected = "mut n = 0; class Box<T> { class property tag: Integer = \
+    let unaffected = "mut n = 0; class Box<T> { public class property tag: Integer = \
                       { n = n + 1; n }.call() } Box<String>.tag";
 
     // When / Then
@@ -2466,12 +2464,12 @@ fn a_module_class_level_property_is_readable_through_the_module_name() {
     // storage was installed correctly but nothing could READ it: a Module name
     // evaluates to a Symbol, so `M.first` reported a missing message on Symbol
     // whatever the Module actually held.
-    let single = "module M { shared class property first: Integer = 1 } M.first";
+    let single = "module M { public shared class property first: Integer = 1 } M.first";
     // D-212 runs the initializers in SOURCE DECLARATION ORDER.
-    let ordered = "module M { shared class property a: Integer = 1 \
-                   shared class property b: Integer = 2 } [M.a, M.b]";
+    let ordered = "module M { public shared class property a: Integer = 1 \
+                   public shared class property b: Integer = 2 } %[M.a, M.b]";
     // C064 also gives a Module an ordinary, non-shared class-level property.
-    let ordinary = "module M { class property c: Integer = 3 } M.c";
+    let ordinary = "module M { public class property c: Integer = 3 } M.c";
     // A Module Method send still resolves, rather than being captured by the
     // property path.
     let method = "module M { public module fun f() { 7 } } M.f()";
@@ -2497,10 +2495,10 @@ fn c067_admits_a_bare_closed_generic_name_as_a_value() {
     // object. Requiring a `postfix_part` left `Box<String>` unparseable as a
     // value, so V257's comparison could not be written at all.
     let distinct = "class Box<T> {} let t = Box<String>.type; \
-                    [t same? Box<String>.type, t same? Box<String>]";
+                    %[t same? Box<String>.type, t same? Box<String>]";
     // C020 is NOT weakened: anything that could continue an expression keeps
     // the operator reading.
-    let comparison = "let a = 1; let b = 2; let c = 3; let d = 4; [a < b, c > d]";
+    let comparison = "let a = 1; let b = 2; let c = 3; let d = 4; %[a < b, c > d]";
     let shift = "let a = 8; let b = 1; a >> b";
     // A closed generic name is complete at the end of the input and as the
     // RIGHT operand of an infix send. As a LEFT operand it is followed by a
@@ -2602,7 +2600,7 @@ fn d431_scopes_a_global_to_its_declaring_package() {
             ("a", mutated),
             ("b", "global mut $count: Integer = 1; $count")
         ]),
-        "Ok(Array([Integer(IntegerValue(1)), Integer(IntegerValue(1))]))"
+        "Ok(Integer(IntegerValue(1)))"
     );
     // The declaring package still sees its own mutation.
     assert_eq!(
@@ -2630,12 +2628,12 @@ fn d432_orders_unqualified_resolution_across_three_tiers() {
     let tiers = "module S { const K = 5 } \
                  module M { const K = 1 public module fun lexical() { let K = 9; K } \
                  public module fun declared() { K } } \
-                 from S import K; [M.lexical(), M.declared(), K]";
+                 from S import K; %[M.lexical(), M.declared(), K]";
     // A Module's constant is invisible OUTSIDE the Module that declared it.
     let scoped = "module M { const K = 5 } K";
     // Two Modules may declare the same constant name without collision.
     let independent = "module A { const K = 1 public module fun f() { K } } \
-                       module B { const K = 2 public module fun g() { K } } [A.f(), B.g()]";
+                       module B { const K = 2 public module fun g() { K } } %[A.f(), B.g()]";
     // An import binds under its alias when the source writes one.
     let aliased = "module M { const K = 5 } from M import K as J; J";
 
@@ -2686,11 +2684,11 @@ fn v206_validates_a_candidate_against_its_declared_contracts() {
     // IRIS-V1-TYPES-C006 reports a Contract failure as `TypeContractError`. An
     // open that breaks a declared Contract used to fail as an unsupported
     // construct AFTER publishing the member staged before it.
-    let incompatible = "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+    let incompatible = "contract C { fun draw() } class A { public fun draw() { 1 } } impl A for C { } \
                         open class A { public fun m() { 9 } \
                         public override fun draw(a, b) { 2 } } A.new().m()";
     // The same body with a COMPATIBLE replacement commits, and `m` is callable.
-    let compatible = "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+    let compatible = "contract C { fun draw() } class A { public fun draw() { 1 } } impl A for C { } \
                       open class A { public fun m() { 9 } \
                       public override fun draw() { 2 } } A.new().m()";
 
@@ -2706,18 +2704,18 @@ fn v203_rejects_a_candidate_that_replaces_a_contract_visible_return_type() {
     // replacing it. Candidate validation compared ARITY alone, so an open
     // rewriting `draw() -> String` as `draw() -> Integer` committed silently.
     let replaced = "contract C { fun draw() -> String } \
-                    class A for C { public fun draw() -> String { \"a\" } } \
+                     class A { public fun draw() -> String { \"a\" } } impl A for C { } \
                     open class A { public fun extra() { 9 } \
                     public override fun draw() -> Integer { 1 } } A.new().draw()";
     // A replacement keeping the declared return Type still commits.
     let compatible = "contract C { fun draw() -> String } \
-                      class A for C { public fun draw() -> String { \"a\" } } \
+                       class A { public fun draw() -> String { \"a\" } } impl A for C { } \
                       open class A { public override fun draw() -> String { \"b\" } } \
                       A.new().draw()";
     // C022 publishes NOTHING from the failed candidate, so the member staged
     // beside the offending one is absent from the published revision too.
     let staged = "contract C { fun draw() -> String } \
-                  class A for C { public fun draw() -> String { \"a\" } } \
+                   class A { public fun draw() -> String { \"a\" } } impl A for C { } \
                   open class A { public fun extra() { 9 } \
                   public override fun draw() -> Integer { 1 } }";
 
@@ -2732,47 +2730,33 @@ fn v203_rejects_a_candidate_that_replaces_a_contract_visible_return_type() {
 }
 
 #[test]
-fn c022_runs_executable_statements_in_a_class_body() {
-    // IRIS-V1-META-C022 makes a Class body an EXECUTABLE construction
-    // transaction that may run ordinary control flow and use lexical locals,
-    // and C027 keeps those locals ordinary: they do NOT become class state
-    // merely because the transaction commits. A Class body rejected every
-    // executable statement as an unsupported construct.
-    let binding = "class A { let v = 7 } 1";
-    let expression = "class A { 1 + 1 } 1";
-    // C027: the local is not published as class state.
-    let not_state = "class A { let v = 7 } A.v";
+fn v136_rejects_executable_statements_in_class_origins() {
+    let sources = [
+        "class A { let v = 7 } 1",
+        "class A { 1 + 1 } 1",
+        "class A { let v = 7 } A.v",
+    ];
 
-    // When / Then
-    assert_eq!(rendered(binding), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(expression), "Integer(IntegerValue(1))");
-    assert_eq!(
-        rendered(not_state),
-        "MessageNotFound { receiver_class: \"Class\", selector: \"v\" }"
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
     );
 }
 
 #[test]
-fn c023_defines_a_method_on_the_current_candidate() {
-    // IRIS-V1-META-C023 makes a structural meta message sent to `self`, such as
-    // `define_method`, target the current transaction CANDIDATE. C026 keeps the
-    // defined Method from closing over the body's transaction-temporary
-    // locals: its lexical environment is definition scope and its own
-    // parameters, not the body execution's locals.
-    let defined = "class A { self.define_method(:m) { 1 } } A.new().m()";
-    let parameters = "class A { self.define_method(:add) { |x| x + 1 } } A.new().add(1)";
-    // C026: the body local `value` is NOT captured, so the call resolves to the
-    // declared Method and answers 8 rather than the transaction local's 7.
-    let uncaptured = "class A { let value = 7 self.define_method(:answer) { value() } \
-                      public fun value() -> Integer { 8 } } A.new().answer()";
-    // Without a declaration to resolve to, the local is simply not in scope.
-    let absent = "class A { let value = 7 self.define_method(:answer) { value } } A.new().answer()";
+fn v136_rejects_meta_calls_in_class_origins() {
+    let sources = [
+        "class A { self.define_method(:m) { 1 } } A.new().m()",
+        "class A { self.define_method(:add) { |x| x + 1 } } A.new().add(1)",
+        "class A { let value = 7 self.define_method(:answer) { value() } public fun value() -> Integer { 8 } } A.new().answer()",
+    ];
 
-    // When / Then
-    assert_eq!(rendered(defined), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(parameters), "Integer(IntegerValue(2))");
-    assert_eq!(rendered(uncaptured), "Integer(IntegerValue(8))");
-    assert_eq!(rendered(absent), "NameError");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
 }
 
 #[test]
@@ -2793,39 +2777,21 @@ fn c014_reads_a_bare_name_as_a_bound_method_of_its_own_class() {
 }
 
 #[test]
-fn c023_defines_a_module_method_on_its_main_receiver() {
-    // IRIS-V1-META-C023 makes `self.define_method` inside a Module body target
-    // the current transaction candidate, and IRIS-V1-CONTROL-C012 gives that
-    // body its Module's `main` receiver. IRIS-V1-TYPES-C074 keeps the Method a
-    // Module member as well, which is why a declared `fun` publishes both
-    // copies; the defined Method needs the same second copy or `M.m()` reports
-    // a missing message on Module.
-    let defined = "module M { self.define_method(:m) { 1 } } M.m()";
-    // C026 keeps the defined Method from closing over the body's
-    // transaction-temporary locals, so `value` resolves to the DECLARED Method
-    // and answers 8 rather than the local's 7. This is IRIS-V1-META-V342.
-    let uncaptured = "module M { let value = 7 self.define_method(:answer) { value() } \
-                      public fun value() -> Integer { 8 } } M.answer()";
+fn v136_rejects_meta_calls_and_locals_in_module_origins() {
+    let sources = [
+        "module M { self.define_method(:m) { 1 } } M.m()",
+        "module M { let value = 7 } value",
+    ];
 
-    // When / Then
-    assert_eq!(rendered(defined), "Integer(IntegerValue(1))");
-    assert_eq!(rendered(uncaptured), "Integer(IntegerValue(8))");
-}
-
-#[test]
-fn c027_discards_module_body_locals_after_the_body_runs() {
-    // IRIS-V1-META-C027 makes Class and Module body locals ORDINARY LEXICAL
-    // LOCALS that do NOT become Module state merely because the body
-    // transaction commits. A Module body `let` stayed in the shared lexical
-    // scope, so it outlived its body and was readable from outside the Module.
-    let escaped = "module M { let value = 7 } value";
-    // A `const` is a DECLARATION of the current module under D-432 and is
-    // still reachable from the Module's own Methods.
-    let constant = "module M { const K = 5 public fun read() -> Integer { K } } M.read()";
-
-    // When / Then
-    assert_eq!(rendered(escaped), "NameError");
-    assert_eq!(rendered(constant), "Integer(IntegerValue(5))");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
+    assert_eq!(
+        rendered("module M { const K = 5 public fun read() -> Integer { K } } M.read()"),
+        "Integer(IntegerValue(5))"
+    );
 }
 
 #[test]
@@ -2972,7 +2938,7 @@ fn c035_reads_the_candidate_inside_a_transaction_and_the_revision_outside() {
                      A.open() { |t| t.define_property(:y) { 2 } }; A.properties";
     // C119 implements the operation once and exposes it under both spellings.
     let both = "class A { public property x: Integer = 1 } \
-                [A.properties, Reflection::Class.properties(A)]";
+                %[A.properties, Reflection::Class.properties(A)]";
 
     // When / Then
     assert_eq!(
@@ -3021,25 +2987,17 @@ fn c056_makes_a_specification_named_error_catchable() {
 }
 
 #[test]
-fn c022_rolls_back_an_origin_body_that_raises() {
-    // IRIS-V1-META-C022 lets a Class body run ordinary synchronous control
-    // flow, which includes `raise`, and publishes NOTHING from a failed
-    // candidate. A `raise` in a Class body was rejected as an unsupported
-    // construct instead, so IRIS-V1-META-V341's origin-transaction failure
-    // could not be expressed at all.
-    let raises = "class Box { self.define_method(:ok) { 1 }; raise :stop }";
-    let commits = "class Box { self.define_method(:ok) { 1 } } Box.new().ok()";
+fn v136_rejects_raising_and_meta_calls_in_class_origins() {
+    let sources = [
+        "class Box { self.define_method(:ok) { 1 }; raise :stop }",
+        "class Box { self.define_method(:ok) { 1 } } Box.new().ok()",
+    ];
 
-    // When
-    let (outcome, class_published) = crate::evaluate_with_class_publication(raises, "Box");
-    let (_, member_published) = crate::evaluate_with_member_probe(raises, "Box", "ok");
-
-    // Then: IRIS-V1-RUNTIME-C024 leaves the Class unpublished and C022 commits
-    // no staged Method with it.
-    assert!(outcome.is_err());
-    assert!(!class_published);
-    assert!(!member_published);
-    assert_eq!(rendered(commits), "Integer(IntegerValue(1))");
+    assert!(
+        sources
+            .into_iter()
+            .all(|source| rendered(source) == "ParseDiagnostic")
+    );
 }
 
 #[test]
@@ -3073,7 +3031,7 @@ fn c076_combines_deny_origins_from_every_source() {
     // Contract-required denial never reached an implementing Class.
     let combined = "class Base meta deny method_set { } module NoShape meta deny shape { } \
                     contract Fixed meta deny class_state_set { } \
-                    class Target extends Base for Fixed mixin NoShape { } \
+                     class Target extends Base mixin NoShape { } impl Target for Fixed { } \
                     Target.denied_capabilities";
     // C077 forbids a subclass or an open from re-enabling an ancestor's denial.
     let cannot_restore = "class Base meta deny method_set { } class T extends Base { } \
@@ -3099,13 +3057,13 @@ fn c148_lets_a_stable_builtin_gain_behaviour_but_keep_its_identity() {
     // behaviour half but not the protection half.
     let behaviour = "open class Bool { public fun tag() -> Symbol { :ok } } \
                      open class Integer { public fun tag() -> Symbol { :ok } } \
-                     [true.tag(), Integer(1).tag()]";
+                     %[true.tag(), Integer(1).tag()]";
     // The primitives keep their identity across the open.
     let identity = "module Marker { } open class Nil mixin Marker { } \
-                    [nil same? nil, true same? true]";
+                    %[nil same? nil, true same? true]";
     // C150 refuses a superclass change on a protected built-in.
     let protected = "class Other { } \
-                     [try { Reflection::Class.set_superclass(Nil, Other) } catch e { e }, \
+                     %[try { Reflection::Class.set_superclass(Nil, Other) } catch e { e }, \
                      try { Reflection::Class.set_superclass(Bool, Other) } catch e { e }]";
     // An ordinary Class is unaffected by that protection.
     let ordinary = "class B { } class O { } \
@@ -3187,7 +3145,7 @@ fn c072_keeps_a_raw_ivar_per_receiver_and_binds_an_escaping_closure() {
     // Closure created in an instance Method bound to the receiver that created
     // it, which is what IRIS-V1-META-V434 observes across two receivers.
     let distinct = "class B { public fun w(v) { @x = v } public fun r() { @x } } \
-                    let a = B.new(); let b = B.new(); a.w(:first); b.w(:second); [a.r(), b.r()]";
+                    let a = B.new(); let b = B.new(); a.w(:first); b.w(:second); %[a.r(), b.r()]";
     let escaped = "class B { public fun w(v) { @x = v } public fun grab() { { @x } } } \
                    let a = B.new(); let f = a.grab(); a.w(:first); \
                    let b = B.new(); b.w(:second); f.call()";
@@ -3212,7 +3170,7 @@ fn c100_gives_raw_ivar_reflection_one_slot_vocabulary() {
     // `@x`, so ONE ivar had TWO slots and reflection could not see what source
     // had written.
     let written = "class B { public fun w(v) { @x = v } } let o = B.new(); o.w(3); \
-                   [Reflection::Object.list_ivars(o), Reflection::Object.get_ivar(o, :@x)]";
+                   %[Reflection::Object.list_ivars(o), Reflection::Object.get_ivar(o, :@x)]";
     // A name `list_ivars` reports feeds straight back in. The sigil is
     // REQUIRED: V362 makes a sigil-less name an
     // InvalidInstanceVariableNameError, since it addresses an ordinary
@@ -3254,7 +3212,7 @@ fn v358_reports_no_implicit_contract_parent_or_module_edge() {
     // IRIS-V1-META-C078 adds a Module edge only through `mixin`, so a Contract
     // written without `extends` and a Module written without `mixin` have EMPTY
     // views. Neither view existed, so no row could observe the absence.
-    let empty = "contract Plain { } module Empty { } [Plain.parents, Empty.modules]";
+    let empty = "contract Plain { } module Empty { } %[Plain.parents, Empty.modules]";
     // A declared parent and a declared edge DO appear.
     let parent = "contract A { } contract B extends A { } B.parents";
     let edge = "module A { } module B mixin A { } B.modules";
@@ -3305,15 +3263,15 @@ fn c064_appends_to_a_class_level_storage_slot() {
     // than a lexical binding. `append` is routed by SYNTAX before its receiver
     // is evaluated, and that routing reached only the binding form, so a
     // class-level Array could be READ and never appended to.
-    let module_slot = "module S { shared class property e: Array = [] } S.e.append(1); S.e";
-    let class_slot = "class C { shared class property e: Array = [] } C.e.append(1); C.e";
+    let module_slot = "module S { public shared class property e: Array = %[] } S.e.append(1); S.e";
+    let class_slot = "class C { public shared class property e: Array = %[] } C.e.append(1); C.e";
     // A slot that is not an Array does not answer `append` at all, and now
     // reports the ORDINARY message failure: C003 identity made `append` a
     // plain send, so the receiver is the Integer itself rather than a slot the
     // old syntax-routed path had to type-check by hand.
-    let wrong_type = "module S { shared class property e: Integer = 1 } S.e.append(1)";
+    let wrong_type = "module S { public shared class property e: Integer = 1 } S.e.append(1)";
     // An ordinary lexical binding is unaffected.
-    let binding = "let a = []; a.append(1); a";
+    let binding = "let a = %[]; a.append(1); a";
 
     // When / Then
     assert_eq!(
@@ -3335,21 +3293,12 @@ fn c064_appends_to_a_class_level_storage_slot() {
 }
 
 #[test]
-fn c027_lets_an_escaping_closure_keep_a_body_local() {
-    // IRIS-V1-META-C027 makes Class body locals ordinary lexical locals that
-    // nested Closures may capture and escaping Closures may outlive, while
-    // C025 keeps them from becoming properties or storage. This is
-    // IRIS-V1-META-V344, and it needed the class-level append above to be
-    // expressible in a package fixture at all.
-    let escaped = "mut kept = []; class Box { let local = 7; let shadow = 9; \
+fn v136_rejects_closure_captures_from_class_origin_locals() {
+    let escaped = "mut kept = %[]; class Box { let local = 7; let shadow = 9; \
                    kept.append({ local }); kept.append({ shadow }) } \
-                   [kept[0].call(), kept[1].call(), Box.properties]";
+                   %[kept[0].call(), kept[1].call(), Box.properties]";
 
-    // When / Then: each Closure keeps its OWN local, and neither became a slot.
-    assert_eq!(
-        rendered(escaped),
-        "Array([Integer(IntegerValue(7)), Integer(IntegerValue(9)), ReadonlyArray([])])"
-    );
+    assert_eq!(rendered(escaped), "ParseDiagnostic");
 }
 
 #[test]
@@ -3361,7 +3310,7 @@ fn c097_exposes_the_minimal_class_reflection_view() {
     let name = "class B { } B.name";
     let methods = "class B { public fun show() -> Integer { 1 } } B.methods";
     let modules = "module M { } class B mixin M { } B.modules";
-    let contracts = "contract C { } class B for C { } B.contracts";
+    let contracts = "contract C { } class B { } impl B for C { } B.contracts";
 
     // When / Then: `to_bool` is the root Method every Class carries, so a
     // declared Method appears beside it rather than alone.
@@ -3416,7 +3365,7 @@ fn c017_advances_the_revision_for_a_declarative_reopen() {
     // number itself.
     let declarative = "class B { } let before = B.active_revision; \
                        open class B { public fun a() -> Integer { 7 } } \
-                       [B.active_revision - before, B.new().a()]";
+                       %[B.active_revision - before, B.new().a()]";
     assert!(
         rendered(declarative).ends_with("Integer(IntegerValue(1)), Integer(IntegerValue(7))])")
     );
@@ -3449,10 +3398,8 @@ fn c098_reports_a_visible_slot_without_consulting_method_missing() {
     // selector, and the fallback does not run: it would raise `:called`.
     let fallback = "class B { public fun method_missing(s) { raise :called } } \
                     B.new().respond_to?(:ghost)";
-    // IRIS-V1-TYPES-C049 keeps a qualified Contract slot out of the ordinary
-    // namespace, so it is NOT an ordinary visible slot either.
-    let qualified = "contract N { fun name() } \
-                     class B for N { public impl fun N::name() -> Symbol { :n } } \
+    let qualified = "contract N { fun name() -> Symbol } class B { } \
+                     impl B for N { public fun name() -> Symbol { :n } } \
                      B.new().respond_to?(:name)";
 
     // When / Then
@@ -3460,7 +3407,7 @@ fn c098_reports_a_visible_slot_without_consulting_method_missing() {
     assert_eq!(rendered(absent), "Bool(false)");
     assert_eq!(rendered(inherited), "Bool(true)");
     assert_eq!(rendered(fallback), "Bool(false)");
-    assert_eq!(rendered(qualified), "Bool(false)");
+    assert_eq!(rendered(qualified), "Bool(true)");
 }
 
 #[test]
@@ -3469,45 +3416,35 @@ fn c086_reports_applied_decorators_in_written_order() {
     // order, and IRIS-V1-META-V431 observes that order through reflection. The
     // applied identities were staged onto the candidate already but nothing
     // could read them back.
-    let one = "@first() class Box { } Box.decorators";
-    let ordered = "@first() @second() class Box { } Box.decorators";
+    let definitions = "class first { } impl first for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+        class second { } impl second for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } ";
+    let one = format!("{definitions} @first() class Box {{ }} Box.decorators");
+    let ordered = format!("{definitions} @first() @second() class Box {{ }} Box.decorators");
     // Reversing the source order reverses the report, so the vector observes
     // the WRITTEN order rather than any implementation order.
-    let reversed = "@second() @first() class Box { } Box.decorators";
+    let reversed = format!("{definitions} @second() @first() class Box {{ }} Box.decorators");
     let none = "class Box { } Box.decorators";
 
     // When / Then
-    assert_eq!(rendered(one), "ReadonlyArray([Symbol(\"first\")])");
+    assert_eq!(rendered(&one), "ReadonlyArray([Symbol(\"first\")])");
     assert_eq!(
-        rendered(ordered),
+        rendered(&ordered),
         "ReadonlyArray([Symbol(\"first\"), Symbol(\"second\")])"
     );
     assert_eq!(
-        rendered(reversed),
+        rendered(&reversed),
         "ReadonlyArray([Symbol(\"second\"), Symbol(\"first\")])"
     );
     assert_eq!(rendered(none), "ReadonlyArray([])");
 }
 
 #[test]
-fn c026_does_not_capture_a_body_local_in_a_declared_method() {
-    // IRIS-V1-META-C026 makes a Method declared in an executable Class body NOT
-    // close over that body's locals, and IRIS-V1-CONTROL-C011 makes an
-    // unresolved bare name raise OR diagnose `NameError`. The v1.25 errata
-    // IRIS-V1-META-C121 settles which branch V343 observes: the declaration is
-    // ACCEPTED and the read raises when the Method runs.
+fn v136_rejects_class_origin_locals_beside_methods() {
     let captures = "class Box { let local = 1; public fun value() -> Integer { local } \
                     public fun plain() -> Integer { 2 } } \
-                    [try { Box.new().value() } catch e { e }, Box.new().plain()]";
-    // C121 also settles publication: not capturing is C026's specified outcome
-    // rather than a failure, so the Class publishes normally.
+                    %[try { Box.new().value() } catch e { e }, Box.new().plain()]";
     let published = "class Box { let local = 1; public fun value() -> Integer { local } } 1";
 
-    // When / Then: the sibling Method that reads nothing answers normally,
-    // which is what distinguishes a missing capture from a broken declaration.
-    assert_eq!(
-        rendered(captures),
-        "Array([Symbol(\"NameError\"), Integer(IntegerValue(2))])"
-    );
-    assert_eq!(rendered(published), "Integer(IntegerValue(1))");
+    assert_eq!(rendered(captures), "ParseDiagnostic");
+    assert_eq!(rendered(published), "ParseDiagnostic");
 }

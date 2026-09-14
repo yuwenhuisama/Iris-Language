@@ -7,8 +7,8 @@ use iris_runtime::{
     TruthinessError, TruthinessMethod, Value,
 };
 use iris_syntax::{
-    BinaryOperator, ClassDeclaration, Expression, MethodDeclaration, MethodKind, ModuleDeclaration,
-    Program, ProgramEntry, Statement,
+    BinaryOperator, ClassDeclaration, Expression, ImplDeclaration, MethodDeclaration, MethodKind,
+    ModuleDeclaration, Program, ProgramEntry, Statement,
 };
 
 use crate::EvaluationError;
@@ -17,8 +17,76 @@ mod boundaries;
 mod boundary_audit_tests;
 #[cfg(test)]
 mod boundary_tests;
+mod candidate_declarations;
+mod candidate_planning;
+mod continuation;
+mod contract;
+#[cfg(test)]
+mod contract_tests;
+mod core_types;
+mod effective_contracts;
+mod gc;
+#[cfg(test)]
+mod gc_expression_tests;
+mod gc_roots;
+#[cfg(test)]
+mod gc_tests;
+#[cfg(test)]
+mod gc_wrapper_tests;
+mod host_boundary;
+use continuation::SuspendedTask;
+#[cfg(test)]
+mod block_argument_tests;
+mod call_channels;
+mod callable_metadata;
+#[cfg(test)]
+mod callable_type_tests;
+mod captured_additions;
+mod decorated_module;
+mod decorated_origin;
+#[cfg(test)]
+mod decorated_origin_tests;
+mod decorator_core;
+#[cfg(test)]
+mod decorator_core_tests;
+mod decorator_errors;
+mod decorator_metadata;
+#[cfg(test)]
+mod decorator_phase_tests;
+mod decorator_phases;
+mod decorator_planning;
+mod generic_admission;
+mod history_context;
+mod immutable_collections;
+mod member_planning;
+mod metadata_record;
+mod module_body;
+#[cfg(test)]
+mod module_decorator_tests;
+mod module_phases;
+mod module_rollback;
+mod module_staging;
+mod module_transaction;
 pub(crate) mod native;
+mod origin_state;
 mod package_identity;
+mod package_upgrade;
+mod property_visibility;
+mod qualified_contracts;
+mod qualified_wrappers;
+mod rollback;
+mod rollback_artifact;
+mod static_implementations;
+mod stored_properties;
+mod upgrade_artifact;
+mod upgrade_state;
+mod wrapper_chain;
+mod wrapper_execution;
+mod wrapper_generics;
+#[cfg(test)]
+mod wrapper_identity_tests;
+mod wrapper_preparation;
+mod wrapper_types;
 use crate::source_method::{builtin, literal, visibility};
 
 /// The package identity a manifestless local script runs under.
@@ -63,12 +131,17 @@ struct DecoderDiagnostic {
     expected: &'static str,
 }
 
+#[derive(Clone)]
 struct ClosureRecord {
     parameters: Vec<String>,
+    full_parameters: Vec<iris_syntax::Parameter>,
+    is_async: bool,
+    return_type: Option<iris_syntax::TypeExpression>,
     body: Vec<Statement>,
     captured: HashMap<String, Value>,
     cells: HashMap<String, Binding>,
     receiver: Option<Value>,
+    lexical_context: wrapper_execution::LexicalContext,
 }
 
 /// Resolves an `IRIS-V1-COLLECTIONS-C009` index against a receiver length.
@@ -284,6 +357,8 @@ fn body_yields(body: &[Statement]) -> bool {
         match expression {
             Expression::Yield(_) => true,
             Expression::Await(operand)
+            | Expression::NonNull(operand)
+            | Expression::BlockArgument { value: operand }
             | Expression::Unary { operand, .. }
             | Expression::Grouped(operand) => in_expression(operand),
             Expression::Binary { left, right, .. } | Expression::Assignment { left, right, .. } => {
@@ -315,6 +390,9 @@ fn body_yields(body: &[Statement]) -> bool {
         match statement {
             Statement::Expression(expression)
             | Statement::Binding {
+                value: expression, ..
+            }
+            | Statement::InstanceField {
                 value: expression, ..
             } => in_expression(expression),
             Statement::Return(value) => value.as_ref().is_some_and(in_expression),
@@ -360,24 +438,6 @@ struct GeneratorBody {
 struct GeneratorState {
     resume_past: usize,
     seen: usize,
-}
-
-/// One async body suspended on an incomplete Awaitable.
-///
-/// `IRIS-V1-ASYNC-C013` requires an incomplete await to register the current
-/// continuation and suspend. This engine is stackless for async bodies exactly
-/// as it is for generators: the body is re-entered from the top and awaits
-/// below the delivered count replay their recorded values, so the recorded
-/// answers are the continuation.
-#[derive(Clone)]
-struct SuspendedTask {
-    body: Vec<Statement>,
-    locals: HashMap<String, Value>,
-    receiver: Option<Value>,
-    /// Awaits already completed, whose values replay on re-entry.
-    delivered: Vec<Value>,
-    /// The Gate this body is currently suspended on.
-    gate: iris_runtime::ObjectId,
 }
 
 pub(super) struct SourceEvaluator {
@@ -449,10 +509,11 @@ pub(super) struct SourceEvaluator {
     suspended: HashMap<iris_runtime::ObjectId, SuspendedTask>,
     /// Continuations made ready by a completion post, in `C014` FIFO order.
     ready: Vec<iris_runtime::ObjectId>,
-    /// Awaits already delivered in the async body currently being replayed.
-    async_replay: Option<GeneratorState>,
-    /// The recorded await values for the body currently being replayed.
-    replaying: Option<Vec<Value>>,
+    current_task: Option<iris_runtime::ObjectId>,
+    task_contexts: HashMap<iris_runtime::ObjectId, Value>,
+    task_types: HashMap<iris_runtime::ObjectId, Value>,
+    decorator_lifetime_diagnostics: Vec<Value>,
+    suspension_order: u64,
     /// Whether `C050` shutdown has closed revision-event delivery.
     revision_delivery_closed: bool,
     /// Retained audit history, in commit order.
@@ -486,9 +547,13 @@ pub(super) struct SourceEvaluator {
     /// created here is already complete and `C013` continues synchronously.
     tasks: HashMap<iris_runtime::ObjectId, Result<Value, Box<EvaluationError>>>,
     names: HashMap<String, Binding>,
+    top_level_functions: std::collections::HashSet<String>,
     selectors: HashMap<String, Selector>,
     bodies: HashMap<u64, MethodDeclaration>,
     singleton_declarations: HashMap<(ClassId, Selector), MethodDeclaration>,
+    singleton_identities: HashMap<(ClassId, Selector), Method>,
+    method_type_bindings: HashMap<String, iris_syntax::TypeExpression>,
+    explicit_method_types: Vec<iris_syntax::TypeExpression>,
     type_aliases: Vec<iris_syntax::TypeAliasDeclaration>,
     /// Declared runtime globals, keyed by `(package_id, name)`.
     ///
@@ -537,6 +602,8 @@ pub(super) struct SourceEvaluator {
     /// the artifact's SOURCE bytes, which is why a locator-only change
     /// preserves it.
     artifact: Option<(String, String, String)>,
+    rollback_state: rollback_artifact::RollbackState,
+    upgrade_state: package_upgrade::UpgradeState,
     /// The current package's declared `version`, when its manifest states one.
     ///
     /// `IRIS-V1-META-C003` lists the field and `IRIS-V1-META-V420` reflects the
@@ -560,8 +627,6 @@ pub(super) struct SourceEvaluator {
     /// Type's hash, so `pkg@1::C` and `pkg@2::C` are distinct Types. It
     /// defaults to 1 for source evaluated outside a package manifest.
     api_major: u64,
-    /// Origin Class names already declared by the D-178 hoisting pass.
-    hoisted_origins: Vec<String>,
     /// The declared Type of each stored-property slot, keyed by Class and slot.
     ///
     /// `IRIS-V1-RUNTIME-C065` makes stored-property storage TYPED, and `C161`
@@ -569,6 +634,7 @@ pub(super) struct SourceEvaluator {
     /// contract the generated setter enforces. Without this, a Method body
     /// writing `@n` bypassed the property guard entirely.
     property_types: HashMap<(ClassId, Selector), iris_syntax::TypeExpression>,
+    instance_field_mutability: HashMap<(ClassId, Selector), bool>,
     /// Class-level stored-property names declared on each Class.
     ///
     /// `IRIS-V1-TYPES-C064` puts this storage on the CLASS OBJECT, so `A.n`
@@ -576,6 +642,9 @@ pub(super) struct SourceEvaluator {
     /// declared names are recorded so a Class-object send can answer them
     /// rather than reporting a missing message.
     class_level_properties: HashMap<ClassId, Vec<Selector>>,
+    lazy_class_properties:
+        HashMap<(ClassId, Selector), (Expression, wrapper_execution::LexicalContext)>,
+    class_property_accessors: HashMap<(ClassId, String), Vec<iris_syntax::PropertyAccessor>>,
     /// Class-level property names declared `shared` on each Class.
     ///
     /// `IRIS-V1-TYPES-C064` puts a `shared class property` on the UNAPPLIED
@@ -594,8 +663,22 @@ pub(super) struct SourceEvaluator {
     /// The closed constructions whose per-closed initializers already ran.
     materialized_constructions: std::collections::HashSet<(ClassId, Vec<NominalType>)>,
     closures: HashMap<iris_runtime::ObjectId, ClosureRecord>,
+    captured_methods: HashMap<u64, iris_runtime::ObjectId>,
+    module_candidate: Option<ModuleId>,
     next_closure: u64,
     contract_names: HashMap<String, iris_runtime::ContractId>,
+    contract_metadata: HashMap<iris_runtime::ContractId, Value>,
+    decorator_contracts: Vec<iris_runtime::ContractId>,
+    snapshot_types: Option<iris_runtime::decorator_protocol::SnapshotTypes>,
+    decorator_phase_stack: Vec<iris_runtime::decorator_protocol::DecoratorPhase>,
+    wrapper_chains: HashMap<iris_runtime::MethodId, std::rc::Rc<wrapper_chain::WrapperChain>>,
+    wrapper_next: HashMap<iris_runtime::ObjectId, wrapper_execution::NextEntry>,
+    decorator_planning: bool,
+    decorator_definitions: Vec<ClassDeclaration>,
+    static_implementations: HashMap<String, Vec<ImplDeclaration>>,
+    decorator_metadata: Vec<iris_runtime::ImmutableHash>,
+    origin_names: HashMap<ClassId, String>,
+    origin_bodies: HashMap<ClassId, Vec<u64>>,
     /// The capabilities each Contract's `meta deny` withholds.
     ///
     /// `IRIS-V1-META-C076` subtracts every Contract-required deny from a
@@ -634,6 +717,7 @@ pub(super) struct SourceEvaluator {
     contract_requirement_parameters:
         HashMap<(iris_runtime::ContractId, String), Vec<Option<iris_syntax::TypeExpression>>>,
     class_contracts: HashMap<ClassId, Vec<iris_runtime::ContractId>>,
+    qualified_contracts: qualified_contracts::QualifiedContracts,
     /// Each generic Class name paired with its parameters and `where` bounds.
     ///
     /// `IRIS-V1-TYPES-C067` validates every normalized constraint at closed
@@ -705,6 +789,7 @@ pub(super) struct SourceEvaluator {
     /// reach the CURRENT candidate, so the block needs to know which target is
     /// open rather than inferring it from the receiver alone.
     open_target: Option<ClassId>,
+    candidate_declarations: candidate_declarations::CandidateDeclarations,
     /// The target whose decorator RUNTIME transform phase is executing.
     ///
     /// `IRIS-V1-META-C091` forbids a decorator from changing a forbidden
@@ -745,19 +830,12 @@ pub(super) struct SourceEvaluator {
     /// this from the generic BOUNDS was wrong: those are recorded only when the
     /// declaration wrote a `where` clause.
     generic_definitions: Vec<ClassId>,
+    wrapper_owner_parameters: HashMap<ClassId, Vec<String>>,
     active_exception: Option<Value>,
     active_context: Option<Value>,
-    /// Locals of every ACTIVE block, innermost last.
-    ///
-    /// Locals are threaded through evaluation as a `&HashMap` parameter, so a
-    /// caller's locals otherwise live only on the Rust stack and cannot be
-    /// enumerated. A collection could then free an object reachable only from
-    /// a caller, which is why one refused to run inside a Method body at all.
-    ///
-    /// Registering each block's locals here makes the live frames enumerable,
-    /// which is exactly what a root set is. It costs one push and one pop per
-    /// block rather than a rewrite of every signature that threads locals.
+    /// Active lexical block markers used by candidate declaration frames.
     frames: Vec<HashMap<String, Value>>,
+    active_roots: gc_roots::RootRegistry,
     next_selector: u64,
     next_body: u64,
 }
@@ -849,7 +927,10 @@ impl SourceEvaluator {
     /// global's identity `(package_id, $name)`.
     pub(super) fn new_in_package(package: &str) -> Result<Self, EvaluationError> {
         let mut runtime = Runtime::new();
-        let kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
+        let mut kernel = Kernel::new(runtime.registry_mut()).map_err(EvaluationError::Runtime)?;
+        kernel
+            .register_decorator_classes(runtime.registry_mut())
+            .map_err(EvaluationError::Runtime)?;
         let mut evaluator = Self {
             natives: None,
             native_bodies: HashMap::new(),
@@ -858,6 +939,7 @@ impl SourceEvaluator {
             remaining_steps: STEP_BUDGET,
             invocation_depth: 0,
             frames: Vec::new(),
+            active_roots: gc_roots::RootRegistry::default(),
             array_iterators: HashMap::new(),
             hash_iterators: HashMap::new(),
             byte_iterators: HashMap::new(),
@@ -867,8 +949,11 @@ impl SourceEvaluator {
             gates: HashMap::new(),
             suspended: HashMap::new(),
             ready: Vec::new(),
-            async_replay: None,
-            replaying: None,
+            current_task: None,
+            task_contexts: HashMap::new(),
+            task_types: HashMap::new(),
+            decorator_lifetime_diagnostics: Vec::new(),
+            suspension_order: 0,
             revision_subscribers: Vec::new(),
             revision_delivery_closed: false,
             next_commit_id: 1,
@@ -878,9 +963,13 @@ impl SourceEvaluator {
             generators: HashMap::new(),
             tasks: HashMap::new(),
             names: HashMap::new(),
+            top_level_functions: std::collections::HashSet::new(),
             selectors: HashMap::new(),
             bodies: HashMap::new(),
             singleton_declarations: HashMap::new(),
+            singleton_identities: HashMap::new(),
+            method_type_bindings: HashMap::new(),
+            explicit_method_types: Vec::new(),
             type_aliases: Vec::new(),
             globals: HashMap::new(),
             package: package.to_owned(),
@@ -891,22 +980,41 @@ impl SourceEvaluator {
             denial_context: None,
             grants: Vec::new(),
             artifact: None,
+            rollback_state: rollback_artifact::RollbackState::default(),
+            upgrade_state: package_upgrade::UpgradeState::default(),
             package_version: None,
             locked_dependencies: Vec::new(),
             dynamic_members: std::collections::HashSet::new(),
-            hoisted_origins: Vec::new(),
             property_types: HashMap::new(),
+            instance_field_mutability: HashMap::new(),
             class_level_properties: HashMap::new(),
+            lazy_class_properties: HashMap::new(),
+            class_property_accessors: HashMap::new(),
             shared_class_properties: HashMap::new(),
             closures: HashMap::new(),
+            captured_methods: HashMap::new(),
+            module_candidate: None,
             next_closure: 900_000,
             contract_names: HashMap::new(),
+            contract_metadata: HashMap::new(),
+            decorator_contracts: Vec::new(),
+            snapshot_types: None,
+            decorator_phase_stack: Vec::new(),
+            wrapper_chains: HashMap::new(),
+            wrapper_next: HashMap::new(),
+            decorator_planning: false,
+            decorator_definitions: Vec::new(),
+            static_implementations: HashMap::new(),
+            decorator_metadata: Vec::new(),
+            origin_names: HashMap::new(),
+            origin_bodies: HashMap::new(),
             contract_capabilities: HashMap::new(),
             contract_requirements: HashMap::new(),
             contract_requirement_arities: HashMap::new(),
             contract_requirement_returns: HashMap::new(),
             contract_requirement_parameters: HashMap::new(),
             class_contracts: HashMap::new(),
+            qualified_contracts: qualified_contracts::QualifiedContracts::default(),
             generic_bounds: HashMap::new(),
             qualified_methods: HashMap::new(),
             contract_parents: HashMap::new(),
@@ -936,6 +1044,7 @@ impl SourceEvaluator {
             current_contract: None,
             module_body_main: None,
             open_target: None,
+            candidate_declarations: candidate_declarations::CandidateDeclarations::default(),
             decorating_target: None,
             generator: None,
             async_depth: 0,
@@ -943,12 +1052,14 @@ impl SourceEvaluator {
             open_group: Vec::new(),
             open_group_state: None,
             generic_definitions: Vec::new(),
+            wrapper_owner_parameters: HashMap::new(),
             active_exception: None,
             active_context: None,
             next_selector: 1_000,
             next_body: 10_000,
         };
         evaluator.declare_traversal_contracts();
+        evaluator.install_decorator_core()?;
         Ok(evaluator)
     }
 
@@ -1001,6 +1112,28 @@ impl SourceEvaluator {
                 Binding::immutable(Value::Contract(contract, Vec::new())),
             );
             self.contract_parents.insert(contract, Vec::new());
+            self.qualified_contracts
+                .parameters
+                .insert(contract, vec!["T".into()]);
+            self.qualified_contracts.requirements.insert(
+                contract,
+                requirements
+                    .iter()
+                    .map(|(selector, returns)| MethodDeclaration {
+                        decorators: Vec::new(),
+                        is_async: false,
+                        is_override: false,
+                        impl_contract: None,
+                        kind: iris_syntax::MethodKind::Instance,
+                        selector: (*selector).to_owned(),
+                        type_parameters: Vec::new(),
+                        parameters: Vec::new(),
+                        return_type: Some(returns.clone()),
+                        visibility: iris_syntax::Visibility::Public,
+                        body: None,
+                    })
+                    .collect(),
+            );
             self.contract_requirements.insert(
                 contract,
                 requirements
@@ -1015,78 +1148,6 @@ impl SourceEvaluator {
         }
     }
 
-    /// Collects unreachable objects, answering how many were FREED.
-    ///
-    /// `D-111` keeps an identity hash stable across movement by GC, which is
-    /// only observable once something can actually die.
-    ///
-    /// Collection needs the COMPLETE root set. Locals are threaded through
-    /// evaluation as a parameter rather than owned by the evaluator, so each
-    /// active block registers its locals in `frames` and the live frames
-    /// supply what would otherwise be stranded on the Rust stack.
-    fn collect_garbage(&mut self) -> Result<usize, EvaluationError> {
-        let mut roots: Vec<Value> = Vec::new();
-        // The live frames ARE the root set. Each active block registers its
-        // locals, so a caller's bindings are enumerable rather than stranded
-        // on the Rust stack - which is what previously made a collection
-        // inside a Method body unsafe and therefore refused.
-        for frame in &self.frames {
-            roots.extend(frame.values().cloned());
-        }
-        for binding in self.names.values().chain(self.globals.values()) {
-            roots.push(binding.value());
-        }
-        roots.extend(self.module_constants.values().cloned());
-        roots.extend(self.imported_names.values().cloned());
-        roots.extend(self.event_errors.iter().cloned());
-        roots.extend(self.discarded_contexts.iter().cloned());
-        roots.extend(self.committed_targets.values().flatten().cloned());
-        roots.extend(
-            self.unobserved_failures
-                .iter()
-                .map(|(_, value)| value.clone()),
-        );
-        roots.extend(self.gates.values().flatten().cloned());
-        roots.extend(self.replaying.iter().flatten().cloned());
-        roots.extend(
-            self.tasks
-                .values()
-                .filter_map(|task| task.as_ref().ok())
-                .cloned(),
-        );
-        roots.extend(self.active_exception.iter().cloned());
-        roots.extend(self.active_context.iter().cloned());
-        // A live cursor retains its source, and a Closure keeps its captured
-        // environment and receiver alive, so both are roots.
-        for cursor in self.array_iterators.values() {
-            roots.extend(cursor.values.clone().map(Value::Array));
-        }
-        for cursor in self.hash_iterators.values() {
-            roots.push(Value::Hash(cursor.entries.clone()));
-            roots.extend(cursor.keys.iter().cloned());
-            roots.extend(cursor.yielded.iter().cloned());
-        }
-        for cursor in self.byte_iterators.values() {
-            roots.extend(cursor.values.iter().cloned());
-        }
-        for record in self.closures.values() {
-            roots.extend(record.captured.values().cloned());
-            roots.extend(record.cells.values().map(Binding::value));
-            roots.extend(record.receiver.iter().cloned());
-        }
-        for body in self.generators.values() {
-            roots.extend(body.locals.values().cloned());
-            roots.extend(body.receiver.iter().cloned());
-        }
-        for task in self.suspended.values() {
-            roots.extend(task.locals.values().cloned());
-            roots.extend(task.receiver.iter().cloned());
-            roots.extend(task.delivered.iter().cloned());
-        }
-        let (freed, _) = self.runtime.collect_garbage(roots.iter());
-        Ok(freed)
-    }
-
     /// Records the source text backing the next program.
     ///
     /// A diagnostic quotes the offending source, so a session must refresh it
@@ -1095,7 +1156,7 @@ impl SourceEvaluator {
         self.source = source.to_owned();
     }
 
-    pub(super) fn program(&mut self, program: &Program) -> Result<Value, EvaluationError> {
+    fn program_inner(&mut self, program: &Program) -> Result<Value, EvaluationError> {
         let contracts = self
             .names
             .iter()
@@ -1104,48 +1165,37 @@ impl SourceEvaluator {
         let prepared =
             iris_parser::prepare_bindings_with_aliases(program, &contracts, &self.type_aliases)
                 .map_err(|_| EvaluationError::TypeContractError)?;
+        let (prepared, implementations) = static_implementations::prepare(&prepared)?;
+        self.static_implementations = implementations;
         let program = &prepared;
-        let mut values = Vec::new();
-        // D-178: declaration collection resolves the ORIGIN before the open
-        // transaction, so an `open class A` may PRECEDE the `class A` it
-        // reopens. Only the origin is hoisted; the reopen still runs at its own
-        // position, which keeps the ordinary `class` then `open class` order
-        // applying the transaction after the origin's members exist.
-        let mut seen_reopen: Vec<&str> = Vec::new();
+        self.plan_decorators(program)?;
         for entry in &program.entries {
-            let ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) = entry else {
-                continue;
-            };
-            if class.reopen {
-                seen_reopen.push(&class.name);
-            } else if seen_reopen.contains(&class.name.as_str()) {
-                // A reopen of this name came FIRST, so the origin is resolved
-                // now and its own position is skipped below.
-                self.class(class)?;
-                self.hoisted_origins.push(class.name.clone());
+            if let ProgramEntry::Declaration(iris_syntax::Declaration::Contract(contract)) = entry
+                && contract.decorators.is_empty()
+            {
+                self.contract(contract)?;
             }
         }
+        let values = self.rooted(std::cell::RefCell::new(Vec::new()));
         for entry in &program.entries {
             match entry {
                 ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) => {
-                    // An origin already run in the hoisting pass is not declared
-                    // a second time.
-                    if !class.reopen
-                        && let Some(position) = self
-                            .hoisted_origins
-                            .iter()
-                            .position(|name| *name == class.name)
-                    {
-                        self.hoisted_origins.remove(position);
-                        continue;
+                    if !class.reopen {
+                        self.class(class)?;
                     }
-                    self.class(class)?;
                 }
                 ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
-                    self.module(module)?;
+                    if !module.reopen {
+                        self.module(module)?;
+                    }
                 }
                 ProgramEntry::Declaration(iris_syntax::Declaration::Contract(contract)) => {
-                    self.contract(contract)?;
+                    if !contract.decorators.is_empty() {
+                        self.contract(contract)?;
+                    }
+                }
+                ProgramEntry::Declaration(iris_syntax::Declaration::Impl(_)) => {
+                    return Err(EvaluationError::TypeContractError);
                 }
                 // C061 makes a Type alias a NAME for its target, not a new
                 // nominal Type, so the alias binds to whatever the target
@@ -1161,20 +1211,7 @@ impl SourceEvaluator {
                 ProgramEntry::Declaration(iris_syntax::Declaration::Import(import)) => {
                     self.import(import)?;
                 }
-                ProgramEntry::Declaration(iris_syntax::Declaration::Export(export)) => {
-                    if let iris_syntax::ExportDeclaration::Declaration(inner) = export.as_ref() {
-                        match inner.as_ref() {
-                            iris_syntax::Declaration::Class(class) => self.class(class)?,
-                            iris_syntax::Declaration::Module(module) => {
-                                self.module(module)?;
-                            }
-                            iris_syntax::Declaration::Contract(contract) => {
-                                self.contract(contract)?;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                ProgramEntry::Declaration(iris_syntax::Declaration::Export(_)) => {}
                 ProgramEntry::Declaration(iris_syntax::Declaration::TypeAlias(alias)) => {
                     self.type_aliases.retain(|known| known.name != alias.name);
                     self.type_aliases.push(alias.clone());
@@ -1186,14 +1223,46 @@ impl SourceEvaluator {
                             .insert(alias.name.clone(), Binding::immutable(Value::Class(class)));
                     }
                 }
-                ProgramEntry::Statement(statement) => {
-                    let value = self.statement(statement, &HashMap::new(), None)?;
-                    if !matches!(statement, Statement::Binding { .. } | Statement::Method(_)) {
-                        values.push(value);
-                    }
-                }
+                ProgramEntry::Statement(_) => {}
             }
         }
+        for entry in &program.entries {
+            let statement = match entry {
+                ProgramEntry::Statement(statement) => statement,
+                ProgramEntry::Declaration(iris_syntax::Declaration::Class(class)) => {
+                    if class.reopen {
+                        self.class(class)?;
+                    }
+                    continue;
+                }
+                ProgramEntry::Declaration(iris_syntax::Declaration::Module(module)) => {
+                    if module.reopen {
+                        self.module(module)?;
+                    }
+                    continue;
+                }
+                ProgramEntry::Declaration(
+                    iris_syntax::Declaration::Contract(_)
+                    | iris_syntax::Declaration::Impl(_)
+                    | iris_syntax::Declaration::Import(_)
+                    | iris_syntax::Declaration::Export(_)
+                    | iris_syntax::Declaration::TypeAlias(_),
+                ) => continue,
+            };
+            let value = self.statement(statement, &HashMap::new(), None)?;
+            if !matches!(
+                statement,
+                Statement::Binding { .. }
+                    | Statement::DeferredBinding { .. }
+                    | Statement::GlobalBinding { .. }
+                    | Statement::Method(_)
+            ) {
+                values.borrow_mut().push(value);
+            }
+        }
+        let values = std::rc::Rc::try_unwrap(values)
+            .unwrap_or_else(|_| unreachable!())
+            .into_inner();
         match values.as_slice() {
             [] => Err(EvaluationError::UnsupportedConstruct),
             [value] => Ok(value.clone()),
@@ -1202,6 +1271,21 @@ impl SourceEvaluator {
     }
 
     fn class(&mut self, declaration: &ClassDeclaration) -> Result<(), EvaluationError> {
+        if !declaration.reopen && self.names.contains_key(&declaration.name) {
+            return Err(EvaluationError::TypeContractError);
+        }
+        if !declaration.reopen
+            && !self.decorator_planning
+            && (self.static_implementations.contains_key(&declaration.name)
+                || !declaration.decorators.is_empty()
+                || declaration.body.iter().any(|statement| match statement {
+                    Statement::Method(method) => !method.decorators.is_empty(),
+                    Statement::StoredProperty { decorators, .. } => !decorators.is_empty(),
+                    _ => false,
+                }))
+        {
+            return self.decorated_origin(declaration);
+        }
         let superclass = match &declaration.extends {
             Some(iris_syntax::TypeExpression::Name(name)) => self.class_name(name)?,
             Some(_) => return Err(EvaluationError::UnsupportedConstruct),
@@ -1320,7 +1404,9 @@ impl SourceEvaluator {
             // A reopen skipped it entirely, so `open class Integer for N` never
             // declared the Contract and no view over it could be constructed.
             for target in &declaration.implements {
-                let iris_syntax::TypeExpression::Name(name) = target else {
+                let (iris_syntax::TypeExpression::Name(name)
+                | iris_syntax::TypeExpression::Generic { name, .. }) = target
+                else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 let contract = *self
@@ -1338,7 +1424,8 @@ impl SourceEvaluator {
             // C076: a Class's effective capabilities subtract every
             // Contract-required deny as well as its own and its ancestors'.
             for target in &declaration.implements {
-                if let iris_syntax::TypeExpression::Name(name) = target
+                if let iris_syntax::TypeExpression::Name(name)
+                | iris_syntax::TypeExpression::Generic { name, .. } = target
                     && let Some(contract) = self.contract_names.get(name)
                     && let Some(policy) = self.contract_capabilities.get(contract)
                 {
@@ -1398,7 +1485,9 @@ impl SourceEvaluator {
             // its header, so this records the `for` list rather than deriving it.
             let mut conformances = Vec::new();
             for target in &declaration.implements {
-                let iris_syntax::TypeExpression::Name(name) = target else {
+                let (iris_syntax::TypeExpression::Name(name)
+                | iris_syntax::TypeExpression::Generic { name, .. }) = target
+                else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 conformances.push(
@@ -1409,6 +1498,7 @@ impl SourceEvaluator {
                 );
             }
             self.class_contracts.insert(class, conformances);
+            self.record_qualified_contracts(class, declaration)?;
             // C033 refuses a programmatic open on a generic definition, so the
             // definition is recorded whether or not it wrote a `where` clause.
             if !declaration.parameters.is_empty() {
@@ -1492,30 +1582,33 @@ impl SourceEvaluator {
                 .begin_origin_transaction(class)
                 .map_err(EvaluationError::Class)?;
         }
+        let qualified_methods = self.qualified_methods.clone();
+        let wrapper_chains = self.wrapper_chains.clone();
+        let singleton_identities = self.singleton_identities.clone();
         let outcome = self
             .class_body(class, builtin, declaration)
             // C022 validates the COMPLETE candidate before publishing, so a
             // body that would leave a declared Contract unsatisfied fails as a
             // transaction rather than committing and being caught later.
-            .and_then(|()| self.validate_candidate_contracts(class));
-        match &outcome {
-            Ok(()) => {
+            .and_then(|()| self.validate_candidate_contracts(class))
+            .and_then(|()| {
                 if declaration.reopen {
-                    self.runtime
-                        .registry_mut()
-                        .commit_transaction(class)
-                        .map_err(EvaluationError::Class)?;
+                    self.runtime.registry_mut().commit_transaction(class)
                 } else {
-                    self.runtime
-                        .registry_mut()
-                        .commit_origin_transaction(class)
-                        .map_err(EvaluationError::Class)?;
+                    self.runtime.registry_mut().commit_origin_transaction(class)
                 }
-            }
+                .map(|_| ())
+                .map_err(EvaluationError::Class)
+            });
+        match &outcome {
+            Ok(()) => {}
             // C034 rolls the candidate back on exception, validation error
             // or capability denial and publishes nothing.
             Err(_) => {
                 self.runtime.registry_mut().roll_back_transaction(class);
+                self.qualified_methods = qualified_methods;
+                self.wrapper_chains = wrapper_chains;
+                self.singleton_identities = singleton_identities;
             }
         }
         if outcome.is_err() && !declaration.reopen {
@@ -1526,6 +1619,9 @@ impl SourceEvaluator {
         }
         self.singleton_declarations
             .retain(|(owner, _), _| *owner != class);
+        if outcome.is_ok() && !self.decorator_planning {
+            self.decorator_definitions.push(declaration.clone());
+        }
         outcome
     }
 
@@ -1535,6 +1631,9 @@ impl SourceEvaluator {
         builtin: bool,
         declaration: &ClassDeclaration,
     ) -> Result<(), EvaluationError> {
+        self.wrapper_owner_parameters
+            .entry(class)
+            .or_insert_with(|| declaration.parameters.clone());
         let mut shadowed = Vec::new();
         let outcome = self.class_body_scoped(class, builtin, declaration, &mut shadowed);
         self.restore_shadowed(shadowed);
@@ -1548,7 +1647,6 @@ impl SourceEvaluator {
         declaration: &ClassDeclaration,
         shadowed: &mut Vec<(String, Option<Binding>)>,
     ) -> Result<(), EvaluationError> {
-        self.publish_decorators(class, &declaration.decorators)?;
         let mut declared_in_body: Vec<(MethodKind, Selector)> = Vec::new();
         // C022 makes a Class body an EXECUTABLE construction transaction, and
         // C027 makes its locals ordinary lexical locals that do NOT become
@@ -1589,48 +1687,61 @@ impl SourceEvaluator {
                 continue;
             }
             match statement {
-                Statement::StoredProperty {
-                    decorators,
-                    shared,
-                    class_level,
+                Statement::InstanceField {
+                    mutable,
                     name,
                     annotation,
-                    initializer,
-                    ..
+                    value,
                 } => {
-                    if *class_level {
-                        if *shared {
-                            self.shared_class_properties
-                                .entry(class)
-                                .or_default()
-                                .push(name.clone());
-                        }
-                        // C066 runs a PER-CLOSED initializer once when the
-                        // closed Class is first materialized, so a generic
-                        // definition's ordinary class property is held rather
-                        // than evaluated here. A `shared` property belongs to
-                        // the unapplied definition and still runs now.
-                        if !*shared && !declaration.parameters.is_empty() {
-                            self.pending_class_properties
-                                .entry(class)
-                                .or_default()
-                                .push((name.clone(), initializer.clone()));
-                            self.class_level_properties.entry(class).or_default();
-                        } else {
-                            // C064 puts class-level storage on the CLASS OBJECT,
-                            // so its accessors are singleton Methods and its
-                            // slot is a Class raw ivar.
-                            self.class_level_property(class, name, initializer.clone())?;
-                        }
+                    if declaration.reopen {
+                        return Err(EvaluationError::UnsupportedConstruct);
+                    }
+                    let slot = self.selector(&format!("@{name}"));
+                    if self.instance_field_mutability.contains_key(&(class, slot)) {
+                        return Err(EvaluationError::TypeContractError);
+                    }
+                    if let Some(annotation) = annotation {
+                        self.property_types
+                            .insert((class, slot), annotation.clone());
+                    }
+                    self.instance_field_mutability
+                        .insert((class, slot), *mutable);
+                    let initializer = self.register_body(MethodDeclaration {
+                        decorators: Vec::new(),
+                        is_async: false,
+                        is_override: false,
+                        impl_contract: None,
+                        kind: MethodKind::Property,
+                        selector: name.clone(),
+                        type_parameters: Vec::new(),
+                        parameters: Vec::new(),
+                        return_type: annotation.clone(),
+                        visibility: iris_syntax::Visibility::Private,
+                        body: Some(vec![Statement::Expression(Expression::Assignment {
+                            left: Box::new(Expression::RawIvar(format!("@{name}"))),
+                            operator: iris_syntax::AssignmentOperator::Assign,
+                            right: Box::new(value.clone()),
+                        })]),
+                    });
+                    self.track_origin_body(class, initializer);
+                    if self.origin_names.contains_key(&class) {
+                        self.runtime
+                            .registry_mut()
+                            .stage_origin_property(class, slot, initializer)
                     } else {
-                        self.stored_property(
+                        self.runtime.registry_mut().publish_stored_property(
                             class,
-                            builtin,
-                            decorators,
-                            name,
-                            annotation,
-                            initializer.clone(),
-                        )?;
+                            slot,
+                            initializer,
+                        )
+                    }
+                    .map_err(EvaluationError::Class)?;
+                }
+                Statement::StoredProperty { class_level, .. } => {
+                    if *class_level {
+                        self.declare_class_property((class, declaration), statement)?;
+                    } else {
+                        self.stored_property(class, statement)?;
                     }
                 }
                 Statement::SharedBinding {
@@ -1711,6 +1822,25 @@ impl SourceEvaluator {
                 _ => return Err(EvaluationError::UnsupportedConstruct),
             }
         }
+        if !declaration.reopen {
+            self.validate_static_implementations(class, &declaration.name)?;
+        }
+        let reason = if declaration.reopen {
+            iris_runtime::decorator_protocol::DecoratorReason::Open
+        } else {
+            iris_runtime::decorator_protocol::DecoratorReason::Origin
+        };
+        self.publish_decorators(class, &declaration.decorators, reason)?;
+        for statement in &declaration.body {
+            let stored = candidate_declarations::stored_decorator_declaration(statement);
+            let method = match statement {
+                Statement::Method(method) => Some(method),
+                _ => stored.as_ref(),
+            };
+            if let Some(method) = method {
+                self.transform_method_decorators(class, method, reason)?;
+            }
+        }
         Ok(())
     }
 
@@ -1731,6 +1861,15 @@ impl SourceEvaluator {
             ));
         }
         let value = self.expression(value, &HashMap::new(), None)?;
+        if self
+            .module_candidate
+            .is_some_and(|module| self.module_classes.get(&module) == Some(&class))
+        {
+            self.runtime
+                .declare_candidate_class_var(class, selector, value, mutable)
+                .map_err(EvaluationError::Construction)?;
+            return Ok(());
+        }
         self.runtime
             .declare_class_var(class, selector, value, mutable)
             .map_err(EvaluationError::Construction)?;
@@ -1776,7 +1915,31 @@ impl SourceEvaluator {
             {
                 return Err(EvaluationError::UnsupportedConstruct);
             }
+            if requires_override {
+                let capability = if self
+                    .qualified_methods
+                    .contains_key(&(class, contract, selector))
+                {
+                    Capability::MethodBody
+                } else {
+                    Capability::MethodSet
+                };
+                self.runtime
+                    .registry()
+                    .require_candidate_meta_capability(class, capability)
+                    .map_err(EvaluationError::Class)?;
+                if let Some(previous) = self.qualified_declaration(class, contract, selector)
+                    && !iris_syntax::method_signature_compatible(
+                        method,
+                        previous,
+                        |source, target| self.nominal_subtype(source, target),
+                    )
+                {
+                    return Err(EvaluationError::TypeContractError);
+                }
+            }
             let body = self.register_body(method.clone());
+            self.track_origin_body(class, body);
             let qualified = Method::new(
                 iris_runtime::MethodId::new(self.next_body),
                 iris_runtime::MethodOwner::Class(class),
@@ -1812,6 +1975,7 @@ impl SourceEvaluator {
             }));
         }
         let body = self.register_body(method.clone());
+        self.track_origin_body(class, body);
         let decorators = self.decorator_transforms(&method.decorators);
         match method.kind {
             MethodKind::Instance => {
@@ -1830,10 +1994,13 @@ impl SourceEvaluator {
                 self.property_methods.insert(defined.id(), false);
             }
             MethodKind::Class => {
-                self.runtime
+                let published = self
+                    .runtime
                     .registry_mut()
                     .publish_singleton_method(class, selector, body, visibility(method))
                     .map_err(EvaluationError::Class)?;
+                self.singleton_identities
+                    .insert((class, selector), published);
                 self.singleton_declarations
                     .insert((class, selector), method.clone());
             }
@@ -1851,12 +2018,13 @@ impl SourceEvaluator {
                 } else {
                     self.runtime
                         .registry_mut()
-                        .publish_decorated_method(
+                        .publish_decorated_method_as(
                             class,
                             selector,
                             body,
                             method_visibility,
                             decorators,
+                            origin,
                         )
                         .map_err(EvaluationError::Class)?
                 };
@@ -1881,6 +2049,15 @@ impl SourceEvaluator {
             && self.runtime.registry().staged_has_method(class, selector)
         {
             return Ok(true);
+        }
+        if self.origin_names.contains_key(&class) {
+            return Ok(match kind {
+                MethodKind::Instance | MethodKind::Property => {
+                    self.origin_method(class, selector).is_some()
+                }
+                MethodKind::Class => self.singleton_declarations.contains_key(&(class, selector)),
+                MethodKind::Module => return Err(EvaluationError::UnsupportedConstruct),
+            });
         }
         let result = match (builtin, kind) {
             (true, MethodKind::Class) => self
@@ -1944,6 +2121,7 @@ impl SourceEvaluator {
 
     /// Records the audit artifact `IRIS-V1-META-C066` resolves for a rollback.
     pub(super) fn enter_artifact(&mut self, artifact: Option<(String, String, String)>) {
+        self.rollback_state.package = self.package.clone();
         self.artifact = artifact;
     }
 
@@ -2023,56 +2201,6 @@ impl SourceEvaluator {
                 })
             })
         })
-    }
-
-    /// Refuses a rollback whose artifact would downgrade the static spine.
-    ///
-    /// `IRIS-V1-META-C065` makes a same-major rollback fail when the historical
-    /// artifact lacks a member or Contract the CURRENT revision requires, and
-    /// publish nothing. `IRIS-V1-META-C066` already covers a missing or
-    /// mismatched artifact, so this is the separate downgrade check: the
-    /// artifact is present and its digest verified, and it is still refused.
-    fn validate_rollback_spine(
-        &mut self,
-        class: ClassId,
-        source: &str,
-    ) -> Result<(), EvaluationError> {
-        // A declared Contract is a static-spine fact under D-173, so dropping
-        // one falsifies a static promise exactly as `remove_contract` does,
-        // which is why both answer the same TypeContractError.
-        let declared: Vec<iris_runtime::ContractId> = self
-            .class_contracts
-            .get(&class)
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect();
-        for contract in declared {
-            let Some(name) = self
-                .contract_names
-                .iter()
-                .find_map(|(name, known)| (*known == contract).then(|| name.clone()))
-            else {
-                continue;
-            };
-            if !source.contains(&format!("for {name}")) {
-                return Err(EvaluationError::TypeContractError);
-            }
-            // C065 lists the Contract's REQUIRED members alongside the
-            // Contract itself, so an artifact naming the Contract but dropping
-            // a requirement is the same downgrade.
-            let required: Vec<String> = self
-                .contract_requirements
-                .get(&contract)
-                .cloned()
-                .unwrap_or_default();
-            for selector in required {
-                if !source.contains(&format!("fun {selector}")) {
-                    return Err(EvaluationError::TypeContractError);
-                }
-            }
-        }
-        Ok(())
     }
 
     /// The normalized Type of a generic annotation naming a Contract.
@@ -2206,10 +2334,45 @@ impl SourceEvaluator {
     /// what `IRIS-V1-TYPES-V206` observes.
     fn validate_candidate_contracts(&mut self, class: ClassId) -> Result<(), EvaluationError> {
         self.validate_signature_promises(class)?;
-        let Some(contracts) = self.class_contracts.get(&class).cloned() else {
-            return Ok(());
-        };
+        let mut contracts = self
+            .class_contracts
+            .get(&class)
+            .cloned()
+            .unwrap_or_default();
+        for (owner, contract) in self.qualified_contracts.owners.keys() {
+            if *owner == class && !contracts.contains(contract) {
+                contracts.push(*contract);
+            }
+        }
         for contract in contracts {
+            let requirement_bindings = self.qualified_requirement_bindings(class, contract);
+            if !self.decorator_contracts.contains(&contract)
+                && let Some(requirements) = self
+                    .qualified_contracts
+                    .requirements
+                    .get(&contract)
+                    .cloned()
+            {
+                for requirement in requirements {
+                    let selector = self.selector(&requirement.selector);
+                    let declaration = self
+                        .qualified_declaration(class, contract, selector)
+                        .or_else(|| self.candidate_method_declaration(class, selector))
+                        .ok_or(EvaluationError::TypeContractError)?;
+                    let promise = effective_contracts::substitute_requirement(
+                        &requirement,
+                        &requirement_bindings,
+                    );
+                    if !iris_syntax::method_signature_compatible(
+                        declaration,
+                        &promise,
+                        |source, target| self.nominal_subtype(source, target),
+                    ) {
+                        return Err(EvaluationError::TypeContractError);
+                    }
+                }
+                continue;
+            }
             let Some(requirements) = self.contract_requirements.get(&contract).cloned() else {
                 continue;
             };
@@ -2222,9 +2385,30 @@ impl SourceEvaluator {
                     continue;
                 };
                 let selector = self.selector(&requirement);
-                let Some(declaration) = self.candidate_method_declaration(class, selector) else {
+                let Some(declaration) = self
+                    .qualified_declaration(class, contract, selector)
+                    .or_else(|| self.candidate_method_declaration(class, selector))
+                else {
+                    if self.decorator_contracts.contains(&contract) {
+                        return Err(EvaluationError::TypeContractError);
+                    }
                     continue;
                 };
+                if self.decorator_contracts.contains(&contract)
+                    && (declaration.is_async
+                        || declaration.body.is_none()
+                        || declaration.visibility != iris_syntax::Visibility::Public
+                        || declaration.parameters.iter().any(|parameter| {
+                            parameter.category != iris_syntax::ParameterCategory::Positional
+                                || parameter.default.is_some()
+                        })
+                        || declaration.return_type.as_ref()
+                            != self
+                                .contract_requirement_returns
+                                .get(&(contract, requirement.clone())))
+                {
+                    return Err(EvaluationError::TypeContractError);
+                }
                 if declaration.parameters.len() != required {
                     return Err(EvaluationError::TypeContractError);
                 }
@@ -2237,7 +2421,7 @@ impl SourceEvaluator {
                     .contract_requirement_returns
                     .get(&(contract, requirement.clone()));
                 if let (Some(required), Some(actual)) = (stated, declaration.return_type.as_ref())
-                    && required != actual
+                    && wrapper_generics::substitute(required, &requirement_bindings) != *actual
                 {
                     return Err(EvaluationError::TypeContractError);
                 }
@@ -2252,7 +2436,10 @@ impl SourceEvaluator {
                     && required.len() == declaration.parameters.len()
                     && required.iter().zip(&declaration.parameters).any(
                         |(required, actual)| match (required, actual.annotation.as_ref()) {
-                            (Some(required), Some(actual)) => required != actual,
+                            (Some(required), Some(actual)) => {
+                                wrapper_generics::substitute(required, &requirement_bindings)
+                                    != *actual
+                            }
                             _ => false,
                         },
                     )
@@ -2275,6 +2462,10 @@ impl SourceEvaluator {
         selector: Selector,
     ) -> Option<&MethodDeclaration> {
         let registry = self.runtime.registry();
+        if self.origin_names.contains_key(&class) {
+            let method = self.origin_method(class, selector)?;
+            return self.bodies.get(&method.body().raw());
+        }
         let method = registry
             .resolve_local_or_ancestor_method(class, selector)
             .ok()?;
@@ -2314,12 +2505,12 @@ impl SourceEvaluator {
         {
             return Ok(None);
         }
-        let [
-            Expression::Symbol(name),
-            Expression::Closure {
-                parameters, body, ..
-            },
-        ] = arguments.as_slice()
+        let [Expression::Symbol(name), callback] = arguments.as_slice() else {
+            return Err(EvaluationError::UnsupportedConstruct);
+        };
+        let Expression::Closure {
+            parameters, body, ..
+        } = call_channels::operand(callback)
         else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -2381,11 +2572,24 @@ impl SourceEvaluator {
         else {
             return Ok(());
         };
-        let defined = self
-            .runtime
-            .registry_mut()
-            .define_module_method(module, selector, body, iris_runtime::Visibility::Public)
-            .map_err(EvaluationError::Class)?;
+        let defined = if self.module_candidate == Some(module) {
+            self.runtime
+                .registry_mut()
+                .stage_module_declaration_method(
+                    module,
+                    iris_runtime::ModuleMethodDefinition::new(
+                        selector,
+                        body,
+                        iris_runtime::Visibility::Public,
+                    ),
+                )
+                .map_err(decorated_module::module_error)?
+        } else {
+            self.runtime
+                .registry_mut()
+                .define_module_method(module, selector, body, iris_runtime::Visibility::Public)
+                .map_err(EvaluationError::Class)?
+        };
         self.module_methods.insert((module, selector), defined);
         self.module_method_overrides.insert(defined.id(), false);
         Ok(())
@@ -2406,14 +2610,25 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Option<Value>, EvaluationError> {
-        let Some(MethodOwner::Module(module)) = self.current_method.map(|method| method.owner())
-        else {
-            return Ok(None);
+        let module = match self.current_method.map(|method| method.owner()) {
+            Some(MethodOwner::Module(module)) => module,
+            _ => match self
+                .module_candidate
+                .filter(|_| self.module_body_main.is_some())
+            {
+                Some(module) => module,
+                None => return Ok(None),
+            },
         };
         let slot = self.selector(selector);
         let Some(method) = self.module_methods.get(&(module, slot)).copied() else {
             return Ok(None);
         };
+        if self.module_candidate == Some(module) {
+            return self
+                .invoke_method(method, self.module_symbol(module), arguments)
+                .map(Some);
+        }
         let main = self.module_main(module)?;
         let receiver = self.construct(main, &[])?;
         self.invoke_method(method, Value::Object(receiver), arguments)
@@ -2463,6 +2678,63 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let native_arguments = call_channels::native_arguments(arguments)?;
+        let arguments = native_arguments.as_ref();
+        if self.module_candidate.is_some() {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
+        let outermost = self.open_target.is_none();
+        let property_types = self.property_types.clone();
+        let property_methods = self.property_methods.clone();
+        let dynamic_members = self.dynamic_members.clone();
+        let wrapper_chains = self.wrapper_chains.clone();
+        let metadata = self.decorator_metadata.len();
+        let revision = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .id();
+        let result = self.programmatic_open_candidate(class, arguments);
+        let unchanged = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?
+            .id()
+            == revision;
+        if outermost && (result.is_err() || unchanged) {
+            self.property_types = property_types;
+            self.property_methods = property_methods;
+            self.dynamic_members = dynamic_members;
+            self.wrapper_chains = wrapper_chains;
+            self.decorator_metadata.truncate(metadata);
+        }
+        let declarations = match arguments {
+            [Value::Closure(callback)] => self.closures.get(callback).is_some_and(|record| {
+                record.body.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        Statement::Method(_) | Statement::StoredProperty { .. }
+                    )
+                })
+            }),
+            _ => false,
+        };
+        result.map_err(|error| {
+            if declarations {
+                self.candidate_failure(error)
+            } else {
+                error
+            }
+        })
+    }
+
+    fn programmatic_open_candidate(
+        &mut self,
+        class: ClassId,
+        arguments: &[Value],
+    ) -> Result<Value, EvaluationError> {
         let [Value::Closure(block)] = arguments else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -2489,12 +2761,14 @@ impl SourceEvaluator {
         }
         self.open_group.push(class);
         let previous = self.open_target.replace(class);
+        let previous_callback = self.candidate_declarations.callback.replace((block, class));
         let outcome = self
-            .invoke_closure(block, &[Value::Class(class)])
+            .invoke_candidate_callback(block, class)
             // C022 validates the COMPLETE candidate before publishing, so the
             // same Contract check the declarative form runs applies here.
             .and_then(|value| self.validate_candidate_contracts(class).map(|()| value));
         self.open_target = previous;
+        self.candidate_declarations.callback = previous_callback;
         if outcome.is_err() {
             self.open_group_state = Some(OpenGroupState::Aborted);
         }
@@ -2561,6 +2835,8 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let native_arguments = call_channels::native_arguments(arguments)?;
+        let arguments = native_arguments.as_ref();
         let [Value::Symbol(name), Value::Closure(block)] = arguments else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -2634,6 +2910,8 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let native_arguments = call_channels::native_arguments(arguments)?;
+        let arguments = native_arguments.as_ref();
         let [Value::Symbol(name), Value::Closure(block)] = arguments else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -2661,6 +2939,7 @@ impl SourceEvaluator {
             .registry_mut()
             .publish_stored_property(class, selector, initializer)
             .map_err(EvaluationError::Class)?;
+        self.install_dynamic_property_getter(class, name)?;
         Ok(Value::Nil)
     }
 
@@ -2708,29 +2987,6 @@ impl SourceEvaluator {
             .is_some_and(|slots| slots.contains(&slot))
     }
 
-    /// Installs a class-level stored property on the Class object.
-    ///
-    /// `IRIS-V1-TYPES-C064` puts this storage on the Class rather than on an
-    /// instance, so the initializer is evaluated once at declaration and the
-    /// slot is a Class raw ivar that `A.n` reads through a singleton accessor.
-    fn class_level_property(
-        &mut self,
-        class: ClassId,
-        name: &str,
-        initializer: Expression,
-    ) -> Result<(), EvaluationError> {
-        let value = self.expression(&initializer, &HashMap::new(), Some(Value::Class(class)))?;
-        let slot = self.selector(name);
-        self.runtime
-            .assign_class_raw_ivar(class, slot, value)
-            .map_err(EvaluationError::Construction)?;
-        self.class_level_properties
-            .entry(class)
-            .or_default()
-            .push(slot);
-        Ok(())
-    }
-
     /// Runs the per-closed class property initializers for one construction.
     ///
     /// `IRIS-V1-TYPES-C066` runs each per-closed initializer ONCE when the
@@ -2749,6 +3005,7 @@ impl SourceEvaluator {
         arguments: &[iris_syntax::TypeExpression],
     ) -> Result<(), EvaluationError> {
         let normalized = self.nominal_arguments(arguments)?;
+        self.validate_class_arguments(class, &normalized)?;
         // D-207 revalidates every already-interned closed construction when the
         // definition is opened, so interning is recorded for EVERY closed
         // construction rather than only for one carrying per-closed
@@ -2834,95 +3091,36 @@ impl SourceEvaluator {
             })
     }
 
-    fn stored_property(
-        &mut self,
-        class: ClassId,
-        builtin: bool,
-        decorators: &[iris_syntax::Decorator],
-        name: &str,
-        annotation: &iris_syntax::TypeExpression,
-        initializer: Expression,
-    ) -> Result<(), EvaluationError> {
-        let getter = MethodDeclaration {
-            is_async: false,
-            decorators: Vec::new(),
-            is_override: false,
-            impl_contract: None,
-            kind: MethodKind::Property,
-            selector: name.into(),
-            type_parameters: Vec::new(),
-            parameters: Vec::new(),
-            return_type: None,
-            visibility: iris_syntax::Visibility::Public,
-            body: Some(vec![Statement::Expression(Expression::RawIvar(format!(
-                "@{name}"
-            )))]),
-        };
-        let setter = MethodDeclaration {
-            is_async: false,
-            decorators: Vec::new(),
-            is_override: false,
-            impl_contract: None,
-            kind: MethodKind::Property,
-            selector: format!("{name}="),
-            type_parameters: Vec::new(),
-            return_type: None,
-            parameters: vec![iris_syntax::Parameter {
-                name: "value".into(),
-                category: iris_syntax::ParameterCategory::Positional,
-                // C004 guards a PROPERTY boundary, and every write to a stored
-                // property goes through this synthesized setter. Carrying the
-                // declared Type onto its parameter makes the existing parameter
-                // guard enforce the property, so a violating value written from
-                // a Method body is rejected instead of stored silently.
-                annotation: Some(annotation.clone()),
-                default: None,
-            }],
-            visibility: iris_syntax::Visibility::Public,
-            body: Some(vec![Statement::Expression(Expression::Assignment {
-                left: Box::new(Expression::RawIvar(format!("@{name}"))),
-                operator: iris_syntax::AssignmentOperator::Assign,
-                right: Box::new(Expression::Name("value".into())),
-            })]),
-        };
-        let initializer = MethodDeclaration {
-            is_async: false,
-            decorators: Vec::new(),
-            is_override: false,
-            impl_contract: None,
-            kind: MethodKind::Property,
-            selector: name.into(),
-            type_parameters: Vec::new(),
-            parameters: Vec::new(),
-            return_type: None,
-            visibility: iris_syntax::Visibility::Private,
-            body: Some(vec![Statement::Expression(Expression::Assignment {
-                left: Box::new(Expression::RawIvar(format!("@{name}"))),
-                operator: iris_syntax::AssignmentOperator::Assign,
-                right: Box::new(initializer),
-            })]),
-        };
-        self.class_method(class, builtin, false, &getter)?;
-        self.class_method(class, builtin, false, &setter)?;
-        let body = self.register_body(initializer);
-        let property = self.selector(&format!("@{name}"));
-        // C065 makes the storage TYPED and C161 makes `@name` that exact slot,
-        // so the declared Type is recorded against the slot a raw write targets.
-        // That is the SAME slot the registry publishes, now that source `@n`
-        // keeps its sigil.
-        self.property_types
-            .insert((class, property), annotation.clone());
-        let decorators = self.decorator_transforms(decorators);
-        self.runtime
-            .registry_mut()
-            .publish_decorated_stored_property(class, property, body, decorators)
-            .map_err(EvaluationError::Class)
+    fn instance_field_is_mutable(
+        &self,
+        object: iris_runtime::ObjectId,
+        slot: Selector,
+    ) -> Result<Option<bool>, EvaluationError> {
+        let class = self
+            .runtime
+            .class_of(object)
+            .map_err(EvaluationError::Construction)?;
+        if let Some(mutable) = self.instance_field_mutability.get(&(class, slot)) {
+            return Ok(Some(*mutable));
+        }
+        let revision = self
+            .runtime
+            .registry()
+            .active(class)
+            .map_err(EvaluationError::Class)?;
+        Ok(revision.mro().iter().find_map(|entry| match entry {
+            iris_runtime::MroEntry::Class(owner) => {
+                self.instance_field_mutability.get(&(*owner, slot)).copied()
+            }
+            iris_runtime::MroEntry::Module(_) => None,
+        }))
     }
 
     fn publish_decorators(
         &mut self,
         class: ClassId,
         decorators: &[iris_syntax::Decorator],
+        reason: iris_runtime::decorator_protocol::DecoratorReason,
     ) -> Result<(), EvaluationError> {
         if decorators.is_empty() {
             return Ok(());
@@ -2936,61 +3134,19 @@ impl SourceEvaluator {
             .stage_decorators(class, transforms)
             .map_err(EvaluationError::Class)?;
         for decorator in decorators {
-            self.run_decorator_transform(class, decorator)?;
+            let metadata = self.class_decorator_metadata(class)?;
+            let produced = self.execute_decorator_phase(
+                decorator,
+                decorator_phases::PhaseTarget {
+                    kind: iris_runtime::decorator_protocol::DecoratorKind::Class,
+                    reason,
+                    metadata,
+                    candidate: Some(class),
+                },
+            )?;
+            self.apply_transformation(class, produced)?;
         }
         Ok(())
-    }
-
-    /// Runs one decorator's RUNTIME transform phase against the target.
-    ///
-    /// `IRIS-V1-META-C124` gives the phase the signature
-    /// `transform(declaration, arguments, context)`, and `IRIS-V1-META-C125`
-    /// makes it return a `Transformation`. A decorator that declares no
-    /// `transform` contributes only the static metadata already staged, so it
-    /// is skipped rather than treated as an error.
-    fn run_decorator_transform(
-        &mut self,
-        class: ClassId,
-        decorator: &iris_syntax::Decorator,
-    ) -> Result<(), EvaluationError> {
-        let Some(decorator_class) = self.class_name(&decorator.name)? else {
-            return Ok(());
-        };
-        let selector = self.selector("transform");
-        let Ok(outcome) = self.runtime.registry().dispatch(decorator_class, selector) else {
-            return Ok(());
-        };
-        let iris_runtime::DispatchOutcome::Invoke(method) = outcome else {
-            return Ok(());
-        };
-        // C124 passes the target's C097 reflection view as `declaration` and
-        // the application-site arguments as `arguments`. The context is the
-        // third parameter and belongs to the runtime phase alone, since C088
-        // makes the static phase pure.
-        let mut arguments = Vec::new();
-        for argument in &decorator.arguments {
-            arguments.push(self.expression(argument, &HashMap::new(), None)?);
-        }
-        let receiver = Value::Object(self.construct(decorator_class, &[])?);
-        // C022 makes the target's construction an executable transaction and
-        // C037 makes a transaction body non-suspending, so the transform runs
-        // WITH the target as the open transaction and an `await` inside it
-        // raises MetaTransactionError. V431 observes that nothing publishes.
-        let previous_open = self.open_target.replace(class);
-        let previous_decorating = self.decorating_target.replace(class);
-        let produced = self.invoke_method(
-            method,
-            receiver,
-            &[
-                Value::Class(class),
-                Value::Array(ArrayRef::new(arguments)),
-                Value::Class(class),
-            ],
-        );
-        self.open_target = previous_open;
-        self.decorating_target = previous_decorating;
-        let produced = produced?;
-        self.apply_transformation(class, produced)
     }
 
     /// Applies a `Transformation` a decorator's runtime phase returned.
@@ -3005,40 +3161,41 @@ impl SourceEvaluator {
         class: ClassId,
         produced: Value,
     ) -> Result<(), EvaluationError> {
-        let Value::Transformation { staged, .. } = produced else {
-            // C125 fixes `Transformation.empty` as the transformation of a
-            // decorator that changes nothing, and a decorator returning
-            // anything else contributes no candidate change here.
-            return Ok(());
+        let Value::Decorator(record) = produced else {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
         };
-        for (name, block) in staged {
-            let (parameters, body) = self
-                .closures
-                .get(&block)
-                .map(|record| (record.parameters.clone(), record.body.clone()))
-                .ok_or(EvaluationError::UnsupportedConstruct)?;
-            let declaration = MethodDeclaration {
-                is_async: false,
-                decorators: Vec::new(),
-                impl_contract: None,
-                kind: MethodKind::Instance,
-                selector: name,
-                type_parameters: Vec::new(),
-                parameters: parameters
-                    .iter()
-                    .map(|parameter| iris_syntax::Parameter {
-                        name: parameter.clone(),
-                        category: iris_syntax::ParameterCategory::Positional,
-                        annotation: None,
-                        default: None,
-                    })
-                    .collect(),
-                return_type: None,
-                visibility: iris_syntax::Visibility::Public,
-                body: Some(body),
-                is_override: false,
+        let iris_runtime::DecoratorValue::Transformation(transformation) = *record else {
+            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
+        };
+        for operation in transformation.operations() {
+            let (name, block) = match operation {
+                iris_runtime::decorator_protocol::Operation::AddMethod {
+                    selector,
+                    body: Value::Closure(block),
+                } => (selector.clone(), *block),
+                iris_runtime::decorator_protocol::Operation::AddMethod { .. }
+                | iris_runtime::decorator_protocol::Operation::WrapMethod(_)
+                | iris_runtime::decorator_protocol::Operation::WrapGetter(_)
+                | iris_runtime::decorator_protocol::Operation::WrapSetter(_) => {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
             };
+            let declaration = self.captured_declaration(&name, block)?;
+            let selector = self.selector(&declaration.selector);
+            if self.candidate_method_declaration(class, selector).is_some() {
+                return Err(EvaluationError::Class(ClassError::OverrideRequired {
+                    class,
+                    selector,
+                }));
+            }
             self.class_method(class, false, false, &declaration)?;
+            let method = self
+                .runtime
+                .registry()
+                .staged_method(class, selector)
+                .and_then(|identity| self.runtime.registry().method_by_id(identity))
+                .ok_or(EvaluationError::UnsupportedConstruct)?;
+            self.captured_methods.insert(method.body().raw(), block);
         }
         Ok(())
     }
@@ -3190,80 +3347,26 @@ impl SourceEvaluator {
     /// requirements with no implementation MRO, `super`, stored state, or Method
     /// bodies, so parents are recorded as a plain relation rather than composed
     /// the way a Module is.
-    fn contract(
-        &mut self,
-        declaration: &iris_syntax::ContractDeclaration,
-    ) -> Result<(), EvaluationError> {
-        let mut parents = Vec::new();
-        for parent in &declaration.parents {
-            // `IRIS-V1-TYPES-C061` interns ONE Contract per generic definition,
-            // so a closed parent such as `extends Base<Integer>` names the same
-            // Contract its bare form does. Accepting only the bare name refused
-            // a grammatical `type_expr_list` entry outright.
-            let (iris_syntax::TypeExpression::Name(name)
-            | iris_syntax::TypeExpression::Generic { name, .. }) = parent
-            else {
-                return Err(EvaluationError::UnsupportedConstruct);
-            };
-            parents.push(
-                *self
-                    .contract_names
-                    .get(name)
-                    .ok_or(EvaluationError::UnsupportedConstruct)?,
-            );
+    fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
+        self.module_definition(declaration)?;
+        if !self.decorator_planning {
+            let module = self.module_names[&declaration.name];
+            self.rollback_state
+                .modules
+                .entry(module)
+                .or_default()
+                .push(declaration.clone());
         }
-        let contract = iris_runtime::ContractId::new(self.next_contract);
-        // C076 subtracts Contract-required denies from an implementing Class's
-        // effective capabilities, so a Contract's own `meta deny` is recorded
-        // rather than parsed and discarded.
-        self.contract_capabilities
-            .insert(contract, meta_capabilities(&declaration.meta_deny)?);
-        self.next_contract += 1;
-        self.contract_names
-            .insert(declaration.name.clone(), contract);
-        self.contract_parents.insert(contract, parents);
-        // C062 makes a bodyless Method declaration the requirement form, so the
-        // requirement names are exactly those members without a body.
-        let requirements = declaration
-            .body
-            .iter()
-            .filter_map(|statement| match statement {
-                Statement::Method(method) if method.body.is_none() => Some(method.selector.clone()),
-                _ => None,
-            })
-            .collect();
-        for statement in &declaration.body {
-            if let Statement::Method(method) = statement
-                && method.body.is_none()
-            {
-                self.contract_requirement_arities
-                    .insert((contract, method.selector.clone()), method.parameters.len());
-                self.contract_requirement_parameters.insert(
-                    (contract, method.selector.clone()),
-                    method
-                        .parameters
-                        .iter()
-                        .map(|parameter| parameter.annotation.clone())
-                        .collect(),
-                );
-                if let Some(returns) = &method.return_type {
-                    self.contract_requirement_returns
-                        .insert((contract, method.selector.clone()), returns.clone());
-                }
-            }
-        }
-        self.contract_requirements.insert(contract, requirements);
-        self.package_contexts
-            .contracts
-            .insert(contract, (self.package.clone(), self.api_major));
-        self.names.insert(
-            declaration.name.clone(),
-            Binding::immutable(Value::Contract(contract, Vec::new())),
-        );
         Ok(())
     }
 
-    fn module(&mut self, declaration: &ModuleDeclaration) -> Result<(), EvaluationError> {
+    fn module_definition(
+        &mut self,
+        declaration: &ModuleDeclaration,
+    ) -> Result<(), EvaluationError> {
+        if !declaration.reopen && self.module_names.contains_key(&declaration.name) {
+            return Err(EvaluationError::TypeContractError);
+        }
         if self.natives.as_ref().is_some_and(|registry| {
             registry.metadata().iter().any(|metadata| {
                 metadata
@@ -3273,6 +3376,9 @@ impl SourceEvaluator {
             })
         }) {
             return Err(EvaluationError::UnsupportedConstruct);
+        }
+        if !self.decorator_planning {
+            return self.decorated_module(declaration);
         }
         let mut components = Vec::new();
         for mixin in &declaration.mixins {
@@ -3346,6 +3452,7 @@ impl SourceEvaluator {
                     initializer,
                     ..
                 } if *class_level => {
+                    self.record_class_property_accessors(module_class, statement)?;
                     self.class_level_property(module_class, name, initializer.clone())?;
                 }
                 Statement::Method(method) => {
@@ -3613,6 +3720,14 @@ impl SourceEvaluator {
         locals: &HashMap<String, Value>,
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
+        if self.decorator_planning
+            && matches!(
+                statement,
+                Statement::GlobalBinding { .. } | Statement::SharedBinding { .. }
+            )
+        {
+            return Err(decorator_planning::impure());
+        }
         match statement {
             Statement::Binding {
                 mutable,
@@ -3697,6 +3812,7 @@ impl SourceEvaluator {
                 };
                 // IRIS-V1-CONTROL-C057: an explicit cause MUST be an
                 // ExceptionContext, and `from nil` suppresses chaining.
+                let value = self.rooted(value);
                 let cause = match raise.as_ref().and_then(|raise| raise.cause.as_ref()) {
                     Some(cause) => {
                         let cause = self.expression(cause, locals, receiver)?;
@@ -3728,6 +3844,7 @@ impl SourceEvaluator {
                         Some(_) | None => Value::Nil,
                     },
                 };
+                let value = std::rc::Rc::unwrap_or_clone(value);
                 let identity = self.next_context_identity();
                 let location = self.source_location(raise_offset);
                 // C066 forbids a fabricated diagnostic, and an ordinary raise
@@ -3790,7 +3907,45 @@ impl SourceEvaluator {
                     .insert(key, Binding::new(value.clone(), *mutable));
                 Ok(value)
             }
-            Statement::SharedBinding { .. }
+            Statement::Method(method) if method.kind == MethodKind::Instance => {
+                let body = method
+                    .body
+                    .clone()
+                    .ok_or(EvaluationError::UnsupportedConstruct)?;
+                let object = iris_runtime::ObjectId::new(self.next_closure);
+                self.next_closure += 1;
+                self.closures.insert(
+                    object,
+                    ClosureRecord {
+                        parameters: method
+                            .parameters
+                            .iter()
+                            .map(|parameter| parameter.name.clone())
+                            .collect(),
+                        full_parameters: method.parameters.clone(),
+                        is_async: method.is_async,
+                        return_type: method.return_type.clone(),
+                        body,
+                        captured: locals.clone(),
+                        cells: self
+                            .names
+                            .iter()
+                            .filter(|(_, binding)| binding.mutable)
+                            .map(|(name, binding)| (name.clone(), binding.clone()))
+                            .collect(),
+                        receiver: None,
+                        lexical_context: self.wrapper_context(),
+                    },
+                );
+                self.names.insert(
+                    method.selector.clone(),
+                    Binding::immutable(Value::Closure(object)),
+                );
+                self.top_level_functions.insert(method.selector.clone());
+                Ok(Value::Closure(object))
+            }
+            Statement::InstanceField { .. }
+            | Statement::SharedBinding { .. }
             | Statement::StoredProperty { .. }
             | Statement::Method(_) => Err(EvaluationError::UnsupportedConstruct),
             // D-421 unwinds to the NEAREST callable boundary, so this is a
@@ -3821,6 +3976,7 @@ impl SourceEvaluator {
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
         let value = self.expression(subject, locals, receiver.clone())?;
+        let value = self.rooted(value);
         for arm in arms {
             let mut bound = locals.clone();
             if !self.pattern_matches(&arm.pattern, &value, &mut bound)? {
@@ -3920,9 +4076,10 @@ impl SourceEvaluator {
     ) -> Result<Value, EvaluationError> {
         let source = self.expression(iterable, locals, receiver.clone())?;
         let iterator = self.send(source, "iterator", &[])?;
+        let iterator = self.rooted(iterator);
         let outcome =
             self.for_iterations(label, binding, &iterator, body, locals, receiver.clone());
-        self.close_after(iterator, outcome)
+        self.close_after(std::rc::Rc::unwrap_or_clone(iterator), outcome)
     }
 
     /// Applies an `IRIS-V1-COLLECTIONS-C040` collection operation.
@@ -5211,74 +5368,6 @@ impl SourceEvaluator {
         }
     }
 
-    /// Resumes every continuation made ready by a completion post.
-    ///
-    /// `IRIS-V1-ASYNC-C014` enqueues ready continuations in deterministic FIFO
-    /// order, so they resume in the order they became ready. A resumed body may
-    /// suspend again on another Gate, which simply re-registers it.
-    fn drive_ready_continuations(&mut self) -> Result<(), EvaluationError> {
-        while !self.ready.is_empty() {
-            let identity = self.ready.remove(0);
-            let Some(task) = self.suspended.remove(&identity) else {
-                continue;
-            };
-            let Some(resumed) = self.gates.get(&task.gate).cloned().flatten() else {
-                // The Gate is no longer complete, so the continuation is not
-                // ready after all and stays registered.
-                self.suspended.insert(identity, task);
-                continue;
-            };
-            let mut delivered = task.delivered.clone();
-            delivered.push(resumed);
-            let previous_replay = self.async_replay.replace(GeneratorState {
-                resume_past: delivered.len(),
-                seen: 0,
-            });
-            let previous_values = self.replaying.replace(delivered.clone());
-            self.async_depth += 1;
-            let outcome = match self.block(&task.body, &task.locals, task.receiver.clone()) {
-                Err(EvaluationError::Return(value)) => Ok(value),
-                result => result,
-            };
-            self.async_depth -= 1;
-            self.replaying = previous_values;
-            self.async_replay = previous_replay;
-            match outcome {
-                Err(EvaluationError::AwaitSuspended(gate)) => {
-                    self.suspended.insert(
-                        identity,
-                        SuspendedTask {
-                            delivered,
-                            gate,
-                            ..task
-                        },
-                    );
-                }
-                outcome => {
-                    if let Err(error) = &outcome {
-                        let captured = match error {
-                            EvaluationError::Raised(value) => value.clone(),
-                            other => catchable_name(other)
-                                .map_or(Value::Symbol("AsyncFailure".into()), Value::Symbol),
-                        };
-                        self.unobserved_failures.push((identity, captured));
-                    }
-                    self.tasks.insert(identity, outcome.map_err(Box::new));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// The value recorded for an already-delivered await during replay.
-    ///
-    /// The async body is re-entered from the top, so awaits below the delivered
-    /// count must answer what they answered before rather than suspending
-    /// again. This is the same stackless strategy generators use.
-    fn replayed_await(&self, index: usize) -> Option<Value> {
-        self.replaying.as_ref()?.get(index).cloned()
-    }
-
     /// The slot a Hash key occupies under `IRIS-V1-COLLECTIONS-C028`.
     ///
     /// `C028` dispatches each key's CURRENT `==` Method and must not fall back
@@ -5700,7 +5789,11 @@ impl SourceEvaluator {
             .is_err()
             .then(|| self.active_context.take())
             .flatten();
+        let primary_context = self.rooted(primary_context);
+        let outcome = self.rooted(outcome);
         let closed = self.send(resource, "close", &[]);
+        let primary_context = std::rc::Rc::unwrap_or_clone(primary_context);
+        let outcome = std::rc::Rc::unwrap_or_clone(outcome);
         match (outcome, closed) {
             (Ok(value), Ok(_)) => Ok(value),
             (Ok(_), Err(error)) => Err(error),
@@ -5824,14 +5917,16 @@ impl SourceEvaluator {
         // The restore must run on EVERY exit, including the `break`, `return`
         // and raise paths that leave the block early, so the body is run
         // separately and its outcome passed through.
-        let mut shadowed = Vec::new();
-        // The frame is registered for the whole body and popped on EVERY exit,
-        // including the break, return and raise paths that leave early.
+        let shadowed = self.rooted(std::cell::RefCell::new(Vec::new()));
         let frame = self.frames.len();
-        self.frames.push(parent.clone());
-        let result = self.block_body(statements, parent, receiver, &mut shadowed);
+        self.frames.push(HashMap::new());
+        let result = self.block_body(statements, parent, receiver, &shadowed);
         self.frames.truncate(frame);
-        self.restore_shadowed(shadowed);
+        self.restore_shadowed(
+            std::rc::Rc::try_unwrap(shadowed)
+                .unwrap_or_else(|_| unreachable!())
+                .into_inner(),
+        );
         result
     }
 
@@ -5840,14 +5935,10 @@ impl SourceEvaluator {
         statements: &[Statement],
         parent: &HashMap<String, Value>,
         receiver: Option<Value>,
-        shadowed: &mut Vec<(String, Option<Binding>)>,
+        shadowed: &std::cell::RefCell<Vec<(String, Option<Binding>)>>,
     ) -> Result<Value, EvaluationError> {
-        let mut locals = parent.clone();
-        let mut result = Value::Nil;
-        // A binding made INSIDE this block must join the root set too, so the
-        // registered frame is refreshed as the body binds. Registering only
-        // the entry snapshot let a collection free an object a local still
-        // held, which then failed with an unknown ObjectId.
+        let locals = self.rooted(std::cell::RefCell::new(parent.clone()));
+        let mut result = self.rooted(Value::Nil);
         let frame = self.frames.len().saturating_sub(1);
         for statement in statements {
             match statement {
@@ -5858,7 +5949,7 @@ impl SourceEvaluator {
                     annotation,
                     ..
                 } => {
-                    let value = self.expression(value, &locals, receiver.clone())?;
+                    let value = self.expression(value, &locals.borrow(), receiver.clone())?;
                     // C004 makes a written annotation a runtime boundary guard
                     // wherever it appears. This path discarded the annotation,
                     // so `let s: String = 1` was checked at top level but NOT
@@ -5868,29 +5959,31 @@ impl SourceEvaluator {
                         self.check_binding_annotation(&value, annotation)?;
                     }
                     if *mutable {
-                        locals.remove(name);
-                        shadowed.push((name.clone(), self.names.get(name).cloned()));
+                        locals.borrow_mut().remove(name);
+                        let previous = self.names.remove(name);
+                        shadowed.borrow_mut().push((name.clone(), previous));
                         let mut binding = Binding::new(value, true);
                         binding.contract = annotation.clone();
                         self.names.insert(name.clone(), binding);
                     } else {
-                        locals.insert(name.clone(), value);
-                    }
-                    if let Some(registered) = self.frames.get_mut(frame) {
-                        registered.clone_from(&locals);
+                        locals.borrow_mut().insert(name.clone(), value);
                     }
                 }
                 Statement::Expression(_) | Statement::If { .. } | Statement::Try { .. } => {
-                    result = self.statement(statement, &locals, receiver.clone())?;
+                    let value = self.statement(statement, &locals.borrow(), receiver.clone())?;
+                    result = self.rooted(value);
                 }
-                Statement::Raise(_) => return self.statement(statement, &locals, receiver.clone()),
+                Statement::Raise(_) => {
+                    return self.statement(statement, &locals.borrow(), receiver.clone());
+                }
                 // A `break` leaves the block immediately, carrying its loop
                 // result outward as the control signal the target loop consumes.
                 Statement::Break { .. } | Statement::Continue(_) => {
-                    return self.statement(statement, &locals, receiver.clone());
+                    return self.statement(statement, &locals.borrow(), receiver.clone());
                 }
                 Statement::While { .. } | Statement::For { .. } => {
-                    result = self.statement(statement, &locals, receiver.clone())?;
+                    let value = self.statement(statement, &locals.borrow(), receiver.clone())?;
+                    result = self.rooted(value);
                 }
                 // C004 admits a typed `mut name` inside a method body: the
                 // cell is created deferred and the first assignment
@@ -5898,21 +5991,27 @@ impl SourceEvaluator {
                 // `mut x: Integer; x = 5` unrunnable, so the deferred read
                 // C004 diagnoses could never be reached.
                 Statement::DeferredBinding { .. } => {
-                    result = self.statement(statement, &locals, receiver.clone())?;
+                    let value = self.statement(statement, &locals.borrow(), receiver.clone())?;
+                    result = self.rooted(value);
                 }
-                Statement::GlobalBinding { .. }
-                | Statement::SharedBinding { .. }
+                Statement::InstanceField { .. }
                 | Statement::StoredProperty { .. }
-                | Statement::Method(_) => return Err(EvaluationError::UnsupportedConstruct),
+                | Statement::Method(_) => {
+                    self.candidate_declaration(statement, frame)?;
+                }
+                Statement::GlobalBinding { .. } | Statement::SharedBinding { .. } => {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                }
                 Statement::Return(_) => {
-                    return self.statement(statement, &locals, receiver.clone());
+                    return self.statement(statement, &locals.borrow(), receiver.clone());
                 }
                 Statement::Match { .. } => {
-                    result = self.statement(statement, &locals, receiver.clone())?;
+                    let value = self.statement(statement, &locals.borrow(), receiver.clone())?;
+                    result = self.rooted(value);
                 }
             }
         }
-        Ok(result)
+        Ok(std::rc::Rc::unwrap_or_clone(result))
     }
 
     /// Restores the bindings a block's `mut` declarations shadowed.
@@ -5937,7 +6036,8 @@ impl SourceEvaluator {
         locals: &HashMap<String, Value>,
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
-        let result = match self.block(body, locals, receiver.clone()) {
+        let outcome = self.block(body, locals, receiver.clone());
+        let result = match outcome.map_err(|error| self.core_boundary_error(error)) {
             Ok(value) => Ok(value),
             Err(EvaluationError::Raised(value)) => {
                 self.catch_exception(value, catches, locals, receiver.clone())
@@ -5950,6 +6050,25 @@ impl SourceEvaluator {
             //
             // A control-flow unwind is NOT an exception and still travels to
             // its own boundary.
+            Err(
+                error @ EvaluationError::DecoratorDiagnostic {
+                    phase: "candidate validation",
+                    code,
+                },
+            ) => {
+                let result = self.catch_exception(
+                    Value::Symbol(code.into()),
+                    catches,
+                    locals,
+                    receiver.clone(),
+                );
+                match result {
+                    Err(EvaluationError::Raised(Value::Symbol(raised))) if raised == code => {
+                        Err(error)
+                    }
+                    result => result,
+                }
+            }
             Err(error) => match catchable_name(&error) {
                 Some(name) => {
                     self.catch_exception(Value::Symbol(name), catches, locals, receiver.clone())
@@ -5966,7 +6085,8 @@ impl SourceEvaluator {
             return result;
         }
         if let Some(finally) = finally {
-            let pending = match &result {
+            let result = self.rooted(result);
+            let pending = match result.as_ref() {
                 Err(EvaluationError::Raised(value)) => Some(value.clone()),
                 Ok(_) | Err(_) => None,
             };
@@ -5976,7 +6096,12 @@ impl SourceEvaluator {
                 .then(|| self.active_context.clone())
                 .flatten();
             self.active_exception = pending;
+            let previous = self.rooted(previous);
+            let pending_context = self.rooted(pending_context);
             let final_result = self.block(finally, locals, receiver);
+            let previous = std::rc::Rc::unwrap_or_clone(previous);
+            let pending_context = std::rc::Rc::unwrap_or_clone(pending_context);
+            let result = std::rc::Rc::unwrap_or_clone(result);
             self.active_exception = previous;
             if let Err(EvaluationError::Raised(raised)) = &final_result {
                 // IRIS-V1-CONTROL-C064: a `finally` that raises while a context
@@ -6011,6 +6136,7 @@ impl SourceEvaluator {
                 self.discarded_contexts.push(discarded.clone());
             }
             final_result?;
+            return result;
         }
         result
     }
@@ -6100,8 +6226,17 @@ impl SourceEvaluator {
         if type_contains_placeholder(annotation) {
             return Err(EvaluationError::NameError);
         }
-        if self.annotation_admits(value, annotation)? {
+        let annotation = wrapper_generics::substitute(annotation, &self.method_type_bindings);
+        if self.annotation_admits(value, &annotation)? {
             return Ok(());
+        }
+        if matches!(
+            value,
+            Value::Decorator(_) | Value::ImmutableArray(_) | Value::ImmutableHash(_)
+        ) {
+            return Err(
+                self.core_boundary_error(EvaluationError::Runtime(iris_runtime::KernelError::Type))
+            );
         }
         Err(EvaluationError::TypeContractError)
     }
@@ -6113,7 +6248,15 @@ impl SourceEvaluator {
         value: &Value,
         annotation: &iris_syntax::TypeExpression,
     ) -> Result<bool, EvaluationError> {
+        if let Some(admitted) = self.immutable_annotation_admits(value, annotation)? {
+            return Ok(admitted);
+        }
         match annotation {
+            iris_syntax::TypeExpression::Generic { name, .. }
+                if matches!(name.as_str(), "Closure" | "BoundMethod" | "Block") =>
+            {
+                self.wrapper_annotation_admits(value, annotation)
+            }
             // C011: `NonNil` admits every value EXCEPT nil. It is a Type, not a
             // declared Class, so it never resolves through `class_name`.
             iris_syntax::TypeExpression::Name(name) if name == "NonNil" => {
@@ -6128,8 +6271,10 @@ impl SourceEvaluator {
                 if matches!(name.as_str(), "Array" | "Hash" | "Symbol") {
                     return Ok(matches!(
                         (name.as_str(), value),
-                        ("Array", Value::Array(_) | Value::ReadonlyArray(_))
-                            | ("Hash", Value::Hash(_))
+                        (
+                            "Array",
+                            Value::Array(_) | Value::ReadonlyArray(_) | Value::ImmutableArray(_)
+                        ) | ("Hash", Value::Hash(_) | Value::ImmutableHash(_))
                             | ("Symbol", Value::Symbol(_))
                     ));
                 }
@@ -6168,26 +6313,6 @@ impl SourceEvaluator {
                     _ => Ok(true),
                 }
             }
-            // C094 reifies callable KIND in the Type system: `Closure<S>` types
-            // a Closure and `BoundMethod<S>` types a BoundMethod. C039 makes an
-            // unbound Method a reflective definition object rather than an
-            // ordinary callable, so a callable annotation MUST reject one until
-            // an explicit binding produces a BoundMethod. The SIGNATURE half
-            // stays a static concern: C096 checks it at the CALL SITE rather
-            // than by variance between callable Types.
-            iris_syntax::TypeExpression::Generic { name, .. }
-                if matches!(name.as_str(), "Closure" | "BoundMethod") =>
-            {
-                Ok(match value {
-                    Value::Closure(_) => name == "Closure",
-                    Value::BoundMethod(_) => name == "BoundMethod",
-                    // An unbound Method satisfies NEITHER kind.
-                    Value::Method(_) => false,
-                    // A non-callable is left to the ordinary rules, which is
-                    // what keeps this about kind rather than about arity.
-                    _ => true,
-                })
-            }
             iris_syntax::TypeExpression::Generic { arguments, .. }
                 if arguments.iter().any(type_contains_placeholder) =>
             {
@@ -6197,10 +6322,18 @@ impl SourceEvaluator {
                 if arguments.iter().any(type_contains_placeholder) {
                     return Err(EvaluationError::NameError);
                 }
+                if let Some(contract) = self.contract_names.get(name).copied() {
+                    let arguments = self.nominal_arguments(arguments)?;
+                    return self.closed_contract_admits(value, (contract, &arguments));
+                }
                 let Some(class) = self.class_name(name)? else {
                     return Ok(true);
                 };
                 let normalized = self.normalized_type_arguments(arguments)?;
+                if self.kernel.core_class("Task") == Some(class) {
+                    return Ok(self.type_test(value, &Value::Type(class, normalized))?
+                        == Value::Bool(true));
+                }
                 self.instance_admits(value, class, &normalized)
             }
             iris_syntax::TypeExpression::Typeof(_)
@@ -6255,6 +6388,7 @@ impl SourceEvaluator {
     fn catch_matches(&self, value: &Value, filter: &iris_syntax::TypeExpression) -> bool {
         match filter {
             iris_syntax::TypeExpression::Name(name) => match (name.as_str(), value) {
+                (_, Value::Decorator(record)) => name == record.core_name() || name == "Object",
                 ("Symbol", Value::Symbol(_))
                 | ("Integer", Value::Integer(_))
                 | ("Nil", Value::Nil)
@@ -6342,20 +6476,17 @@ impl SourceEvaluator {
             let class = self.class_name(name)?.ok_or(EvaluationError::NameError)?;
             self.materialize_closed(class, type_arguments)?;
             let normalized = self.normalized_type_arguments(type_arguments)?;
-            let arguments = arguments
-                .iter()
-                .map(|argument| self.expression(argument, locals, receiver.clone()))
-                .collect::<Result<Vec<_>, _>>()?;
+            let arguments = self.evaluate_arguments(arguments, (locals, receiver))?;
+            let arguments = self.rooted(arguments);
             return self
                 .construct_closed(class, normalized, &arguments)
                 .map(Value::Object);
         }
         let target = self.expression(target, locals, receiver.clone())?;
-        let arguments = arguments
-            .iter()
-            .map(|argument| self.expression(argument, locals, receiver.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
-        self.send(target, selector, &arguments)
+        let target = self.rooted(target);
+        let arguments = self.evaluate_arguments(arguments, (locals, receiver))?;
+        let arguments = self.rooted(arguments);
+        self.send(std::rc::Rc::unwrap_or_clone(target), selector, &arguments)
     }
 
     /// Evaluates a call expression.
@@ -6386,10 +6517,8 @@ impl SourceEvaluator {
         {
             return self.ordered_send(target, selector, arguments, locals, receiver);
         }
-        let arguments = arguments
-            .iter()
-            .map(|argument| self.expression(argument, locals, receiver.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
+        let arguments = self.evaluate_arguments(arguments, (locals, receiver.clone()))?;
+        let arguments = self.rooted(arguments);
         match callee {
             Expression::ContractView {
                 receiver: target,
@@ -6508,8 +6637,11 @@ impl SourceEvaluator {
                     && !self.names.contains_key(name)
                     && self.main_bound_method(name, receiver.as_ref()).is_none() =>
             {
+                if self.decorator_planning {
+                    return Err(decorator_planning::impure());
+                }
                 let mut rendered = Vec::with_capacity(arguments.len());
-                for argument in &arguments {
+                for argument in arguments.iter() {
                     // Rendering goes through `to_string`, so a user-defined
                     // `to_string` is honoured rather than bypassed.
                     rendered.push(self.text_operand(argument)?);
@@ -6536,6 +6668,9 @@ impl SourceEvaluator {
                     .module_names
                     .get(name)
                     .ok_or(EvaluationError::UnsupportedConstruct)?;
+                if selector == "rollback" {
+                    return self.rollback_module(module, &arguments);
+                }
                 // V358 observes that a Module written without `mixin` has an
                 // EMPTY edge list, so no implicit composition edge may appear.
                 if selector == "method" {
@@ -6560,6 +6695,19 @@ impl SourceEvaluator {
                 }
                 let selector_name = selector.clone();
                 let selector = self.selector(&selector_name);
+                if let Some(backing) = self.module_classes.get(&module).copied()
+                    && let Some(method) =
+                        self.singleton_identities.get(&(backing, selector)).copied()
+                {
+                    if method.visibility() != iris_runtime::Visibility::Public {
+                        return Err(EvaluationError::Construction(
+                            iris_runtime::ConstructionError::Dispatch(
+                                iris_runtime::DispatchError::VisibilityDenied { selector },
+                            ),
+                        ));
+                    }
+                    return self.invoke_method(method, Value::Class(backing), &arguments);
+                }
                 let method = self
                     .module_methods
                     .get(&(module, selector))
@@ -6618,6 +6766,17 @@ impl SourceEvaluator {
                     .ok_or(EvaluationError::NameError)?;
                 self.call(callee, &arguments)
             }
+            Expression::Name(selector) if self.top_level_functions.contains(selector) => {
+                let Value::Closure(function) = self
+                    .names
+                    .get(selector)
+                    .map(Binding::value)
+                    .ok_or(EvaluationError::NameError)?
+                else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                self.invoke_closure(function, &arguments)
+            }
             // C012 makes a bare `f(...)` inside a Module a PRIVILEGED
             // implicit send to that Module's own members, and C024
             // falls back to the current `self` or Module `main`
@@ -6645,7 +6804,22 @@ impl SourceEvaluator {
         locals: &HashMap<String, Value>,
         receiver: Option<Value>,
     ) -> Result<Value, EvaluationError> {
+        self.check_planning_expression(expression, locals, receiver.as_ref())?;
+        if let Some(value) =
+            self.origin_state_expression(expression, (locals, receiver.as_ref()))?
+        {
+            return Ok(value);
+        }
         match expression {
+            Expression::NonNull(operand) => {
+                let value = self.expression(operand, locals, receiver)?;
+                if value == Value::Nil {
+                    return Err(self.core_boundary_error(EvaluationError::Runtime(
+                        iris_runtime::KernelError::Type,
+                    )));
+                }
+                Ok(value)
+            }
             // C037 makes a transaction body non-suspending and raises
             // `MetaTransactionError` on a DYNAMIC violation; ASYNC-C018 owns
             // the async reason. V431 observes an `await` reached inside a
@@ -6662,7 +6836,10 @@ impl SourceEvaluator {
             // C037 forbids suspending inside a transaction, exactly as it does
             // for `await`.
             Expression::Yield(value) => {
-                if self.open_target.is_some() {
+                if self.open_target.is_some()
+                    || self.module_candidate.is_some()
+                    || self.upgrade_state.active
+                {
                     return Err(EvaluationError::MetaTransactionSuspension);
                 }
                 let Some(state) = self.generator.as_mut() else {
@@ -6684,7 +6861,10 @@ impl SourceEvaluator {
             Expression::Await(operand) => {
                 // C037 makes a transaction body non-suspending; ASYNC-C018
                 // owns the async reason for the prohibition.
-                if self.open_target.is_some() {
+                if self.open_target.is_some()
+                    || self.module_candidate.is_some()
+                    || self.upgrade_state.active
+                {
                     return Err(EvaluationError::MetaTransactionSuspension);
                 }
                 let awaited = self.expression(operand, locals, receiver)?;
@@ -6692,18 +6872,6 @@ impl SourceEvaluator {
                 // C013 continues synchronously when it is already complete and
                 // suspends when it is not.
                 if let Value::Gate(gate) = awaited {
-                    if let Some(state) = self.async_replay.as_mut() {
-                        // Re-entry replays awaits already delivered, so an await
-                        // below the delivered count answers its recorded value
-                        // instead of suspending again.
-                        let index = state.seen;
-                        state.seen += 1;
-                        if index < state.resume_past {
-                            return self
-                                .replayed_await(index)
-                                .ok_or(EvaluationError::UnsupportedConstruct);
-                        }
-                    }
                     return match self.gates.get(&gate).cloned().flatten() {
                         Some(value) => Ok(value),
                         // C013 registers the continuation and returns control to
@@ -6726,6 +6894,7 @@ impl SourceEvaluator {
                     // C027 counts awaiting as OBSERVING it, so it is no longer
                     // eligible for unobserved-failure reporting.
                     Some(Err(error)) => {
+                        self.active_context = self.task_contexts.get(&identity).cloned();
                         self.unobserved_failures
                             .retain(|(task, _)| *task != identity);
                         Err(*error)
@@ -6773,6 +6942,10 @@ impl SourceEvaluator {
                 let value = self.expression(value, locals, receiver)?;
                 Ok(Value::KeywordArgument(name.clone(), Box::new(value)))
             }
+            Expression::BlockArgument { value } => {
+                let value = self.expression(value, locals, receiver)?;
+                Ok(Value::BlockArgument(Box::new(value)))
+            }
             // IRIS-V1-COLLECTIONS-C051 reads through the `[]` selector, so an
             // index is an ordinary send and a user Class may define it.
             Expression::Index {
@@ -6780,30 +6953,43 @@ impl SourceEvaluator {
                 index,
             } => {
                 let target = self.expression(target, locals, receiver.clone())?;
+                let target = self.rooted(target);
                 let index = self.expression(index, locals, receiver)?;
-                self.index_read(target, index)
+                self.index_read(std::rc::Rc::unwrap_or_clone(target), index)
             }
             Expression::Hash(entries) => {
                 // IRIS-V1-RUNTIME-C134: Hash CONSTRUCTION with a NaN key of
                 // either width must raise InvalidKeyError, so every key is
                 // hashed here rather than only on later insertion.
-                let mut built: Vec<(Value, Value)> = Vec::new();
+                let built = self.rooted(std::cell::RefCell::new(Vec::<(Value, Value)>::new()));
                 for (key, value) in entries {
                     let key = self.expression(key, locals, receiver.clone())?;
-                    self.send(key.clone(), "hash", &[])?;
+                    let key = self.rooted(key);
+                    self.send((*key).clone(), "hash", &[])?;
                     let value = self.expression(value, locals, receiver.clone())?;
                     // IRIS-V1-COLLECTIONS-C028 dispatches the key's current
                     // `==`, so a repeated key UPDATES its entry rather than
                     // adding a second one.
+                    let key = std::rc::Rc::unwrap_or_clone(key);
+                    let mut built = built.borrow_mut();
                     match built.iter_mut().find(|(seen, _)| *seen == key) {
                         Some(entry) => entry.1 = value,
                         None => built.push((key, value)),
                     }
                 }
-                Ok(Value::Hash(HashRef::new(built)))
+                Ok(Value::Hash(HashRef::new(
+                    std::rc::Rc::try_unwrap(built)
+                        .unwrap_or_else(|_| unreachable!())
+                        .into_inner(),
+                )))
             }
             Expression::Closure {
-                parameters, body, ..
+                parameters,
+                full_parameters,
+                is_async,
+                return_type,
+                body,
+                has_header: _,
             } => {
                 // IRIS-V1-RUNTIME-C042: every evaluation allocates a NEW Closure
                 // with its own captured environment, so this never caches.
@@ -6813,6 +6999,9 @@ impl SourceEvaluator {
                     object,
                     ClosureRecord {
                         parameters: parameters.clone(),
+                        full_parameters: full_parameters.clone(),
+                        is_async: *is_async,
+                        return_type: return_type.clone(),
                         body: body.clone(),
                         captured: locals.clone(),
                         cells: self
@@ -6824,6 +7013,7 @@ impl SourceEvaluator {
                             .map(|(name, binding)| (name.clone(), binding.clone()))
                             .collect(),
                         receiver: receiver.clone(),
+                        lexical_context: self.wrapper_context(),
                     },
                 );
                 Ok(Value::Closure(object))
@@ -6886,10 +7076,7 @@ impl SourceEvaluator {
                         .runtime
                         .raw_ivar(object, selector)
                         .map_err(EvaluationError::Construction),
-                    Value::Class(class) => self
-                        .runtime
-                        .class_raw_ivar(class, selector)
-                        .map_err(EvaluationError::Construction),
+                    Value::Class(class) => self.read_class_slot(class, selector),
                     Value::Nil
                     | Value::Bool(_)
                     | Value::Integer(_)
@@ -6924,17 +7111,13 @@ impl SourceEvaluator {
             Expression::Literal(source) => literal(source),
             Expression::Symbol(symbol) => Ok(Value::Symbol(symbol.clone())),
             Expression::Grouped(expression) => self.expression(expression, locals, receiver),
-            Expression::Array(values) => values
-                .iter()
-                .map(|value| self.expression(value, locals, receiver.clone()))
-                .collect::<Result<Vec<_>, _>>()
+            Expression::Array(values) => self
+                .evaluate_arguments(values, (locals, receiver))
                 .map(|values| Value::Array(ArrayRef::new(values))),
             // C021 makes a Tuple IMMUTABLE and identity-less, so unlike Array
             // it is built by value and needs no shared body.
-            Expression::Tuple(values) => values
-                .iter()
-                .map(|value| self.expression(value, locals, receiver.clone()))
-                .collect::<Result<Vec<_>, _>>()
+            Expression::Tuple(values) => self
+                .evaluate_arguments(values, (locals, receiver))
                 .map(Value::Tuple),
             // A `try` in expression position runs the same evaluator the
             // statement form uses, so the two can never disagree on ordering,
@@ -7007,9 +7190,8 @@ impl SourceEvaluator {
                     return self.member_read(Value::Symbol(name.clone()), selector);
                 }
                 let slot = self.selector(selector);
-                self.runtime
-                    .class_raw_ivar(module_class, slot)
-                    .map_err(EvaluationError::Construction)
+                self.check_class_property_access(module_class, selector, false)?;
+                self.read_class_slot(module_class, slot)
             }
             // D-206 interns a closed identity by definition AND normalized
             // arguments. The construction itself resolves to the definition's
@@ -7025,6 +7207,12 @@ impl SourceEvaluator {
                 let Expression::ClosedGeneric { name, arguments } = target.as_ref() else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
+                if let Some(contract) = self.contract_names.get(name).copied() {
+                    return Ok(Value::Contract(
+                        contract,
+                        self.nominal_arguments(arguments)?,
+                    ));
+                }
                 // C067 validates every normalized constraint BEFORE interning,
                 // so a violating construction interns no closed Type identity
                 // at all. V242 observes exactly that.
@@ -7060,9 +7248,8 @@ impl SourceEvaluator {
                     });
                 }
                 let slot = self.selector(&qualified);
-                self.runtime
-                    .class_raw_ivar(class, slot)
-                    .map_err(EvaluationError::Construction)
+                self.check_class_property_access(class, selector, false)?;
+                self.read_class_slot(class, slot)
             }
             Expression::Member {
                 receiver: target,
@@ -7070,6 +7257,13 @@ impl SourceEvaluator {
             } => {
                 let target = self.expression(target, locals, receiver)?;
                 self.member_read(target, selector)
+            }
+            Expression::Call {
+                callee,
+                arguments,
+                type_arguments,
+            } if !type_arguments.is_empty() => {
+                self.explicit_generic_call((callee, arguments, type_arguments), locals, receiver)
             }
             Expression::Call {
                 callee, arguments, ..
@@ -7106,6 +7300,7 @@ impl SourceEvaluator {
                 {
                     return Ok(left);
                 }
+                let left = self.rooted(left);
                 let right = match right.as_ref() {
                     Expression::ClosedGeneric { name, arguments }
                         if matches!(
@@ -7129,6 +7324,7 @@ impl SourceEvaluator {
                     }
                     expression => self.expression(expression, locals, receiver)?,
                 };
+                let left = std::rc::Rc::unwrap_or_clone(left);
                 let selector = match operator {
                     BinaryOperator::Power => "**",
                     BinaryOperator::Multiply => "*",
@@ -7316,6 +7512,16 @@ impl SourceEvaluator {
                     let selector = self.selector(name);
                     return match receiver.ok_or(EvaluationError::UnsupportedConstruct)? {
                         Value::Object(object) => {
+                            let initialized = self
+                                .runtime
+                                .raw_ivar_names(object)
+                                .map_err(EvaluationError::Construction)?
+                                .contains(&selector);
+                            if initialized
+                                && self.instance_field_is_mutable(object, selector)? == Some(false)
+                            {
+                                return Err(EvaluationError::ImmutableBinding);
+                            }
                             let value =
                                 self.expression(right, locals, Some(Value::Object(object)))?;
                             // C065 keeps stored-property storage TYPED, so a raw
@@ -7333,9 +7539,7 @@ impl SourceEvaluator {
                         Value::Class(class) => {
                             let value =
                                 self.expression(right, locals, Some(Value::Class(class)))?;
-                            self.runtime
-                                .assign_class_raw_ivar(class, selector, value)
-                                .map_err(EvaluationError::Construction)
+                            self.write_class_slot(class, selector, value)
                         }
                         value @ (Value::Nil
                         | Value::Bool(_)
@@ -7371,16 +7575,25 @@ impl SourceEvaluator {
                 } = left.as_ref()
                 {
                     let container = self.expression(target, locals, receiver.clone())?;
+                    let container = self.rooted(container);
                     let index = self.expression(index, locals, receiver.clone())?;
+                    let index = self.rooted(index);
                     let value = self.expression(right, locals, receiver)?;
+                    let value = self.rooted(value);
                     let value = match compound_selector(operator) {
                         Some(operator) => {
-                            let current = self.index_read(container.clone(), index.clone())?;
-                            self.send(current, operator, &[value])?
+                            let current =
+                                self.index_read((*container).clone(), (*index).clone())?;
+                            self.send(current, operator, std::slice::from_ref(value.as_ref()))?
                         }
-                        None => value,
+                        None => std::rc::Rc::unwrap_or_clone(value),
                     };
-                    let updated = self.index_write(container, index, value.clone())?;
+                    let value = self.rooted(value);
+                    let updated = self.index_write(
+                        std::rc::Rc::unwrap_or_clone(container),
+                        std::rc::Rc::unwrap_or_clone(index),
+                        (*value).clone(),
+                    )?;
                     // The built-in containers are value-typed here rather than
                     // heap cells, so a container reached through a NAME must be
                     // stored back or the write would be lost on the next read.
@@ -7391,7 +7604,7 @@ impl SourceEvaluator {
                     {
                         self.assign_local(name, updated)?;
                     }
-                    return Ok(value);
+                    return Ok(std::rc::Rc::unwrap_or_clone(value));
                 }
                 let Expression::Member {
                     receiver: target,
@@ -7407,27 +7620,32 @@ impl SourceEvaluator {
                     let qualified = self.closed_construction_slot(target, selector)?;
                     let class_target = self.expression(target, locals, receiver.clone())?;
                     if let Value::Class(class) | Value::ClosedClass(class, _) = class_target {
+                        self.check_class_property_access(class, selector, true)?;
                         let value = self.expression(right, locals, receiver)?;
                         let slot = self.selector(&qualified);
-                        return self
-                            .runtime
-                            .assign_class_raw_ivar(class, slot, value)
-                            .map_err(EvaluationError::Construction);
+                        return self.write_class_slot(class, slot, value);
                     }
                 }
                 // C036 evaluates the target location ONCE, so the receiver is
                 // evaluated a single time and reused for both the read and the
                 // write rather than being re-evaluated per side.
                 let target = self.expression(target, locals, receiver.clone())?;
+                let target = self.rooted(target);
                 let value = self.expression(right, locals, receiver)?;
+                let value = self.rooted(value);
                 let value = match compound_selector(operator) {
                     Some(operator) => {
-                        let current = self.send(target.clone(), selector, &[])?;
-                        self.send(current, operator, &[value])?
+                        let current = self.send((*target).clone(), selector, &[])?;
+                        self.send(current, operator, std::slice::from_ref(value.as_ref()))?
                     }
-                    None => value,
+                    None => std::rc::Rc::unwrap_or_clone(value),
                 };
-                self.send(target, &format!("{selector}="), &[value])
+                let value = self.rooted(value);
+                self.send(
+                    std::rc::Rc::unwrap_or_clone(target),
+                    &format!("{selector}="),
+                    std::slice::from_ref(value.as_ref()),
+                )
             }
         }
     }
@@ -7750,6 +7968,22 @@ impl SourceEvaluator {
         class: ClassId,
         arguments: &[Value],
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
+        if let Some(context) = &self.rollback_state.context
+            && context.methods.keys().any(|(owner, _)| *owner == class)
+        {
+            let context = context.clone();
+            let object = self
+                .runtime
+                .allocate(class)
+                .map_err(EvaluationError::Construction)?;
+            let selector = self.selector("initialize");
+            if let Some(method) = context.methods.get(&(class, selector)) {
+                self.invoke_method(*method, Value::Object(object), arguments)?;
+            } else if !arguments.is_empty() {
+                return Err(EvaluationError::ArgumentError);
+            }
+            return Ok(object);
+        }
         self.construct_closed(class, Vec::new(), arguments)
     }
 
@@ -7759,6 +7993,16 @@ impl SourceEvaluator {
         type_arguments: Vec<NominalType>,
         arguments: &[Value],
     ) -> Result<iris_runtime::ObjectId, EvaluationError> {
+        self.validate_class_arguments(class, &type_arguments)?;
+        if let Some(name) = decorator_core::RECORDS
+            .iter()
+            .find(|name| self.kernel.core_class(name) == Some(class))
+        {
+            return Err(EvaluationError::MessageNotFound {
+                receiver_class: (*name).into(),
+                selector: "new".into(),
+            });
+        }
         let mut runtime = std::mem::take(&mut self.runtime);
         let mut invocation_error = None;
         let result = runtime.construct_closed(
@@ -7767,7 +8011,7 @@ impl SourceEvaluator {
             arguments,
             |runtime, method, receiver, arguments| {
                 let previous = std::mem::replace(&mut self.runtime, std::mem::take(runtime));
-                let result = match self.invoke_method(method, Value::Object(receiver), arguments) {
+                let result = match self.invoke_closed_initializer(method, receiver, arguments) {
                     Ok(value) => Ok(value),
                     Err(EvaluationError::Raised(value)) => {
                         Err(iris_runtime::ExecutionError::Raised(value))
@@ -7796,32 +8040,6 @@ impl SourceEvaluator {
             .iter()
             .map(|argument| self.nominal_type(argument))
             .collect()
-    }
-
-    fn nominal_type(
-        &mut self,
-        expression: &iris_syntax::TypeExpression,
-    ) -> Result<NominalType, EvaluationError> {
-        match expression {
-            iris_syntax::TypeExpression::Name(name) => self
-                .class_name(name)?
-                .map(|class| NominalType::new(class, Vec::new()))
-                .ok_or(EvaluationError::NameError),
-            iris_syntax::TypeExpression::Generic { name, arguments } => self
-                .class_name(name)?
-                .map(|class| {
-                    self.nominal_arguments(arguments)
-                        .map(|arguments| NominalType::new(class, arguments))
-                })
-                .transpose()?
-                .ok_or(EvaluationError::NameError),
-            iris_syntax::TypeExpression::Typeof(_)
-            | iris_syntax::TypeExpression::Intersection(_)
-            | iris_syntax::TypeExpression::Union(_)
-            | iris_syntax::TypeExpression::Function { .. } => {
-                Err(EvaluationError::UnsupportedConstruct)
-            }
-        }
     }
 
     /// Answers `IRIS-V1-RUNTIME-C029` primitive identity.
@@ -7905,6 +8123,78 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if self.upgrade_state.active
+            && matches!(
+                selector,
+                "open"
+                    | "rollback"
+                    | "define_method"
+                    | "remove_method"
+                    | "include"
+                    | "extend"
+                    | "include_module"
+                    | "remove_module"
+                    | "define_property"
+                    | "remove_property"
+                    | "runtime_superclass="
+            )
+        {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
+        if self.upgrade_state.active
+            && let Value::Symbol(name) = &receiver
+            && let Some(module) = self.module_names.get(name)
+            && let Some(class) = self.module_classes.get(module).copied()
+            && let Some(property) = selector.strip_suffix('=')
+            && self.is_class_level_property(class, property)
+        {
+            let [value] = arguments else {
+                return Err(EvaluationError::ArgumentError);
+            };
+            let slot = self.selector(property);
+            self.check_class_property_access(class, property, true)?;
+            return self.write_class_slot(class, slot, value.clone());
+        }
+        if let Value::Type(identity, _) = &receiver
+            && self.runtime.registry().callable_type(*identity).is_some()
+        {
+            return self.callable_type_send(*identity, selector, arguments);
+        }
+        if let Value::Closure(identity) = &receiver
+            && selector == "type"
+            && arguments.is_empty()
+        {
+            return self.closure_type(*identity);
+        }
+        if let Value::BoundMethod(bound) = &receiver
+            && selector == "type"
+            && arguments.is_empty()
+        {
+            return self.bound_method_type(*bound);
+        }
+        if let Some(value) = self.decorator_metadata_send(&receiver, selector, arguments)? {
+            return Ok(value);
+        }
+        self.check_planning_send(&receiver, selector)?;
+        if let Value::Contract(contract, _) = &receiver
+            && selector == "reflect"
+        {
+            if !arguments.is_empty() {
+                return Err(EvaluationError::ArgumentError);
+            }
+            return self
+                .contract_metadata
+                .get(contract)
+                .cloned()
+                .ok_or(EvaluationError::NameError);
+        }
+        let core_result = self.decorator_core_send(&receiver, selector, arguments);
+        if let Some(result) = core_result.map_err(|error| self.core_boundary_error(error))? {
+            return Ok(result);
+        }
+        if let Some(result) = self.immutable_collection_send(&receiver, selector, arguments)? {
+            return Ok(result);
+        }
         if let Value::ClosedClass(class, type_arguments) = receiver {
             match selector {
                 "same?" => {
@@ -7942,29 +8232,6 @@ impl SourceEvaluator {
             return self.same_question(&receiver, other);
         }
         match receiver {
-            // C125 fixes the MINIMAL Transformation surface: `empty`, `kind`
-            // and `add_method(selector, body)`. The staged Methods are carried
-            // on the value so the runtime phase publishes them through the
-            // ordinary capability-checked path C090 requires, rather than
-            // mutating the target from here.
-            Value::Transformation { kind, ref staged } if selector == "empty" => {
-                let _ = staged;
-                Ok(Value::Transformation {
-                    kind,
-                    staged: Vec::new(),
-                })
-            }
-            Value::Transformation { kind, ref staged } if selector == "kind" => {
-                Ok(Value::Symbol(kind.into()))
-            }
-            Value::Transformation { kind, ref staged } if selector == "add_method" => {
-                let [Value::Symbol(name), Value::Closure(block)] = arguments else {
-                    return Err(EvaluationError::UnsupportedConstruct);
-                };
-                let mut staged = staged.clone();
-                staged.push((name.clone(), *block));
-                Ok(Value::Transformation { kind, staged })
-            }
             // C098 reports actual visible ordinary slots on the receiver's
             // current active ordinary MRO, and MUST NOT invoke or consult
             // `method_missing`. Dispatch already distinguishes a selected
@@ -8055,28 +8322,7 @@ impl SourceEvaluator {
             // historical artifact. C066 verifies the stored digest BEFORE
             // reconstruction and publishes nothing on failure, never
             // substituting current or approximate source. V357 observes both.
-            Value::Class(class) if selector == "rollback" => {
-                let Some((_, digest, source)) = self.artifact.clone() else {
-                    return Err(EvaluationError::RevisionArtifactUnavailable);
-                };
-                let recorded = digest.strip_prefix("b3:").unwrap_or(&digest);
-                // C126 scopes the digest to the artifact's SOURCE bytes, so a
-                // locator-only change preserves it while a source change does
-                // not. The check is the whole point of the clause: a mismatch
-                // publishes nothing.
-                let actual = iris_runtime::artifact_digest(source.as_bytes());
-                if actual != recorded {
-                    return Err(EvaluationError::RevisionArtifactUnavailable);
-                }
-                // C065 forbids a same-major rollback from DOWNGRADING the
-                // current static spine: a missing later required member,
-                // Contract, visibility or superclass bound fails the rollback
-                // and publishes nothing. The comment here claimed this was
-                // validated while `class` was discarded, so an artifact
-                // omitting a currently declared Contract rolled back happily.
-                self.validate_rollback_spine(class, &source)?;
-                Ok(Value::Symbol(actual))
-            }
+            Value::Class(class) if selector == "rollback" => self.rollback_class(class, arguments),
             Value::Class(class) if selector == "remove_contract" => {
                 let [Value::Contract(contract, _)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
@@ -8417,6 +8663,18 @@ impl SourceEvaluator {
             Value::ClosedClass(class, arguments) if selector == "type" => {
                 Ok(Value::Type(class, arguments))
             }
+            value @ (Value::Type(..)
+            | Value::ComposedType(_)
+            | Value::Contract(..)
+            | Value::Class(_))
+                if matches!(selector, "==" | "!=") =>
+            {
+                let [other] = arguments else {
+                    return Err(EvaluationError::ArgumentError);
+                };
+                let equal = value == *other;
+                Ok(Value::Bool(if selector == "==" { equal } else { !equal }))
+            }
             // C032: an ordinary `view.member()` is an UNQUALIFIED message
             // FORWARDED to the receiver. Only `..member()` selects the
             // Contract-qualified slot, so this must not report a missing
@@ -8447,7 +8705,11 @@ impl SourceEvaluator {
             Value::ContractView(receiver, _) => self.send(*receiver, selector, arguments),
             // C065's lookahead does not consume the `.type`, so a reified Type
             // arrives here already normalized and answers `.type` as itself.
-            value @ (Value::Type(..) | Value::ComposedType(_)) if selector == "type" => Ok(value),
+            value @ (Value::Type(..) | Value::ComposedType(_) | Value::Contract(..))
+                if selector == "type" =>
+            {
+                Ok(value)
+            }
             // V214 reflects a composed Type's KIND and its MEMBERS: `A & (B|C)`
             // is an intersection of `A` and the normalized union, NOT of three
             // distributed alternatives.
@@ -8543,9 +8805,8 @@ impl SourceEvaluator {
                 if arguments.is_empty() && self.is_class_level_property(class, selector) =>
             {
                 let slot = self.selector(selector);
-                self.runtime
-                    .class_raw_ivar(class, slot)
-                    .map_err(EvaluationError::Construction)
+                self.check_class_property_access(class, selector, false)?;
+                self.read_class_slot(class, slot)
             }
             Value::Class(class)
                 if selector.ends_with('=')
@@ -8555,9 +8816,8 @@ impl SourceEvaluator {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
                 let slot = self.selector(&selector[..selector.len() - 1]);
-                self.runtime
-                    .assign_class_raw_ivar(class, slot, value.clone())
-                    .map_err(EvaluationError::Construction)
+                self.check_class_property_access(class, &selector[..selector.len() - 1], true)?;
+                self.write_class_slot(class, slot, value.clone())
             }
             Value::Class(class) => {
                 let selector_id = self.selector(selector);
@@ -8735,34 +8995,32 @@ impl SourceEvaluator {
         let Value::Object(object) = receiver else {
             return self.send(receiver, selector, &[]);
         };
-        let property_selector = self.selector(&format!("@{selector}"));
         let selector = self.selector(selector);
         let class = self
             .runtime
             .class_of(object)
             .map_err(EvaluationError::Construction)?;
-        if self
-            .runtime
-            .registry()
-            .visible_properties(class)
-            .map_err(EvaluationError::Class)?
-            .contains(&property_selector)
-        {
-            self.runtime
-                .raw_ivar(object, property_selector)
-                .map_err(EvaluationError::Construction)
+        let method = match self.resolve_instance_method(object, selector) {
+            Ok(method) => method,
+            Err(
+                error @ EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
+                    iris_runtime::DispatchError::MissingMethod { .. },
+                )),
+            ) => match self.core_error_send(object, &self.selector_name(selector))? {
+                Some(value) => return Ok(value),
+                None => return Err(error),
+            },
+            Err(error) => return Err(error),
+        };
+        if self.property_methods.get(&method.id()) == Some(&true) {
+            self.invoke_method(method, Value::Object(object), &[])
         } else {
-            let method = self.resolve_instance_method(object, selector)?;
-            if self.property_methods.get(&method.id()) == Some(&true) {
-                self.invoke_method(method, Value::Object(object), &[])
-            } else {
-                self.runtime
-                    .registry_mut()
-                    .bind_instance(object, class, selector)
-                    .map(Value::BoundMethod)
-                    .map_err(iris_runtime::ConstructionError::from)
-                    .map_err(EvaluationError::Construction)
-            }
+            self.runtime
+                .registry_mut()
+                .bind_instance(object, class, selector)
+                .map(Value::BoundMethod)
+                .map_err(iris_runtime::ConstructionError::from)
+                .map_err(EvaluationError::Construction)
         }
     }
 
@@ -8772,6 +9030,11 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let native_arguments = call_channels::native_arguments(arguments)?;
+        let arguments = native_arguments.as_ref();
+        if self.decorator_planning {
+            return Err(decorator_planning::impure());
+        }
         if namespace.starts_with("Reflection::")
             && let Some(Value::Symbol(target)) = arguments.first()
             && self
@@ -8807,10 +9070,29 @@ impl SourceEvaluator {
             // the two outcomes merge, which `close_after` already implements
             // for `for` cleanup.
             ("Iris", "using") => {
-                let [resource, Value::Closure(block)] = arguments else {
+                let [resource, block] = arguments else {
                     return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
                 };
-                let outcome = self.invoke_closure(*block, &[]);
+                let block = match call_channels::ArgumentChannel::of(block) {
+                    call_channels::ArgumentChannel::Block(value)
+                    | call_channels::ArgumentChannel::Positional(value) => value,
+                    call_channels::ArgumentChannel::Keyword(_, _) => {
+                        return Err(EvaluationError::ArgumentError);
+                    }
+                };
+                let Value::Closure(block) = block else {
+                    return Err(EvaluationError::ArgumentError);
+                };
+                let takes_resource = self
+                    .closures
+                    .get(block)
+                    .is_some_and(|record| !record.parameters.is_empty());
+                let supplied = if takes_resource {
+                    std::slice::from_ref(resource)
+                } else {
+                    &[]
+                };
+                let outcome = self.invoke_closure(*block, supplied);
                 self.close_after(resource.clone(), outcome)
             }
             // C043 makes `FFI.open` the loader and requires the Host to have
@@ -8856,17 +9138,7 @@ impl SourceEvaluator {
                 };
                 let value = arguments.get(1).cloned().unwrap_or(Value::Nil);
                 self.gates.insert(*gate, Some(value));
-                let mut ready: Vec<_> = self
-                    .suspended
-                    .iter()
-                    .filter(|(_, task)| task.gate == *gate)
-                    .map(|(identity, _)| *identity)
-                    .collect();
-                // The map has no order, so readiness is restored to the order
-                // the tasks suspended, which is the order their identities were
-                // allocated. C014 requires that determinism.
-                ready.sort_unstable();
-                self.ready.extend(ready);
+                self.enqueue_waiters(*gate);
                 Ok(Value::Nil)
             }
             ("Revision", "subscribe") => {
@@ -9401,6 +9673,7 @@ impl SourceEvaluator {
                     Some(Ok(value)) => Ok(value),
                     Some(Err(error)) => {
                         // Driving to completion observes the failure.
+                        self.active_context = self.task_contexts.get(identity).cloned();
                         self.unobserved_failures
                             .retain(|(task, _)| task != identity);
                         Err(*error)
@@ -9489,66 +9762,7 @@ impl SourceEvaluator {
                 let [Value::Symbol(target)] = arguments else {
                     return Err(EvaluationError::UnsupportedConstruct);
                 };
-                let target = target.clone();
-                let Some(module) = self.module_names.get("Upgrade").copied() else {
-                    // A package declaring no upgrade hook simply switches.
-                    self.package_version = Some(target);
-                    return Ok(Value::Nil);
-                };
-                let from = self.package_version.clone().unwrap_or_default();
-                let hook = self.selector("upgrade");
-                // A Module's own members live in its Module table rather than
-                // on a Class, so the hook is resolved there.
-                let Some(method) = self.runtime.registry().module_method(module, hook) else {
-                    // A package declaring no `upgrade` hook simply switches.
-                    self.package_version = Some(target);
-                    return Ok(Value::Nil);
-                };
-                let main = self.module_main(module)?;
-                let receiver = Value::Object(self.construct(main, &[])?);
-                // C070 leaves the old package AND STATE fully active on hook
-                // failure, so the candidate state the hook wrote is restored.
-                //
-                // An EXTERNAL side effect is explicitly excluded: C070 makes it
-                // the package author's responsibility under C042, and V354
-                // requires the external log to still contain what the hook
-                // wrote. An Array slot is how this fixture models such a log,
-                // so only SCALAR slots are restored; an appended collection is
-                // the author's to reconcile, exactly as C042 states.
-                let snapshot: Vec<(ClassId, Selector, Value)> = self
-                    .class_level_properties
-                    .iter()
-                    .flat_map(|(class, slots)| slots.iter().map(move |slot| (*class, *slot)))
-                    .filter_map(|(class, slot)| {
-                        self.runtime
-                            .class_raw_ivar(class, slot)
-                            .ok()
-                            .filter(|value| {
-                                !matches!(value, Value::Array(_) | Value::ReadonlyArray(_))
-                            })
-                            .map(|value| (class, slot, value))
-                    })
-                    .collect();
-                match self.invoke_method(
-                    method,
-                    receiver,
-                    &[Value::Symbol(from), Value::Symbol(target.clone())],
-                ) {
-                    Ok(value) => {
-                        // C068 switches active revisions atomically on success.
-                        self.package_version = Some(target);
-                        Ok(value)
-                    }
-                    // C070 leaves the OLD package and state fully active, so
-                    // the version is not advanced, no candidate publishes, and
-                    // the candidate state the hook wrote is restored.
-                    Err(error) => {
-                        for (class, slot, value) in snapshot {
-                            let _ = self.runtime.assign_class_raw_ivar(class, slot, value);
-                        }
-                        Err(error)
-                    }
-                }
+                self.upgrade_package(target)
             }
             ("Reflection::Package", "identity") => Ok(Value::Array(ArrayRef::new(vec![
                 Value::Symbol(self.package.clone()),
@@ -9766,7 +9980,7 @@ impl SourceEvaluator {
         let selector = self.selector_id(name)?;
         match target {
             Value::Object(object) => self.runtime.raw_ivar(*object, selector),
-            Value::Class(class) => self.runtime.class_raw_ivar(*class, selector),
+            Value::Class(class) => return self.read_class_slot(*class, selector),
             _ => return Err(EvaluationError::UnsupportedConstruct),
         }
         .map_err(EvaluationError::Construction)
@@ -9797,13 +10011,16 @@ impl SourceEvaluator {
         }
         match target {
             Value::Object(object) => self.runtime.assign_raw_ivar(*object, selector, value),
-            Value::Class(class) => self.runtime.assign_class_raw_ivar(*class, selector, value),
+            Value::Class(class) => return self.write_class_slot(*class, selector, value),
             _ => return Err(EvaluationError::UnsupportedConstruct),
         }
         .map_err(EvaluationError::Construction)
     }
 
     fn remove_ivar(&mut self, target: &Value, name: &str) -> Result<Value, EvaluationError> {
+        if self.upgrade_state.active && matches!(target, Value::Class(_)) {
+            return Err(EvaluationError::UnsupportedConstruct);
+        }
         let selector = self.selector_id(name)?;
         let value = match target {
             Value::Object(object) => self.runtime.remove_raw_ivar(*object, selector),
@@ -10086,7 +10303,8 @@ impl SourceEvaluator {
         &mut self,
         annotation: &iris_syntax::TypeExpression,
     ) -> Result<Value, EvaluationError> {
-        let form = self.normalize_type(annotation)?;
+        let annotation = wrapper_generics::substitute(annotation, &self.method_type_bindings);
+        let form = self.normalize_type(&annotation)?;
         Ok(match form {
             // A single nominal atom is the ordinary nominal Type, which keeps
             // `(String).type` equal to `String.type`.
@@ -10103,7 +10321,8 @@ impl SourceEvaluator {
                     iris_runtime::TypeAtom::NonNil
                     | iris_runtime::TypeAtom::Contract(_, _)
                     | iris_runtime::TypeAtom::Iteration(_)
-                    | iris_runtime::TypeAtom::Union(_) => {
+                    | iris_runtime::TypeAtom::Union(_)
+                    | iris_runtime::TypeAtom::Intersection(_) => {
                         Value::ComposedType(iris_runtime::ComposedType::Intersection(members))
                     }
                 }
@@ -10119,6 +10338,19 @@ impl SourceEvaluator {
     ) -> Result<iris_runtime::ComposedType, EvaluationError> {
         use iris_runtime::{ComposedType, TypeAtom};
         match annotation {
+            iris_syntax::TypeExpression::Generic { name, arguments }
+                if matches!(name.as_str(), "Closure" | "BoundMethod" | "Block") =>
+            {
+                match self.intern_source_callable(name, arguments)? {
+                    Value::Type(identity, arguments) => {
+                        Ok(ComposedType::Union(vec![TypeAtom::Nominal(
+                            identity, arguments,
+                        )]))
+                    }
+                    Value::ComposedType(composed) => Ok(composed),
+                    _ => Err(EvaluationError::UnsupportedConstruct),
+                }
+            }
             // C023 makes `Never` uninhabited: it is the identity of a union and
             // absorbing in an intersection, which the combinators below apply.
             iris_syntax::TypeExpression::Name(name) if name == "Never" => Ok(ComposedType::Never),
@@ -10482,6 +10714,12 @@ impl SourceEvaluator {
         selector: &str,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let native_arguments = if selector == "call" {
+            std::borrow::Cow::Borrowed(arguments)
+        } else {
+            call_channels::native_arguments(arguments)?
+        };
+        let arguments = native_arguments.as_ref();
         if let Value::ExternalResource(resource) = &receiver {
             return self.native_resource_send(resource, selector, arguments);
         }
@@ -11453,6 +11691,7 @@ impl SourceEvaluator {
                         | Value::Contract(..)
                         | Value::Closure(_)
                         | Value::KeywordArgument(_, _)
+                        | Value::BlockArgument(_)
                         | Value::IterationYield(_)
                         | Value::ReadonlyArray(_)
                         | Value::SourceLocation(..)
@@ -11465,7 +11704,9 @@ impl SourceEvaluator {
                         | Value::Task(_)
                         | Value::Range(..)
                         | Value::IterationDone
-                        | Value::Transformation { .. }
+                        | Value::Decorator(_)
+                        | Value::ImmutableArray(_)
+                        | Value::ImmutableHash(_)
                         | Value::ExceptionContext(..)
                         | Value::ContractView(_, _)
                         | Value::Object(_)
@@ -11515,6 +11756,7 @@ impl SourceEvaluator {
             | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
+            | Value::BlockArgument(_)
             | Value::IterationYield(_)
             | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
@@ -11527,7 +11769,9 @@ impl SourceEvaluator {
             | Value::Task(_)
             | Value::Range(..)
             | Value::IterationDone
-            | Value::Transformation { .. }
+            | Value::Decorator(_)
+            | Value::ImmutableArray(_)
+            | Value::ImmutableHash(_)
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::Object(_)
@@ -11603,6 +11847,11 @@ impl SourceEvaluator {
     fn register_body(&mut self, method: MethodDeclaration) -> MethodBody {
         let body = MethodBody::new(self.next_body);
         self.next_body += 1;
+        if let Some(context) = &self.rollback_state.context {
+            self.rollback_state
+                .bodies
+                .insert(body.raw(), context.clone());
+        }
         self.bodies.insert(body.raw(), method);
         body
     }
@@ -11673,6 +11922,22 @@ impl SourceEvaluator {
     /// forbids it from sending `to_bool` or converting the value. `C009` makes
     /// `Object` the top Type, so every value answers true for it.
     fn type_test(&mut self, value: &Value, target: &Value) -> Result<Value, EvaluationError> {
+        if let Value::Contract(contract, arguments) = target {
+            return self
+                .closed_contract_admits(value, (*contract, arguments))
+                .map(Value::Bool);
+        }
+        if let Value::ComposedType(composed) = target {
+            return self.composed_admits(value, composed).map(Value::Bool);
+        }
+        if let Value::Type(class, _) = target
+            && self.runtime.registry().callable_type(*class).is_some()
+        {
+            return self.callable_admits(value, target).map(Value::Bool);
+        }
+        if let Some(result) = self.core_type_test(value, target)? {
+            return Ok(Value::Bool(result));
+        }
         let (target, target_arguments) = match target {
             Value::Class(target) => (*target, &[][..]),
             Value::ClosedClass(target, arguments) => (*target, arguments.as_slice()),
@@ -11747,6 +12012,7 @@ impl SourceEvaluator {
             | Value::Contract(..)
             | Value::Closure(_)
             | Value::KeywordArgument(_, _)
+            | Value::BlockArgument(_)
             | Value::IterationYield(_)
             | Value::ReadonlyArray(_)
             | Value::SourceLocation(..)
@@ -11759,7 +12025,9 @@ impl SourceEvaluator {
             | Value::Task(_)
             | Value::Range(..)
             | Value::IterationDone
-            | Value::Transformation { .. }
+            | Value::Decorator(_)
+            | Value::ImmutableArray(_)
+            | Value::ImmutableHash(_)
             | Value::ExceptionContext(..)
             | Value::ContractView(_, _)
             | Value::BoundMethod(_)
@@ -11785,6 +12053,17 @@ impl SourceEvaluator {
     /// rather than a separately cached relation. `C009` makes `Object` the top
     /// Type, so every nominal Type is its subtype.
     fn subtype(&mut self, left: ClassId, right: ClassId) -> Result<Value, EvaluationError> {
+        if self.runtime.registry().callable_type(left).is_some()
+            || self.runtime.registry().callable_type(right).is_some()
+        {
+            return Ok(Value::Bool(
+                left == right
+                    || self
+                        .kernel
+                        .class(iris_runtime::BuiltinClass::Object)
+                        .is_ok_and(|object| object == right),
+            ));
+        }
         if self
             .kernel
             .class(iris_runtime::BuiltinClass::Object)
@@ -11801,120 +12080,6 @@ impl SourceEvaluator {
             .iter()
             .any(|entry| matches!(entry, iris_runtime::MroEntry::Class(entry) if *entry == right));
         Ok(Value::Bool(ancestry))
-    }
-
-    /// Builds the Contract view that `value as ContractType` proves.
-    ///
-    /// `IRIS-V1-TYPES-C049` requires the `as ContractType` part to prove or check
-    /// the nominal Contract view, so a receiver whose Class never declared that
-    /// Contract with `for` is rejected rather than silently viewed.
-    /// Validates a closed construction's arguments against its declared bounds.
-    ///
-    /// `IRIS-V1-TYPES-C058` lets a concrete argument satisfy an F-bounded
-    /// constraint such as `where T: Comparable<T>` ONLY through explicit
-    /// nominal Class or Contract conformance; matching member shape is
-    /// insufficient, so the declared `for` list is consulted rather than the
-    /// argument's members. `C067` makes the failure raise.
-    fn check_generic_bounds(
-        &mut self,
-        name: &str,
-        arguments: &[iris_syntax::TypeExpression],
-    ) -> Result<(), EvaluationError> {
-        let Some((parameters, constraints)) = self.generic_bounds.get(name).cloned() else {
-            return Ok(());
-        };
-        for constraint in &constraints {
-            let Some(position) = parameters.iter().position(|p| *p == constraint.parameter) else {
-                continue;
-            };
-            let Some(iris_syntax::TypeExpression::Name(argument)) = arguments.get(position) else {
-                continue;
-            };
-            // Only a NOMINAL bound asks a conformance question here.
-            let bound = match &constraint.bound {
-                iris_syntax::TypeExpression::Generic { name, .. }
-                | iris_syntax::TypeExpression::Name(name) => name,
-                _ => continue,
-            };
-            // C067 validates EVERY normalized constraint at materialization, so
-            // a Type bound such as `NonNil` is checked alongside a Contract
-            // one. `Box<Nil>` against `where T: NonNil` is exactly V242.
-            if bound == "NonNil" {
-                let nil = self
-                    .kernel
-                    .class(iris_runtime::BuiltinClass::Nil)
-                    .map_err(EvaluationError::Runtime)?;
-                if self.class_name(argument)? == Some(nil) {
-                    return Err(EvaluationError::TypeContractError);
-                }
-                continue;
-            }
-            if bound == "Never" {
-                // C023 makes `Never` uninhabited, so no argument satisfies it.
-                return Err(EvaluationError::TypeContractError);
-            }
-            let Some(contract) = self.contract_names.get(bound).copied() else {
-                continue;
-            };
-            let conforms = self
-                .class_name(argument)?
-                .and_then(|class| self.class_contracts.get(&class))
-                .is_some_and(|declared| declared.contains(&contract));
-            if !conforms {
-                return Err(EvaluationError::TypeContractError);
-            }
-        }
-        Ok(())
-    }
-
-    fn check_nominal_generic_bounds(
-        &self,
-        name: &str,
-        arguments: &[NominalType],
-    ) -> Result<(), EvaluationError> {
-        let Some((parameters, constraints)) = self.generic_bounds.get(name) else {
-            return Ok(());
-        };
-        for constraint in constraints {
-            let Some(position) = parameters
-                .iter()
-                .position(|parameter| *parameter == constraint.parameter)
-            else {
-                continue;
-            };
-            let Some(argument) = arguments.get(position) else {
-                continue;
-            };
-            let bound = match &constraint.bound {
-                iris_syntax::TypeExpression::Generic { name, .. }
-                | iris_syntax::TypeExpression::Name(name) => name,
-                _ => continue,
-            };
-            if bound == "NonNil" {
-                let nil = self
-                    .kernel
-                    .class(iris_runtime::BuiltinClass::Nil)
-                    .map_err(EvaluationError::Runtime)?;
-                if argument.class() == nil {
-                    return Err(EvaluationError::TypeContractError);
-                }
-                continue;
-            }
-            if bound == "Never" {
-                return Err(EvaluationError::TypeContractError);
-            }
-            let Some(contract) = self.contract_names.get(bound) else {
-                continue;
-            };
-            let conforms = self
-                .class_contracts
-                .get(&argument.class())
-                .is_some_and(|declared| declared.contains(contract));
-            if !conforms {
-                return Err(EvaluationError::TypeContractError);
-            }
-        }
-        Ok(())
     }
 
     /// Renders one Type constituent for reflection.
@@ -11938,6 +12103,9 @@ impl SourceEvaluator {
             }
             iris_runtime::TypeAtom::Union(nested) => {
                 Value::ComposedType(iris_runtime::ComposedType::Union(nested.clone()))
+            }
+            iris_runtime::TypeAtom::Intersection(nested) => {
+                Value::ComposedType(iris_runtime::ComposedType::Intersection(nested.clone()))
             }
         }
     }
@@ -11968,6 +12136,15 @@ impl SourceEvaluator {
     /// value with no viewable Class is not an error here; it simply cannot
     /// declare a Contract, which the caller reports.
     fn class_of_value(&mut self, value: &Value) -> Result<ClassId, EvaluationError> {
+        if matches!(
+            value,
+            Value::Decorator(_) | Value::ImmutableArray(_) | Value::ImmutableHash(_)
+        ) {
+            return self
+                .kernel
+                .class_of(value)
+                .map_err(EvaluationError::Runtime);
+        }
         use iris_runtime::BuiltinClass;
         let builtin = match value {
             Value::Object(object) => {
@@ -11987,25 +12164,6 @@ impl SourceEvaluator {
         self.kernel.class(builtin).map_err(EvaluationError::Runtime)
     }
 
-    fn contract_view(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
-        let Value::Contract(contract, _) = target else {
-            return Err(EvaluationError::UnsupportedConstruct);
-        };
-        // C050 defines view equality over IDENTITY-LESS receivers too, so a
-        // value Class may be viewed as well as an identity-bearing object.
-        // Restricting this to `Value::Object` made `1 as N` unconstructible.
-        let class = self.class_of_value(&value)?;
-        // C019 draws nominal subtyping from immutable superclass AND declared
-        // Contract facts, so a subclass of a Class declaring `for C` conforms
-        // to C as well. Consulting only the receiver's OWN declarations made
-        // `A.new() as C` unconstructible whenever `A extends B for C`, even
-        // though the inherited `impl` answered an ordinary send.
-        if !self.conforms_through_ancestry(class, *contract)? {
-            return Err(EvaluationError::Runtime(iris_runtime::KernelError::Type));
-        }
-        Ok(Value::ContractView(Box::new(value), *contract))
-    }
-
     /// Evaluates `value as T` under `IRIS-V1-TYPES-C029`.
     ///
     /// The operand is already evaluated once by the caller. A Contract target
@@ -12018,11 +12176,24 @@ impl SourceEvaluator {
     /// expression; inlining this overflowed the non-termination test.
     #[inline(never)]
     fn checked_cast(&mut self, value: Value, target: &Value) -> Result<Value, EvaluationError> {
+        if let Value::ComposedType(iris_runtime::ComposedType::Intersection(members)) = target
+            && let [iris_runtime::TypeAtom::Contract(contract, arguments)] = members.as_slice()
+        {
+            return self.contract_view(value, &Value::Contract(*contract, arguments.clone()));
+        }
         if matches!(target, Value::Contract(..)) {
             return self.contract_view(value, target);
         }
         match self.type_test(&value, target)? {
             Value::Bool(true) => Ok(value),
+            _ if matches!(
+                value,
+                Value::Decorator(_) | Value::ImmutableArray(_) | Value::ImmutableHash(_)
+            ) =>
+            {
+                Err(self
+                    .core_boundary_error(EvaluationError::Runtime(iris_runtime::KernelError::Type)))
+            }
             _ => Err(EvaluationError::Runtime(iris_runtime::KernelError::Type)),
         }
     }
@@ -12034,11 +12205,11 @@ impl SourceEvaluator {
         class: ClassId,
         contract: iris_runtime::ContractId,
     ) -> Result<bool, EvaluationError> {
-        if self
-            .class_contracts
-            .get(&class)
-            .is_some_and(|declared| declared.contains(&contract))
-        {
+        if self.class_contracts.get(&class).is_some_and(|declared| {
+            declared
+                .iter()
+                .any(|source| self.contract_subtype(*source, contract))
+        }) {
             return Ok(true);
         }
         let mro = self
@@ -12052,7 +12223,7 @@ impl SourceEvaluator {
                 if self
                     .class_contracts
                     .get(ancestor)
-                    .is_some_and(|declared| declared.contains(&contract)))
+                    .is_some_and(|declared| declared.iter().any(|source| self.contract_subtype(*source, contract))))
         }))
     }
 
@@ -12071,6 +12242,7 @@ impl SourceEvaluator {
         let Value::ContractView(receiver, contract) = view else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
+        let contract = self.qualified_contracts.definition(contract);
         let Value::Object(object) = *receiver else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -12146,18 +12318,23 @@ impl SourceEvaluator {
         object: iris_runtime::ObjectId,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let _closure_root = self.rooted(Value::Closure(object));
+        if self.wrapper_next.contains_key(&object) {
+            return self.invoke_wrapper_next(object, arguments);
+        }
         let record = self
             .closures
             .get(&object)
             .ok_or(EvaluationError::UnsupportedConstruct)?;
-        let parameters = record.parameters.clone();
+        let parameters = record.full_parameters.clone();
+        let is_async = record.is_async;
+        let return_type = record.return_type.clone();
         let body = record.body.clone();
         let receiver = record.receiver.clone();
         let cells = record.cells.clone();
+        let context = record.lexical_context.clone();
         let mut locals = record.captured.clone();
-        for (name, argument) in parameters.iter().zip(arguments) {
-            locals.insert(name.clone(), argument.clone());
-        }
+        locals.extend(self.bind_parameters(&parameters, arguments)?);
         // The body runs through `block`, which scopes its bindings. Running the
         // statements directly would let a `let` inside the Closure write into
         // the enclosing binding map and OVERWRITE an outer name of the same
@@ -12166,22 +12343,38 @@ impl SourceEvaluator {
         // C050 refuses the Host drive surface inside a Closure, since a
         // Closure can escape and be resumed anywhere, which would make the
         // surface an Iris source-level blocking wait C015 forbids.
+        let previous_context = self.wrapper_context();
+        self.restore_wrapper_context(context);
         self.closure_depth += 1;
-        let shadowed = cells
+        let shadowed: Vec<_> = cells
             .into_iter()
             .map(|(name, cell)| {
                 let previous = self.names.insert(name.clone(), cell);
                 (name, previous)
             })
             .collect();
-        let outcome = match self.block(&body, &locals, receiver) {
+        let shadowed = self.rooted(shadowed);
+        let previous_candidate_frame = self.candidate_declarations.frame;
+        if let Some((callback, class)) = self.candidate_declarations.callback
+            && callback == object
+        {
+            self.candidate_declarations.callback = None;
+            self.candidate_declarations.frame = Some((self.frames.len(), class));
+        }
+        let outcome = match if is_async {
+            self.start_async(body, locals, receiver, return_type.as_ref())
+        } else {
+            self.block(&body, &locals, receiver)
+        } {
             // A Closure `return` ends only this invocation under D-421, so it
             // is absorbed here rather than reaching an enclosing Method.
             Err(EvaluationError::Return(value)) => Ok(value),
             result => result,
         };
         self.closure_depth -= 1;
-        self.restore_shadowed(shadowed);
+        self.restore_shadowed(std::rc::Rc::unwrap_or_clone(shadowed));
+        self.restore_wrapper_context(previous_context);
+        self.candidate_declarations.frame = previous_candidate_frame;
         outcome
     }
 
@@ -12264,6 +12457,11 @@ impl SourceEvaluator {
         // only after instance dispatch found nothing, so a DECLARED
         // `to_string` still wins.
         let missing_name = self.selector_name(missing);
+        if arguments.is_empty()
+            && let Some(value) = self.core_error_send(object, &missing_name)?
+        {
+            return Ok(value);
+        }
         // C003 makes an ordinary object IDENTITY-BEARING, so `same?` compares
         // the two identities. Like `to_string` this is reached only after
         // instance dispatch found nothing, so a declared one still wins.
@@ -12301,13 +12499,19 @@ impl SourceEvaluator {
             }
             Err(error) => return Err(error),
         };
-        // IRIS-V1-RUNTIME-C099 passes the trailing block as the separate
-        // `block: Closure?` parameter, NOT inside the positional argument
-        // snapshot, so a Closure in final position is split out here.
-        let (positional, block) = match arguments {
-            [head @ .., Value::Closure(closure)] => (head.to_vec(), Value::Closure(*closure)),
-            _ => (arguments.to_vec(), Value::Nil),
-        };
+        let block = call_channels::block(arguments)?
+            .cloned()
+            .unwrap_or(Value::Nil);
+        let positional = arguments
+            .iter()
+            .filter(|argument| {
+                !matches!(
+                    call_channels::ArgumentChannel::of(argument),
+                    call_channels::ArgumentChannel::Block(_)
+                )
+            })
+            .cloned()
+            .collect();
         self.invoke_method(
             method,
             Value::Object(object),
@@ -12384,6 +12588,22 @@ impl SourceEvaluator {
     fn read_class_var(&mut self, name: &str) -> Result<Value, EvaluationError> {
         let selector = self.selector(name);
         let class = self.class_var_owner(selector)?;
+        if self
+            .module_candidate
+            .is_some_and(|module| self.module_classes.get(&module) == Some(&class))
+            && self.runtime.registry().is_staging(class)
+        {
+            return self
+                .runtime
+                .candidate_class_var(class, selector)
+                .map_err(EvaluationError::Construction)?
+                .ok_or(EvaluationError::Construction(
+                    iris_runtime::ConstructionError::MissingDeclaredClassVariable {
+                        class,
+                        name: selector,
+                    },
+                ));
+        }
         self.runtime
             .class_var(class, selector)
             .map_err(EvaluationError::Construction)?
@@ -12398,6 +12618,19 @@ impl SourceEvaluator {
     fn assign_class_var(&mut self, name: &str, value: Value) -> Result<Value, EvaluationError> {
         let selector = self.selector(name);
         let class = self.class_var_owner(selector)?;
+        if self
+            .module_candidate
+            .is_some_and(|module| self.module_classes.get(&module) == Some(&class))
+        {
+            self.runtime
+                .registry_mut()
+                .begin_transaction(class)
+                .map_err(EvaluationError::Class)?;
+            return self
+                .runtime
+                .assign_candidate_class_var(class, selector, value)
+                .map_err(EvaluationError::Construction);
+        }
         self.runtime
             .assign_class_var(class, selector, value)
             .map_err(EvaluationError::Construction)
@@ -12419,10 +12652,8 @@ impl SourceEvaluator {
             if self
                 .runtime
                 .registry()
-                .active(class)
+                .candidate_has_class_var(class, name)
                 .map_err(EvaluationError::Class)?
-                .class_vars()
-                .contains(&name)
             {
                 return Ok(class);
             }
@@ -12443,14 +12674,48 @@ impl SourceEvaluator {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        let method = match (self.rollback_state.context.as_ref(), method.owner()) {
+            (Some(context), MethodOwner::Class(owner))
+                if context.methods.keys().any(|(class, _)| *class == owner) =>
+            {
+                *context
+                    .methods
+                    .get(&(owner, method.selector()))
+                    .ok_or(EvaluationError::RevisionArtifactUnavailable)?
+            }
+            _ => method,
+        };
         let previous_lexical_class = self.lexical_class;
         let previous_method = self.current_method;
+        let _caller = self.rooted(previous_method.map(Value::Method));
         self.lexical_class = match method.owner() {
             MethodOwner::Class(class) => Some(class),
             MethodOwner::Module(module) => self.module_classes.get(&module).copied(),
         };
         self.current_method = Some(method);
+        let receiver_root = match &receiver {
+            Value::Object(identity) => Some(Value::Object(*identity)),
+            _ => None,
+        };
+        let _receiver_root = self.rooted(receiver_root);
+        let context = self
+            .rollback_state
+            .bodies
+            .get(&method.body().raw())
+            .cloned();
+        let previous_context = std::mem::replace(&mut self.rollback_state.context, context.clone());
+        let previous_source = context.as_ref().map(|context| {
+            (
+                std::mem::replace(&mut self.source, context.source.clone()),
+                std::mem::replace(&mut self.package, context.package.clone()),
+            )
+        });
         let result = self.invoke_method_with_context(method, receiver, arguments);
+        if let Some((source, package)) = previous_source {
+            self.source = source;
+            self.package = package;
+        }
+        self.rollback_state.context = previous_context;
         self.lexical_class = previous_lexical_class;
         self.current_method = previous_method;
         result
@@ -12471,20 +12736,22 @@ impl SourceEvaluator {
         use iris_syntax::ParameterCategory;
         let mut positional = Vec::new();
         let mut keyword: Vec<(String, Value)> = Vec::new();
+        let mut block = call_channels::block(arguments)?.cloned();
         for argument in arguments {
-            match argument {
-                Value::KeywordArgument(name, value) => {
+            match call_channels::ArgumentChannel::of(argument) {
+                call_channels::ArgumentChannel::Block(_) => {}
+                call_channels::ArgumentChannel::Keyword(name, value) => {
                     // IRIS-V1-CONTROL-D-357 makes a duplicate keyword an
                     // ArgumentError rather than a silent last-one-wins.
                     if keyword.iter().any(|(seen, _)| seen == name) {
                         return Err(EvaluationError::ArgumentError);
                     }
-                    keyword.push((name.clone(), value.as_ref().clone()));
+                    keyword.push((name.to_owned(), value.clone()));
                 }
-                value => positional.push(value.clone()),
+                call_channels::ArgumentChannel::Positional(value) => positional.push(value.clone()),
             }
         }
-        let mut locals = HashMap::new();
+        let locals = self.rooted(std::cell::RefCell::new(HashMap::new()));
         let mut next = 0usize;
         for parameter in parameters {
             let name = parameter.name.clone();
@@ -12511,43 +12778,41 @@ impl SourceEvaluator {
                         .collect();
                     Some(Value::Hash(HashRef::new(rest)))
                 }
-                // C025 binds an omitted optional block to `nil`, so the block
-                // channel is never a missing-argument error.
-                ParameterCategory::Block => {
-                    Some(positional.get(next).cloned().unwrap_or(Value::Nil))
-                }
+                ParameterCategory::Block => block.take(),
             };
-            if parameter.category == ParameterCategory::Block {
-                next += usize::from(next < positional.len());
-            }
             let value = match bound {
                 Some(value) => value,
                 None => match &parameter.default {
-                    Some(default) => self.expression(default, &locals, None)?,
+                    Some(default) => self.expression(default, &locals.borrow(), None)?,
                     None => return Err(EvaluationError::ArgumentError),
                 },
             };
-            // C004 guards the PARAMETER boundary: a written annotation is
-            // checked before the argument is passed across it. A rest or
-            // keyword-rest parameter collects into a container whose annotation
-            // describes the ELEMENTS, so only a single-value parameter is
-            // checked here.
-            if let Some(annotation) = &parameter.annotation
-                && matches!(
-                    parameter.category,
-                    ParameterCategory::Positional | ParameterCategory::Keyword
-                )
-            {
-                self.check_binding_annotation(&value, annotation)?;
+            if let Some(annotation) = &parameter.annotation {
+                match (&parameter.category, &value) {
+                    (ParameterCategory::Block, Value::Nil) if parameter.default.is_some() => {}
+                    (ParameterCategory::Rest, Value::Array(array)) => {
+                        for value in array.elements().iter() {
+                            self.check_binding_annotation(value, annotation)?;
+                        }
+                    }
+                    (ParameterCategory::KeywordRest, Value::Hash(hash)) => {
+                        for (_, value) in hash.entries().iter() {
+                            self.check_binding_annotation(value, annotation)?;
+                        }
+                    }
+                    _ => self.check_binding_annotation(&value, annotation)?,
+                }
             }
-            locals.insert(name, value);
+            locals.borrow_mut().insert(name, value);
         }
         // A leftover argument in either channel matches no parameter, which
         // C025 makes an arity error rather than a silent discard.
-        if next < positional.len() || !keyword.is_empty() {
+        if next < positional.len() || !keyword.is_empty() || block.is_some() {
             return Err(EvaluationError::ArgumentError);
         }
-        Ok(locals)
+        Ok(std::rc::Rc::try_unwrap(locals)
+            .unwrap_or_else(|_| unreachable!())
+            .into_inner())
     }
 
     fn invoke_method_with_context(
@@ -12577,7 +12842,7 @@ impl SourceEvaluator {
             self.observing = false;
             previous
         });
-        let result = self.invoke_method_body(method, receiver, arguments);
+        let result = self.invoke_property_with_owner(method, receiver, arguments);
         if let Some((package, observing, major, version)) = restore {
             self.package = package;
             self.observing = observing;
@@ -12611,12 +12876,29 @@ impl SourceEvaluator {
         receiver: Value,
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
+        if let Some(chain) = self.wrapper_chains.get(&method.id()).cloned() {
+            return self.invoke_wrapper_chain(chain, receiver, arguments);
+        }
+        self.explicit_method_types.clear();
+        if let Some(closure) = self.captured_methods.get(&method.body().raw()).copied() {
+            return self.invoke_captured_method(closure, arguments);
+        }
+        if self.decorator_planning
+            && (self.native_bodies.contains_key(&method.body().raw())
+                || self
+                    .bodies
+                    .get(&method.body().raw())
+                    .is_none_or(|body| body.is_async))
+        {
+            return Err(decorator_planning::impure());
+        }
         if let Some(name) = self.native_bodies.get(&method.body().raw()) {
+            let arguments = call_channels::native_arguments(arguments)?;
             return self
                 .natives
                 .as_ref()
                 .ok_or(EvaluationError::UnsupportedConstruct)?
-                .call(name, arguments)
+                .call(name, &arguments)
                 .map_err(|error| self.native_error(error));
         }
         let Some(declaration) = self.bodies.get(&method.body().raw()) else {
@@ -12647,47 +12929,7 @@ impl SourceEvaluator {
         // operation. The body therefore runs now, and the Task records what it
         // produced.
         if is_async {
-            // C050 refuses the Host drive surface inside an async body, which
-            // is what keeps it from becoming the hidden Task join C015 forbids.
-            self.async_depth += 1;
-            let previous = self.async_replay.replace(GeneratorState {
-                resume_past: 0,
-                seen: 0,
-            });
-            let outcome = match self.block(&body, &locals, Some(receiver.clone())) {
-                Err(EvaluationError::Return(value)) => Ok(value),
-                result => result,
-            };
-            self.async_replay = previous;
-            self.async_depth -= 1;
-            let identity = self.next_context_identity();
-            // C013 suspends rather than completing when the body awaited an
-            // incomplete Awaitable, so the Task stays pending until a post.
-            if let Err(EvaluationError::AwaitSuspended(gate)) = &outcome {
-                self.suspended.insert(
-                    identity,
-                    SuspendedTask {
-                        body,
-                        locals,
-                        receiver: Some(receiver),
-                        delivered: Vec::new(),
-                        gate: *gate,
-                    },
-                );
-                return Ok(Value::Task(identity));
-            }
-            // C027 makes a failed Task eligible for unobserved-failure
-            // reporting until something observes it.
-            if let Err(error) = &outcome {
-                let captured = match error {
-                    EvaluationError::Raised(value) => value.clone(),
-                    other => catchable_name(other)
-                        .map_or(Value::Symbol("AsyncFailure".into()), Value::Symbol),
-                };
-                self.unobserved_failures.push((identity, captured));
-            }
-            self.tasks.insert(identity, outcome.map_err(Box::new));
-            return Ok(Value::Task(identity));
+            return self.start_async(body, locals, Some(receiver), return_type.as_ref());
         }
         let result = match self.block(&body, &locals, Some(receiver)) {
             Err(EvaluationError::Return(value)) => Ok(value),
@@ -12740,6 +12982,7 @@ impl SourceEvaluator {
         &mut self,
         identity: iris_runtime::ObjectId,
     ) -> Result<Value, EvaluationError> {
+        let _generator_root = self.rooted(Value::Generator(identity));
         let Some(state) = self.generators.get(&identity).cloned() else {
             return Err(EvaluationError::UnsupportedConstruct);
         };
@@ -12905,7 +13148,7 @@ fn receiver_class_name(value: &Value) -> &str {
         Value::Integer(_) => "Integer",
         Value::Float32(_) => "Float32",
         Value::Float64(_) => "Float64",
-        Value::Array(_) => "Array",
+        Value::Array(_) | Value::ImmutableArray(_) => "Array",
         Value::Bytes(_) => "Bytes",
         Value::ByteArray(_) => "ByteArray",
         Value::MutableString(_) => "MutableString",
@@ -12918,7 +13161,7 @@ fn receiver_class_name(value: &Value) -> &str {
         Value::NativeResource(_) => "FFI::Resource",
         Value::ExternalResource(resource) => resource.type_name(),
         Value::Gate(_) => "Gate",
-        Value::Hash(_) => "Hash",
+        Value::Hash(_) | Value::ImmutableHash(_) => "Hash",
         Value::Tuple(_) => "Tuple",
         Value::ReadonlyArray(_) => "ReadonlyArray",
         Value::SourceLocation(..) => "SourceLocation",
@@ -12931,6 +13174,7 @@ fn receiver_class_name(value: &Value) -> &str {
         Value::Contract(..) => "Contract",
         Value::Closure(_) => "Closure",
         Value::KeywordArgument(_, _) | Value::IterationYield(_) => "Iteration",
+        Value::BlockArgument(_) => "internal-block-argument",
         Value::ArrayIterator(..)
         | Value::HashIterator(..)
         | Value::ByteIterator(..)
@@ -12943,7 +13187,7 @@ fn receiver_class_name(value: &Value) -> &str {
         Value::Object(_) => "Object",
         Value::BoundMethod(_) => "BoundMethod",
         Value::Method(_) => "Method",
-        Value::Transformation { .. } => "Transformation",
+        Value::Decorator(record) => record.core_name(),
     }
 }
 
@@ -13254,7 +13498,7 @@ mod tests {
     fn shared_cell_is_read_through_the_declaring_and_subclass_static_lexical_contexts()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class A { shared mut @@count: Integer = 1 public fun read() -> Integer { @@count } }; class B extends A { public fun read_child() -> Integer { @@count } }; [A.new().read(), B.new().read_child()]";
+        let source = "class A { shared mut @@count: Integer = 1 public fun read() -> Integer { @@count } }; class B extends A { public fun read_child() -> Integer { @@count } }; %[A.new().read(), B.new().read_child()]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When
@@ -13292,7 +13536,7 @@ mod tests {
     fn duplicate_shared_declaration_on_static_ancestry_keeps_active_revision_unchanged()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class A { shared mut @@count: Integer = 1 }; class B extends A { shared mut @@count: Integer = 2 }";
+        let source = "class A { shared mut @@count: Integer = 1 }; class B extends A { }";
         let (mut evaluator, program) = source_evaluator(source)?;
         let [
             iris_syntax::Declaration::Class(parent),
@@ -13320,7 +13564,12 @@ mod tests {
             .map_err(crate::EvaluationError::Class)?;
 
         // When
-        let result = evaluator.class(child);
+        let result = evaluator.shared_binding(
+            child_id,
+            true,
+            "count",
+            &iris_syntax::Expression::Literal("2".into()),
+        );
 
         // Then
         assert!(matches!(
@@ -13343,7 +13592,7 @@ mod tests {
     #[test]
     fn subclass_method_reads_the_declaring_class_cell() -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class A { public fun read() -> Integer { @@c } }; class B extends A { public fun child_read() -> Integer { @@c } }; [A.new().read(), B.new().child_read()]";
+        let source = "class A { public fun read() -> Integer { @@c } }; class B extends A { public fun child_read() -> Integer { @@c } }; %[A.new().read(), B.new().child_read()]";
         let (mut evaluator, program) = source_evaluator(source)?;
         for declaration in &program.declarations {
             let iris_syntax::Declaration::Class(class) = declaration else {
@@ -13411,7 +13660,7 @@ mod tests {
     fn class_object_raw_ivars_and_class_variables_use_distinct_storage()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class A { shared mut @@x: Integer = 2 class fun set_raw() -> Integer { @x = 1 } class fun raw() -> Integer { @x } class fun shared() -> Integer { @@x } }; let ignored = A.set_raw(); [A.raw(), A.shared()]";
+        let source = "class A { shared mut @@x: Integer = 2 class fun set_raw() -> Integer { @x = 1 } class fun raw() -> Integer { @x } class fun shared() -> Integer { @@x } }; let ignored = A.set_raw(); %[A.raw(), A.shared()]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When
@@ -13432,7 +13681,7 @@ mod tests {
     fn class_fun_and_instance_method_share_the_declaring_class_variable_cell()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "class P { shared mut @@n: Integer = 0; public class fun bump() -> Integer { @@n = @@n + 1 } public fun read() -> Integer { @@n } }; [P.bump(), P.new().read(), P.bump()]";
+        let source = "class P { shared mut @@n: Integer = 0; public class fun bump() -> Integer { @@n = @@n + 1 } public fun read() -> Integer { @@n } }; %[P.bump(), P.new().read(), P.bump()]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When
@@ -13500,7 +13749,7 @@ mod tests {
     fn open_builtin_integer_adds_a_source_method_without_replacing_native_hash()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "open class Integer { public fun doubled() -> Integer { 2 } }; [Integer(1).doubled(), Integer(1).hash]";
+        let source = "open class Integer { public fun doubled() -> Integer { 2 } }; %[Integer(1).doubled(), Integer(1).hash]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When
@@ -13561,7 +13810,7 @@ mod tests {
     fn retained_method_binding_failure_does_not_execute_its_observable_body()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+        let source = "mut log = %[]; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), %[])";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When
@@ -13587,7 +13836,7 @@ mod tests {
     fn open_builtin_replaces_compatible_method_and_preserves_singletons_and_float_bits()
     -> Result<(), crate::EvaluationError> {
         // Given
-        let source = "open class Integer { override public fun hash() -> Integer { 2 } }; [Integer(1).hash, nil.hash, false.hash, true.hash]";
+        let source = "open class Integer { override public fun hash() -> Integer { 2 } }; %[Integer(1).hash, nil.hash, false.hash, true.hash]";
         let (mut evaluator, program) = source_evaluator(source)?;
 
         // When

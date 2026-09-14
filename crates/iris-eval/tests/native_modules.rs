@@ -173,7 +173,12 @@ fn both_engines_execute_real_native_module_calls() -> Result<(), Box<dyn std::er
     if let Ok(hidden) = iris_vm::compile_with_natives("NativeTest.integer(1)", &registry) {
         assert!(iris_vm::run_with_natives(&hidden, Rc::clone(&registry)).is_err());
     }
-    assert!(iris_vm::compile_with_natives("import NativeTest; module NativeTest { public fun integer(value) { 99 } } NativeTest.integer(1)", &registry).is_err());
+    let shadowed = iris_vm::compile_with_natives(
+        "import NativeTest; module NativeTest { public fun integer(value) { 99 } } NativeTest.integer(1)",
+        &registry,
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    assert!(iris_vm::run_with_natives(&shadowed, Rc::clone(&registry)).is_err());
     let sources = vec![
         iris_native_host::PackageSource { package_id: "helper".into(), api_major: 1, version: "1.0.0".into(), path: "helper.iris".into(), source: "import NativeTest; module Helper { public module fun value() { NativeTest.integer(23) } }".into(), allowed_imports: ["NativeTest".into()].into() },
         iris_native_host::PackageSource { package_id: "app".into(), api_major: 1, version: "1.0.0".into(), path: "app.iris".into(), source: "import Helper; Helper.value()".into(), allowed_imports: ["Helper".into()].into() },

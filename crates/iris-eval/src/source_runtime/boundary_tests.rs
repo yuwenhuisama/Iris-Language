@@ -63,7 +63,7 @@ fn session_infers_from_prior_contract_not_current_value() {
 
 #[test]
 fn escaped_mutable_capture_retains_contract_and_cell() {
-    let given = "module M { public module fun make() { mut port = 8080; [{ |value| port = value }, { || port }] } }; let pair = M.make(); let update = pair[0]; let read = pair[1]; let valid = update.call(9090); let refused = try { update.call(\"bad\"); false } catch error { true }; [refused, read.call()]";
+    let given = "module M { public module fun make() { mut port = 8080; %[{ |value| port = value }, { || port }] } }; let pair = M.make(); let update = pair[0]; let read = pair[1]; let valid = update.call(9090); let refused = try { update.call(\"bad\"); false } catch error { true }; %[refused, read.call()]";
     let when = crate::evaluate(given);
     assert_eq!(
         when,
@@ -145,7 +145,7 @@ fn group_signature_failure_rolls_back_sibling_target() {
 
 #[test]
 fn replacement_obeys_nominal_variance() {
-    let given = "class Base { }; class Child extends Base { }; class Rule { public fun choose(value: Child) -> Base { value } }; open class Rule { public override fun choose(value: Base) -> Child { Child.new() } }; Rule.new().choose(Base.new()) is Child";
+    let given = "class Base { }; class Child extends Base { }; class Rule { public fun choose(value: Child) -> Base { value } }; open class Rule { public override fun choose(value: Base) -> Child { Child.new() } }; Rule.new().choose(Base.new()) is? Child";
     let when = crate::evaluate(given);
     assert_eq!(when, Ok(Value::Bool(true)));
 }
@@ -153,8 +153,14 @@ fn replacement_obeys_nominal_variance() {
 #[test]
 fn class_body_mutable_local_checks_dynamic_write() {
     let given = "module Input { public module fun read(value) { value } }; class A { mut port = 8; port = Input.read(\"bad\") }; nil";
-    let when = crate::evaluate(given);
-    assert_eq!(when, Err(EvaluationError::TypeContractError));
+    let when = iris_parser::parse(given);
+    assert!(!when.program_accepted, "{when:#?}");
+    assert!(
+        when.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "PARSE_ORIGIN_BODY_REQUIRES_DECLARATION"),
+        "{when:#?}"
+    );
 }
 
 #[test]
@@ -200,7 +206,7 @@ fn package_entrypoints_preflight_uncalled_method_locals() {
 
 #[test]
 fn inferred_collection_bindings_admit_their_runtime_representations() {
-    let given = "mut array = []; array = [1]; mut hash = %{}; hash = %{ :key: 1 }; mut symbol = :old; symbol = :new; [array, hash[:key], symbol]";
+    let given = "mut array = %[]; array = %[1]; mut hash = %{}; hash = %{ :key: 1 }; mut symbol = :old; symbol = :new; %[array, hash[:key], symbol]";
     let when = crate::evaluate(given);
     assert!(when.is_ok(), "{when:?}");
 }

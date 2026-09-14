@@ -39,8 +39,8 @@ fn a_stateful_class_holds_its_own_values() {
     agrees(
         r#"
 class Account {
-  property owner: String = ""
-  property balance: Integer = 0
+  public property owner: String = ""
+  public property balance: Integer = 0
 
   public fun deposit(amount: Integer) -> Integer {
     if amount <= 0 { raise :InvalidAmount }
@@ -67,7 +67,7 @@ module Bank {
     a.withdraw(30)
     let refused = try { a.withdraw(1000) } catch e { e }
     let rejected = try { a.deposit(0) } catch e { e }
-    [a.to_string(), a.balance, refused, rejected]
+    %[a.to_string(), a.balance, refused, rejected]
   }
 }
 
@@ -84,11 +84,11 @@ fn nested_closed_class_properties_are_independent_and_materialize_once() {
         mut starts = 0
         class Inner<T> {}
         class Outer<T> {
-          class property value: Integer = { starts = starts + 1; starts }.call()
+          public class property value: Integer = { starts = starts + 1; starts }.call()
         }
         Outer<Inner<String>>.value = 10
         Outer<Inner<Integer>>.value = 20
-        [Outer<Inner<String>>.value, Outer<Inner<Integer>>.value, starts]
+        %[Outer<Inner<String>>.value, Outer<Inner<Integer>>.value, starts]
         "#,
         "[10, 20, [10, 20, 2]]",
     );
@@ -99,8 +99,8 @@ fn nested_closed_constructions_in_statement_try_and_property_initializers_are_re
     agrees(
         r#"
         class Inner<T> {};
-        class Seed<T> { class property seed: Integer = 1 };
-        class Outer<T> { class property value: Integer = Seed<Inner<String>>.seed };
+        class Seed<T> { public class property seed: Integer = 1 };
+        class Outer<T> { public class property value: Integer = Seed<Inner<String>>.seed };
         try { raise :x } catch e: Symbol { Outer<Inner<Integer>>.value } finally { Seed<Inner<String>>.seed }
         "#,
         "1",
@@ -112,11 +112,11 @@ fn closed_construction_and_nested_property_initializer_materialize_once_before_r
     agrees(
         r#"
         mut count = 0
-        class Outer<T> { class property token: Integer = { count = count + 1; count }.call() }
+        class Outer<T> { public class property token: Integer = { count = count + 1; count }.call() }
         class Holder<T> { property held: Object = Outer<Holder<String>>.new() }
         Outer<String>.new()
         Holder<Integer>.new()
-        [count, Outer<String>.token, Outer<Holder<String>>.token]
+        %[count, Outer<String>.token, Outer<Holder<String>>.token]
         "#,
         "[<object>, <object>, [2, 1, 2]]",
     );
@@ -147,8 +147,8 @@ fn an_object_graph_is_built_and_traversed() {
     agrees(
         r#"
 class Node {
-  property value: Integer = 0
-  property next: Object = nil
+  public property value: Integer = 0
+  public property next: Object = nil
 }
 
 module ListOps {
@@ -186,8 +186,8 @@ module ListOps {
 
 module Main {
   public fun run() -> Object {
-    let list = ListOps.build([1, 2, 3, 4, 5])
-    [ListOps.sum(list), ListOps.length(list), list.value]
+    let list = ListOps.build(%[1, 2, 3, 4, 5])
+    %[ListOps.sum(list), ListOps.length(list), list.value]
   }
 }
 
@@ -219,13 +219,13 @@ class Shape {
 }
 
 class Square extends Shape {
-  property side: Integer = 0
+  public property side: Integer = 0
   public override fun area() -> Integer { @side * @side }
 }
 
 class Rect extends Shape {
-  property w: Integer = 0
-  property h: Integer = 0
+  public property w: Integer = 0
+  public property h: Integer = 0
   public override fun area() -> Integer { @w * @h }
 }
 
@@ -237,8 +237,8 @@ module Main {
     r.w = 3
     r.h = 5
     mut total = 0
-    for shape in [s, r] { total = total + shape.area() }
-    [Math.fib(10), Math.fact(5), s.describe(), r.describe(), total]
+    for shape in %[s, r] { total = total + shape.area() }
+    %[Math.fib(10), Math.fact(5), s.describe(), r.describe(), total]
   }
 }
 
@@ -259,7 +259,7 @@ module Greet {
 }
 
 class Person mixin Greet {
-  property name_value: String = ""
+  public property name_value: String = ""
   public fun name() -> String { @name_value }
 }
 
@@ -267,7 +267,7 @@ module Main {
   public fun run() -> Object {
     let p = Person.new()
     p.name_value = "iris"
-    [p.greeting(), p.shout()]
+    %[p.greeting(), p.shout()]
   }
 }
 
@@ -284,7 +284,7 @@ fn collections_and_closures_work_together() {
         r#"
 module Pipeline {
   public fun run() -> Object {
-    let xs = [1, 2, 3, 4, 5, 6]
+    let xs = %[1, 2, 3, 4, 5, 6]
     let doubled = xs.map({ |v| v * 2 })
     let big = xs.select({ |v| v > 3 })
     let total = xs.reduce(0, { |acc, v| acc + v })
@@ -292,7 +292,7 @@ module Pipeline {
     for x in xs {
       counts[x] = x * x
     }
-    [doubled, big, total, counts.length()]
+    %[doubled, big, total, counts.length()]
   }
 }
 
@@ -307,7 +307,7 @@ Pipeline.run()
 fn an_exception_crosses_frames() {
     agrees(
         r#"
-mut trace = []
+mut trace = %[]
 
 class Parser {
   public fun parse(text: String) -> Object {
@@ -335,7 +335,7 @@ module Runner {
   public fun run() -> Object {
     let good = attempt("abcd")
     let bad = attempt("")
-    [good, bad, trace]
+    %[good, bad, trace]
   }
 }
 
@@ -352,21 +352,23 @@ fn a_contract_is_satisfied_by_several_classes() {
         r#"
 contract Describable { fun describe() -> String }
 
-class Dog for Describable {
-  public impl fun describe() -> String { "dog" }
+class Dog {}
+impl Dog for Describable {
+  public fun describe() -> String { "dog" }
 }
 
-class Cat for Describable {
-  public impl fun describe() -> String { "cat" }
+class Cat {}
+impl Cat for Describable {
+  public fun describe() -> String { "cat" }
 }
 
 module Main {
   public fun run() -> Object {
     let d = Dog.new()
     let c = Cat.new()
-    mut names = []
-    for animal in [d, c] { names.append(animal.describe()) }
-    [(d as Describable)..describe(), (c as Describable)..describe(), names]
+    mut names = %[]
+    for animal in %[d, c] { names.append(animal.describe()) }
+    %[(d as Describable)..describe(), (c as Describable)..describe(), names]
   }
 }
 
@@ -382,8 +384,8 @@ fn class_state_and_instance_state_stay_separate() {
     agrees(
         r#"
 class Counter {
-  class property made: Integer = 0
-  property id: Integer = 0
+  public class property made: Integer = 0
+  public property id: Integer = 0
 
   public fun register() -> Integer {
     Counter.made = Counter.made + 1
@@ -400,7 +402,7 @@ module Main {
     a.register()
     b.register()
     c.register()
-    [a.id, b.id, c.id, Counter.made]
+    %[a.id, b.id, c.id, Counter.made]
   }
 }
 
@@ -430,7 +432,7 @@ open class Formatter {
 }
 
 module After {
-  public fun run() -> Object { [first, Formatter.new().render(7)] }
+  public fun run() -> Object { %[first, Formatter.new().render(7)] }
 }
 
 After.run()
@@ -453,8 +455,8 @@ module Factory {
     let add10 = adder(10)
     let add100 = adder(100)
     mut total = 0
-    for x in [1, 2, 3] { total = total + add10.call(x) }
-    [add10.call(5), add100.call(5), total]
+    for x in %[1, 2, 3] { total = total + add10.call(x) }
+    %[add10.call(5), add100.call(5), total]
   }
 }
 
@@ -471,8 +473,8 @@ fn a_generic_class_separates_its_constructions() {
     agrees(
         r#"
 class Box<T> {
-  class property made: Integer = 0
-  property held: Object = nil
+  public class property made: Integer = 0
+  public property held: Object = nil
 }
 
 module Main {
@@ -483,7 +485,7 @@ module Main {
     let i = Box<Integer>.new()
     s.held = "text"
     i.held = 42
-    [Box<String>.made, Box<Integer>.made, s.held, i.held]
+    %[Box<String>.made, Box<Integer>.made, s.held, i.held]
   }
 }
 

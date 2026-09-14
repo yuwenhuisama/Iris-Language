@@ -63,7 +63,23 @@ impl SourceEvaluator {
         }
     }
     pub(super) fn native_error(&mut self, error: iris_native_host::NativeError) -> EvaluationError {
-        let (value, context) = error.into_propagation();
+        let (mut value, mut context) = error.into_propagation();
+        let core = match &value {
+            Value::Symbol(name) if name == "ArgumentError" => Some(EvaluationError::ArgumentError),
+            Value::Symbol(name) if name == "TypeError" => {
+                Some(EvaluationError::Runtime(iris_runtime::KernelError::Type))
+            }
+            _ => None,
+        };
+        if let Some(error) = core {
+            match self.core_boundary_error(error) {
+                EvaluationError::Raised(raised) => value = raised,
+                error => return error,
+            }
+            if let Value::ExceptionContext(_, held, ..) = &mut context {
+                **held = value.clone();
+            }
+        }
         self.active_context = Some(context);
         EvaluationError::Raised(value)
     }
@@ -91,7 +107,7 @@ pub fn evaluate_with_natives(
     source: &str,
     registry: Rc<NativeRegistry>,
 ) -> Result<Value, EvaluationError> {
-    crate::Session::with_natives(registry)?.evaluate(source)
+    crate::Session::with_natives(registry)?.evaluate_host(source)
 }
 pub fn evaluate_packages_with_natives(
     programs: &[(String, String)],

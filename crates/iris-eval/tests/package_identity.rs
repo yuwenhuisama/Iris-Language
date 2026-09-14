@@ -36,7 +36,7 @@ fn nominal_hash_changes_when_api_major_changes() -> Result<(), String> {
 fn metadata_is_visible_when_package_is_entered() {
     let given = source(
         2,
-        "[Reflection::Package.identity(), Reflection::Package.version()]",
+        "%[Reflection::Package.identity(), Reflection::Package.version()]",
     );
     let when =
         iris_eval::evaluate_package_tree_with_natives(&[given], Rc::new(NativeRegistry::new()));
@@ -77,7 +77,7 @@ fn declaration_keeps_identity_when_another_package_calls_it() {
     let given = [
         source(
             2,
-            "class Widget {} module Helper { public module fun value() { [Widget.type.package, Widget.type.hash(), Reflection::Package.version()] } }",
+            "class Widget {} module Helper { public module fun value() { %[Widget.type.package, Widget.type.hash(), Reflection::Package.version()] } }",
         ),
         PackageSource {
             package_id: "org.iris.caller".to_owned(),

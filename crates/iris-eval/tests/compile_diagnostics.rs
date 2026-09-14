@@ -47,6 +47,46 @@ fn backends_agree_when_fixed_local_assignment_is_statically_rejected() {
 }
 
 #[test]
+fn backends_enforce_deferred_binding_static_rules_before_execution() {
+    for (given, expected) in [
+        ("let value: Integer", "BINDING_LET_REQUIRES_INITIALIZER"),
+        ("mut value", "BINDING_MISSING_TYPE_FOR_DEFERRED_INIT"),
+    ] {
+        let when = compare_backends(given, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = when else {
+            unreachable!("both backends must reject {given}: {when:?}")
+        };
+        assert_eq!(
+            observation,
+            Observation::Error(expected.to_owned()),
+            "{given}"
+        );
+    }
+}
+
+#[test]
+fn backends_run_typed_deferred_binding_and_reject_early_read() {
+    for (given, expected) in [
+        (
+            "module M { public fun run() -> Object { mut value: Integer; value = 7; value } } M.run()",
+            Observation::Value("7".to_owned()),
+        ),
+        (
+            "module M { public fun run() -> Object { mut value: Integer; value } } M.run()",
+            Observation::Error("DefiniteAssignment".to_owned()),
+        ),
+    ] {
+        let when = compare_backends(given, &[&Interpreter, &Bytecode]);
+
+        let Agreement::Agreed { observation, .. } = when else {
+            unreachable!("both backends must execute {given}: {when:?}")
+        };
+        assert_eq!(observation, expected, "{given}");
+    }
+}
+
+#[test]
 fn bytecode_preserves_refusal_when_construct_is_uncovered() {
     let given = "NativeFixture.unknown_thing()";
 

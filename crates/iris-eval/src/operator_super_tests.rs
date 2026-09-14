@@ -5,7 +5,7 @@ use super::{EvaluationError, evaluate};
 #[test]
 fn logical_not_uses_to_bool_dispatch_for_builtins_and_overrides() {
     // Given
-    let source = "class A { public fun to_bool() -> Bool { false } }; [!true, !nil, !A.new()]";
+    let source = "class A { public fun to_bool() -> Bool { false } }; %[!true, !nil, !A.new()]";
 
     // When
     let result = evaluate(source);
@@ -24,7 +24,7 @@ fn logical_not_uses_to_bool_dispatch_for_builtins_and_overrides() {
 #[test]
 fn logical_and_preserves_falsy_operand_without_evaluating_rhs() {
     // Given
-    let source = "mut side = 0; class Falsy { public fun to_bool() -> Bool { false } }; class Rhs { public fun evaluate() -> Integer { side = 1 } }; let value = Falsy.new() && Rhs.new().evaluate(); [value, side]";
+    let source = "mut side = 0; class Falsy { public fun to_bool() -> Bool { false } }; class Rhs { public fun evaluate() -> Integer { side = 1 } }; let value = Falsy.new() && Rhs.new().evaluate(); %[value, side]";
 
     // When
     let result = evaluate(source);
@@ -52,7 +52,7 @@ fn logical_and_does_not_coerce_nil_to_false() {
 #[test]
 fn logical_or_preserves_truthy_operand_and_evaluates_rhs_when_falsy() {
     // Given
-    let preserve = "mut side = 0; class Truthy { public fun to_bool() -> Bool { true } }; class Rhs { public fun evaluate() -> Integer { side = 1 } }; let value = Truthy.new() || Rhs.new().evaluate(); [value, side]";
+    let preserve = "mut side = 0; class Truthy { public fun to_bool() -> Bool { true } }; class Rhs { public fun evaluate() -> Integer { side = 1 } }; let value = Truthy.new() || Rhs.new().evaluate(); %[value, side]";
     let evaluate_rhs = "nil || 1";
 
     // When
@@ -114,9 +114,10 @@ fn qualified_super_uses_the_superclass_method_and_bare_super_still_works() {
 
 #[test]
 fn contract_qualified_super_stays_in_the_contract_slot() {
-    let source = "contract C { }; class B for C { impl fun C::m() { :base } }; \
-                  class A extends B for C { override impl fun C::m() { super() } \
-                  public fun m() { :ordinary } }; (A.new() as C)..m()";
+    let source = "contract C { fun m() -> Symbol }; \
+                  class B { public fun m() -> Symbol { :base } }; impl B for C { }; \
+                  class A extends B { override public fun m() -> Symbol { super() } }; \
+                  impl A for C { }; (A.new() as C)..m()";
 
     assert_eq!(evaluate(source), Ok(RuntimeValue::Symbol("base".into())));
 }
@@ -147,7 +148,7 @@ fn overloadable_operator_methods_dispatch_independently() {
     let add = "class V { public fun +(other: V) -> Symbol { :plus } }; V.new() + V.new()";
     let compare = "class V { public fun <=>(other: V) -> Integer { 1 } }; V.new() <=> V.new()";
     let equality = "class V { public fun ==(other: V) -> Bool { true } }; V.new() == V.new()";
-    let independent = "class V { public fun <=>(other: V) -> Integer { 1 } public fun ==(other: V) -> Bool { false } }; [V.new() <=> V.new(), V.new() == V.new()]";
+    let independent = "class V { public fun <=>(other: V) -> Integer { 1 } public fun ==(other: V) -> Bool { false } }; %[V.new() <=> V.new(), V.new() == V.new()]";
 
     // When
     let add_result = evaluate(add);
@@ -171,7 +172,7 @@ fn overloadable_operator_methods_dispatch_independently() {
 #[test]
 fn source_class_variables_and_builtin_reopens_dispatch() {
     // Given
-    let class_variable = "class P { shared mut @@n: Integer = 0 public fun t() -> Integer { @@n = @@n + 1 } }; [P.new().t(), P.new().t()]";
+    let class_variable = "class P { shared mut @@n: Integer = 0 public fun t() -> Integer { @@n = @@n + 1 } }; %[P.new().t(), P.new().t()]";
     let builtin_reopen =
         "open class Integer { public fun probe() -> Symbol { :p } }; Integer(1).probe()";
 
@@ -193,7 +194,7 @@ fn source_class_variables_and_builtin_reopens_dispatch() {
 #[test]
 fn comparison_operators_cover_numeric_orderings_and_user_declared_greater() {
     // Given
-    let numeric = "[1 > 2, 2 > 1, 1 <= 2, 2 <= 1, 1 >= 2, 2 >= 1]";
+    let numeric = "%[1 > 2, 2 > 1, 1 <= 2, 2 <= 1, 1 >= 2, 2 >= 1]";
     let declared = "class V { public fun >(other: V) -> Bool { true } }; V.new() > V.new()";
 
     // When
@@ -218,7 +219,7 @@ fn comparison_operators_cover_numeric_orderings_and_user_declared_greater() {
 #[test]
 fn default_comparisons_delegate_to_replaced_spaceship_but_not_replaced_equal() {
     // Given
-    let source = "open class Integer { override public fun <=>(other: Integer) -> Integer { 1 } }; [1 < 2, 1 <= 2, 1 > 2, 1 >= 2, 1 == 2, 1 != 2]; open class Integer { override public fun ==(other: Integer) -> Bool { true } }; [1 <=> 2, 1 < 2, 1 > 2, 1 == 2]";
+    let source = "open class Integer { override public fun <=>(other: Integer) -> Integer { 1 } }; %[1 < 2, 1 <= 2, 1 > 2, 1 >= 2, 1 == 2, 1 != 2]; open class Integer { override public fun ==(other: Integer) -> Bool { true } }; %[1 <=> 2, 1 < 2, 1 > 2, 1 == 2]";
 
     // When
     let result = evaluate(source);

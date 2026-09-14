@@ -9,10 +9,10 @@ use super::{EvaluationError, evaluate};
 fn for_iteration_closures_capture_their_own_immutable_bindings() {
     // Given: an iterator yields two values and each iteration stores closures
     // that read its immutable loop binding.
-    let separate_iterations = "mut n = 0; class It { public fun next() { n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } public fun close() { nil } } class Src { public fun iterator() { It.new() } } mut first: Object = nil; mut second: Object = nil; for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; [first.call(), second.call()]";
+    let separate_iterations = "mut n = 0; class It { public fun next() { n = n + 1; if n < 3 { Iteration.yield(n) } else { Iteration.done } } public fun close() { nil } } class Src { public fun iterator() { It.new() } } mut first: Object = nil; mut second: Object = nil; for x in Src.new() { if first == nil { first = { x } } else { second = { x } } }; %[first.call(), second.call()]";
     // The negative control creates both closures during one iteration, so both
     // must continue to read that iteration's one immutable binding.
-    let same_iteration = "mut first: Object = nil; mut second: Object = nil; for x in [1] { first = { x }; second = { x } }; [first.call(), second.call()]";
+    let same_iteration = "mut first: Object = nil; mut second: Object = nil; for x in %[1] { first = { x }; second = { x } }; %[first.call(), second.call()]";
 
     for (source, expected) in [
         (separate_iterations, "[nil, [1, 2]]"),
@@ -47,14 +47,14 @@ fn authored_array_convenience_methods_answer_their_documented_results() {
     // A length-only assertion would pass even if every method answered nil,
     // so each result is pinned to its VALUE. The receiver is restored to
     // [3, 1, 2, 2] by the push/pop pair before the reads below.
-    let source = "let a = [3, 1, 2, 2]; let pushed = a.push(4); let popped = a.pop(); \
-                  [a.map({ |x|; x + 1 }), a.select({ |x|; x > 1 }), a.reject({ |x|; x == 2 }), \
+    let source = "let a = %[3, 1, 2, 2]; let pushed = a.push(4); let popped = a.pop(); \
+                  %[a.map({ |x|; x + 1 }), a.select({ |x|; x > 1 }), a.reject({ |x|; x == 2 }), \
                    a.reduce(0, { |sum, x|; sum + x }), a.find({ |x|; x == 2 }), \
                    a.count({ |x|; x > 1 }), a.sum, a.min, a.max, a.sort, a.reverse, \
                    a.first, a.last, pushed.same?(a), popped, a.join(\"-\"), a.include?(2), \
-                   a.index_of(2), a.take(2), a.drop(2), [1, 1, 2].uniq, [1, [2, [3]]].flatten, \
+                   a.index_of(2), a.take(2), a.drop(2), %[1, 1, 2].uniq, %[1, %[2, %[3]]].flatten, \
                    a.all?({ |x|; x > 0 }), a.any?({ |x|; x == 2 }), a.at(-1), a.to_string, \
-                   [].first, [].last, [].all?({ |x|; x > 0 }), [].any?({ |x|; x > 0 })]";
+                   %[].first, %[].last, %[].all?({ |x|; x > 0 }), %[].any?({ |x|; x > 0 })]";
 
     let integers = |values: &[i64]| {
         RuntimeValue::Array(ArrayRef::new(
@@ -110,7 +110,7 @@ fn authored_string_convenience_methods_answer_on_a_literal_receiver() {
     // The receiver is a LITERAL on purpose. A send on a literal used to stay in
     // the literal evaluator, whose selector table is tiny, so `"a".upcase()`
     // answered MessageNotFoundError while `let s = "a"; s.upcase()` succeeded.
-    let source = "[\"ABC\".downcase, \"a,b\".split(\",\"), \" a \".trim(), \
+    let source = "%[\"ABC\".downcase, \"a,b\".split(\",\"), \" a \".trim(), \
                    \"abc\".replace(\"a\", \"z\"), \"abc\".starts_with?(\"ab\"), \
                    \"abc\".ends_with?(\"bc\"), \"abc\".contains?(\"b\"), \"abc\".upcase, \
                    \"ab\".chars, \"ab\".to_symbol]";
@@ -137,7 +137,7 @@ fn authored_string_convenience_methods_answer_on_a_literal_receiver() {
 #[test]
 fn authored_collection_blocks_propagate_errors_unchanged() {
     // Given
-    let source = "try { [1].map({ |x|; raise :array_failure }) } catch e { e }";
+    let source = "try { %[1].map({ |x|; raise :array_failure }) } catch e { e }";
 
     // When
     let result = evaluate(source);
@@ -295,7 +295,7 @@ fn initialize_missing_self_send_uses_default_method_missing() {
 #[test]
 fn stored_property_initializer_can_send_an_instance_method() {
     // Given
-    let source = "class A { property value: Symbol = initial_value() public fun initial_value() -> Symbol { :ready } }; A.new().value";
+    let source = "class A { public property value: Symbol = initial_value() public fun initial_value() -> Symbol { :ready } }; A.new().value";
 
     // When
     let result = evaluate(source);
@@ -307,7 +307,7 @@ fn stored_property_initializer_can_send_an_instance_method() {
 #[test]
 fn class_method_slot_operations_follow_d448_alias_remove_and_undef_rules() {
     // Given
-    let source = "class Base { public fun f() -> Symbol { :base_f } public fun g() -> Symbol { :base_g } }; class A extends Base { public fun f() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:g, :f); let a = A.new(); let alias = a.g(); let ignored_remove = A.remove_method(:g); let removed = a.g(); let ignored_undef = A.undef_method(:f); [alias, removed, a.f()]";
+    let source = "class Base { public fun f() -> Symbol { :base_f } public fun g() -> Symbol { :base_g } }; class A extends Base { public fun f() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:g, :f); let a = A.new(); let alias = a.g(); let ignored_remove = A.remove_method(:g); let removed = a.g(); let ignored_undef = A.undef_method(:f); %[alias, removed, a.f()]";
 
     // When
     let result = evaluate(source);
@@ -347,7 +347,7 @@ fn class_method_slot_operations_require_method_set_capability() {
 #[test]
 fn reflection_object_ivar_operations_are_layered_under_reflection_object() {
     // Given
-    let source = "class A { }; let a = A.new(); let missing = Reflection::Object.get_ivar(a, :@x); let written = Reflection::Object.set_ivar(a, :@x, :value); let names = Reflection::Object.list_ivars(a); let removed = Reflection::Object.remove_ivar(a, :@x); [missing, written, names, removed, Reflection::Object.get_ivar(a, :@x)]";
+    let source = "class A { }; let a = A.new(); let missing = Reflection::Object.get_ivar(a, :@x); let written = Reflection::Object.set_ivar(a, :@x, :value); let names = Reflection::Object.list_ivars(a); let removed = Reflection::Object.remove_ivar(a, :@x); %[missing, written, names, removed, Reflection::Object.get_ivar(a, :@x)]";
 
     // When
     let result = evaluate(source);
@@ -367,7 +367,7 @@ fn reflection_object_ivar_operations_are_layered_under_reflection_object() {
 
 #[test]
 fn reflection_ivar_boundaries_report_the_specified_errors() {
-    let source = "class A { }; let a = A.new(); [try { Reflection::Object.get_ivar(a, \"@x\") } catch e { e }, try { Reflection::Object.get_ivar(a, :\"@1x\") } catch e { e }, try { Reflection::Object.set_ivar(1, :@x, 1) } catch e { e }]";
+    let source = "class A { }; let a = A.new(); %[try { Reflection::Object.get_ivar(a, \"@x\") } catch e { e }, try { Reflection::Object.get_ivar(a, :\"@1x\") } catch e { e }, try { Reflection::Object.set_ivar(1, :@x, 1) } catch e { e }]";
 
     assert_eq!(
         evaluate(source),
@@ -383,7 +383,7 @@ fn reflection_ivar_boundaries_report_the_specified_errors() {
 fn type_identity_reports_package_and_a_stable_hash() {
     // Given: IRIS-V1-TYPES-C078 derives publishable nominal identity from
     // package ID, API major and qualified name, never from display name alone.
-    let source = "class A { } class B { } [A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]";
+    let source = "class A { } class B { } %[A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]";
 
     // When
     let result = evaluate(source);
@@ -403,7 +403,7 @@ fn type_identity_reports_package_and_a_stable_hash() {
 fn type_reflection_exposes_the_five_c075_queries() {
     // Given: IRIS-V1-TYPES-C075 requires at least `kind`, `arguments`,
     // `members`, `subtype?` and `assignable?` on a Type object.
-    let source = "class A { public fun g() -> Integer { 1 } } class B extends A { } [A.type.kind(), A.type.arguments(), A.type.members(), B.type.subtype?(A.type), A.type.assignable?(B.type)]";
+    let source = "class A { public fun g() -> Integer { 1 } } class B extends A { } %[A.type.kind(), A.type.arguments(), A.type.members(), B.type.subtype?(A.type), A.type.assignable?(B.type)]";
 
     // When
     let result = evaluate(source);
@@ -428,7 +428,7 @@ fn type_reflection_exposes_the_five_c075_queries() {
 fn reflection_module_invoke_reaches_a_module_method() {
     // Given: IRIS-V1-META-C118 names `Reflection::Module.invoke(method, receiver, args)`
     // as the Module-side counterpart of the Class form.
-    let source = "module Mo { public fun h() -> Integer { 8 } }; let m = Reflection::Module.method(Mo, :h); Reflection::Module.invoke(m, Mo, [])";
+    let source = "module Mo { public fun h() -> Integer { 8 } }; let m = Reflection::Module.method(Mo, :h); Reflection::Module.invoke(m, Mo, %[])";
 
     // When
     let result = evaluate(source);
@@ -440,7 +440,7 @@ fn reflection_module_invoke_reaches_a_module_method() {
 #[test]
 fn reflection_class_and_class_mixin_share_method_and_module_operations() {
     // Given
-    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let reflected = Reflection::Class.method(A, :m); let direct = A.method(:m); let a = A.new(); let before = Reflection::Class.invoke(reflected, a, []); let same = Reflection::Class.invoke(direct, a, []); let ignored = A.remove_module(M); [before, same, ignored]";
+    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let reflected = Reflection::Class.method(A, :m); let direct = A.method(:m); let a = A.new(); let before = Reflection::Class.invoke(reflected, a, %[]); let same = Reflection::Class.invoke(direct, a, %[]); let ignored = A.remove_module(M); %[before, same, ignored]";
 
     // When
     let result = evaluate(source);
@@ -459,7 +459,7 @@ fn reflection_class_and_class_mixin_share_method_and_module_operations() {
 #[test]
 fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
     // Given
-    let source = "class A { }; class B extends A { }; class Other { }; let first = Reflection::Class.set_superclass(B, Other); let ancestors = Reflection::Class.ancestors(B); let direct = B.set_superclass(A); [first, ancestors, direct, Reflection::Class.ancestors(B)]";
+    let source = "class A { }; class B extends A { }; class Other { }; let first = Reflection::Class.set_superclass(B, Other); let ancestors = Reflection::Class.ancestors(B); let direct = B.set_superclass(A); %[first, ancestors, direct, Reflection::Class.ancestors(B)]";
 
     // When
     let result = evaluate(source);
@@ -492,7 +492,7 @@ fn reflection_class_and_class_mixin_share_runtime_superclass_operations() {
 #[test]
 fn runtime_superclass_change_rejects_retained_method_before_body_entry() {
     // Given
-    let source = "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), [])";
+    let source = "mut log = %[]; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; class B extends A { }; class Other { }; let method = Reflection::Class.method(A, :m); Reflection::Class.set_superclass(B, Other); Reflection::Class.invoke(method, B.new(), %[])";
 
     // When
     let result = evaluate(source);
@@ -528,7 +528,7 @@ fn reflection_class_rejects_protected_builtin_superclass_mutation() {
 #[test]
 fn reflection_module_and_module_mixin_share_method_and_invoke_operations() {
     // Given
-    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let direct = M.method(:m); let a = A.new(); M.invoke(direct, a, [])";
+    let source = "module M { public fun m() -> Symbol { :module } }; class A mixin M { }; let direct = M.method(:m); let a = A.new(); M.invoke(direct, a, %[])";
 
     // When
     let result = evaluate(source);
@@ -577,7 +577,7 @@ fn qualified_expression_sends_reach_reflection_and_nested_module_members() {
 #[test]
 fn class_invoke_validates_binding_before_the_method_body_can_raise() {
     // Given
-    let source = "class A { public fun m() -> Nil { raise :body } }; class B { }; let mm = A.method(:m); B.invoke(mm, B.new(), [])";
+    let source = "class A { public fun m() -> Nil { raise :body } }; class B { }; let mm = A.method(:m); B.invoke(mm, B.new(), %[])";
 
     // When
     let result = evaluate(source);
@@ -596,9 +596,9 @@ fn class_invoke_validates_binding_before_the_method_body_can_raise() {
 #[test]
 fn reflection_operations_are_reachable_through_every_public_entry_point() {
     // Given
-    let object = "class A { }; let a = A.new(); let first = Reflection::Object.set_ivar(a, :@x, :value); [Reflection::Object.list_ivars(a), Reflection::Object.get_ivar(a, :@x), first, Reflection::Object.remove_ivar(a, :@x)]";
-    let class = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Class.method(A, :m); let woven = A.method(:m); [Reflection::Class.invoke(reflected, a, []), A.invoke(woven, a, []), Reflection::Class.remove_module(A, :M)]";
-    let module = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Module.method(M, :m); let woven = M.method(:m); [Reflection::Module.invoke(reflected, a, []), M.invoke(woven, a, [])]";
+    let object = "class A { }; let a = A.new(); let first = Reflection::Object.set_ivar(a, :@x, :value); %[Reflection::Object.list_ivars(a), Reflection::Object.get_ivar(a, :@x), first, Reflection::Object.remove_ivar(a, :@x)]";
+    let class = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Class.method(A, :m); let woven = A.method(:m); %[Reflection::Class.invoke(reflected, a, %[]), A.invoke(woven, a, %[]), Reflection::Class.remove_module(A, :M)]";
+    let module = "module M { public fun m() -> Symbol { :m } }; class A mixin M { }; let a = A.new(); let reflected = Reflection::Module.method(M, :m); let woven = M.method(:m); %[Reflection::Module.invoke(reflected, a, %[]), M.invoke(woven, a, %[])]";
 
     // When
     let object_result = evaluate(object);
@@ -635,7 +635,7 @@ fn reflection_operations_are_reachable_through_every_public_entry_point() {
 #[test]
 fn retained_module_method_removal_fails_at_invocation_entry() {
     // Given
-    let source = "class Base { public fun m() -> Symbol { :base } }; module M { override public fun m() -> Symbol { super() } }; class A extends Base mixin M { }; let method = M.method(:m); A.remove_module(M); A.invoke(method, A.new(), [])";
+    let source = "class Base { public fun m() -> Symbol { :base } }; module M { override public fun m() -> Symbol { super() } }; class A extends Base mixin M { }; let method = M.method(:m); A.remove_module(M); A.invoke(method, A.new(), %[])";
 
     // When
     let result = evaluate(source);
@@ -666,7 +666,7 @@ fn rejects_identity_less_operands_with_identity_error() {
 #[test]
 fn sends_not_equal_for_nan_and_ordinary_operands() {
     // Given
-    let source = "[Float64.nan == Float64.nan, Float64.nan != Float64.nan, 1 != 2]";
+    let source = "%[Float64.nan == Float64.nan, Float64.nan != Float64.nan, 1 != 2]";
 
     // When
     let result = evaluate(source);
@@ -686,7 +686,7 @@ fn sends_not_equal_for_nan_and_ordinary_operands() {
 fn array_append_mutates_an_unannotated_binding_in_order() {
     // Given
     let source =
-        "mut log = []; let ignored_a = log.append(:a); let ignored_b = log.append(:b); log";
+        "mut log = %[]; let ignored_a = log.append(:a); let ignored_b = log.append(:b); log";
 
     // When
     let result = evaluate(source);
@@ -704,7 +704,7 @@ fn array_append_mutates_an_unannotated_binding_in_order() {
 #[test]
 fn array_literal_append_grows_in_order_and_returns_nil() {
     // Given
-    let source = "mut values = [:a]; [values.append(:b), values]";
+    let source = "mut values = %[:a]; %[values.append(:b), values]";
 
     // When
     let result = evaluate(source);
@@ -725,7 +725,7 @@ fn array_literal_append_grows_in_order_and_returns_nil() {
 #[test]
 fn array_append_accumulates_through_try_catch_and_finally() {
     // Given
-    let source = "mut log = []; try { log.append(:try); raise :x } catch _ { log.append(:catch); :handled } finally { log.append(:finally) }; log";
+    let source = "mut log = %[]; try { log.append(:try); raise :x } catch _ { log.append(:catch); :handled } finally { log.append(:finally) }; log";
 
     // When
     let result = evaluate(source);
@@ -747,8 +747,8 @@ fn array_append_accumulates_through_try_catch_and_finally() {
 #[test]
 fn array_append_does_not_add_array_add_or_size() {
     // Given
-    let add = "[1] + [2]";
-    let size = "[1, 2, 3].size";
+    let add = "%[1] + %[2]";
+    let size = "%[1, 2, 3].size";
 
     // When
     let add_result = evaluate(add);
@@ -887,7 +887,7 @@ fn source_if_returns_the_selected_branch_value() {
 #[test]
 fn conditional_expressions_return_values_in_bindings_and_arrays() {
     // Given
-    let source = "let bound = if true { :yes } else { :no }; [bound, if false { :yes } else { :no }, if false { :missing }, if false { :first } else if true { :second } else { :third }]";
+    let source = "let bound = if true { :yes } else { :no }; %[bound, if false { :yes } else { :no }, if false { :missing }, if false { :first } else if true { :second } else { :third }]";
 
     // When
     let result = evaluate(source);
@@ -907,8 +907,8 @@ fn conditional_expressions_return_values_in_bindings_and_arrays() {
 #[test]
 fn conditional_expressions_are_evaluated_in_standalone_array_elements() {
     // Given
-    let singleton = "[if true { :y } else { :n }]";
-    let mixed = "[1, if true { :y } else { :n }]";
+    let singleton = "%[if true { :y } else { :n }]";
+    let mixed = "%[1, if true { :y } else { :n }]";
 
     // When
     let results = [evaluate(singleton), evaluate(mixed)];
@@ -931,7 +931,7 @@ fn conditional_expressions_are_evaluated_in_standalone_array_elements() {
 #[test]
 fn conditional_expressions_use_to_bool_once_and_preserve_statement_behavior() {
     // Given
-    let expression = "class Probe { shared mut @@n: Integer = 0; public fun to_bool() -> Bool { @@n = @@n + 1; false } class fun count() -> Integer { @@n } }; let value = if Probe.new() { :yes } else { :no }; [value, Probe.count(), if nil { :yes } else { :no }]";
+    let expression = "class Probe { shared mut @@n: Integer = 0; public fun to_bool() -> Bool { @@n = @@n + 1; false } class fun count() -> Integer { @@n } }; let value = if Probe.new() { :yes } else { :no }; %[value, Probe.count(), if nil { :yes } else { :no }]";
     let statement = "if true { :yes } else { :no }";
 
     // When
@@ -957,7 +957,7 @@ fn source_if_uses_truthiness_and_keeps_branches_scoped() {
     let custom_false =
         "class A { public fun to_bool() -> Bool { false } }; if A.new() { :then } else { :else }";
     let non_bool = "class A { public fun to_bool() -> Bool { :not_bool } }; if A.new() { :then }";
-    let skipped_branch = "class A { property count: Integer = 0; property fun count=(value: Integer) -> Integer { @count = value } }; let a = A.new(); if true { :selected } else { a.count = 1 }; a.count";
+    let skipped_branch = "class A { public property count: Integer = 0; public property fun count=(value: Integer) -> Integer { @count = value } }; let a = A.new(); if true { :selected } else { a.count = 1 }; a.count";
     let scoped_binding = "if true { let hidden = 1; hidden }; hidden";
 
     // When
@@ -984,7 +984,7 @@ fn source_if_uses_truthiness_and_keeps_branches_scoped() {
 #[test]
 fn source_open_class_preserves_identity_and_updates_existing_instances() {
     // Given
-    let source = "class A { public fun old() -> Integer { 1 } }; let before = A; let a = A.new(); open class A { public fun added() -> Integer { 2 } }; [before same? A, a.added()]";
+    let source = "class A { public fun old() -> Integer { 1 } }; let before = A; let a = A.new(); open class A { public fun added() -> Integer { 2 } }; %[before same? A, a.added()]";
 
     // When
     let result = evaluate(source);
@@ -1026,7 +1026,7 @@ fn reopen_preserves_class_identity() {
 #[test]
 fn bound_method_captured_before_reopen_keeps_original_method() {
     // Given
-    let source = "class A { public fun method() { :old } }; let obj = A.new(); let saved = obj.method; open class A { override public fun method() { :new } }; [saved same? saved, saved(), obj.method()]";
+    let source = "class A { public fun method() { :old } }; let obj = A.new(); let saved = obj.method; open class A { override public fun method() { :new } }; %[saved same? saved, saved(), obj.method()]";
 
     // When
     let result = evaluate(source);
@@ -1045,7 +1045,7 @@ fn bound_method_captured_before_reopen_keeps_original_method() {
 #[test]
 fn reopen_adding_method_preserves_existing_methods() {
     // Given
-    let source = "class A { public fun old() { :old } }; let value = A.new(); open class A { public fun added() { :added } }; [value.old(), value.added()]";
+    let source = "class A { public fun old() { :old } }; let value = A.new(); open class A { public fun added() { :added } }; %[value.old(), value.added()]";
 
     // When
     let result = evaluate(source);
@@ -1243,7 +1243,7 @@ fn source_class_object_dispatch_reports_missing_selector_after_superclass_chain(
 #[test]
 fn source_property_getter_and_explicit_setter_return_distinct_method_results() {
     // Given
-    let source = "class A { property fun name() { :get } property fun name=(value) { :set } }; let a = A.new(); [a.name, a.name = 1]";
+    let source = "class A { property fun name() { :get } property fun name=(value) { :set } }; let a = A.new(); %[a.name, a.name = 1]";
 
     // When
     let result = evaluate(source);
@@ -1273,7 +1273,7 @@ fn builtin_class_property_getter_replacement_is_observed() {
 #[test]
 fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
     // Given
-    let source = "mut log = []; open class Integer { public property fun px=(value: Integer) -> Integer { log.append(value); value } }; let n = 1; [n.px = 2, n, log]";
+    let source = "mut log = %[]; open class Integer { public property fun px=(value: Integer) -> Integer { log.append(value); value } }; let n = 1; %[n.px = 2, n, log]";
 
     // When
     let result = evaluate(source);
@@ -1292,7 +1292,7 @@ fn builtin_value_property_setter_is_reachable_without_mutating_the_receiver() {
 #[test]
 fn class_property_setter_records_without_creating_an_implicit_backing_slot() {
     // Given
-    let source = "mut log = []; open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } public property fun infinity=(value: Float64) -> Float64 { log.append(value); value } }; let assigned = Float64.infinity = 3.0f64; [Float64.infinity, assigned, log]";
+    let source = "mut log = %[]; open class Float64 { override public property fun infinity() -> Float64 { 2.0f64 } public property fun infinity=(value: Float64) -> Float64 { log.append(value); value } }; let assigned = Float64.infinity = 3.0f64; %[Float64.infinity, assigned, log]";
 
     // When
     let result = evaluate(source);
@@ -1346,7 +1346,7 @@ fn meta_denied_instance_state_rejects_first_raw_ivar_assignment() {
 #[test]
 fn ordinary_instance_state_assignment_still_creates_a_raw_ivar() {
     // Given
-    let source = "class A { public property fun px=(value: Integer) -> Integer { @x = value } public property fun px() -> Integer { @x } }; let a = A.new(); [a.px = 2, a.px]";
+    let source = "class A { public property fun px=(value: Integer) -> Integer { @x = value } public property fun px() -> Integer { @x } }; let a = A.new(); %[a.px = 2, a.px]";
 
     // When
     let result = evaluate(source);
@@ -1382,7 +1382,7 @@ fn raw_ivar_assignment_on_a_value_receiver_reports_instance_state() {
 fn raw_ivar_read_returns_nil_without_materializing_value_receiver_state() {
     // Given
     let source =
-        "open class Integer { public property fun px() -> Nil { @x } }; let n = 1; [n.px, n.px]";
+        "open class Integer { public property fun px() -> Nil { @x } }; let n = 1; %[n.px, n.px]";
 
     // When
     let result = evaluate(source);
@@ -1544,7 +1544,7 @@ fn source_module_fun_dispatches_on_the_module_object() {
 #[test]
 fn source_stored_property_uses_its_raw_ivar_backing_slot() {
     // Given
-    let source = "class A { property name: Integer = 5 }; A.new().name";
+    let source = "class A { public property name: Integer = 5 }; A.new().name";
 
     // When
     let result = evaluate(source);
@@ -1568,7 +1568,10 @@ fn source_omitted_return_type_remains_dynamic() {
 #[test]
 fn source_decorated_class_publishes_and_evaluates_its_method() {
     // Given
-    let source = "@logged() class A { public fun m() -> Integer { 1 } }; A.new().m()";
+    let source = "class logged { } impl logged for ClassDecorator { \
+        public fun plan(d, a) -> Plan { Plan.empty } \
+        public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+        @logged() class A { public fun m() -> Integer { 1 } }; A.new().m()";
 
     // When
     let result = evaluate(source);
@@ -1732,7 +1735,7 @@ fn ordinary_object_to_bool_returns_true_and_drives_if() {
 #[test]
 fn builtin_to_bool_methods_dispatch_per_c094() {
     // Given
-    let source = "[nil.to_bool(), false.to_bool(), true.to_bool()]";
+    let source = "%[nil.to_bool(), false.to_bool(), true.to_bool()]";
 
     // When
     let result = evaluate(source);
@@ -1818,10 +1821,10 @@ fn c098_protects_only_a_declared_ancestor_carrying_a_static_spine_fact() {
     // one falsifies a static promise and C045 requires refusal BEFORE
     // publication, which V201 observes by requiring the subtype fact to hold.
     let protected = "contract Walks { fun walk() } \
-                     class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+                     class Animal { } impl Animal for Walks { public fun walk() -> Nil { nil } } \
                      class Dog extends Animal { } \
                      let refused = try { Reflection::Class.set_superclass(Dog, Object) } catch e { e }; \
-                     [refused, Dog.type.subtype?(Animal.type)]";
+                     %[refused, Dog.type.subtype?(Animal.type)]";
     assert_eq!(
         evaluate(protected),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -1842,14 +1845,14 @@ fn c098_protects_only_a_declared_ancestor_carrying_a_static_spine_fact() {
     // protected ancestor is permitted, since every static subtype assumption
     // survives.
     let narrowed = "contract Walks { fun walk() } \
-                    class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+                    class Animal { } impl Animal for Walks { public fun walk() -> Nil { nil } } \
                     class Mammal extends Animal { } class Dog extends Animal { } \
                     try { Reflection::Class.set_superclass(Dog, Mammal) } catch e { e }";
     assert_eq!(evaluate(narrowed), Ok(RuntimeValue::Nil));
 }
 
 #[test]
-fn d175_validates_a_contract_requirement_satisfied_by_a_mixed_in_member() {
+fn d175_validates_a_contract_requirement_satisfied_by_a_static_origin_mixin() {
     // D-175 recomputes MRO and verifies declared Contract requirements BEFORE
     // commit, so a requirement satisfied by a MIXED-IN Module member is checked
     // too. D-173 puts the contract-visible SIGNATURE in the static spine, so
@@ -1857,7 +1860,7 @@ fn d175_validates_a_contract_requirement_satisfied_by_a_mixed_in_member() {
     // arities agree, which V202 observes.
     let conflicting = "contract C { fun draw(n: Integer) -> Nil } \
                        module Painter { public fun draw(s: String) -> Nil { nil } } \
-                       class A for C { } open class A mixin Painter { } A";
+                       class A mixin Painter { } impl A for C { } A";
     assert_eq!(
         evaluate(conflicting),
         Err(EvaluationError::TypeContractError)
@@ -1866,15 +1869,25 @@ fn d175_validates_a_contract_requirement_satisfied_by_a_mixed_in_member() {
     // A composed member whose signature matches publishes normally.
     let matching = "contract C { fun draw(n: Integer) -> Nil } \
                     module Painter { public fun draw(n: Integer) -> Nil { nil } } \
-                    class A for C { } open class A mixin Painter { } A.new().draw(1)";
+                    class A mixin Painter { } impl A for C { } A.new().draw(1)";
     assert_eq!(evaluate(matching), Ok(RuntimeValue::Nil));
 
     // An unannotated parameter position states nothing and is left alone rather
     // than treated as a mismatch.
     let unannotated = "contract C { fun draw(n: Integer) -> Nil } \
                        module Painter { public fun draw(n) -> Nil { nil } } \
-                       class A for C { } open class A mixin Painter { } A.new().draw(1)";
+                       class A mixin Painter { } impl A for C { } A.new().draw(1)";
     assert_eq!(evaluate(unannotated), Ok(RuntimeValue::Nil));
+
+    // A later dynamic composition cannot retroactively satisfy the origin's
+    // statically collected implementation declaration.
+    let later_dynamic = "contract C { fun draw(n: Integer) -> Nil } \
+                         module Painter { public fun draw(n: Integer) -> Nil { nil } } \
+                         class A { } impl A for C { } open class A mixin Painter { } A";
+    assert_eq!(
+        evaluate(later_dynamic),
+        Err(EvaluationError::TypeContractError)
+    );
 }
 
 #[test]
@@ -1883,9 +1896,9 @@ fn d212_withdraws_a_module_whose_initializer_raised() {
     // `not_published`. The name is registered BEFORE the body runs so a
     // declaration can reach the Module being defined, so a failed initializer
     // must withdraw it rather than leave a half-initialized Module observable.
-    let source = "module M { shared class property first: Integer = 1 \
-                  raise :stop \
-                  shared class property second: Integer = 2 } M";
+    let source = "module M { public class fun fail() -> Integer { raise :stop } \
+                  shared class property first: Integer = 1 \
+                  shared class property second: Integer = M.fail() } M";
     let (outcome, published) = crate::evaluate_with_class_publication(source, "M");
     assert_eq!(
         outcome,
@@ -1908,14 +1921,14 @@ fn d207_revalidates_interned_closed_constructions_when_a_definition_opens() {
     // `where` clause added on open was never validated against the
     // constructions that already exist.
     let violated = "contract Show { fun show() -> Symbol } \
-                    class Str for Show { public impl fun show() -> Symbol { :s } } \
+                    class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
                     class Box<T> { }; let a = Box<Str>; let b = Box<Integer>; \
-                    open class Box<T> where T: Show { }; [a, b]";
+                    open class Box<T> where T: Show { }; %[a, b]";
     assert_eq!(evaluate(violated), Err(EvaluationError::TypeContractError));
 
     // Every interned construction satisfying the added bound publishes.
     let satisfied = "contract Show { fun show() -> Symbol } \
-                     class Str for Show { public impl fun show() -> Symbol { :s } } \
+                     class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
                      class Box<T> { }; let a = Box<Str>; \
                      open class Box<T> where T: Show { }; a";
     assert!(evaluate(satisfied).is_ok());
@@ -1934,8 +1947,8 @@ fn d241_composes_a_contract_view_hash_from_its_components() {
     // value below was computed INDEPENDENTLY from that specification rather
     // than read back from this implementation.
     let source = "contract C { fun m() } \
-                  class A for C { public impl fun m() -> Nil { nil } \
-                  public fun hash() -> Integer { 1 } } \
+                  class A { public fun hash() -> Integer { 1 } } \
+                  impl A for C { public fun m() -> Nil { nil } } \
                   (A.new() as C).hash()";
     assert_eq!(
         evaluate(source),
@@ -1946,7 +1959,7 @@ fn d241_composes_a_contract_view_hash_from_its_components() {
     // gives the view its OWN hash, so `hash` must not forward: forwarding made
     // a view hash equal to its receiver's and dropped the Contract component.
     let distinct = "contract C { fun m() } \
-                    class A for C { public impl fun m() -> Nil { nil } } \
+                    class A { } impl A for C { public fun m() -> Nil { nil } } \
                     let o = A.new(); (o as C).hash() != o.hash()";
     assert_eq!(evaluate(distinct), Ok(RuntimeValue::Bool(true)));
 }
@@ -1972,7 +1985,7 @@ fn open_module_adds_members_to_the_existing_module() {
     // second one, which V416 observes across two files of one package.
     let source = "module M { public fun one() -> Integer { 1 } } \
                   open module M { public fun two() -> Integer { 2 } } \
-                  [M.one(), M.two()]";
+                  %[M.one(), M.two()]";
     assert_eq!(
         evaluate(source),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2019,49 +2032,29 @@ fn c023_composition_changes_join_the_open_transaction() {
 }
 
 #[test]
-fn c046_marks_only_conditional_body_additions_dynamic_only() {
-    // C022 makes a Class body an executable construction transaction, but a
-    // conditional branch in one was an unsupported construct, so the whole
-    // fixture shape V345 and V427 use could not run at all.
+fn v136_rejects_conditional_and_meta_statements_in_class_origins() {
     let conditional = "class Box { if true { self.define_method(:extra) { :extra } } } \
                        Box.new().extra()";
-    assert_eq!(
-        evaluate(conditional),
-        Ok(RuntimeValue::Symbol("extra".into()))
-    );
+    assert_eq!(evaluate(conditional), Err(EvaluationError::ParseDiagnostic));
 
-    // C046 makes a CONDITIONAL addition dynamic-only and C047 requires that
-    // status to be recorded. An unconditional addition is ordinary declarative
-    // API, so the marker must come from the conditionality, not from
-    // define_method itself.
     let marked = "class Box { if true { self.define_method(:extra) { :extra } } } \
-                  Reflection::Class.method(Box, :extra).source[3]";
-    assert_eq!(
-        evaluate(marked),
-        Ok(RuntimeValue::Symbol("dynamic-only".into()))
-    );
+                   Reflection::Class.method(Box, :extra).source[3]";
+    assert_eq!(evaluate(marked), Err(EvaluationError::ParseDiagnostic));
 
     let unconditional = "class Box { self.define_method(:extra) { :extra } } \
                          Reflection::Class.method(Box, :extra).source[3]";
     assert_eq!(
         evaluate(unconditional),
-        Ok(RuntimeValue::Symbol("static".into()))
+        Err(EvaluationError::ParseDiagnostic)
     );
 
-    // The false branch stages nothing, and an `else` branch is taken normally.
     let not_taken = "class Box { if false { self.define_method(:extra) { :extra } } } \
                      try { Box.new().extra() } catch e { e }";
-    assert_eq!(
-        evaluate(not_taken),
-        Ok(RuntimeValue::Symbol("MessageNotFound".into()))
-    );
+    assert_eq!(evaluate(not_taken), Err(EvaluationError::ParseDiagnostic));
 
     let otherwise = "class Box { if false { 1 } else { self.define_method(:extra) { :other } } } \
                      Box.new().extra()";
-    assert_eq!(
-        evaluate(otherwise),
-        Ok(RuntimeValue::Symbol("other".into()))
-    );
+    assert_eq!(evaluate(otherwise), Err(EvaluationError::ParseDiagnostic));
 }
 
 #[test]
@@ -2070,8 +2063,8 @@ fn c099_keeps_contract_slots_in_their_own_namespace() {
     // the ordinary and qualified namespaces. Its receiver is a Contract VIEW,
     // so the Contract answers `view(Class)` to produce one.
     let base = "contract Named { fun name() -> Symbol } \
-                class Box for Named { public impl fun name() -> Symbol { :box } \
-                public fun method_missing(s) -> Nil { raise :called } } ";
+                class Box { public fun method_missing(s) -> Nil { raise :called } } \
+                impl Box for Named { public fun name() -> Symbol { :box } } ";
 
     // C098 forbids consulting method_missing as a probe, so a Class defining
     // it still answers false for a member it does not have.
@@ -2120,7 +2113,7 @@ fn c097_class_view_exposes_its_required_members() {
 
     // The Method view members C097 lists alongside `source`.
     let method = "class Box { public fun show() -> Nil { nil } } \
-                  let m = Reflection::Class.method(Box, :show); [m.selector, m.visibility]";
+                  let m = Reflection::Class.method(Box, :show); %[m.selector, m.visibility]";
     assert_eq!(
         evaluate(method),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2224,16 +2217,16 @@ fn c046_accepts_a_contract_body_replacement_marked_impl_alone() {
     // demanded `override impl` when C046 asks only for `impl`. V436's
     // compatible body-only replacement is exactly that shape.
     let compatible = "contract D { fun draw(n: Integer) -> String } \
-                      class C for D { public impl fun draw(n: Integer) -> String { \"old\" } } \
-                      open class C { public impl fun draw(n: Integer) -> String { \"new\" } } \
+                      class C { public fun draw(n: Integer) -> String { \"old\" } } impl C for D { } \
+                      open class C { public override fun draw(n: Integer) -> String { \"new\" } } \
                       C.new().draw(1)";
     assert_eq!(evaluate(compatible), Ok(RuntimeValue::Text("new".into())));
 
     // A Contract-VISIBLE signature change is still refused, so the relaxation
     // does not weaken C045.
     let incompatible = "contract D { fun draw(n: Integer) -> String } \
-                        class C for D { public impl fun draw(n: Integer) -> String { \"old\" } } \
-                        open class C { public impl fun draw(s: String) -> String { \"x\" } } C";
+                        class C { public fun draw(n: Integer) -> String { \"old\" } } impl C for D { } \
+                        open class C { public override fun draw(s: String) -> String { \"x\" } } C";
     assert_eq!(
         evaluate(incompatible),
         Err(EvaluationError::TypeContractError)
@@ -2275,7 +2268,7 @@ fn c095_returns_a_filtered_immutable_reflection_view() {
     );
 
     // An ordinary Array binding still appends.
-    let ordinary = "mut a = [1]; a.append(2); a";
+    let ordinary = "mut a = %[1]; a.append(2); a";
     assert_eq!(
         evaluate(ordinary),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2403,8 +2396,8 @@ fn c080_confines_a_getter_replacement_to_ordinary_reads() {
 
     // The replacement changes what an ordinary read returns.
     let replaced = format!(
-        "{fixture} open class ExceptionContext {{ public fun suppressed() -> Array {{ [] }} }} \
-         try {{ for x in S.new() {{ raise :body }} }} catch v, c {{ [c.suppressed, c.value] }}"
+        "{fixture} open class ExceptionContext {{ public fun suppressed() -> Array {{ %[] }} }} \
+         try {{ for x in S.new() {{ raise :body }} }} catch v, c {{ %[c.suppressed, c.value] }}"
     );
     assert_eq!(
         evaluate(&replaced),
@@ -2418,7 +2411,7 @@ fn c080_confines_a_getter_replacement_to_ordinary_reads() {
     // record, so the replacement changed the ordinary read and nothing else.
     let intact = format!(
         "{fixture} try {{ for x in S.new() {{ raise :body }} }} \
-         catch v, c {{ [c.suppressed[0].value, c.value] }}"
+         catch v, c {{ %[c.suppressed[0].value, c.value] }}"
     );
     assert_eq!(
         evaluate(&intact),
@@ -2435,10 +2428,10 @@ fn c099_refuses_removing_a_declared_contract() {
     // declared conformance immutable, so the attempt is refused before commit
     // and the target keeps its conformance. C017 numbers the origin 1, and the
     // refused removal publishes nothing, so the revision stays 1.
-    let declared = "contract C { fun m() -> Nil } \
-                    class A for C { public impl fun m() -> Nil { nil } } \
+    let declared = "contract C { fun m() -> Nil } class A { } \
+                    impl A for C { public fun m() -> Nil { nil } } \
                     let refused = try { A.remove_contract(C) } catch e { e }; \
-                    [refused, A.active_revision]";
+                    %[refused, A.active_revision]";
     assert_eq!(
         evaluate(declared),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2486,15 +2479,15 @@ fn c070_leaves_the_old_package_active_when_an_upgrade_hook_fails() {
     // leaves the old package AND STATE fully active when the hook fails, while
     // C042 makes external side effects the author's responsibility.
     let source = concat!(
-        "class Ledger { shared class property log: Array = [] ",
-        "shared class property counter: Integer = 4 } ",
+        "class Ledger { public shared class property log: Array = %[] ",
+        "public shared class property counter: Integer = 4 } ",
         "module Upgrade { public fun upgrade(older, newer) -> Symbol { ",
         r#"Ledger.log.append(:"migration-start"); "#,
         "Ledger.counter = 9; raise :MigrationStop } }"
     );
     let probe = concat!(
         r#"let refused = try { Reflection::Package.upgrade(:"1.0.1") } catch e { e }; "#,
-        "[refused, Reflection::Package.version(), Ledger.counter, Ledger.log]"
+        "%[refused, Reflection::Package.version(), Ledger.counter, Ledger.log]"
     );
     let outcome = crate::load_resolved_package_with_artifact(
         crate::PackageResolution {
@@ -2533,10 +2526,10 @@ fn c037_refuses_suspension_inside_a_transaction_body() {
     // MetaTransactionError. ASYNC-C018 owns the async reason. Both halves are
     // observed: V355 the static one, V431 the dynamic one.
     let dynamic = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class Slow for ClassDecorator { ",
-        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
-        "await Transformation.empty } } ",
+        "class Slow { public async fun ready() -> Transformation { Transformation.empty } } impl Slow for ClassDecorator { ",
+        "public fun plan(declaration, arguments) -> Plan { Plan.empty } ",
+        "public fun transform(declaration, arguments, context) -> Transformation { ",
+        "await self.ready() } } ",
         "@Slow() class Box { } Box"
     );
     assert_eq!(
@@ -2547,13 +2540,24 @@ fn c037_refuses_suspension_inside_a_transaction_body() {
     // A transform that does not suspend publishes normally, so the refusal
     // comes from the suspension rather than from running a transform at all.
     let ordinary = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class Ok for ClassDecorator { ",
-        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
+        "class Ok { } impl Ok for ClassDecorator { ",
+        "public fun plan(declaration, arguments) -> Plan { Plan.empty } ",
+        "public fun transform(declaration, arguments, context) -> Transformation { ",
         "Transformation.empty } } ",
         "@Ok() class Box { } Box.new()"
     );
-    assert!(evaluate(ordinary).is_ok());
+    assert!(matches!(evaluate(ordinary), Ok(RuntimeValue::Object(_))));
+    let lexical = "class Box {} module M { public async fun ready() -> Integer { 1 } public async fun run() -> Object { Box.open() { |target| await M.ready() } } }";
+    let parsed = iris_parser::parse(lexical);
+    assert!(parsed.program_accepted, "{:?}", parsed.diagnostics);
+    let diagnostics = iris_parser::analyze(&parsed.program);
+    assert_eq!(
+        diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>(),
+        vec!["IRIS-TRANSACTION-SUSPENSION"]
+    );
 }
 
 #[test]
@@ -2562,7 +2566,7 @@ fn c072_makes_a_yielding_callable_a_generator() {
     // body and returns an Iterator whose `next()` drives it, answering
     // Iteration.yield at each suspension and Iteration.done once complete.
     let stepped = "class G { public fun each() -> Nil { yield 1; yield 2 } } \
-                   let g = G.new().each(); [g.next(), g.next(), g.next()]";
+                   let g = G.new().each(); %[g.next(), g.next(), g.next()]";
     assert_eq!(
         evaluate(stepped),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2575,7 +2579,7 @@ fn c072_makes_a_yielding_callable_a_generator() {
 
     // C011 and C012 drive `for` through iterator()/next(), so a generator is
     // consumed by the SAME protocol every other Iterator uses.
-    let driven = "mut seen = [] \
+    let driven = "mut seen = %[] \
                   class G { public fun iterator() -> Nil { yield 1; yield 2; yield 3 } } \
                   for v in G.new() { seen.append(v) } \
                   seen";
@@ -2605,7 +2609,7 @@ fn c003_and_c012_make_an_async_call_return_a_started_task() {
     // C013 continues synchronously on an already-complete Awaitable, and a
     // Task may be awaited more than once with the same result.
     let awaited = "class A { public async fun f() -> Integer { 7 } } \
-                   let t = A.new().f(); [await t, await t]";
+                   let t = A.new().f(); %[await t, await t]";
     assert_eq!(
         evaluate(awaited),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2660,7 +2664,7 @@ fn c032_and_c033_close_a_using_resource_exactly_once() {
     // block then closes the resource through try/finally equivalent control.
     let normal = "mut closed = false; \
                   class R { public fun close() -> Nil { closed = true; nil } } \
-                  let v = using(R.new()) { 7 }; [v, closed]";
+                  let v = using(R.new()) { 7 }; %[v, closed]";
     assert_eq!(
         evaluate(normal),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2673,7 +2677,7 @@ fn c032_and_c033_close_a_using_resource_exactly_once() {
     // its suppressed list.
     let both_raise = "class R { public fun close() -> Nil { raise :closefail } } \
                       try { using(R.new()) { raise :blockfail } } \
-                      catch v, c { [v, c.suppressed[0].value] }";
+                      catch v, c { %[v, c.suppressed[0].value] }";
     assert_eq!(
         evaluate(both_raise),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2720,15 +2724,15 @@ fn c009_resolves_negative_indexes_and_unary_operators() {
     // C009 resolves a negative index as `length + index`, and a read outside
     // the resolved range answers nil rather than raising.
     assert_eq!(
-        evaluate("class Z { } let a = [1,2,3]; a[-1]"),
+        evaluate("class Z { } let a = %[1,2,3]; a[-1]"),
         Ok(RuntimeValue::Integer(3_u8.into()))
     );
     assert_eq!(
-        evaluate("class Z { } let a = [1,2,3]; a[-3]"),
+        evaluate("class Z { } let a = %[1,2,3]; a[-3]"),
         Ok(RuntimeValue::Integer(1_u8.into()))
     );
     assert_eq!(
-        evaluate("class Z { } let a = [1,2,3]; a[-4]"),
+        evaluate("class Z { } let a = %[1,2,3]; a[-4]"),
         Ok(RuntimeValue::Nil)
     );
 }
@@ -2741,24 +2745,24 @@ fn c024_writes_use_negative_resolution_and_raise_index_error() {
     // The write answers nil per C024 and the following read observes it, so
     // the program yields both values.
     assert_eq!(
-        evaluate("class Z { } mut a = [1,2,3]; a[-1] = 9; a[2]"),
+        evaluate("class Z { } mut a = %[1,2,3]; a[-1] = 9; a[2]"),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(9_u8.into()),
             RuntimeValue::Integer(9_u8.into()),
         ])))
     );
     assert_eq!(
-        evaluate("class Z { } mut a = [1,2,3]; a[9] = 1"),
+        evaluate("class Z { } mut a = %[1,2,3]; a[9] = 1"),
         Err(EvaluationError::IndexError)
     );
     assert_eq!(
-        evaluate("class Z { } mut a = [1,2,3]; a[-9] = 1"),
+        evaluate("class Z { } mut a = %[1,2,3]; a[-9] = 1"),
         Err(EvaluationError::IndexError)
     );
 
     // The read half is unchanged: out of range still answers nil.
     assert_eq!(
-        evaluate("class Z { } let a = [1,2,3]; a[9]"),
+        evaluate("class Z { } let a = %[1,2,3]; a[9]"),
         Ok(RuntimeValue::Nil)
     );
 }
@@ -2767,7 +2771,7 @@ fn c024_writes_use_negative_resolution_and_raise_index_error() {
 fn call_evaluates_the_receiver_expression_before_its_arguments() {
     // Given: IRIS-V1-CONTROL-C033 fixes call evaluation order as receiver
     // expression, then positional arguments left-to-right, then invocation.
-    let source = "mut log = []; class A { public fun s(x, y) -> Integer { log.append(:call); 1 } } class Mk { public fun make() -> Object { log.append(:receiver); A.new() } } module M { public fun run() -> Object { Mk.new().make().s(log.append(:one), log.append(:two)); log } } M.run()";
+    let source = "mut log = %[]; class A { public fun s(x, y) -> Integer { log.append(:call); 1 } } class Mk { public fun make() -> Object { log.append(:receiver); A.new() } } module M { public fun run() -> Object { Mk.new().make().s(log.append(:one), log.append(:two)); log } } M.run()";
 
     // When
     let result = evaluate(source);
@@ -2821,7 +2825,7 @@ fn a_subclass_inherits_its_superclass_declared_contract() {
     // Given: IRIS-V1-TYPES-C019 draws nominal subtyping from immutable
     // superclass and DECLARED CONTRACT facts, so a subclass of a Class
     // declaring `for C` conforms to C as well and may be viewed as one.
-    let source = "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class A extends B { } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
+    let source = "contract C { fun n() -> Symbol } class B { } impl B for C { public fun n() -> Symbol { :base } } class A extends B { } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
 
     // When
     let result = evaluate(source);
@@ -2835,7 +2839,7 @@ fn qualified_super_reaches_an_unqualified_ancestor_impl() {
     // Given: IRIS-V1-RUNTIME-C082 keeps qualified `super` inside the Contract
     // slot, and IRIS-V1-TYPES-C047 makes one unqualified `impl` satisfy a
     // declared requirement, so super must find an ancestor's plain `impl`.
-    let source = "contract C { fun n() -> Symbol } class B for C { public impl fun n() -> Symbol { :base } } class A extends B { public override impl fun n() -> Symbol { super() } } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
+    let source = "contract C { fun n() -> Symbol } class B { } impl B for C { public fun n() -> Symbol { :base } } class A extends B { public override fun n() -> Symbol { super() } } impl A for C { } module M { public fun run() -> Object { (A.new() as C)..n() } } M.run()";
 
     // When
     let result = evaluate(source);
@@ -2848,7 +2852,7 @@ fn qualified_super_reaches_an_unqualified_ancestor_impl() {
 fn a_checked_cast_returns_the_value_or_raises() {
     // Given: IRIS-V1-TYPES-C029 evaluates the operand once, returns the SAME
     // value when it satisfies the reified Type, and raises TypeError when not.
-    let ok = "class A { } class B extends A { } module M { public fun run() -> Object { let b = B.new(); (b as A) is A } } M.run()";
+    let ok = "class A { } class B extends A { } module M { public fun run() -> Object { let b = B.new(); (b as A) is? A } } M.run()";
     let bad = "class A { } class Z { } module M { public fun run() -> Object { let z = Z.new(); (z as A) } } M.run()";
 
     // When / Then
@@ -2896,7 +2900,7 @@ fn v959_revision_metadata_is_read_only_and_monotonic() {
                      let first = Reflection::Class.revision(A).fetch(:commit_id); \
                      let done = A.define_method(:h) { 1 }; \
                      let second = Reflection::Class.revision(A).fetch(:commit_id); \
-                     [A.active_revision, first == second]";
+                     %[A.active_revision, first == second]";
     assert_eq!(
         evaluate(committed),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -2911,14 +2915,14 @@ fn an_array_pattern_destructures_and_binds() {
     // C051 admits `[a, b]` array destructuring in the pattern vocabulary, so
     // an arity-matching subject binds each element positionally.
     assert_eq!(
-        evaluate("match [1, 2] { [a, b] => a + b, _ => 0 }"),
+        evaluate("match %[1, 2] { [a, b] => a + b, _ => 0 }"),
         Ok(RuntimeValue::Integer(3_u8.into()))
     );
 
     // A shape that does not match falls through to the next arm rather than
     // binding, because destructuring is part of the match test.
     assert_eq!(
-        evaluate("match [1, 2, 3] { [a, b] => a + b, _ => 99 }"),
+        evaluate("match %[1, 2, 3] { [a, b] => a + b, _ => 99 }"),
         Ok(RuntimeValue::Integer(99_u8.into()))
     );
     assert_eq!(
@@ -2928,17 +2932,17 @@ fn an_array_pattern_destructures_and_binds() {
 
     // Nested patterns and literal elements compose.
     assert_eq!(
-        evaluate("match [1, [2, 3]] { [a, [b, c]] => a + b + c, _ => 0 }"),
+        evaluate("match %[1, %[2, 3]] { [a, [b, c]] => a + b + c, _ => 0 }"),
         Ok(RuntimeValue::Integer(6_u8.into()))
     );
     assert_eq!(
-        evaluate("match [1, 2] { [1, b] => b, _ => 0 }"),
+        evaluate("match %[1, 2] { [1, b] => b, _ => 0 }"),
         Ok(RuntimeValue::Integer(2_u8.into()))
     );
 
     // The empty array pattern matches only an empty array.
     assert_eq!(
-        evaluate("match [] { [] => 7, _ => 0 }"),
+        evaluate("match %[] { [] => 7, _ => 0 }"),
         Ok(RuntimeValue::Integer(7_u8.into()))
     );
 }
@@ -2948,21 +2952,21 @@ fn c053_binding_only_destructuring_mismatch_raises() {
     // C053: a `for` binding is a BINDING-ONLY destructuring context, so an
     // arity mismatch there raises PatternMatchError rather than skipping.
     assert_eq!(
-        evaluate("mut t = 0; for [k, v] in [[1, 2], [3, 4]] { t = t + k + v }; t"),
+        evaluate("mut t = 0; for [k, v] in %[%[1, 2], %[3, 4]] { t = t + k + v }; t"),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Integer(10_u8.into()),
         ])))
     );
     assert_eq!(
-        evaluate("mut t = 0; for [k, v] in [[1]] { t = t + k }; t"),
+        evaluate("mut t = 0; for [k, v] in %[%[1]] { t = t + k }; t"),
         Err(EvaluationError::PatternMatchError)
     );
 
     // By contrast an ordinary match arm TESTS the shape, so a mismatch simply
     // does not select that arm.
     assert_eq!(
-        evaluate("match [1] { [a, b] => a + b, _ => 42 }"),
+        evaluate("match %[1] { [a, b] => a + b, _ => 42 }"),
         Ok(RuntimeValue::Integer(42_u8.into()))
     );
 }
@@ -2973,21 +2977,21 @@ fn c087_applies_a_decorator_transform_to_the_candidate() {
     // `add_method` stages one Method onto the target candidate, so the
     // generated Method is present on the published Class.
     let staged = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class Stamp for ClassDecorator { ",
-        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
-        "Transformation.empty.add_method(:stamped) { 7 } } } ",
-        "@Stamp() class Box { } Box.new().stamped()"
+        "class Stamp { } impl Stamp for ClassDecorator { ",
+        "public fun plan(declaration, arguments) -> Plan { Plan.empty } ",
+        "public fun transform(declaration, arguments, context) -> Transformation { ",
+        "Transformation.empty.add_method(:stamped, { 7 }) } } ",
+        "@Stamp() class Box { public fun read_stamp() { stamped() } } Box.new().read_stamp()"
     );
     assert_eq!(evaluate(staged), Ok(RuntimeValue::Integer(7_u8.into())));
 
     // C017 still counts the decorated declaration as ONE publication, so the
     // staged Method joins the origin revision rather than taking a number.
     let revision = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class Stamp for ClassDecorator { ",
-        "public impl fun transform(declaration, arguments, context) -> Transformation { ",
-        "Transformation.empty.add_method(:stamped) { 7 } } } ",
+        "class Stamp { } impl Stamp for ClassDecorator { ",
+        "public fun plan(declaration, arguments) -> Plan { Plan.empty } ",
+        "public fun transform(declaration, arguments, context) -> Transformation { ",
+        "Transformation.empty.add_method(:stamped, { 7 }) } } ",
         "@Stamp() class Box { } Box.active_revision"
     );
     assert_eq!(evaluate(revision), Ok(RuntimeValue::Integer(1_u8.into())));
@@ -2999,28 +3003,40 @@ fn c091_aborts_a_forbidden_static_spine_change_from_a_decorator() {
     // and C086/C091 require the target to retain no candidate: the change must
     // ABORT the declaration rather than be silently dropped.
     let source = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class P { } ",
-        "class S for ClassDecorator { ",
-        "public impl fun transform(d, a, c) -> Transformation { ",
-        "Reflection::Class.set_superclass(d, P); Transformation.empty } } ",
-        "@S() class Box { } Box.new() is P"
+        "class P { } class Box { } ",
+        "class S { } impl S for ClassDecorator { ",
+        "public fun plan(d, a) -> Plan { Plan.empty } ",
+        "public fun transform(d, a, c) -> Transformation { ",
+        "Reflection::Class.set_superclass(Box, P); Transformation.empty } } ",
+        "@S() open class Box { } Box.new() is? P"
+    );
+    let mut session = crate::Session::new().unwrap();
+    let result = session.evaluate(source);
+    assert!(
+        matches!(
+            result,
+            Err(EvaluationError::Class(
+                iris_runtime::ClassError::DecoratorViolation {
+                    class: _,
+                    violation: iris_runtime::DecoratorViolation::NominalIdentity,
+                }
+            ))
+        ),
+        "{result:?}"
     );
     assert_eq!(
-        evaluate(source),
-        Err(EvaluationError::Class(
-            iris_runtime::ClassError::DecoratorViolation {
-                class: iris_runtime::ClassId::new(9),
-                violation: iris_runtime::DecoratorViolation::NominalIdentity,
-            }
-        ))
+        session.evaluate("%[Box.active_revision, Box.new() is? P]"),
+        Ok(RuntimeValue::Array(ArrayRef::new(vec![
+            RuntimeValue::Integer(1_u8.into()),
+            RuntimeValue::Bool(false)
+        ])))
     );
 
     // An ORDINARY open transaction may still change the superclass, so the
     // refusal is scoped to the decorator phase rather than to the operation.
     assert_eq!(
         evaluate(
-            "class P { } class Box { } Reflection::Class.set_superclass(Box, P); Box.new() is P"
+            "class P { } class Box { } Reflection::Class.set_superclass(Box, P); Box.new() is? P"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
@@ -3031,9 +3047,9 @@ fn c091_aborts_a_forbidden_static_spine_change_from_a_decorator() {
     // A decorator that changes nothing still publishes normally, so the
     // refusal comes from the forbidden change rather than from decorating.
     let ordinary = concat!(
-        "contract ClassDecorator { fun transform(declaration, arguments, context) } ",
-        "class S for ClassDecorator { ",
-        "public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } ",
+        "class S { } impl S for ClassDecorator { ",
+        "public fun plan(d, a) -> Plan { Plan.empty } ",
+        "public fun transform(d, a, c) -> Transformation { Transformation.empty } } ",
         "@S() class Box { } Box.active_revision"
     );
     assert_eq!(evaluate(ordinary), Ok(RuntimeValue::Integer(1_u8.into())));
@@ -3074,7 +3090,7 @@ fn c036_reports_safe_decoder_diagnostics() {
     // symbol alone, so a caller could not tell WHICH decode failed or where.
     assert_eq!(
         evaluate(
-            "try { JSON.decode(\"[1,2\") } catch v, c { [v, c.decoder, c.offset, c.expected] }"
+            "try { JSON.decode(\"[1,2\") } catch v, c { %[v, c.decoder, c.offset, c.expected] }"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("JSONSyntaxError".into()),
@@ -3088,7 +3104,7 @@ fn c036_reports_safe_decoder_diagnostics() {
     // other than a decode carries none, and a later unrelated raise does not
     // inherit the last decode's record.
     assert_eq!(
-        evaluate("try { raise :plain } catch v, c { [c.decoder, c.offset, c.expected] }"),
+        evaluate("try { raise :plain } catch v, c { %[c.decoder, c.offset, c.expected] }"),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
             RuntimeValue::Nil,
@@ -3106,7 +3122,7 @@ fn c036_reports_safe_decoder_diagnostics() {
     // C036 also forbids leaking anything beyond the fragment needed to report
     // the failure, so the diagnostic carries no Host path or address.
     assert_eq!(
-        evaluate("try { JSON.decode(\"{\") } catch v, c { [c.decoder, c.offset] }"),
+        evaluate("try { JSON.decode(\"{\") } catch v, c { %[c.decoder, c.offset] }"),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("JSON".into()),
             RuntimeValue::Integer(1_u8.into()),
@@ -3123,9 +3139,10 @@ fn c020_decodes_a_nominal_value_through_a_declared_factory() {
                   s[\"nominal\"] = :User; s[\"schema_version\"] = 1; s[\"payload\"] = 7; ";
     let declared = format!(
         "contract Serializable {{ fun serialize() -> Object }} \
-         class User for Serializable {{ \
+         class User {{ \
            public fun serialize() -> Object {{ 1 }} \
            public class fun deserialize(representation) -> Object {{ :rebuilt }} }} \
+         impl User for Serializable {{ }} \
          module M {{ public fun run() -> Object {{ {stream} IrisValue.decode(s) }} }} M.run()"
     );
     assert_eq!(
@@ -3152,9 +3169,10 @@ fn c020_decodes_a_nominal_value_through_a_declared_factory() {
 #[test]
 fn c006_validates_a_nominal_stream_before_publishing() {
     let base = "contract Serializable { fun serialize() -> Object } \
-                class User for Serializable { \
+                class User { \
                   public fun serialize() -> Object { 1 } \
-                  public class fun deserialize(representation) -> Object { :rebuilt } } ";
+                  public class fun deserialize(representation) -> Object { :rebuilt } } \
+                impl User for Serializable { } ";
     let stream = |schema: &str| {
         format!(
             "mut s = %{{}}; s[\"magic\"] = \"IRISVALUE\"; s[\"format_version\"] = 1; \
@@ -3194,11 +3212,12 @@ fn c094_reflects_decorator_arguments_and_phase_participation() {
     // C094 exposes ordered decorator IDENTITY, ARGUMENTS, and static/runtime
     // phase participation. Only the identities were reported, so a caller
     // could not tell `@Stamp(1)` from `@Stamp(2)`.
-    let base = "contract ClassDecorator { fun transform(declaration, arguments, context) } \
-                class First for ClassDecorator { \
-                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
-                class Second for ClassDecorator { \
-                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+    let base = "class First { } impl First for ClassDecorator { \
+                  public fun plan(d, a) -> Plan { Plan.empty } \
+                  public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                class Second { } impl Second for ClassDecorator { \
+                  public fun plan(d, a) -> Plan { Plan.empty } \
+                  public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
                 @First(1, :two) @Second() class Box { } ";
 
     // Ordered identity is preserved, which already worked.
@@ -3224,13 +3243,12 @@ fn c094_reflects_decorator_arguments_and_phase_participation() {
     );
 
     // C122 makes a decorator declare both phase members, so participation is
-    // read from which the Class actually declares: both declare `transform`
-    // and neither declares `plan`, so each participates at runtime only.
+    // read from which the Class actually declares: both declare both members.
     assert_eq!(
         evaluate(&format!("{base} Box.decorator_phases")),
         Ok(RuntimeValue::ReadonlyArray(vec![
-            RuntimeValue::Symbol("runtime".into()),
-            RuntimeValue::Symbol("runtime".into()),
+            RuntimeValue::Symbol("static-and-runtime".into()),
+            RuntimeValue::Symbol("static-and-runtime".into()),
         ]))
     );
 
@@ -3239,7 +3257,7 @@ fn c094_reflects_decorator_arguments_and_phase_participation() {
     // silently editing a copy the caller believes is the real metadata.
     assert_eq!(
         evaluate(&format!(
-            "{base} let v = Box.decorator_arguments; try {{ v.append([9]) }} catch e {{ e }}"
+            "{base} let v = Box.decorator_arguments; try {{ v.append(%[9]) }} catch e {{ e }}"
         )),
         Ok(RuntimeValue::Symbol("ReadonlyMutationError".into()))
     );
@@ -3262,7 +3280,7 @@ fn a_bare_raise_in_a_catch_appends_a_re_raise_step() {
     assert_eq!(
         evaluate(
             "try { try { raise :a } catch e { raise } } catch f, d { \
-             [f, d.re_raise_sites.length] }"
+             %[f, d.re_raise_sites.length] }"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("a".into()),
@@ -3279,7 +3297,7 @@ fn c108_reports_denial_context_only_for_a_denial() {
     assert_eq!(
         evaluate(
             "try { raise :plain } catch v, c { \
-             [c.operation, c.caller_package, c.target_scope, c.denial_origin] }"
+             %[c.operation, c.caller_package, c.target_scope, c.denial_origin] }"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
@@ -3301,7 +3319,7 @@ fn c160_migrates_a_revision_only_when_called_explicitly() {
                 let a = A.new(); \
                 let opened = A.open() { |t| t.define_method(:m) { 2 } }; ";
     assert_eq!(
-        evaluate(&format!("{base} [calls, a.migrate_revision(1, 2), calls]")),
+        evaluate(&format!("{base} %[calls, a.migrate_revision(1, 2), calls]")),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(0_u8.into()),
             RuntimeValue::Nil,
@@ -3336,7 +3354,7 @@ fn c046_closes_a_programmable_iterator_on_every_exit_path() {
     // Natural exhaustion releases through Iteration.done.
     assert_eq!(
         evaluate(&format!(
-            "{base} mut t = 0; for x in S.new() {{ t = t + x }}; [t, closed] }} }} M.run()"
+            "{base} mut t = 0; for x in S.new() {{ t = t + x }}; %[t, closed] }} }} M.run()"
         )),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(3_u8.into()),
@@ -3358,7 +3376,7 @@ fn c046_closes_a_programmable_iterator_on_every_exit_path() {
     assert_eq!(
         evaluate(&format!(
             "{base} for x in S.new() {{ return closed }}; 99 }} }} \
-             let returned = M.run(); [returned, closed]"
+             let returned = M.run(); %[returned, closed]"
         )),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(0_u8.into()),
@@ -3370,7 +3388,7 @@ fn c046_closes_a_programmable_iterator_on_every_exit_path() {
     assert_eq!(
         evaluate(&format!(
             "{base} let raised = try {{ for x in S.new() {{ raise :boom }} }} catch e {{ e }}; \
-             [raised, closed] }} }} M.run()"
+             %[raised, closed] }} }} M.run()"
         )),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("boom".into()),
@@ -3399,7 +3417,7 @@ fn c030_closes_a_native_backed_resource_idempotently() {
             "module M { public fun run() -> Object { \
                let r = NativeFixture.resource(); \
                let first = r.close(); let second = r.close(); \
-               [first, second, r.releases, r.class_name] } } M.run()"
+               %[first, second, r.releases, r.class_name] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Nil,
@@ -3507,7 +3525,7 @@ fn c057_scopes_module_private_authorization_to_one_edge() {
             "{base} class Granted mixin M private {{ private fun secret() -> Symbol {{ :g }} }} \
              class Other mixin M {{ private fun secret() -> Symbol {{ :o }} }} \
              module Q {{ public fun run() -> Object {{ \
-               [Granted.new().reach(), Other.new().reach()] }} }} Q.run()"
+               %[Granted.new().reach(), Other.new().reach()] }} }} Q.run()"
         )),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("g".into()),
@@ -3525,7 +3543,7 @@ fn c057_scopes_module_private_authorization_to_one_edge() {
                let before = G3.new().reach(); \
                let removed = Reflection::Class.remove_module(G3, :M); \
                let added = G3.add_module(:M); \
-               [before, G3.new().reach()] }} }} Q.run()"
+               %[before, G3.new().reach()] }} }} Q.run()"
         )),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("g".into()),
@@ -3544,7 +3562,7 @@ fn c025_preserves_the_recorded_native_signature() {
                   let lib = FFI.open(\"libfixture.so\"); \
                   mut ptr = %{}; ptr[:type] = :pointer; ptr[:nullable] = false; \
                   ptr[:ownership] = :borrowed; \
-                  mut sig = %{}; sig[:convention] = :c; sig[:parameters] = [:i32, ptr]; \
+                  mut sig = %{}; sig[:convention] = :c; sig[:parameters] = %[:i32, ptr]; \
                   sig[:result] = :i32; sig[:errors] = :status; \
                   let bound = lib.bind(:c_wrapper, sig); ";
 
@@ -3552,7 +3570,7 @@ fn c025_preserves_the_recorded_native_signature() {
     // signature is readable back through the Library.
     assert_eq!(
         evaluate(&format!(
-            "{base} [bound.bound?(:c_wrapper), \
+            "{base} %[bound.bound?(:c_wrapper), \
              bound.signature(:c_wrapper)[:convention], \
              bound.signature(:c_wrapper)[:result]] }} }} M.run()"
         )),
@@ -3580,13 +3598,13 @@ fn c025_resumes_a_suspension_inside_try_without_double_cleanup() {
     // reached. Cleanup therefore runs ONCE, on the real exit after resumption.
     assert_eq!(
         evaluate(
-            "mut order = []; \
+            "mut order = %[]; \
              module M { public async fun inner(g) -> Object { \
                try { let v = await g; order.append(:body); v } \
                finally { order.append(:cleanup) } } } \
              let g = Gate.new(); let t = M.inner(g); \
              let posted = Gate.complete(g, 7); \
-             let resumed = Host.run(t); [resumed, order]"
+             let resumed = Host.run(t); %[resumed, order]"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(7_u8.into()),
@@ -3616,14 +3634,14 @@ fn c037_keeps_cleanup_lifo_and_suppressed_across_suspension() {
     // closes the INNER resource before the outer one.
     assert_eq!(
         evaluate(
-            "mut order = []; \
+            "mut order = %[]; \
              class Outer { public fun close() -> Object { order.append(:outer); nil } } \
              class Inner { public fun close() -> Object { order.append(:inner); nil } } \
              module M { public async fun inner(g) -> Object { \
                using(Outer.new()) { using(Inner.new()) { let v = await g; v } } } } \
              let g = Gate.new(); let t = M.inner(g); \
              let posted = Gate.complete(g, 7); \
-             let resumed = Host.run(t); [resumed, order]"
+             let resumed = Host.run(t); %[resumed, order]"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(7_u8.into()),
@@ -3644,7 +3662,7 @@ fn c037_keeps_cleanup_lifo_and_suppressed_across_suspension() {
                using(R.new()) { let v = await g; raise :body_failed } } } \
              let g = Gate.new(); let t = M.inner(g); \
              let posted = Gate.complete(g, 7); \
-             try { Host.run(t) } catch v, c { [v, c.suppressed.length] }"
+             try { Host.run(t) } catch v, c { %[v, c.suppressed.length] }"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("body_failed".into()),
@@ -3666,7 +3684,7 @@ fn c160_keeps_an_entered_frame_on_its_selected_body() {
              open class A { public override async fun m(g) -> Symbol { :new } }; \
              let posted = Gate.complete(g, 1); \
              let entered = Host.run(entered_task); \
-             let later = Host.run(A.new().m(g)); [entered, later]"
+             let later = Host.run(A.new().m(g)); %[entered, later]"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("old".into()),
@@ -3684,12 +3702,12 @@ fn c011_leaves_live_state_intact_after_an_invalid_candidate() {
     assert_eq!(
         evaluate(
             "contract C { fun m() -> Nil } \
-             class A for C { public impl fun m() -> Nil { nil } \
-               public fun ok() -> Symbol { :live } } \
+              class A { public fun ok() -> Symbol { :live } } \
+              impl A for C { public fun m() -> Nil { nil } } \
              module Q { public fun run() -> Object { \
                let before = A.active_revision; \
                let refused = try { A.open() { |t| t.remove_contract(C) } } catch e { e }; \
-               [refused, before, A.active_revision, A.new().ok()] } } Q.run()"
+               %[refused, before, A.active_revision, A.new().ok()] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("TypeContractError".into()),
@@ -3734,7 +3752,7 @@ fn c042_reflects_a_contract_requirement_return_type() {
         evaluate(
             "contract C { fun m() -> Integer } \
              module Q { public fun run() -> Object { \
-               [Reflection::Contract.requirement(C, :m)[:return_type], Integer.type] } } Q.run()"
+               %[Reflection::Contract.requirement(C, :m)[:return_type], Integer.type] } } Q.run()"
         ),
         // C016 interns Type objects by identity, so the reflected requirement
         // Type IS the ordinary `Integer.type` rather than a copy of it.
@@ -3780,7 +3798,7 @@ fn c013_reflects_traversal_contract_requirement_types() {
     assert_eq!(
         evaluate(
             "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } \
-             module Q { public fun run() -> Object { [ \
+             module Q { public fun run() -> Object { %[ \
                Reflection::Contract.requirement(Numbers, :iterator)[:return_type], \
                Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type], \
                Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]] } } Q.run()"
@@ -3821,7 +3839,7 @@ fn d466_reflection_preserves_closed_traversal_type_arguments() {
         let string_next = Reflection::Contract.requirement(Iterator<String>, :next)[:return_type]; \
         let repeated_integer_next = Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type]; \
         let integer_close = Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]; \
-        [integer_iterator same? string_iterator, \
+        %[integer_iterator same? string_iterator, \
          integer_iterator same? Iterator<Integer>, \
          integer_next same? string_next, \
          integer_next same? repeated_integer_next, \
@@ -3850,7 +3868,7 @@ fn recursive_generic_contract_identity_and_iteration_reflection_agree() {
         let integer_iterator = Iterator<Box<Integer>>; \
         let string_next = Reflection::Contract.requirement(Iterator<Box<String>>, :next)[:return_type]; \
         let integer_next = Reflection::Contract.requirement(Iterator<Box<Integer>>, :next)[:return_type]; \
-        [string_iterator same? string_iterator, \
+        %[string_iterator same? string_iterator, \
          string_iterator same? integer_iterator, \
          string_next same? integer_next, \
           string_next same? Reflection::Contract.requirement(Iterator<Box<String>>, :next)[:return_type]] \
@@ -3893,7 +3911,7 @@ fn c004_diagnoses_a_read_before_definite_assignment() {
     assert_eq!(
         evaluate(
             "module M { public fun run() -> Object { \
-               mut x: Integer; x = 5; let first = x; x = 7; [first, x] } } M.run()"
+               mut x: Integer; x = 5; let first = x; x = 7; %[first, x] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(5_u8.into()),
@@ -3945,7 +3963,7 @@ fn c081_checks_each_meta_capability_separately_and_atomically() {
              module Q { public fun run() -> Object { \
                let before = A.active_revision; \
                let refused = try { A.define_method(:x) { 1 } } catch e { e }; \
-               [refused, before, A.active_revision, A.new().m()] } } Q.run()"
+               %[refused, before, A.active_revision, A.new().m()] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("MetaCapabilityError".into()),
@@ -3961,7 +3979,7 @@ fn c081_checks_each_meta_capability_separately_and_atomically() {
         evaluate(
             "class A meta deny method_set { } class B extends A { } \
              module Q { public fun run() -> Object { \
-               [B.denied_capabilities, try { B.define_method(:x) { 1 } } catch e { e }] } } Q.run()"
+               %[B.denied_capabilities, try { B.define_method(:x) { 1 } } catch e { e }] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Array(ArrayRef::new(vec![RuntimeValue::Symbol(
@@ -3982,13 +4000,13 @@ fn c056_construction_uses_the_captured_revision() {
     // A stored-property initializer runs BEFORE that dispatch, so committing a
     // replacement from inside one is a genuine mid-construction commit.
     let armed = "mut ran = :none; \
-                 class A { property tag: Symbol = arm() \
+                 class A { public property tag: Symbol = arm() \
                    public fun initialize() -> Object { ran = :original; nil } \
                    public fun arm() -> Symbol { \
                      let committed = A.open() { |t| \
                        t.define_method(:initialize) { ran = :replacement; nil } }; \
                      :armed } } \
-                 module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()";
+                 module Q { public fun run() -> Object { let a = A.new(); %[a.tag, ran] } } Q.run()";
     assert_eq!(
         evaluate(armed),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -4017,12 +4035,12 @@ fn c056_construction_uses_the_captured_revision() {
     // revision, so the member added mid-construction is reachable afterwards.
     assert_eq!(
         evaluate(
-            "class A { property tag: Symbol = arm() \
+            "class A { public property tag: Symbol = arm() \
                public fun initialize() -> Object { nil } \
                public fun arm() -> Symbol { \
                  let committed = A.open() { |t| t.define_method(:m) { :new } }; :armed } \
                public fun m() -> Object { :old } } \
-             module Q { public fun run() -> Object { let a = A.new(); [a.tag, a.m()] } } Q.run()"
+             module Q { public fun run() -> Object { let a = A.new(); %[a.tag, a.m()] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("armed".into()),
@@ -4045,7 +4063,7 @@ fn c055_recovers_from_a_configured_sink_rather_than_the_queue() {
                RevisionHistory.configure_sink(); \
                B.open() { |t| 1 }; \
                RevisionHistory.prune(1); \
-               [try { RevisionHistory.events(1, 1) } catch e { e }, \
+               %[try { RevisionHistory.events(1, 1) } catch e { e }, \
                 RevisionHistory.recover(1, 1)] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -4096,7 +4114,7 @@ fn c161_replacement_creates_no_second_backing_slot() {
              module Q { public fun run() -> Object { \
                let read = Float64.infinity; \
                let wrote: Object = Float64.infinity = :written; \
-               [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()"
+               %[read, recorded, Reflection::Class.properties(Float64)] } } Q.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Symbol("replaced".into()),
@@ -4133,7 +4151,7 @@ fn c060_publishes_complete_content_to_a_synchronized_observer() {
             "module M { public fun run() -> Object { \
                let text = m\"old\"; \
                NativeFixture.concurrently_replace(text, \"new\"); \
-               [text.to_string(), text.length] } } M.run()"
+               %[text.to_string(), text.length] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Text("new".into()),
@@ -4147,7 +4165,7 @@ fn c060_publishes_complete_content_to_a_synchronized_observer() {
     let multi = "module M { public fun run() -> Object { \
                    let text = m\"éè\"; \
                    NativeFixture.concurrently_replace(text, \"üöä\"); \
-                   [text.to_string(), text.length] } } M.run()";
+                   %[text.to_string(), text.length] } } M.run()";
     assert_eq!(
         evaluate(multi),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
@@ -4165,7 +4183,7 @@ fn a_session_keeps_state_across_chunks() -> Result<(), EvaluationError> {
     let mut session = crate::Session::new()?;
 
     session.evaluate(
-        "class Account { property balance: Integer = 0 \
+        "class Account { public property balance: Integer = 0 \
            public fun deposit(n: Integer) -> Integer { @balance = @balance + n; @balance } }\nnil",
     )?;
     session.evaluate("let account = Account.new()\nnil")?;
@@ -4224,7 +4242,7 @@ fn a_top_level_collection_frees_only_unreachable_objects() {
              let released = dropped.hash(); \
              let discarded = A.new().hash(); \
              let freed = NativeFixture.compact_gc(); \
-             [freed, before == keep.hash(), released == dropped.hash()]"
+             %[freed, before == keep.hash(), released == dropped.hash()]"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
@@ -4255,7 +4273,7 @@ fn a_collection_inside_a_closure_keeps_captured_values() {
                let before = kept.hash(); \
                let check = { |x|; let dead = A.new().hash(); NativeFixture.compact_gc() }; \
                let freed = check.call(1); \
-               [freed, before == kept.hash()] } } M.run()"
+               %[freed, before == kept.hash()] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(1_u8.into()),
@@ -4305,7 +4323,7 @@ fn a_collection_inside_a_method_keeps_the_callers_locals() {
                  let outer = A.new(); \
                  let before = outer.hash(); \
                  let freed = M.inner(); \
-                 [freed, before == outer.hash()] } } M.run()"
+                 %[freed, before == outer.hash()] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             // The callee's own garbage is collected...
@@ -4325,7 +4343,7 @@ fn a_collection_inside_a_method_keeps_the_callers_locals() {
                  let keep = A.new(); \
                  let before = keep.hash(); \
                  let freed = NativeFixture.compact_gc(); \
-                 [freed, before == keep.hash()] } } M.run()"
+                 %[freed, before == keep.hash()] } } M.run()"
         ),
         Ok(RuntimeValue::Array(ArrayRef::new(vec![
             RuntimeValue::Integer(0_u8.into()),
@@ -4349,24 +4367,24 @@ fn compound_assignment_reads_once_and_short_circuits() {
         ("mut x = 2; x **= 3; x", "8"),
         ("mut x = 6; x &= 3; x", "2"),
         (
-            "mut x: Nil | Integer = nil; let r = x ||= 7; [r, x]",
+            "mut x: Nil | Integer = nil; let r = x ||= 7; %[r, x]",
             "[7, 7]",
         ),
         (
-            "mut y = :kept; let s = (y ||= :other); [s, y]",
+            "mut y = :kept; let s = (y ||= :other); %[s, y]",
             "[:kept, :kept]",
         ),
-        ("mut t = 1; let s = (t &&= 9); [s, t]", "[9, 9]"),
+        ("mut t = 1; let s = (t &&= 9); %[s, t]", "[9, 9]"),
         // The right side must NOT run: an appended `:ran` here is the wrong
         // answer an unconditional desugaring produces.
         (
-            "mut x = nil; mut log = []; let r = x &&= log.append(:ran); [r, log]",
+            "mut x = nil; mut log = %[]; let r = x &&= log.append(:ran); %[r, log]",
             "[nil, []]",
         ),
         // ...and the mirrored control: `||=` skips its right side when the
         // target is already truthy.
         (
-            "mut y = :kept; mut log = []; let r = y ||= log.append(:ran); [r, log]",
+            "mut y = :kept; mut log = %[]; let r = y ||= log.append(:ran); %[r, log]",
             "[:kept, []]",
         ),
     ] {
@@ -4428,13 +4446,13 @@ fn truth_consults_an_authored_to_bool() {
             ":yes",
         ),
         (
-            "module M { public fun r() -> Object { [!nil, !false, !1, !\"\"] } } M.r()".to_owned(),
+            "module M { public fun r() -> Object { %[!nil, !false, !1, !\"\"] } } M.r()".to_owned(),
             "[true, true, false, false]",
         ),
         // An `if` in EXPRESSION position answers a value, and a missing else
         // answers nil.
         (
-            "module M { public fun r() -> Object { let a = if true { 1 }; let b = if false { 2 }; [a, b] } } M.r()".to_owned(),
+            "module M { public fun r() -> Object { let a = if true { 1 }; let b = if false { 2 }; %[a, b] } } M.r()".to_owned(),
             "[1, nil]",
         ),
     ] {
@@ -4452,19 +4470,11 @@ fn truth_consults_an_authored_to_bool() {
         );
     }
 }
-/// A declaration the backend cannot ELABORATE still runs to its own answer.
-///
-/// Three forms were declined as gaps while the reference simply runs them: an
-/// empty body is a method returning nil, a deferred `let` is a declaration
-/// that answers nil and fails only when READ, and a keyword argument is an
-/// ordinary argument value.
 #[test]
 fn accepted_declaration_forms_run_rather_than_decline() {
     for (source, expected) in [
         ("class A { public fun f() { } }; A.new().f()", "nil"),
-        ("let x: Integer", "nil"),
-        ("mut x", "nil"),
-        ("let y: Integer; 7", "[nil, 7]"),
+        ("mut x: Integer; x = 7; x", "[7, 7]"),
     ] {
         let agreement = crate::backend::compare_backends(
             source,
@@ -4480,19 +4490,27 @@ fn accepted_declaration_forms_run_rather_than_decline() {
         );
     }
 
-    // A deferred binding that is READ still fails, so accepting the
-    // declaration widened the rule rather than removing the check.
-    let agreement = crate::backend::compare_backends(
-        "module M { public fun run() -> Object { let a; a } } M.run()",
-        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-    );
-    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-        unreachable!("both backends must fail alike: {agreement:?}")
-    };
-    assert_eq!(
-        observation,
-        &crate::backend::Observation::Error("NameError".to_owned())
-    );
+    for (source, expected) in [
+        ("let x: Integer", "BINDING_LET_REQUIRES_INITIALIZER"),
+        ("mut x", "BINDING_MISSING_TYPE_FOR_DEFERRED_INIT"),
+        (
+            "module M { public fun run() -> Object { mut x: Integer; x } } M.run()",
+            "DefiniteAssignment",
+        ),
+    ] {
+        let agreement = crate::backend::compare_backends(
+            source,
+            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+        );
+        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must fail alike: {source}: {agreement:?}")
+        };
+        assert_eq!(
+            observation,
+            &crate::backend::Observation::Error(expected.to_owned()),
+            "{source}"
+        );
+    }
 
     // A keyword argument to a RESOLVED function stays declined: the backend
     // has no keyword parameters, so lowering it would bind the wrapper into a
@@ -4509,15 +4527,8 @@ fn accepted_declaration_forms_run_rather_than_decline() {
     assert_eq!(reason, "expression keyword argument");
 }
 
-/// Mixins compose, and a Contract conformance is not enforced at DECLARATION.
-///
-/// A `mixin` names a Module the runtime already composes into a class's MRO,
-/// so wiring the declaration through was enough. The Contract check was the
-/// opposite: the backend demanded an `impl` marker for every requirement, but
-/// the reference runs `class X for C { }` with `C` unimplemented, so the rule
-/// refused programs the language accepts.
 #[test]
-fn mixins_compose_and_conformance_is_not_enforced_at_declaration() {
+fn mixins_compose_and_declared_conformance_requires_every_member() {
     for (source, expected) in [
         // A later mixin WINS, which is the MRO order rather than a first match.
         (
@@ -4536,20 +4547,14 @@ fn mixins_compose_and_conformance_is_not_enforced_at_declaration() {
             "2",
         ),
         (
-            "contract C { fun m() -> String } class X for C { public fun m() -> String { \"c\" } } \
+            "contract C { fun m() -> String } class X { public fun m() -> String { \"c\" } } impl X for C { } \
              X.new().m()",
             "\"c\"",
         ),
-        // A cast through an UNIMPLEMENTED requirement is not refused...
-        (
-            "contract Named { fun name() -> String } class User for Named { } \
-             module M { public fun r() -> Object { User.new() as Named } } M.r()",
-            "<contract>",
-        ),
-        // ...and a send through the view dispatches the object's own method.
+        // A complete implementation remains available through its view.
         (
             "contract Named { fun name() -> String } \
-             class User for Named { public fun name() -> String { \"n\" } } \
+             class User { public fun name() -> String { \"n\" } } impl User for Named { } \
              module M { public fun r() -> Object { (User.new() as Named).name() } } M.r()",
             "\"n\"",
         ),
@@ -4567,6 +4572,13 @@ fn mixins_compose_and_conformance_is_not_enforced_at_declaration() {
             "{source}"
         );
     }
+
+    // Static conformance collection validates the complete origin candidate;
+    // an absent requirement cannot be deferred until a later dynamic change.
+    agrees_on_error(
+        "contract Named { fun name() -> String } class User { } impl User for Named { } User",
+        "TypeContractError",
+    );
 }
 
 /// A module `const` is LEXICALLY visible in its methods, not a member.
@@ -4607,7 +4619,7 @@ fn a_module_constant_is_lexical_rather_than_a_member() {
     // Control: the constant is NOT reachable as a member, and the failure is
     // a program error rather than a machine defect.
     for source in [
-        "module M { const K = 1 public fun r() -> Object { K } } [M.r(), M.K]",
+        "module M { const K = 1 public fun r() -> Object { K } } %[M.r(), M.K]",
         "module M { const K = 1 public fun r() -> Object { M.K } } M.r()",
     ] {
         let agreement = crate::backend::compare_backends(
@@ -4672,26 +4684,29 @@ fn stored_property_initializers_run_at_construction() {
     for (source, expected) in [
         // The initializer CALLS the object's own method through implicit self.
         (
-            "class A { property tag: Symbol = arm() public fun arm() -> Symbol { :armed } } \
+            "class A { public property tag: Symbol = arm() public fun arm() -> Symbol { :armed } } \
              A.new().tag",
             ":armed",
         ),
-        ("class C { property n: Integer = 1 + 2 } C.new().n", "3"),
+        (
+            "class C { public property n: Integer = 1 + 2 } C.new().n",
+            "3",
+        ),
         // A side effect happens ONCE, when the object is built.
         (
-            "mut log = []; class B { property b: Nil = log.append(:base) } let x = B.new(); log",
+            "mut log = %[]; class B { property b: Nil = log.append(:base) } let x = B.new(); log",
             "[:base]",
         ),
         // The BASE class initializes first, and `initialize` runs after both.
         (
-            "mut log = []; class Base { property b: Nil = log.append(:base) } \
+            "mut log = %[]; class Base { property b: Nil = log.append(:base) } \
              class Child extends Base { property c: Nil = log.append(:child) \
              fun initialize() { log.append(:initialize) } } let x = Child.new(); log",
             "[:base, :child, :initialize]",
         ),
         // Control: a LITERAL initializer still works, so adding the frame did
         // not replace the direct path.
-        ("class D { property n: Integer = 7 } D.new().n", "7"),
+        ("class D { public property n: Integer = 7 } D.new().n", "7"),
     ] {
         let agreement = crate::backend::compare_backends(
             source,
@@ -4708,60 +4723,16 @@ fn stored_property_initializers_run_at_construction() {
     }
 }
 
-/// A module body's statements run at the declaration's SOURCE POSITION.
-///
-/// They are not a separate load phase: `module M { order.append(:body) }`
-/// appends when `order` is already bound above it, and is a NameError when it
-/// is not. Lowering them ahead of every top-level statement answered NameError
-/// for the ordinary case, so the top level walks `entries` rather than
-/// `statements` to keep declarations and statements interleaved.
 #[test]
-fn module_body_statements_run_in_source_position() {
-    for (source, expected) in [
-        (
-            "mut order = []; order.append(:top); module M { order.append(:body) } order",
-            "[nil, [:top, :body]]",
-        ),
-        ("mut r = 0; module M { let x = 5; r = x } r", "5"),
-        // Each body runs in DECLARATION order, so the second sees the first.
-        (
-            "mut r = 0; module A { r = 1 } module B { r = r + 1 } r",
-            "2",
-        ),
-        ("mut a = 1; module M { a = a + 1 } mut b = a; b", "2"),
-        // A bare call in a module body names that MODULE's own function.
-        (
-            "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } helper() } log",
-            "1",
-        ),
+fn v136_rejects_module_origin_statements() {
+    for source in [
+        "mut order = %[]; order.append(:top); module M { order.append(:body) } order",
+        "mut r = 0; module M { let x = 5; r = x } r",
+        "mut r = 0; module A { r = 1 } module B { r = r + 1 } r",
+        "mut log = 0; module M { fun helper() -> Integer { log = 1; 1 } helper() } log",
     ] {
-        let agreement = crate::backend::compare_backends(
-            source,
-            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-        );
-        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-            unreachable!("both backends must agree: {source}: {agreement:?}")
-        };
-        assert_eq!(
-            observation,
-            &crate::backend::Observation::Value(expected.to_owned()),
-            "{source}"
-        );
+        agrees_on_error(source, "ParseDiagnostic");
     }
-
-    // Control: a body running BEFORE the binding it reads still fails, so the
-    // statements really are positioned rather than merely reordered.
-    let agreement = crate::backend::compare_backends(
-        "module M { order.append(:body) } mut order = []; order",
-        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-    );
-    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-        unreachable!("both backends must fail alike: {agreement:?}")
-    };
-    assert_eq!(
-        observation,
-        &crate::backend::Observation::Error("NameError".to_owned())
-    );
 }
 
 /// Regex literals compile, canonicalize their flags, and MATCH.
@@ -4872,13 +4843,13 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
     for (source, expected) in [
         // The body runs at CALL time, before anything observes the Task.
         (
-            "mut log = []; module M { public async fun f() -> Symbol { log.append(:ran); :d } } \
+            "mut log = %[]; module M { public async fun f() -> Symbol { log.append(:ran); :d } } \
              let t = M.f(); log",
             "[:ran]",
         ),
         // An `await` on a PENDING gate stops after the prefix.
         (
-            "mut log = []; module M { public async fun f(g) -> Symbol { log.append(:before); \
+            "mut log = %[]; module M { public async fun f(g) -> Symbol { log.append(:before); \
              await g; log.append(:after); :d } } let g = Gate.new(); let t = M.f(g); log",
             "[:before]",
         ),
@@ -4896,7 +4867,7 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
         ),
         // Two frames on ONE gate resume in the order they suspended.
         (
-            "mut log = []; class A { public async fun f(gate: Object, tag: Symbol) -> Symbol { \
+            "mut log = %[]; class A { public async fun f(gate: Object, tag: Symbol) -> Symbol { \
              await gate; log.append(tag); tag } } module M { public fun run() -> Array { \
              let gate = Gate.new(); let first = A.new().f(gate, :a); \
              let second = A.new().f(gate, :b); Gate.complete(gate, 1); Host.run(first); log } } \
@@ -4927,7 +4898,7 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
     // continuation's effect appears only once something observes the Task.
     // Resuming inside `Gate.complete` made `:after` visible too early.
     let agreement = crate::backend::compare_backends(
-        "mut log = []; module M { public async fun f(g) -> Symbol { log.append(:before); \
+        "mut log = %[]; module M { public async fun f(g) -> Symbol { log.append(:before); \
          await g; log.append(:after); :d } } let g = Gate.new(); let t = M.f(g); \
          Gate.complete(g, 1); log",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
@@ -4968,14 +4939,14 @@ fn a_gate_suspends_and_resumes_an_async_frame() {
 fn a_module_constant_does_not_displace_parameters() {
     for (source, expected) in [
         (
-            "module App { const TAG = :app public fun f(x) -> Object { [TAG, x] } } App.f(9)",
+            "module App { const TAG = :app public fun f(x) -> Object { %[TAG, x] } } App.f(9)",
             "[:app, 9]",
         ),
         // Two constants and two parameters, so a displacement of ANY leading
         // register would show.
         (
             "module App { const A = 1 const B = 2 \
-             public fun f(x, y) -> Object { [A, B, x, y] } } App.f(8, 9)",
+             public fun f(x, y) -> Object { %[A, B, x, y] } } App.f(8, 9)",
             "[1, 2, 8, 9]",
         ),
         // A local still shadows the constant...
@@ -5074,7 +5045,7 @@ fn the_unicode_surface_uses_the_pinned_data_version() {
         (r#""é".nfd().length()"#, "2"),
         // A Unicode property class works in a pattern, on the same version.
         (
-            r#"[Unicode.version(), ("A" =~ /\p{Lu}/).text()]"#,
+            r#"%[Unicode.version(), ("A" =~ /\p{Lu}/).text()]"#,
             "[\"17.0.0\", \"A\"]",
         ),
     ] {
@@ -5104,18 +5075,21 @@ fn the_unicode_surface_uses_the_pinned_data_version() {
 fn a_class_level_property_is_class_state() {
     for (source, expected) in [
         (
-            "class Cache { class property value: Integer } Cache.value = 1; Cache.value",
+            "class Cache { public class property value: Integer } Cache.value = 1; Cache.value",
             "[1, 1]",
         ),
-        ("class Cache { class property n: Integer = 5 } Cache.n", "5"),
         (
-            "class Cache { class property n: Integer = 5 } Cache.n = 9; Cache.n",
+            "class Cache { public class property n: Integer = 5 } Cache.n",
+            "5",
+        ),
+        (
+            "class Cache { public class property n: Integer = 5 } Cache.n = 9; Cache.n",
             "[9, 9]",
         ),
         // A `shared` class property lives on the UNAPPLIED definition, so the
         // bare Class name reaches it.
         (
-            "class Cache<T> { shared class property count: Integer = 0 } Cache.count",
+            "class Cache<T> { public shared class property count: Integer = 0 } Cache.count",
             "0",
         ),
     ] {
@@ -5138,31 +5112,34 @@ fn a_class_level_property_is_class_state() {
     // and the BARE name reaches no slot at all.
     for (source, expected) in [
         (
-            "class Cache<T> { class property value: T } Cache<String>.value = \"s\"; \
-             Cache<Integer>.value = 1; [Cache<String>.value, Cache<Integer>.value]",
+            "class Cache<T> { public class property value: T } Cache<String>.value = \"s\"; \
+             Cache<Integer>.value = 1; %[Cache<String>.value, Cache<Integer>.value]",
             Some("[\"s\", 1, [\"s\", 1]]"),
         ),
         // An unwritten construction starts at nil, since it may be read before
         // it is ever written.
         (
-            "class Cache<T> { class property value: T } Cache<String>.value",
+            "class Cache<T> { public class property value: T } Cache<String>.value",
             Some("nil"),
         ),
         // THREE constructions stay independent, and one never written starts
         // at the declared initializer.
         (
-            "class C<T> { class property n: Integer = 0 } C<String>.n = 1; C<Integer>.n = 2; \
-             [C<String>.n, C<Integer>.n, C<Bool>.n]",
+            "class C<T> { public class property n: Integer = 0 } C<String>.n = 1; C<Integer>.n = 2; \
+             %[C<String>.n, C<Integer>.n, C<Bool>.n]",
             Some("[1, 2, [1, 2, 0]]"),
         ),
         // A SHARED class property is on the definition, so the bare name does
         // reach that one.
         (
-            "class C<T> { shared class property n: Integer = 7 } C.n",
+            "class C<T> { public shared class property n: Integer = 7 } C.n",
             Some("7"),
         ),
         // The bare name has no slot: the property is per construction.
-        ("class C<T> { class property n: Integer = 0 } C.n", None),
+        (
+            "class C<T> { public class property n: Integer = 0 } C.n",
+            None,
+        ),
     ] {
         let agreement = crate::backend::compare_backends(
             source,
@@ -5206,13 +5183,16 @@ fn a_class_level_property_is_class_state() {
 #[test]
 fn a_declaration_annotation_does_not_stop_the_program() {
     for (source, expected) in [
-        ("@sealed() class A { } 1", "1"),
+        (
+            "class sealed { } impl sealed for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } @sealed() class A { } 1",
+            "1",
+        ),
         ("class A<T> where T: Object { } 1", "1"),
         ("class A meta deny instance_state { } 1", "1"),
         ("contract C meta deny method_set { } 1", "1"),
         // The declaration still WORKS rather than being skipped.
         (
-            "@sealed() class A { public fun f() -> Integer { 7 } } A.new().f()",
+            "class sealed { } impl sealed for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } @sealed() class A { public fun f() -> Integer { 7 } } A.new().f()",
             "7",
         ),
     ] {
@@ -5272,22 +5252,22 @@ fn transfers_targets_and_defaults_behave_at_run_time() {
         // Control: a `break` that HAS a loop still breaks it rather than
         // failing, so the transfer was not broken to report the error.
         (
-            "module M { public fun run() -> Object { for x in [1] { break }; :done } } M.run()",
+            "module M { public fun run() -> Object { for x in %[1] { break }; :done } } M.run()",
             ":done",
         ),
         // A default fills through a dynamic SEND, which is where it silently
         // answered nil.
         (
-            "class A { public fun f(a, b: Integer = 2) { [a, b] } }; A.new().f(1)",
+            "class A { public fun f(a, b: Integer = 2) { %[a, b] } }; A.new().f(1)",
             "[1, 2]",
         ),
         // ...and a supplied argument still WINS over the default.
         (
-            "class A { public fun f(a, b: Integer = 2) { [a, b] } }; A.new().f(1, 9)",
+            "class A { public fun f(a, b: Integer = 2) { %[a, b] } }; A.new().f(1, 9)",
             "[1, 9]",
         ),
         (
-            "module M { public fun f(a, b: Integer = 2) -> Object { [a, b] } \
+            "module M { public fun f(a, b: Integer = 2) -> Object { %[a, b] } \
              public fun r() -> Object { M.f(1) } } M.r()",
             "[1, 2]",
         ),
@@ -5321,13 +5301,13 @@ fn irisvalue_validates_before_it_decodes() {
     const SERIALIZABLE: &str = "contract Serializable { fun serialize() -> Object } ";
 
     const CONFORMING: &str = "contract Serializable { fun serialize() -> Object } \
-                              class C for Serializable { \
-                              public fun serialize() -> Object { [:c, 7] } } ";
+                               class C { public fun serialize() -> Object { %[:c, 7] } } \
+                               impl C for Serializable { } ";
 
     for (source, expected) in [
         // An ordinary value encodes as itself, across the listed families.
         (
-            r#"[IrisValue.encode(1), IrisValue.encode("é"), IrisValue.encode(b"\x00\xff"), IrisValue.encode((1, "x"))]"#.to_owned(),
+            r#"%[IrisValue.encode(1), IrisValue.encode("é"), IrisValue.encode(b"\x00\xff"), IrisValue.encode((1, "x"))]"#.to_owned(),
             r#"[1, "é", bytes:00ff, [1, "x"]]"#.to_owned(),
         ),
         // An object that DECLARES `Serializable` is asked for its own
@@ -5380,9 +5360,10 @@ fn irisvalue_validates_before_it_decodes() {
         // is a different failure from a limit breach.
         (
             format!(
-                "{SERIALIZABLE}class User for Serializable {{ \
+                "{SERIALIZABLE}class User {{ \
                  public fun serialize() -> Object {{ 1 }} \
                  public class fun deserialize(representation) -> Object {{ :rebuilt }} }} \
+                 impl User for Serializable {{ }} \
                  module M {{ public fun run() -> Object {{ {HEADER}s[\"format_version\"] = 1; \
                  s[\"nominal\"] = :User; s[\"schema_version\"] = 2; s[\"payload\"] = 7; \
                  IrisValue.decode(s) }} }} M.run()"
@@ -5427,7 +5408,7 @@ fn irisvalue_validates_before_it_decodes() {
 /// two objects.
 #[test]
 fn the_ffi_boundary_refuses_before_it_crosses() {
-    const COMPLETE: &str = "mut sig = %{}; sig[:convention] = :c; sig[:parameters] = []; \
+    const COMPLETE: &str = "mut sig = %{}; sig[:convention] = :c; sig[:parameters] = %[]; \
                             sig[:result] = :f64; sig[:errors] = :none; ";
 
     for (source, expected) in [
@@ -5443,13 +5424,13 @@ fn the_ffi_boundary_refuses_before_it_crosses() {
         ),
         // Each open is a distinct identity, even for one path.
         (
-            r#"let a = FFI.open("lib"); let b = FFI.open("lib"); [a == b, a.class_name()]"#
+            r#"let a = FFI.open("lib"); let b = FFI.open("lib"); %[a == b, a.class_name()]"#
                 .to_owned(),
             r#"[false, "FFI::Library"]"#.to_owned(),
         ),
         // The refusal is an ordinary CATCHABLE error, not a lost frame.
         (
-            "mut rust = %{}; rust[:convention] = :rust; rust[:parameters] = []; \
+            "mut rust = %{}; rust[:convention] = :rust; rust[:parameters] = %[]; \
              rust[:result] = :i32; rust[:errors] = :status; \
              try { FFI.open(\"lib\").bind(:only, rust) } catch e { e }"
                 .to_owned(),
@@ -5487,7 +5468,7 @@ fn the_ffi_boundary_refuses_before_it_crosses() {
         // scalar does not - so the obligation is conditional, not blanket.
         (
             "mut p = %{}; p[:type] = :pointer; mut sig = %{}; sig[:convention] = :c; \
-             sig[:parameters] = [p]; sig[:result] = :i32; sig[:errors] = :none; \
+             sig[:parameters] = %[p]; sig[:result] = :i32; sig[:errors] = :none; \
              FFI.open(\"lib\").bind(:copy, sig)"
                 .to_owned(),
             "IncompleteNativeSignature",
@@ -5605,7 +5586,7 @@ fn a_module_composes_another_module() {
         (
             "module A { public fun h() -> Integer { 1 } } module B mixin A { } \
              class C mixin A, B { } \
-             module M { public fun run() -> Object { [C.modules.length(), C.new().h()] } } M.run()",
+             module M { public fun run() -> Object { %[C.modules.length(), C.new().h()] } } M.run()",
             "[2, 1]",
         ),
         // Control: a module written WITHOUT `mixin` composes nothing, so no
@@ -5666,14 +5647,14 @@ fn reopening_a_builtin_class_adds_to_its_values() {
         // keep answering from the native comparison the reopen replaced.
         (
             "open class Integer { override public fun <=>(o: Integer) -> Integer { 1 } }; \
-             [1 < 2, 1 > 2]",
+             %[1 < 2, 1 > 2]",
             "[false, true]",
         ),
         // Control: a reopen adding NOTHING leaves the class as it was.
         ("open class Integer { } 1", "1"),
         // Control: an unrelated built-in family is untouched by the reopen.
         (
-            r#"open class String { public fun shout() -> String { "!" } } [1 + 1, "b".shout()]"#,
+            r#"open class String { public fun shout() -> String { "!" } } %[1 + 1, "b".shout()]"#,
             r#"[2, "!"]"#,
         ),
     ] {
@@ -5716,17 +5697,17 @@ fn reopening_a_builtin_class_adds_to_its_values() {
 fn a_loop_answers_what_break_carried() {
     for (source, expected) in [
         (
-            "let a = while false { 1 }; let b = while true { break 7 }; [a, b]",
+            "let a = while false { 1 }; let b = while true { break 7 }; %[a, b]",
             "[nil, 7]",
         ),
         (
             "module M { public fun run() -> Array { let none = while false { 1 }; \
-             let stopped = while true { break :stopped }; [none, stopped] } } M.run()",
+             let stopped = while true { break :stopped }; %[none, stopped] } } M.run()",
             "[nil, :stopped]",
         ),
         // A `for` carries a value out the same way.
         (
-            "module M { public fun run() -> Object { for x in [1, 2] { break :early } } } M.run()",
+            "module M { public fun run() -> Object { for x in %[1, 2] { break :early } } } M.run()",
             ":early",
         ),
         // Control: an ordinary loop still RUNS to completion and answers nil,
@@ -5765,12 +5746,12 @@ fn a_loop_answers_what_break_carried() {
 #[test]
 fn an_indexed_compound_assignment_evaluates_once() {
     for (source, expected) in [
-        ("mut a = [1, 2]; a[0] += 5; a", "[6, [6, 2]]"),
+        ("mut a = %[1, 2]; a[0] += 5; a", "[6, [6, 2]]"),
         ("mut a = %{}; a[:k] = 1; a[:k] += 2; a[:k]", "[1, 3, 3]"),
         // The receiver, the index and the right side each run ONCE, in that
         // order - a duplicated read would show as a repeated `:factory`.
         (
-            "mut evts = []; mut store = [1, 2]; \
+            "mut evts = %[]; mut store = %[1, 2]; \
              class P { public fun factory() { evts.append(:factory); store } \
              public fun idx() { evts.append(:index); 0 } \
              public fun rhs() { evts.append(:rhs); 5 } } \
@@ -5805,14 +5786,14 @@ fn a_labelled_break_unwinds_to_its_loop() {
         ("outer: while true { while true { break outer: 7 } }", "7"),
         (
             "module M { public fun run() -> Object { \
-             outer: for x in [1, 2] { for y in [3, 4] { break outer: :stopped } } } } M.run()",
+             outer: for x in %[1, 2] { for y in %[3, 4] { break outer: :stopped } } } } M.run()",
             ":stopped",
         ),
         // Control: an UNLABELLED break still stops only the innermost loop,
         // so labelling did not change ordinary unwinding.
         (
-            "module M { public fun run() -> Object { mut seen = []; \
-             for x in [1, 2] { for y in [3, 4] { seen.append(y); break }; seen.append(x) }; seen } } \
+            "module M { public fun run() -> Object { mut seen = %[]; \
+             for x in %[1, 2] { for y in %[3, 4] { seen.append(y); break }; seen.append(x) }; seen } } \
              M.run()",
             "[3, 1, 3, 2]",
         ),
@@ -5911,7 +5892,7 @@ fn a_core_claim_is_rejected_and_discards_are_recorded() {
         // the discarded contexts are observable rather than lost.
         (
             "module M { public fun run() -> Array { try { raise :pending } \
-             finally { return [:override, Diagnostics.discarded_contexts()] } } } M.run()",
+             finally { return %[:override, Diagnostics.discarded_contexts()] } } } M.run()",
             "[:override, []]",
         ),
     ] {
@@ -5964,7 +5945,7 @@ fn a_rest_parameter_collects_only_what_was_passed() {
         ("class A { public fun m(*r) { r } } A.new().m()", "[]"),
         ("class A { public fun m(a, *r) { r } } A.new().m(1)", "[]"),
         (
-            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { r } } A.new().m(1, 9, k: 5)",
+            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk = nil) { r } } A.new().m(1, 9, k: 5)",
             "[]",
         ),
         // Control: a rest that DOES receive arguments still collects them, so
@@ -5975,7 +5956,7 @@ fn a_rest_parameter_collects_only_what_was_passed() {
         ),
         // Control: the other channels are unaffected by the narrower window.
         (
-            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { [a, b, k, kw] } } \
+            "class A { public fun m(a, b = 2, *r, key k, **kw, &blk = nil) { %[a, b, k, kw] } } \
              A.new().m(1, k: 5, z: 6)",
             "[1, 2, 5, {:z: 6}]",
         ),
@@ -6003,7 +5984,7 @@ fn a_rest_parameter_collects_only_what_was_passed() {
 fn a_checked_cast_answers_nil_on_mismatch() {
     for (source, expected) in [
         (
-            r#"let value: Object = "iris"; [value is String, value as? Integer]"#,
+            r#"let value: Object = "iris"; %[value is? String, value as? Integer]"#,
             "[true, nil]",
         ),
         ("let v: Object = 1; v as? Integer", "1"),
@@ -6053,7 +6034,7 @@ fn a_checked_cast_answers_nil_on_mismatch() {
 fn a_restated_header_is_an_annotation() {
     for (source, expected) in [
         (
-            "class Box<T> { }; open class Box<T> where T: Object { }; 1",
+            "class Box<T> where T: Object { }; open class Box<T> where T: Object { }; 1",
             "1",
         ),
         ("contract Comparable<T> {} 1", "1"),
@@ -6065,8 +6046,8 @@ fn a_restated_header_is_an_annotation() {
         ),
         // A reopen restating the header still ADDS its methods.
         (
-            "class Box<T> { }; open class Box<T> where T: Object { \
-             public fun tag() -> Symbol { :b } }; Box.new().tag()",
+            "class Box<T> where T: Object { }; open class Box<T> where T: Object { \
+             public fun tag() -> Symbol { :b } }; Box<Object>.new().tag()",
             ":b",
         ),
     ] {
@@ -6127,49 +6108,14 @@ fn a_restated_header_is_an_annotation() {
     assert_eq!(reason, "class reopen header");
 }
 
-/// A class body's `let` or `mut` declares NO instance variable.
-///
-/// `mut done = false` in a class body is not an ivar initializer: the
-/// reference answers nil for `@done` afterwards, so the binding declares
-/// nothing the object carries. Declining it refused programs that run.
 #[test]
-fn a_class_body_binding_declares_no_ivar() {
-    for (source, expected) in [
-        // The ivar starts ABSENT, whatever the body's binding said.
-        (
-            "class R { mut done = false public fun read() -> Object { @done } } R.new().read()",
-            "nil",
-        ),
-        (
-            "class R { let tag = :t public fun read() -> Object { @tag } } R.new().read()",
-            "nil",
-        ),
-        // Assigning the ivar still works, so only the initializer is inert.
-        (
-            "class R { mut done = false public fun flip() -> Object { @done = true; @done } } \
-             R.new().flip()",
-            "true",
-        ),
-        // The realistic shape: a resource guarding double close.
-        (
-            "mut n = 0; class R { mut done = false \
-             public fun close() -> Nil { if @done { nil } else { @done = true; n = n + 1; nil } } } \
-             let r = R.new(); let v = using(r) { :body }; let again = r.close(); [v, n, again]",
-            "[:body, 1, nil]",
-        ),
+fn v136_rejects_bare_bindings_in_class_origins() {
+    for source in [
+        "class R { mut done = false public fun read() -> Object { @done } } R.new().read()",
+        "class R { let tag = :t public fun read() -> Object { @tag } } R.new().read()",
+        "class R { mut done = false public fun flip() -> Object { @done = true; @done } } R.new().flip()",
     ] {
-        let agreement = crate::backend::compare_backends(
-            source,
-            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-        );
-        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-            unreachable!("both backends must agree: {source}: {agreement:?}")
-        };
-        assert_eq!(
-            observation,
-            &crate::backend::Observation::Value(expected.to_owned()),
-            "{source}"
-        );
+        agrees_on_error(source, "ParseDiagnostic");
     }
 }
 
@@ -6185,7 +6131,7 @@ fn reflection_invokes_and_the_meta_policy_refuses() {
         (
             "class A { public fun m() -> Symbol { :a } } \
              module M { public fun run() -> Object { let k = Reflection::Class.method(A, :m); \
-             Reflection::Class.invoke(k, A.new(), []) } } M.run()",
+             Reflection::Class.invoke(k, A.new(), %[]) } } M.run()",
             ":a",
         ),
         // An ordinary class ALLOWS the change.
@@ -6221,12 +6167,12 @@ fn reflection_invokes_and_the_meta_policy_refuses() {
     for (source, expected) in [
         (
             "class A { } module M { public fun run() -> Object { let a = A.new(); \
-             [a == a, a != a] } } M.run()",
+             %[a == a, a != a] } } M.run()",
             "[true, false]",
         ),
         (
             "class A { } module M { public fun run() -> Object { \
-             [A.new() == A.new(), A.new() != A.new()] } } M.run()",
+             %[A.new() == A.new(), A.new() != A.new()] } } M.run()",
             "[false, true]",
         ),
         // `fetch` answers the value it holds...
@@ -6344,14 +6290,14 @@ fn the_native_boundary_converts_and_releases_once() {
         // carrying a context whose value is the marker read back.
         (
             "module M { public fun run() -> Object { \
-             try { NativeFixture.raise(41); :unreachable } catch e: Integer, c { [e, c.value] } } } \
+             try { NativeFixture.raise(41); :unreachable } catch e: Integer, c { %[e, c.value] } } } \
              M.run()",
             "[41, 41]",
         ),
         // Closing TWICE releases once, which the counter reports.
         (
             "module M { public fun run() -> Object { let r = NativeFixture.resource(); \
-             let first = r.close(); let second = r.close(); [first, second, r.releases] } } M.run()",
+             let first = r.close(); let second = r.close(); %[first, second, r.releases] } } M.run()",
             "[nil, nil, 1]",
         ),
     ] {
@@ -6384,25 +6330,25 @@ fn a_reopen_takes_effect_where_it_is_written() {
         // The INSTANCE side, before and after the reopen.
         (
             "class P { public fun m() -> Symbol { :old } } let a = P.new().m(); \
-             open class P { override public fun m() -> Symbol { :new } } [a, P.new().m()]",
+             open class P { override public fun m() -> Symbol { :new } } %[a, P.new().m()]",
             "[:old, :new]",
         ),
         // The CLASS side, which had no reopen path at all before.
         (
             "class P { class fun m() -> Symbol { :old } } let a = P.m(); \
-             open class P { override class fun m() -> Symbol { :new } } [a, P.m()]",
+             open class P { override class fun m() -> Symbol { :new } } %[a, P.m()]",
             "[:old, :new]",
         ),
         // An OPERATOR reaches the same singleton method, and respects position.
         (
             "class P { class fun +(other) -> Symbol { :old } } let a = P + P; \
-             open class P { override class fun +(other) -> Symbol { :new } } [a, P + P]",
+             open class P { override class fun +(other) -> Symbol { :new } } %[a, P + P]",
             "[:old, :new]",
         ),
         // Control: with NO reopen the original stands, so position handling
         // did not simply prefer whatever was defined last.
         (
-            "class P { class fun +(other) -> Symbol { :only } } [P + P, P.+(P)]",
+            "class P { class fun +(other) -> Symbol { :only } } %[P + P, P.+(P)]",
             "[:only, :only]",
         ),
     ] {
@@ -6457,10 +6403,11 @@ fn a_module_function_is_reachable_bare() {
 }
 
 #[test]
-fn v225_module_private_function_local_call_stays_lexical() {
-    // Given a private function in a Module body, when its name is read into a
-    // local and called through that local, then the call retains module access.
-    let source = "mut result: Object = 0; module M { fun accept(x: Object) -> String { \"ok\" } let f = accept; result = f(\"x\") } result";
+fn v225_module_method_local_call_to_private_function_stays_lexical() {
+    // Given a private Module function, when a Module method reads it into an
+    // executable local and calls that local, then the call retains module access.
+    let source = "module M { fun accept(x: Object) -> String { \"ok\" } \
+                  public fun run() -> Object { let f = accept; f(\"x\") } } M.run()";
     let agreement = crate::backend::compare_backends(
         source,
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
@@ -6477,8 +6424,8 @@ fn v225_module_private_function_local_call_stays_lexical() {
     // Control: forwarding the local preserves a real BoundMethod value rather
     // than relying on the original binding name at the call site.
     agrees_on(
-        "mut result: Object = 0; module M { fun accept(x: Object) -> String { \"ok\" } \
-         let f = accept; let g = f; result = [g.class_name, g.call(\"x\")] } result",
+        "module M { fun accept(x: Object) -> String { \"ok\" } public fun run() -> Object { \
+         let f = accept; let g = f; %[g.class_name, g.call(\"x\")] } } M.run()",
         "[:BoundMethod, \"ok\"]",
     );
 
@@ -6512,13 +6459,13 @@ fn v225_module_private_function_local_call_stays_lexical() {
 fn a_declared_contract_cannot_be_removed() {
     for (source, expected) in [
         (
-            "contract C { fun m() -> Nil } class A for C { public impl fun m() -> Nil { nil } } \
+            "contract C { fun m() -> Nil } class A { } impl A for C { public fun m() -> Nil { nil } } \
              let refused = try { A.remove_contract(C) } catch e { e }; \
-             [refused, A.contracts, A.active_revision]",
+             %[refused, A.contracts, A.active_revision]",
             "[:TypeContractError, [<contract>], 1]",
         ),
         (
-            "contract C { fun m() -> Nil } class A for C { public impl fun m() -> Nil { nil } } \
+            "contract C { fun m() -> Nil } class A { } impl A for C { public fun m() -> Nil { nil } } \
              try { Reflection::Class.remove_contract(A, C) } catch e { e }",
             ":TypeContractError",
         ),
@@ -6526,7 +6473,7 @@ fn a_declared_contract_cannot_be_removed() {
         // the spine rather than about the selector being rejected outright.
         (
             "contract C { fun m() -> Nil } contract D { fun n() -> Nil } \
-             class A for C { public impl fun m() -> Nil { nil } } A.remove_contract(D)",
+             class A { } impl A for C { public fun m() -> Nil { nil } } A.remove_contract(D)",
             "nil",
         ),
     ] {
@@ -6554,7 +6501,7 @@ fn a_declared_contract_cannot_be_removed() {
 fn a_joined_writer_is_observed() {
     let source = "module M { public fun run() -> Object { let text = m\"ee\"; \
                   NativeFixture.concurrently_replace(text, \"uoa\"); \
-                  [text.to_string(), text.length] } } M.run()";
+                  %[text.to_string(), text.length] } } M.run()";
     let agreement = crate::backend::compare_backends(
         source,
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
@@ -6571,7 +6518,7 @@ fn a_joined_writer_is_observed() {
     // reports the value's own text rather than always the last write.
     let agreement = crate::backend::compare_backends(
         "module M { public fun run() -> Object { let text = m\"ee\"; \
-         [text.to_string(), text.length] } } M.run()",
+         %[text.to_string(), text.length] } } M.run()",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
     );
     let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
@@ -6595,13 +6542,13 @@ fn a_contract_inherits_its_parents_requirements() {
         // The parent's requirement is satisfied THROUGH the child.
         (
             "contract PA { fun a() -> Nil } contract Child extends PA {} \
-             class A for Child { public impl fun a() -> Nil { nil } } A.new().a()",
+             class A { } impl A for Child { public fun a() -> Nil { nil } } A.new().a()",
             "nil",
         ),
         // `open` changes no requirement, so the same program still runs.
         (
             "open contract C { fun m() -> Nil } \
-             class A for C { public impl fun m() -> Nil { nil } } A.new().m()",
+             class A { } impl A for C { public fun m() -> Nil { nil } } A.new().m()",
             "nil",
         ),
     ] {
@@ -6624,8 +6571,8 @@ fn a_contract_inherits_its_parents_requirements() {
     let agreement = crate::backend::compare_backends(
         "contract PA { fun a() -> Symbol } contract PB { fun b() -> Symbol } \
          contract Child extends PA, PB {} \
-         class A for Child { public impl fun a() -> Symbol { :ay } \
-         public impl fun b() -> Symbol { :bee } } let x = A.new(); [x.a(), x.b()]",
+         class A { } impl A for Child { public fun a() -> Symbol { :ay } \
+         public fun b() -> Symbol { :bee } } let x = A.new(); %[x.a(), x.b()]",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
     );
     let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
@@ -6749,7 +6696,7 @@ fn a_contract_bound_is_decided_at_construction() {
         // Control: an argument that DOES declare the bound contract passes, so
         // the check rejects a violation rather than every bounded construction.
         (
-            "contract Comparable<T> {} class Key for Comparable {} \
+            "contract Comparable<T> {} class Key {} impl Key for Comparable<Key> {} \
              class Box<T> where T: Comparable<T> {} Box<Key>.new()",
             Some("<object>"),
         ),
@@ -6789,25 +6736,25 @@ fn a_contract_bound_is_decided_at_construction() {
 fn a_loop_binding_destructures_each_item() {
     for (source, expected) in [
         // Exact arity binds both names.
-        ("for [a, b] in [[1, 2]] { a + b }", Some("nil")),
+        ("for [a, b] in %[%[1, 2]] { a + b }", Some("nil")),
         // Too FEW names for the item, and too MANY, both fail.
-        ("for [a, b] in [[1, 2, 3]] { a }", None),
-        ("for [a, b, c] in [[1, 2]] { a }", None),
+        ("for [a, b] in %[%[1, 2, 3]] { a }", None),
+        ("for [a, b, c] in %[%[1, 2]] { a }", None),
         // An item that is not an Array at all cannot be destructured.
-        ("for [a, b] in [7] { a }", None),
+        ("for [a, b] in %[7] { a }", None),
         // Control: a plain NAME binding takes the item itself, so adding
         // destructuring did not change the ordinary form.
-        ("for x in [[1, 2]] { x }", Some("nil")),
+        ("for x in %[%[1, 2]] { x }", Some("nil")),
         // Each iteration rebinds, so both names carry that item's elements.
         (
-            "mut t = 0; for [a, b] in [[1, 2], [3, 4]] { t = t + a * b }; t",
+            "mut t = 0; for [a, b] in %[%[1, 2], %[3, 4]] { t = t + a * b }; t",
             Some("[nil, 14]"),
         ),
         // The failure RAISES, so an enclosing `try` catches it - returning it
         // directly would escape the handler and make it uncatchable.
         (
             "module M { public fun run() -> Object { \
-             try { for [a, b] in [[1, 2, 3]] { a } } catch e { e } } } M.run()",
+             try { for [a, b] in %[%[1, 2, 3]] { a } } catch e { e } } } M.run()",
             Some(":PatternMatchError"),
         ),
     ] {
@@ -6830,7 +6777,7 @@ fn a_loop_binding_destructures_each_item() {
     let crate::backend::Support::Unsupported(reason) =
         <crate::backend::Bytecode as crate::backend::Backend>::execute(
             &crate::backend::Bytecode,
-            "for [a, [b]] in [[1, [2]]] { a }",
+            "for [a, [b]] in %[%[1, %[2]]] { a }",
         )
     else {
         unreachable!("a nested destructuring sub-pattern must be declined")
@@ -6893,26 +6840,19 @@ fn an_absent_declaration_target_raises() {
 fn a_module_property_is_read_as_a_member() {
     for (source, expected) in [
         (
-            "module M { shared class property first: Integer = 1 } M.first",
+            "module M { public shared class property first: Integer = 1 } M.first",
             "1",
         ),
         (
-            "module M { shared class property first: Integer = 1 \
-             shared class property second: Integer = 2 } [M.first, M.second]",
+            "module M { public shared class property first: Integer = 1 \
+             public shared class property second: Integer = 2 } %[M.first, M.second]",
             "[1, 2]",
         ),
         // The property is reachable from the module's OWN methods too.
         (
-            "module M { shared class property base: Integer = 10 \
-             public fun scaled() -> Integer { M.base * 3 } } [M.base, M.scaled()]",
+            "module M { public shared class property base: Integer = 10 \
+             public fun scaled() -> Integer { M.base * 3 } } %[M.base, M.scaled()]",
             "[10, 30]",
-        ),
-        // A module body's ordinary statements still run at the declaration's
-        // source position, so a raise between two properties propagates.
-        (
-            "module M { shared class property first: Integer = 1 raise :stop \
-             shared class property second: Integer = 2 } M",
-            "Raised(Symbol(\"stop\"))",
         ),
     ] {
         let agreement = crate::backend::compare_backends(
@@ -6929,6 +6869,11 @@ fn a_module_property_is_read_as_a_member() {
         };
         assert_eq!(observation, &wanted, "{source}");
     }
+
+    agrees_on_error(
+        "module M { shared class property first: Integer = 1 raise :stop shared class property second: Integer = 2 } M",
+        "ParseDiagnostic",
+    );
 
     // Control: a `const` is NOT a member, so reading it that way still fails -
     // the reader synthesis applies to a property rather than to every name a
@@ -6964,7 +6909,7 @@ fn an_import_binds_a_module_constant() {
             "module S { const K = 5 } \
              module M { const K = 1 public module fun lexical() { let K = 9; K } \
              public module fun declared() { K } } \
-             from S import K; [M.lexical(), M.declared(), K]",
+             from S import K; %[M.lexical(), M.declared(), K]",
             "[9, 1, 5]",
         ),
         // A spec naming nothing the module declares binds no name, and the
@@ -7031,7 +6976,7 @@ fn a_module_reopen_adds_to_its_target() {
     for (source, expected) in [
         (
             "module M { public fun a() -> Integer { 1 } } \
-             open module M { public fun b() -> Integer { 2 } } [M.a(), M.b()]",
+             open module M { public fun b() -> Integer { 2 } } %[M.a(), M.b()]",
             "[1, 2]",
         ),
         (
@@ -7135,7 +7080,7 @@ fn a_wildcard_module_mixin_composes_the_module() {
         // Control: a module never composed keeps the receiverless form, where
         // `M.f()` passes only its arguments.
         (
-            "module M { public fun reach() -> Object { 7 } } [M.reach(), 1]",
+            "module M { public fun reach() -> Object { 7 } } %[M.reach(), 1]",
             "[7, 1]",
         ),
     ] {
@@ -7167,21 +7112,30 @@ fn a_composed_member_may_not_contradict_a_requirement() {
         (
             "contract C { fun draw(n: Integer) -> Nil } \
              module P { public fun draw(s: String) -> Nil { nil } } \
-             class A for C { } open class A mixin P { } A",
+             class A { public fun draw(n: Integer) -> Nil { nil } } impl A for C { } \
+             open class A mixin P { } A",
+            Some("<class>"),
+        ),
+        // Without an own member, the incompatible Module method is the
+        // effective provider and must be rejected.
+        (
+            "contract C { fun draw(n: Integer) -> Nil } \
+             module P { public fun draw(s: String) -> Nil { nil } } \
+             class A { } impl A for C { } open class A mixin P { } A",
             None,
         ),
         // The same clash written at the DECLARATION.
         (
             "contract C { fun draw(n: Integer) -> Nil } \
              module P { public fun draw(s: String) -> Nil { nil } } \
-             class A for C mixin P { } A",
+             class A mixin P { } impl A for C { } A",
             None,
         ),
         // Control: a MATCHING signature satisfies the requirement.
         (
             "contract C { fun draw(n: Integer) -> Nil } \
              module P { public fun draw(n: Integer) -> Nil { nil } } \
-             class A for C { } open class A mixin P { } A",
+             class A mixin P { } impl A for C { } A",
             Some("<class>"),
         ),
         // Control: with no contract there is nothing to contradict.
@@ -7194,7 +7148,7 @@ fn a_composed_member_may_not_contradict_a_requirement() {
         (
             "contract C { fun draw(n: Integer) -> Nil } \
              module P { public fun draw(x) -> Nil { nil } } \
-             class A for C { } open class A mixin P { } A.new().draw(1)",
+             class A mixin P { } impl A for C { } A.new().draw(1)",
             Some("nil"),
         ),
         // A reopen may compose a module AND republish a method at once.
@@ -7202,7 +7156,7 @@ fn a_composed_member_may_not_contradict_a_requirement() {
             "module P { public fun h() -> Integer { 7 } } \
              class A { public fun m() -> Symbol { :old } } \
              open class A mixin P { override public fun m() -> Symbol { :new } } \
-             let a = A.new(); [a.h(), a.m()]",
+             let a = A.new(); %[a.h(), a.m()]",
             Some("[7, :new]"),
         ),
     ] {
@@ -7221,65 +7175,32 @@ fn a_composed_member_may_not_contradict_a_requirement() {
     }
 }
 
-/// A reopen may DECLARE a conformance, on a declared or a built-in class.
-///
-/// The conformance is observable through `A.contracts`, so it joins the
-/// class's own list rather than being ignored. A BUILT-IN class is the
-/// kernel's and has no entry to join, so its conformance is recorded on the
-/// reopen - which is what makes `1 as N` a legitimate view. A contract view is
-/// the value seen THROUGH a contract, so an operator applies to that value.
 #[test]
-fn a_reopen_may_declare_a_conformance() {
+fn v136_collects_static_implementations_independent_of_open_textual_order() {
+    // The same static impl appears on each side of an open declaration and
+    // must be collected before either source-order execution path is applied.
     for (source, expected) in [
         (
             "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
-             open class A for N { } A.new().m()",
-            "1",
+             impl A for N { } open class A { public fun added() -> Integer { 2 } } \
+             %[(A.new() as N)..m(), A.new().added()]",
+            "[1, 2]",
         ),
-        // The conformance is OBSERVABLE, so it was recorded rather than dropped.
         (
             "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
-             open class A for N { } A.contracts",
-            "[<contract>]",
-        ),
-        // A BUILT-IN class conforms through its reopen, and the view compares
-        // as the Integer it wraps.
-        (
-            "contract N { fun m() -> Integer } \
-             open class Integer for N { public impl fun m() -> Integer { 1 } } \
-             (1 as N) == (1 as N)",
-            "true",
+             open class A { public fun added() -> Integer { 2 } } impl A for N { } \
+             %[(A.new() as N)..m(), A.new().added()]",
+            "[1, 2]",
         ),
     ] {
-        let agreement = crate::backend::compare_backends(
-            source,
-            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-        );
-        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-            unreachable!("both backends must agree: {source}: {agreement:?}")
-        };
-        assert_eq!(
-            observation,
-            &crate::backend::Observation::Value(expected.to_owned()),
-            "{source}"
-        );
+        agrees_on(source, expected);
     }
 
-    // Control: a class that never declared the contract cannot be viewed
-    // through it, so recording a reopen's conformance did not make every cast
-    // succeed.
-    let agreement = crate::backend::compare_backends(
-        "contract N { fun m() -> Integer } class A { public fun m() -> Integer { 1 } } \
-         module M { public fun run() -> Object { try { (A.new() as N)..m() } catch e { e } } } \
-         M.run()",
-        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-    );
-    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-        unreachable!("both backends must agree: {agreement:?}")
-    };
-    assert_eq!(
-        observation,
-        &crate::backend::Observation::Error("Runtime(Type)".to_owned())
+    // Only the impl is static: a later open cannot supply its missing member.
+    agrees_on_error(
+        "contract N { fun m() -> Integer } class A { } impl A for N { } \
+         open class A { public fun m() -> Integer { 1 } } A",
+        "TypeContractError",
     );
 }
 
@@ -7295,7 +7216,7 @@ fn a_subclass_inherits_its_conformances() {
     for (source, expected) in [
         (
             "contract C { fun n() -> Symbol } \
-             class B for C { public impl fun n() -> Symbol { :base } } \
+             class B { } impl B for C { public fun n() -> Symbol { :base } } \
              class A extends B {} (A.new() as C)..n()",
             ":base",
         ),
@@ -7303,10 +7224,10 @@ fn a_subclass_inherits_its_conformances() {
         // `super()` still reaches the ancestor's body.
         (
             "contract C { fun n() -> Symbol } \
-             class B for C { public impl fun n() -> Symbol { :base } } \
-             class A extends B { public override impl fun n() -> Symbol { super() } } \
+             class B { } impl B for C { public fun n() -> Symbol { :base } } \
+             class A extends B { public override fun n() -> Symbol { super() } } impl A for C { } \
              module M { public fun run() -> Object { let a = A.new(); \
-             [(a as C)..n(), a.n(), (a as C) == (a as C), C.hash() == C.hash()] } } M.run()",
+             %[(a as C)..n(), a.n(), (a as C) == (a as C), C.hash() == C.hash()] } } M.run()",
             "[:base, :base, true, true]",
         ),
         (
@@ -7328,49 +7249,44 @@ fn a_subclass_inherits_its_conformances() {
         );
     }
 
-    // Control: an `impl` naming a requirement NO ancestor declares is still
-    // undeclared, so walking the ancestry did not accept every marker.
-    let crate::backend::Support::Unsupported(reason) =
-        <crate::backend::Bytecode as crate::backend::Backend>::execute(
-            &crate::backend::Bytecode,
-            "contract C { fun n() -> Symbol } class B { } \
-             class A extends B { public impl fun n() -> Symbol { :x } } 1",
-        )
-    else {
-        unreachable!("an impl with no declared requirement must be declined")
+    // Control: the subclass's legacy inline `impl` spelling remains a parse
+    // refusal rather than participating in inherited conformance.
+    let source = "contract C { fun n() -> Symbol } class B { } \
+                  class A extends B { public impl fun n() -> Symbol { :x } } 1";
+    let agreement = crate::backend::compare_backends(
+        source,
+        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
+    );
+    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
+        unreachable!("both backends must reject legacy inline impl syntax: {agreement:?}")
     };
-    assert_eq!(reason, "contract implementation undeclared");
+    assert_eq!(
+        observation,
+        &crate::backend::Observation::Error("ParseDiagnostic".to_owned())
+    );
 }
 
-/// A QUALIFIED `impl fun C::m()` is visible only through that contract's view.
-///
-/// `(a as C)..m()` answers it while `a.m()` answers the class's own method, so
-/// it is recorded per contract rather than published onto the class. It
-/// supplies the member itself, which is why the view answers it even when the
-/// contract declares no matching requirement.
 #[test]
-fn a_qualified_implementation_belongs_to_the_view() {
+fn a_contract_implementation_joins_the_ordinary_surface() {
     for (source, expected) in [
         (
-            "contract C { } class A for C { impl fun C::m() { :qualified } \
-             public fun m() { :ordinary } } let a = A.new(); [(a as C)..m(), a.m()]",
-            "[:qualified, :ordinary]",
+            "contract C { fun m() -> Symbol } class A { public fun m() -> Symbol { :ordinary } } \
+             impl A for C { } let a = A.new(); %[(a as C)..m(), a.m()]",
+            "[:ordinary, :ordinary]",
         ),
-        // TWO contracts each get their OWN body, so a qualified impl is
-        // matched to its own method rather than to the first of that name.
         (
-            "contract C { } contract D { } \
-             class A for C, D { impl fun C::m() { :cee } impl fun D::m() { :dee } \
-             public fun m() { :own } } \
-             let a = A.new(); [(a as C)..m(), (a as D)..m(), a.m()]",
-            "[:cee, :dee, :own]",
+            "contract C { fun m() -> Symbol } contract D { fun m() -> Symbol } \
+             class A { public fun m() -> Symbol { :own } } \
+             impl A for C { } impl A for D { } \
+             let a = A.new(); %[(a as C)..m(), (a as D)..m(), a.m()]",
+            "[:own, :own, :own]",
         ),
         // Control: an ORDINARY `impl` publishes onto the class, so both the
         // view and the receiver answer the same body.
         (
             "contract C { fun m() -> Symbol } \
-             class A for C { public impl fun m() -> Symbol { :only } } \
-             let a = A.new(); [(a as C)..m(), a.m()]",
+             class A { } impl A for C { public fun m() -> Symbol { :only } } \
+             let a = A.new(); %[(a as C)..m(), a.m()]",
             "[:only, :only]",
         ),
     ] {
@@ -7389,61 +7305,15 @@ fn a_qualified_implementation_belongs_to_the_view() {
     }
 }
 
-/// A class body's ordinary STATEMENTS run with `self` bound to the class.
-///
-/// They run at the declaration's own source position, which is what lets
-/// `class A { if true { self.define_method(:x) { .. } } }` publish a method.
-/// They declare nothing, so they contribute no signature and their values are
-/// discarded.
 #[test]
-fn a_class_body_runs_its_statements() {
-    for (source, expected) in [
-        (
-            "class A { if true { self.define_method(:x) { 7 } } }; A.new().x()",
-            "7",
-        ),
-        ("class A { self.define_method(:x) { 7 } }; A.new().x()", "7"),
-        // The statement runs at the declaration's SOURCE POSITION, so a name
-        // bound before it is in scope.
-        (
-            "mut log = []; class A { log.append(:body) }; log",
-            "[:body]",
-        ),
-        // A guard that does NOT hold defines nothing, so the body really ran
-        // rather than being published unconditionally.
-        (
-            "class A { if false { self.define_method(:x) { 7 } } \
-             public fun y() -> Integer { 1 } }; A.new().y()",
-            "1",
-        ),
+fn v136_rejects_ordinary_statements_in_class_origins() {
+    for source in [
+        "class A { if true { self.define_method(:x) { 7 } } }; A.new().x()",
+        "class A { self.define_method(:x) { 7 } }; A.new().x()",
+        "mut log = %[]; class A { log.append(:body) }; log",
     ] {
-        let agreement = crate::backend::compare_backends(
-            source,
-            &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-        );
-        let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-            unreachable!("both backends must agree: {source}: {agreement:?}")
-        };
-        assert_eq!(
-            observation,
-            &crate::backend::Observation::Value(expected.to_owned()),
-            "{source}"
-        );
+        agrees_on_error(source, "ParseDiagnostic");
     }
-
-    // Control: BEFORE that position the name is unbound, so the body is not
-    // hoisted to run ahead of the program's own statements.
-    let agreement = crate::backend::compare_backends(
-        "class A { log.append(:body) }; mut log = []; log",
-        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-    );
-    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-        unreachable!("both backends must agree: {agreement:?}")
-    };
-    assert_eq!(
-        observation,
-        &crate::backend::Observation::Error("NameError".to_owned())
-    );
 }
 
 /// A contract may extend a GENERIC parent, or a kernel one.
@@ -7462,8 +7332,8 @@ fn a_contract_may_extend_a_generic_parent() {
         ),
         (
             "contract P<T> { fun p() -> Nil } contract Numbers extends P<Integer> { fun m() -> Nil } \
-             class A for Numbers { public impl fun m() -> Nil { nil } \
-             public impl fun p() -> Nil { nil } } A.new().m()",
+             class A { } impl A for Numbers { public fun m() -> Nil { nil } \
+             public fun p() -> Nil { nil } } A.new().m()",
             Some("nil"),
         ),
         // Control: a parent that is neither declared NOR a kernel contract is
@@ -7531,10 +7401,11 @@ fn a_reflective_define_method_names_its_target() {
 
     // The arity failure RAISES, so an enclosing `try` catches it by name.
     let agreement = crate::backend::compare_backends(
-        "class K { public fun other() -> Symbol { :old } } \
+        "mut calls = %[]; class K { public fun other() -> Symbol { :old } } \
          module M { public fun run() -> Object { \
-         Reflection::Class.define_method(K, :m) { |o| :new }; \
-         try { K.new().m() } catch e { e } } } M.run()",
+         Reflection::Class.define_method(K, :m) { |o| calls.append(:body); :new }; \
+         try { K.new().m() } catch error: ArgumentError, context { \
+         %[error.class == ArgumentError, !(error is? Symbol), context.value same? error, calls] } } } M.run()",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
     );
     let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
@@ -7542,21 +7413,12 @@ fn a_reflective_define_method_names_its_target() {
     };
     assert_eq!(
         observation,
-        &crate::backend::Observation::Value(":ArgumentError".to_owned())
+        &crate::backend::Observation::Value("[true, true, true, []]".to_owned())
     );
 
-    // Control: the DIRECT form still publishes, so rewriting the reflective
-    // one did not disturb it.
-    let agreement = crate::backend::compare_backends(
+    agrees_on_error(
         "class A { self.define_method(:x) { 7 } }; A.new().x()",
-        &[&crate::backend::Interpreter, &crate::backend::Bytecode],
-    );
-    let crate::backend::Agreement::Agreed { observation, .. } = &agreement else {
-        unreachable!("both backends must agree: {agreement:?}")
-    };
-    assert_eq!(
-        observation,
-        &crate::backend::Observation::Value("7".to_owned())
+        "ParseDiagnostic",
     );
 }
 
@@ -7615,7 +7477,7 @@ fn an_audit_sink_survives_a_prune() {
     let agreement = crate::backend::compare_backends(
         "class B {} module M { public fun run() -> Object { \
          RevisionHistory.configure_sink(); B.open() { |t| 1 }; RevisionHistory.prune(1); \
-         [try { RevisionHistory.events(1, 1) } catch e { e }, RevisionHistory.recover(1, 1)] } } \
+         %[try { RevisionHistory.events(1, 1) } catch e { e }, RevisionHistory.recover(1, 1)] } } \
          M.run()",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
     );
@@ -7656,7 +7518,7 @@ fn a_collection_frees_only_what_is_unreachable() {
         (
             "class A { } let keep = A.new(); let before = keep.hash(); \
              let discarded = A.new().hash(); let freed = NativeFixture.compact_gc(); \
-             [freed, before == keep.hash()]",
+             %[freed, before == keep.hash()]",
             "[1, true]",
         ),
         // With every object still BOUND there is nothing to free.
@@ -7674,7 +7536,7 @@ fn a_collection_frees_only_what_is_unreachable() {
         // Control: a VALUE hash is unaffected - equal Integers hash alike,
         // which identity hashing must not disturb.
         (
-            "let a = 1; let b = 1; let c = 2; [a.hash() == b.hash(), a.hash() == c.hash()]",
+            "let a = 1; let b = 1; let c = 2; %[a.hash() == b.hash(), a.hash() == c.hash()]",
             "[true, false]",
         ),
         // An object's hash is its identity: stable for one object, distinct
@@ -7735,13 +7597,13 @@ fn a_private_method_answers_only_its_owner() {
         // `initialize` is called by CONSTRUCTION, so a bare `fun initialize`
         // still runs.
         (
-            "mut log = []; class A { fun initialize() { log.append(:init) } } let x = A.new(); log",
+            "mut log = %[]; class A { fun initialize() { log.append(:init) } } let x = A.new(); log",
             "[:init]",
         ),
         // A class RECOMPOSES its module edges.
         (
             "module M { } class R mixin M private { } \
-             [Reflection::Class.remove_module(R, :M), R.add_module(:M)]",
+             %[Reflection::Class.remove_module(R, :M), R.add_module(:M)]",
             "[nil, nil]",
         ),
     ] {
@@ -7772,19 +7634,19 @@ fn a_property_and_its_ivar_are_one_slot() {
     for (source, expected) in [
         // Read through the member, and through `@n` inside a method.
         (
-            "class A { property n: Integer = 7 public fun get() -> Object { @n } } \
-             let a = A.new(); [a.n, a.get()]",
+            "class A { public property n: Integer = 7 public fun get() -> Object { @n } } \
+             let a = A.new(); %[a.n, a.get()]",
             "[7, 7]",
         ),
         // WRITE through the setter, then read it back.
         (
-            "class A { property n: Integer = 0 } let a = A.new(); a.n = 5; a.n",
+            "class A { public property n: Integer = 0 } let a = A.new(); a.n = 5; a.n",
             "[5, 5]",
         ),
         // Write through `@n`, observed through the member.
         (
-            "class A { property n: Integer = 0 public fun bump() -> Integer { @n = @n + 1; @n } } \
-             let a = A.new(); [a.bump(), a.n]",
+            "class A { public property n: Integer = 0 public fun bump() -> Integer { @n = @n + 1; @n } } \
+             let a = A.new(); %[a.bump(), a.n]",
             "[1, 1]",
         ),
         // Control: an ivar the class never DECLARED keeps its own spelling, so
@@ -7862,7 +7724,7 @@ fn a_non_terminating_program_fails() {
         &crate::backend::Observation::Error("StepBudgetExhausted".to_owned())
     );
 
-    // A DUPLICATE module declaration loads rather than hanging.
+    // A duplicate origin is diagnosed rather than entering load-order work.
     let agreement = crate::backend::compare_backends(
         "module N { } module N { } 1",
         &[&crate::backend::Interpreter, &crate::backend::Bytecode],
@@ -7872,7 +7734,7 @@ fn a_non_terminating_program_fails() {
     };
     assert_eq!(
         observation,
-        &crate::backend::Observation::Value("1".to_owned())
+        &crate::backend::Observation::Error("ParseDiagnostic".to_owned())
     );
 
     // Control: a loop that DOES terminate still answers, so the budget bounds
@@ -7911,12 +7773,12 @@ fn every_value_family_answers_the_universal_selectors() {
         ),
         // A family with NO stable hash is a key failure, not an absent method.
         (
-            "class Z { } try { [1].hash() } catch e { e }",
+            "class Z { } try { %[1].hash() } catch e { e }",
             ":InvalidKeyError",
         ),
         // EQUALITY, by each family's own rule.
         (
-            "let a = :tag; let b = :tag; [a == b, a == :other]",
+            "let a = :tag; let b = :tag; %[a == b, a == :other]",
             "[true, false]",
         ),
         (
@@ -7926,7 +7788,7 @@ fn every_value_family_answers_the_universal_selectors() {
         ),
         (
             "module M { public fun run() -> Array { let m = m\"x\"; \
-             [m == \"x\", m.same?(m)] } } M.run()",
+             %[m == \"x\", m.same?(m)] } } M.run()",
             "[true, true]",
         ),
         (
@@ -7937,12 +7799,12 @@ fn every_value_family_answers_the_universal_selectors() {
         // ORDERING: an object with no `<=>` has none, which is nil.
         (
             "class Z {} module M { public fun run() -> Array { let a = Z.new(); \
-             [a <=> a, a <=> Z.new()] } } M.run()",
+             %[a <=> a, a <=> Z.new()] } } M.run()",
             "[nil, nil]",
         ),
         (
             "module M { public fun run() -> Array { \
-             [Iteration.done <=> Iteration.done, \
+             %[Iteration.done <=> Iteration.done, \
              Iteration.done <=> Iteration.yield(1)] } } M.run()",
             "[0, nil]",
         ),
@@ -7960,7 +7822,7 @@ fn every_value_family_answers_the_universal_selectors() {
         ),
         // Control: a native comparison is untouched by any of this.
         (
-            "[1 == 1, 1 < 2, \"a\" == \"a\", 1 + 2]",
+            "%[1 == 1, 1 < 2, \"a\" == \"a\", 1 + 2]",
             "[true, true, true, 3]",
         ),
     ] {
@@ -7991,7 +7853,7 @@ fn every_value_family_answers_the_universal_selectors() {
 fn builtin_constants_and_numeric_conversions_answer() {
     for (source, expected) in [
         (
-            "[Float64.nan.is_nan(), Float64.infinity.is_infinite()]",
+            "%[Float64.nan.is_nan(), Float64.infinity.is_infinite()]",
             "[true, true]",
         ),
         // NaN is unequal to itself, which is what makes the constant real
@@ -8043,12 +7905,12 @@ fn same_asks_identity_rather_than_content() {
     for (source, expected) in [
         // A closure and a mutable string DO have identity.
         (
-            "let a = { 1 }; [a same? a, a same? { 1 }]",
+            "let a = { 1 }; %[a same? a, a same? { 1 }]",
             Some("[true, false]"),
         ),
         (
             "module M { public fun run() -> Object { let m = m\"x\"; \
-             [m.same?(m), m.same?(m\"x\")] } } M.run()",
+             %[m.same?(m), m.same?(m\"x\")] } } M.run()",
             Some("[true, false]"),
         ),
         // An identity-LESS value refuses the question.
@@ -8093,7 +7955,7 @@ fn a_call_supplies_a_count_the_signature_binds() {
         ("class A { public fun m(x) { x } } A.new().m(1)", Some("1")),
         // A DEFAULT, a `*rest` and a block parameter leave the count open.
         (
-            "class A { public fun m(x, y: Integer = 2) { [x, y] } } A.new().m(1)",
+            "class A { public fun m(x, y: Integer = 2) { %[x, y] } } A.new().m(1)",
             Some("[1, 2]"),
         ),
         (
@@ -8101,9 +7963,14 @@ fn a_call_supplies_a_count_the_signature_binds() {
             Some("[1, 2, 3]"),
         ),
         (
-            "class A { public fun m(&blk) { 1 } } A.new().m({ 2 })",
+            "class A { public fun m(&blk) { 1 } } A.new().m() { 2 }",
             Some("1"),
         ),
+        (
+            "class A { public fun m(&blk) { 1 } } A.new().m({ 2 })",
+            None,
+        ),
+        ("class A { public fun m(&blk) { 1 } } A.new().m()", None),
         // A COMPOSED module method is lowered with a receiver it did not
         // write, so the count is compared against what the source declared.
         (
@@ -8218,13 +8085,13 @@ fn a_hash_key_goes_through_its_own_hash() {
     // advances, and distinct between two.
     for (source, expected) in [
         (
-            "module M { public fun run() -> Bool { let it = [1].iterator(); \
+            "module M { public fun run() -> Bool { let it = %[1].iterator(); \
              let before = it.hash(); it.next(); before == it.hash() } } M.run()",
             "true",
         ),
         (
-            "module M { public fun run() -> Bool { let a = [1].iterator(); \
-             let b = [1].iterator(); a.hash() == b.hash() } } M.run()",
+            "module M { public fun run() -> Bool { let a = %[1].iterator(); \
+             let b = %[1].iterator(); a.hash() == b.hash() } } M.run()",
             "false",
         ),
     ] {
@@ -8331,13 +8198,13 @@ fn a_hash_groups_by_equality_and_a_range_slices() {
         ),
         // A SLICE is its own array: writing to the source leaves it unchanged.
         (
-            "module M { public fun run() -> Array { mut a = [1,2,3]; let s = a[0 ..< 2]; \
+            "module M { public fun run() -> Array { mut a = %[1,2,3]; let s = a[0 ..< 2]; \
              a[0] = 9; s } } M.run()",
             "[1, 2]",
         ),
         // An INCLUSIVE end names one more element than an exclusive one.
         (
-            "module M { public fun run() -> Array { mut a = [1,2,3]; a[0 ..= 1] } } M.run()",
+            "module M { public fun run() -> Array { mut a = %[1,2,3]; a[0 ..= 1] } } M.run()",
             "[1, 2]",
         ),
         // Control: DISTINCT keys stay distinct, so grouping did not merge
@@ -8425,13 +8292,13 @@ fn a_bound_method_has_its_own_identity() {
         // Two BINDINGS of one selector are distinct; a saved one is itself.
         (
             "class A { public fun method() { :m } }; let obj = A.new(); \
-             let saved = obj.method; [obj.method same? obj.method, saved same? saved]",
+             let saved = obj.method; %[obj.method same? obj.method, saved same? saved]",
             "[false, true]",
         ),
         // Two reads of the DEFINITION name the same method.
         (
             "class A { public fun f() { 1 } }; \
-             [Reflection::Class.method(A,:f) same? Reflection::Class.method(A,:f)]",
+             %[Reflection::Class.method(A,:f) same? Reflection::Class.method(A,:f)]",
             "[true]",
         ),
         // A bound method keeps the body it CAPTURED.
@@ -8472,7 +8339,7 @@ fn a_class_has_a_last_say_through_method_missing() {
         ),
         // The handler sees the SELECTOR and the positional arguments.
         (
-            "class F { public fun method_missing(selector, args, block) { [selector, args] } } \
+            "class F { public fun method_missing(selector, args, block) { %[selector, args] } } \
              F.new().nope(1, 2)",
             Some("[:nope, [1, 2]]"),
         ),
@@ -8515,19 +8382,19 @@ fn a_cleanup_that_raises_chains_its_cause() {
     for (source, expected) in [
         (
             "try { try { raise :old } finally { raise :new } } \
-             catch v, c { [v, c.value, c.cause.value] }",
+             catch v, c { %[v, c.value, c.cause.value] }",
             "[:new, :new, :old]",
         ),
         // Control: an ordinary raise has NO cause, so the chain is about the
         // interruption rather than being attached to every exception.
         (
-            "try { raise :only } catch v, c { [v, c.value, c.cause] }",
+            "try { raise :only } catch v, c { %[v, c.value, c.cause] }",
             "[:only, :only, nil]",
         ),
         // Control: a cleanup that does NOT raise leaves the original alone.
         (
             "mut ran = false; \
-             try { try { raise :old } finally { ran = true } } catch v, c { [v, c.cause, ran] }",
+             try { try { raise :old } finally { ran = true } } catch v, c { %[v, c.cause, ran] }",
             "[:old, nil, true]",
         ),
     ] {
@@ -8560,27 +8427,27 @@ fn a_mutable_string_appends_in_place() {
         // plain String and therefore unchanged.
         (
             "module M { public fun run() -> Array { let m = m\"ab\"; \
-             let snap = m.to_string(); m << \"c\"; [snap, m.to_string()] } } M.run()",
+             let snap = m.to_string(); m << \"c\"; %[snap, m.to_string()] } } M.run()",
             "[\"ab\", \"abc\"]",
         ),
         // `+` answers a NEW text: appending to the receiver afterwards leaves
         // that answer alone.
         (
             "module M { public fun run() -> Array { let a = m\"a\"; let b = a + \"b\"; \
-             a << \"c\"; [a.to_string(), b.to_string()] } } M.run()",
+             a << \"c\"; %[a.to_string(), b.to_string()] } } M.run()",
             "[\"ac\", \"ab\"]",
         ),
         // `+=` REBINDS rather than writing through, so an alias taken before
         // it still reads the original.
         (
             "module M { public fun run() -> Array { mut a = m\"a\"; let alias = a; \
-             a += \"b\"; [alias.to_string(), a.to_string()] } } M.run()",
+             a += \"b\"; %[alias.to_string(), a.to_string()] } } M.run()",
             "[\"a\", \"ab\"]",
         ),
         // Two ITERATORS over one array are distinct, and each equals itself.
         (
-            "module M { public fun run() -> Array { let a = [1].iterator(); \
-             let b = [1].iterator(); [a == b, a == a] } } M.run()",
+            "module M { public fun run() -> Array { let a = %[1].iterator(); \
+             let b = %[1].iterator(); %[a == b, a == a] } } M.run()",
             "[false, true]",
         ),
     ] {
@@ -8610,7 +8477,7 @@ fn a_class_answers_method_directly() {
     for (source, expected) in [
         (
             "class A { public fun f(value) { value } } \
-             [A.method(:f).parameters, A.method(:f).return_type]",
+             %[A.method(:f).parameters, A.method(:f).return_type]",
             "[[:Dynamic<Object>], :Dynamic<Object>]",
         ),
         // The REFLECTIVE form answers alike, which is what makes them one
@@ -8741,7 +8608,7 @@ fn a_hash_iterator_removes_its_current_entry() {
         ),
         // A byte string renders as TEXT.
         (
-            "module M { public fun run() -> Array { let b = b\"ab\"; [b.to_string()] } } M.run()",
+            "module M { public fun run() -> Array { let b = b\"ab\"; %[b.to_string()] } } M.run()",
             Some("[\"ab\"]"),
         ),
         // BEFORE the first `next` there is no current entry.
@@ -8783,7 +8650,7 @@ fn undecodable_bytes_name_an_encoding_failure() {
     for (source, expected) in [
         // Valid UTF-8 renders.
         (
-            "module M { public fun run() -> Array { let b = b\"ab\"; [b.to_string()] } } M.run()",
+            "module M { public fun run() -> Array { let b = b\"ab\"; %[b.to_string()] } } M.run()",
             Some("[\"ab\"]"),
         ),
         // A lone continuation byte decodes to nothing.
@@ -8867,7 +8734,7 @@ fn a_bare_module_name_is_a_value() {
         (
             "module Mo { public fun h() -> Integer { 1 } } class A mixin Mo { } \
              module M { public fun run() -> Object { let before = A.new().h(); \
-             A.remove_module(Mo); [before, A.modules.length()] } } M.run()",
+             A.remove_module(Mo); %[before, A.modules.length()] } } M.run()",
             "[1, 0]",
         ),
         // A module with NO methods is still a name.
@@ -8962,7 +8829,7 @@ fn a_builtin_class_constructs() {
         ("nil < Object.new()", "false"),
         // Control: a DECLARED class still initializes its properties, so
         // skipping the lookup for built-ins did not skip the work.
-        ("class A { property n: Integer = 7 } A.new().n", "7"),
+        ("class A { public property n: Integer = 7 } A.new().n", "7"),
     ] {
         let agreement = crate::backend::compare_backends(
             source,
@@ -9000,7 +8867,7 @@ fn only_a_mut_binding_is_written() {
         ),
         (
             "module M { public fun run() -> Object { mut t = 0; \
-             for i in [1,2] { i = 9; t = t + i }; t } } M.run()",
+             for i in %[1,2] { i = 9; t = t + i }; t } } M.run()",
             None,
         ),
         // Controls: a `mut` binding writes, locally and at program level.
@@ -9133,7 +9000,7 @@ fn a_type_is_not_its_class_and_a_yield_has_no_identity() {
         // A closed generic behaves the same way.
         (
             "class Box<T> {} let t = Box<String>.type; \
-             [t same? Box<String>.type, t same? Box<String>]",
+             %[t same? Box<String>.type, t same? Box<String>]",
             "[true, false]",
         ),
         // `done` is a SINGLETON, so the question has an answer.
@@ -9180,7 +9047,7 @@ fn a_type_answers_its_shape() {
         // A nested union stays its own member rather than being flattened.
         (
             "class A {} class B {} class C {} let t = (A & (B | C)).type; \
-             [t.kind, (B | C).type same? t.members[1]]",
+             %[t.kind, (B | C).type same? t.members[1]]",
             "[:intersection, true]",
         ),
     ] {
@@ -9215,7 +9082,7 @@ fn a_raising_cleanup_is_suppressed_beside_the_body() {
              if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
              public fun close() { raise :close } } \
              class S { public fun iterator() { It.new() } } \
-             try { for x in S.new() { raise :body } } catch v, c { [v, c.suppressed.length()] }",
+             try { for x in S.new() { raise :body } } catch v, c { %[v, c.suppressed.length()] }",
             "[:body, 1]",
         ),
         // Control: a close that does NOT raise suppresses nothing.
@@ -9224,7 +9091,7 @@ fn a_raising_cleanup_is_suppressed_beside_the_body() {
              if n < 2 { Iteration.yield(1) } else { Iteration.done } } \
              public fun close() { nil } } \
              class S { public fun iterator() { It.new() } } \
-             try { for x in S.new() { raise :body } } catch v, c { [v, c.suppressed.length()] }",
+             try { for x in S.new() { raise :body } } catch v, c { %[v, c.suppressed.length()] }",
             "[:body, 0]",
         ),
         // Control: with NO body exception the loop completes normally, so the
@@ -9295,7 +9162,7 @@ fn vm_reflects_user_and_traversal_contract_requirement_types() {
     // Then: each backend reports the canonical Type values in declaration order.
     agrees_on(
         "contract Numbers extends Iterable<Integer> { fun iterator() -> Iterator<Integer> } \
-         module Q { public fun run() -> Object { [ \
+         module Q { public fun run() -> Object { %[ \
            Reflection::Contract.requirement(Numbers, :iterator)[:return_type], \
            Reflection::Contract.requirement(Iterator<Integer>, :next)[:return_type], \
            Reflection::Contract.requirement(Iterator<Integer>, :close)[:return_type]] } } Q.run()",
@@ -9343,8 +9210,10 @@ fn vm_preserves_decorator_identities_across_an_undecorated_open() {
     // When: an undecorated transaction reopens it.
     // Then: the same ordered metadata remains visible before and after commit.
     agrees_on(
-        "@one() @two() class A { }; let before = A.decorators; \
-         A.open() { |t| t.define_method(:x) { 1 } }; [before, A.decorators]",
+        "class one { } impl one for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+         class two { } impl two for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+         @one() @two() class A { }; let before = A.decorators; \
+         A.open() { |t| t.define_method(:x) { 1 } }; %[before, A.decorators]",
         "[nil, [[:one, :two], [:one, :two]]]",
     );
 
@@ -9364,7 +9233,7 @@ fn vm_commits_nested_opens_only_at_the_outermost_boundary() {
         "class A { } class B { } module Q { public fun run() -> Object { \
          try { A.open() { |a| a.define_method(:m) { 1 }; \
          B.open() { |b| b.define_method(:n) { 2 } }; raise :boom } } catch e { 0 }; \
-         [A.active_revision, B.active_revision] } } Q.run()",
+         %[A.active_revision, B.active_revision] } } Q.run()",
         "[1, 1]",
     );
 
@@ -9373,7 +9242,7 @@ fn vm_commits_nested_opens_only_at_the_outermost_boundary() {
         "class A { } class B { } module Q { public fun run() -> Object { \
          A.open() { |a| a.define_method(:m) { 1 }; \
          B.open() { |b| b.define_method(:n) { 2 } } }; \
-         [A.active_revision, B.active_revision] } } Q.run()",
+         %[A.active_revision, B.active_revision] } } Q.run()",
         "[2, 2]",
     );
 }
@@ -9387,7 +9256,7 @@ fn vm_aborts_nested_open_group_when_an_inner_failure_is_caught() {
         "class A { } class B { } module Q { public fun run() -> Object { \
          A.open() { |a| a.define_method(:m) { 1 }; \
          try { B.open() { |b| b.define_method(:n) { 2 }; raise :boom } } catch e { 0 } }; \
-         [A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(B, :n)] } } Q.run()",
+         %[A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(B, :n)] } } Q.run()",
         "[1, 1, nil, nil]",
     );
 }
@@ -9402,18 +9271,19 @@ fn vm_aborts_nested_open_group_when_a_caught_inner_failure_precedes_another_muta
          A.open() { |a| a.define_method(:m) { 1 }; \
          try { B.open() { |b| b.define_method(:n) { 2 }; raise :boom } } catch e { 0 }; \
          a.define_method(:after) { 3 } }; \
-         [A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(A, :after), Reflection::Class.method(B, :n)] } } Q.run()",
+         %[A.active_revision, B.active_revision, Reflection::Class.method(A, :m), Reflection::Class.method(A, :after), Reflection::Class.method(B, :n)] } } Q.run()",
         "[1, 1, nil, nil, nil]",
     );
 }
 
 #[test]
 fn vm_reflects_immutable_decorator_arguments_and_phases() {
-    let base = "contract ClassDecorator { fun transform(declaration, arguments, context) } \
-                class First for ClassDecorator { \
-                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
-                class Second for ClassDecorator { \
-                  public impl fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+    let base = "class First { } impl First for ClassDecorator { \
+                  public fun plan(d, a) -> Plan { Plan.empty } \
+                  public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+                class Second { } impl Second for ClassDecorator { \
+                  public fun plan(d, a) -> Plan { Plan.empty } \
+                  public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
                 @First(1, :two) @Second() class Box { } ";
 
     // Given: ordered decorator applications including an empty argument list.
@@ -9421,9 +9291,9 @@ fn vm_reflects_immutable_decorator_arguments_and_phases() {
     // Then: values retain source order and the views reject append.
     agrees_on(
         &format!(
-            "{base} module M {{ public fun run() -> Object {{ let refused = try {{ Box.decorator_arguments.append([9]) }} catch e {{ e }}; [Box.decorators, Box.decorator_arguments, Box.decorator_phases, refused] }} }} M.run()"
+            "{base} module M {{ public fun run() -> Object {{ let refused = try {{ Box.decorator_arguments.append(%[9]) }} catch e {{ e }}; %[Box.decorators, Box.decorator_arguments, Box.decorator_phases, refused] }} }} M.run()"
         ),
-        "[[:First, :Second], [[1, :two], []], [:runtime, :runtime], :ReadonlyMutationError]",
+        "[[:First, :Second], [[1, :two], []], [:static-and-runtime, :static-and-runtime], :ReadonlyMutationError]",
     );
 
     // Control: a separate empty metadata view is still readonly, proving the
@@ -9442,8 +9312,8 @@ fn vm_validates_a_reflected_module_method_before_its_arguments() {
     agrees_on(
         "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; class A { }; \
          let m = Reflection::Module.method(Mo, :h); \
-         [Reflection::Module.invoke(m, Mo, [4]), \
-          try { Reflection::Module.invoke(m, A.new(), []) } catch e { e }]",
+         %[Reflection::Module.invoke(m, Mo, %[4]), \
+          try { Reflection::Module.invoke(m, A.new(), %[]) } catch e { e }]",
         "[5, :MethodBindingError]",
     );
 
@@ -9452,7 +9322,7 @@ fn vm_validates_a_reflected_module_method_before_its_arguments() {
     agrees_on(
         "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
          let m = Reflection::Module.method(Mo, :h); \
-         Reflection::Module.invoke(m, Mo, [4])",
+         Reflection::Module.invoke(m, Mo, %[4])",
         "5",
     );
 
@@ -9461,13 +9331,13 @@ fn vm_validates_a_reflected_module_method_before_its_arguments() {
     for source in [
         "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
          let m = Reflection::Module.method(Mo, :h); \
-         Reflection::Module.invoke(m, :Unknown, [4])",
+         Reflection::Module.invoke(m, :Unknown, %[4])",
         "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
          let m = Reflection::Module.method(Mo, :h); \
          Reflection::Module.invoke(m, Mo, 4)",
         "module Mo { public fun h(x: Integer) -> Integer { x + 1 } }; \
          let m = Reflection::Module.method(Mo, :h); \
-         Reflection::Module.invoke(m, Mo, [4], [5])",
+         Reflection::Module.invoke(m, Mo, %[4], %[5])",
     ] {
         agrees_on_error(source, "UnsupportedConstruct");
     }
@@ -9481,7 +9351,7 @@ fn reflection_module_invoke_requires_a_module_owned_method() {
     agrees_on(
         "class A { public fun h(x: Integer) -> Integer { x + 1 } }; module Mo { }; \
          let m = Reflection::Class.method(A, :h); \
-         try { Reflection::Module.invoke(m, Mo, []) } catch e { e }",
+         try { Reflection::Module.invoke(m, Mo, %[]) } catch e { e }",
         ":MethodBindingError",
     );
 
@@ -9492,7 +9362,7 @@ fn reflection_module_invoke_requires_a_module_owned_method() {
     agrees_on(
         "module Mo { public fun h() -> Integer { 8 } }; class A mixin Mo { }; \
          let m = Reflection::Module.method(Mo, :h); \
-         [Reflection::Module.invoke(m, Mo, []), Reflection::Module.invoke(m, A.new(), [])]",
+         %[Reflection::Module.invoke(m, Mo, %[]), Reflection::Module.invoke(m, A.new(), %[])]",
         "[8, 8]",
     );
 }
@@ -9509,7 +9379,7 @@ fn vm_compares_every_nominal_identity_family() {
          let original = Reflection::Class.method(A, :f); \
          let alias = Reflection::Class.method(A, :g); \
          let sameBody = Reflection::Class.method(B, :f); \
-         [original same? alias, original same? sameBody, A same? A, A same? B, \
+         %[original same? alias, original same? sameBody, A same? A, A same? B, \
           M same? M, M same? N, C same? C, C same? D, \
           A.type same? A.type, A.type same? B.type]",
         "[true, false, true, false, true, false, true, false, true, false]",
@@ -9557,11 +9427,12 @@ fn vm_keeps_class_metadata_views_readonly() {
     // When: user code attempts to append to either view.
     // Then: both reject mutation without changing the reflected metadata.
     agrees_on(
-        "@one() class A { public property x: Integer = 1 }; \
+        "class one { } impl one for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty } public fun transform(d, a, c) -> Transformation { Transformation.empty } } \
+         @one() class A { public property x: Integer = 1 }; \
          let properties = A.properties; let decorators = A.decorators; \
          let property_error = try { properties.append(:fake) } catch e { e }; \
          let decorator_error = try { decorators.append(:fake) } catch e { e }; \
-         [properties, decorators, property_error, decorator_error]",
+         %[properties, decorators, property_error, decorator_error]",
         "[[:@x], [:one], :ReadonlyMutationError, :ReadonlyMutationError]",
     );
 }
@@ -9669,11 +9540,11 @@ fn an_unmatched_match_is_refused() {
 #[test]
 fn a_range_answers_its_values() {
     agrees_on(
-        "module M { public fun run() -> Array { [(1 ..= 3).to_array(), (1 ..< 3).to_array()] } } M.run()",
+        "module M { public fun run() -> Array { %[(1 ..= 3).to_array(), (1 ..< 3).to_array()] } } M.run()",
         "[[1, 2, 3], [1, 2]]",
     );
     agrees_on(
-        "module M { public fun run() -> Array { [(3 ..= 1).to_array(), (1 ..= 5).by(step: 2).to_array()] } } M.run()",
+        "module M { public fun run() -> Array { %[(3 ..= 1).to_array(), (1 ..= 5).by(step: 2).to_array()] } } M.run()",
         "[[3, 2, 1], [1, 3, 5]]",
     );
     // Control: a zero step never advances, so it is refused up front.
@@ -9721,12 +9592,12 @@ fn a_rehash_rebuilds_against_current_hashes() {
     // A merge block folds the colliding entries, and a block answering the
     // wrong SHAPE is a Type failure distinct from the missing-block conflict.
     agrees_on(
-        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); mut c = Key.new(); b.equal_id = 1; c.equal_id = 2; mut h = %{}; h[a] = 2; h[b] = 3; h[c] = 4; b.equal_id = 0; let merge = { |kept, left, incoming, right| (kept, left + right) }; let answered = h.rehash(merge); let merged = h.fetch(a); c.equal_id = 0; let bad = { |kept, left, incoming, right| :bad }; mut raised = :none; try { h.rehash(bad) } catch e { raised = e }; [answered, merged, raised, h.length()] } } M.run()"#,
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); mut c = Key.new(); b.equal_id = 1; c.equal_id = 2; mut h = %{}; h[a] = 2; h[b] = 3; h[c] = 4; b.equal_id = 0; let merge = { |kept, left, incoming, right| (kept, left + right) }; let answered = h.rehash(merge); let merged = h.fetch(a); c.equal_id = 0; let bad = { |kept, left, incoming, right| :bad }; mut raised = :none; try { h.rehash(bad) } catch e { raised = e }; %[answered, merged, raised, h.length()] } } M.run()"#,
         "[nil, 5, :TypeContractError, 2]",
     );
     // Two separate collisions each call the block once.
     agrees_on(
-        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k1 = Key.new(); k1.equal_id = 1; k1.hash_code = 10; mut k2 = Key.new(); k2.equal_id = 2; k2.hash_code = 10; mut k3 = Key.new(); k3.equal_id = 3; k3.hash_code = 20; mut k4 = Key.new(); k4.equal_id = 4; k4.hash_code = 20; mut h = %{}; h[k1] = 1; h[k2] = 2; h[k3] = 4; h[k4] = 8; k2.equal_id = 1; k4.equal_id = 3; mut calls = 0; h.rehash() { |kept, left, incoming, right| calls = calls + 1; (kept, left + right) }; [h.length(), calls, h.fetch(k1), h.fetch(k3)] } } M.run()"#,
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k1 = Key.new(); k1.equal_id = 1; k1.hash_code = 10; mut k2 = Key.new(); k2.equal_id = 2; k2.hash_code = 10; mut k3 = Key.new(); k3.equal_id = 3; k3.hash_code = 20; mut k4 = Key.new(); k4.equal_id = 4; k4.hash_code = 20; mut h = %{}; h[k1] = 1; h[k2] = 2; h[k3] = 4; h[k4] = 8; k2.equal_id = 1; k4.equal_id = 3; mut calls = 0; h.rehash() { |kept, left, incoming, right| calls = calls + 1; (kept, left + right) }; %[h.length(), calls, h.fetch(k1), h.fetch(k3)] } } M.run()"#,
         "[2, 2, 3, 12]",
     );
     // Control: a collision with NO merge block aborts rather than dropping an
@@ -9738,7 +9609,7 @@ fn a_rehash_rebuilds_against_current_hashes() {
     // Control: with no collision at all the table survives the rebuild
     // unchanged, so the republish did not disturb a healthy Hash.
     agrees_on(
-        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); b.equal_id = 1; mut h = %{}; h[a] = 1; h[b] = 2; h.rehash(); [h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); mut b = Key.new(); b.equal_id = 1; mut h = %{}; h[a] = 1; h[b] = 2; h.rehash(); %[h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
         "[2, 1, 2]",
     );
 }
@@ -9790,19 +9661,19 @@ fn an_iterator_releases_its_source() {
     // Holding the iterator RETAINS the array, and exhausting it releases back
     // to the original count.
     agrees_on(
-        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); mut it = a.iterator(); let held = a.share_count(); let first = it.next(); let retained = a.share_count(); let done = it.next() == Iteration.done; let after = a.share_count(); [held > base, retained > base, done, after == base] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let a = %[1]; let base = a.share_count(); mut it = a.iterator(); let held = a.share_count(); let first = it.next(); let retained = a.share_count(); let done = it.next() == Iteration.done; let after = a.share_count(); %[held > base, retained > base, done, after == base] } } M.run()"#,
         "[true, true, true, true]",
     );
     // Control: an EXHAUSTED iterator stays exhausted and keeps answering
     // `done`, without retaining the source again.
     agrees_on(
-        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); mut it = a.iterator(); it.next(); it.next(); let after = a.share_count(); let one = it.next(); let two = it.next(); [after == base, one == Iteration.done, two == Iteration.done, one == two, a.share_count() == base] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let a = %[1]; let base = a.share_count(); mut it = a.iterator(); it.next(); it.next(); let after = a.share_count(); let one = it.next(); let two = it.next(); %[after == base, one == Iteration.done, two == Iteration.done, one == two, a.share_count() == base] } } M.run()"#,
         "[true, true, true, true, true]",
     );
     // Control: an array nobody iterates keeps its count UNCHANGED across an
     // ordinary read, so the probe tracks ownership rather than every send.
     agrees_on(
-        r#"module M { public fun run() -> Array { let a = [1]; let base = a.share_count(); let n = a.length(); [n, a.share_count() - base] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let a = %[1]; let base = a.share_count(); let n = a.length(); %[n, a.share_count() - base] } } M.run()"#,
         "[1, 0]",
     );
 }
@@ -9812,16 +9683,16 @@ fn an_iterator_releases_its_source() {
 /// A report is a four-element `(:UnobservedFailure, task, captured,
 /// :unobserved)`, and the captured value is the whole point of the diagnostic.
 /// The machine listed a bare Task instead, so every program indexing into a
-/// report asked a Task for `[]` and got a missing message.
+/// report asked a Task for `%[]` and got a missing message.
 #[test]
 fn an_unobserved_failure_reports_its_value() {
     agrees_on(
-        r#"class A { public async fun fail() -> Nil { raise :x } } module M { public fun run() -> Array { let task = A.new().fail(); let report = Diagnostics.unobserved_failures()[0]; [report[0], report[2], report[3]] } } M.run()"#,
+        r#"class A { public async fun fail() -> Nil { raise :x } } module M { public fun run() -> Array { let task = A.new().fail(); let report = Diagnostics.unobserved_failures()[0]; %[report[0], report[2], report[3]] } } M.run()"#,
         "[:UnobservedFailure, :x, :unobserved]",
     );
     // The whole report is reachable by index, including the Task itself.
     agrees_on(
-        r#"class A { public async fun fail() -> Nil { raise :x } } let t = A.new().fail(); let all = Diagnostics.unobserved_failures(); let e = all[0]; [all.length(), e[1], e[2]]"#,
+        r#"class A { public async fun fail() -> Nil { raise :x } } let t = A.new().fail(); let all = Diagnostics.unobserved_failures(); let e = all[0]; %[all.length(), e[1], e[2]]"#,
         "[1, <task>, :x]",
     );
     // Control: a program that raised nothing reports NO failures, so the list
@@ -9834,7 +9705,7 @@ fn an_unobserved_failure_reports_its_value() {
     // is what makes the report about being unobserved rather than about
     // having failed.
     agrees_on(
-        r#"class A { public async fun ok() -> Integer { 1 } } module M { public fun run() -> Array { let t = A.new().ok(); let v = Host.run(t); [v, Diagnostics.unobserved_failures().length()] } } M.run()"#,
+        r#"class A { public async fun ok() -> Integer { 1 } } module M { public fun run() -> Array { let t = A.new().ok(); let v = Host.run(t); %[v, Diagnostics.unobserved_failures().length()] } } M.run()"#,
         "[1, 0]",
     );
 }
@@ -9851,12 +9722,12 @@ fn bytes_slice_in_byte_units() {
     // The slice taken BEFORE the write keeps its own content, and the write
     // may change the receiver's length.
     agrees_on(
-        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; a[0 ..< 2] = b"ZZ"; [b.to_bytes(), a.to_bytes()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; a[0 ..< 2] = b"ZZ"; %[b.to_bytes(), a.to_bytes()] } } M.run()"#,
         "[bytes:6162, bytes:5a5a63]",
     );
     // Control: reading a slice alone leaves the source untouched.
     agrees_on(
-        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; [b.to_bytes(), a.to_bytes()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let a = mb"abc"; let b = a[0 ..< 2]; %[b.to_bytes(), a.to_bytes()] } } M.run()"#,
         "[bytes:6162, bytes:616263]",
     );
     // Control: an INTEGER index still answers a single byte, so the range
@@ -9956,23 +9827,23 @@ fn a_top_level_return_is_refused() {
 #[test]
 fn a_reopen_cannot_break_a_contract_signature() {
     agrees_on_error(
-        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public fun extra() { 9 } public override fun draw() -> Integer { 1 } } A.new().draw()"#,
+        r#"contract C { fun draw() -> String } class A { public fun draw() -> String { "a" } } impl A for C { } open class A { public fun extra() { 9 } public override fun draw() -> Integer { 1 } } A.new().draw()"#,
         "TypeContractError",
     );
     // Control: a replacement whose return Type MATCHES the requirement is an
     // ordinary override and takes effect.
     agrees_on(
-        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public override fun draw() -> String { "b" } } A.new().draw()"#,
+        r#"contract C { fun draw() -> String } class A { public fun draw() -> String { "a" } } impl A for C { } open class A { public override fun draw() -> String { "b" } } A.new().draw()"#,
         r#""b""#,
     );
     // Control: a reopen adding an UNRELATED member touches no requirement.
     agrees_on(
-        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } open class A { public fun extra() -> Integer { 9 } } A.new().draw()"#,
+        r#"contract C { fun draw() -> String } class A { public fun draw() -> String { "a" } } impl A for C { } open class A { public fun extra() -> Integer { 9 } } A.new().draw()"#,
         r#""a""#,
     );
     // Control: with no reopen at all the class answers as declared.
     agrees_on(
-        r#"contract C { fun draw() -> String } class A for C { public fun draw() -> String { "a" } } A.new().draw()"#,
+        r#"contract C { fun draw() -> String } class A { public fun draw() -> String { "a" } } impl A for C { } A.new().draw()"#,
         r#""a""#,
     );
 }
@@ -10044,7 +9915,7 @@ fn a_send_to_an_undeclared_name_names_the_message() {
 #[test]
 fn a_bound_method_compares_by_identity() {
     agrees_on(
-        r#"class A { public fun method() { :m } }; let obj = A.new(); let saved = obj.method; [obj.method same? obj.method, saved same? saved, obj.method == obj.method]"#,
+        r#"class A { public fun method() { :m } }; let obj = A.new(); let saved = obj.method; %[obj.method same? obj.method, saved same? saved, obj.method == obj.method]"#,
         "[false, true, false]",
     );
     agrees_on(
@@ -10054,7 +9925,7 @@ fn a_bound_method_compares_by_identity() {
     // A CLOSURE call answers a fresh value each time in the same way, so
     // neither comparison finds two calls equal.
     agrees_on(
-        r#"class A { public fun m() { :x } } let o = A.new(); let mk = { { :v } }; [o.m == o.m, mk.call() == mk.call(), o.m same? o.m, mk.call() same? mk.call()]"#,
+        r#"class A { public fun m() { :x } } let o = A.new(); let mk = { { :v } }; %[o.m == o.m, mk.call() == mk.call(), o.m same? o.m, mk.call() same? mk.call()]"#,
         "[false, false, false, false]",
     );
     // Control: reading the bound method still ANSWERS one, so the comparison
@@ -10078,7 +9949,7 @@ fn an_exception_context_is_a_usable_key() {
     agrees_on(
         "let first = try { raise :same } catch _, c { c }; \
          let second = try { raise :same } catch _, c { c }; \
-         [first == second, first same? second]",
+         %[first == second, first same? second]",
         "[false, false]",
     );
     // A context stored under itself is found again.
@@ -10090,7 +9961,7 @@ fn an_exception_context_is_a_usable_key() {
     agrees_on(
         "let first = try { raise :a } catch _, c { c }; \
          let second = try { raise :b } catch _, c { c }; \
-         let h = %{ first: 1, second: 2 }; [h.length(), h[first], h[second]]",
+         let h = %{ first: 1, second: 2 }; %[h.length(), h[first], h[second]]",
         "[2, 1, 2]",
     );
 }
@@ -10106,23 +9977,23 @@ fn an_exception_context_is_a_usable_key() {
 #[test]
 fn contradicting_contract_requirements_cannot_both_be_met() {
     agrees_on_error(
-        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X for A, B { public impl fun m(x: Object) -> String { "x" } }"#,
+        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: Object) -> Integer } class X { public fun m(x: Object) -> String { "x" } } impl X for A { } impl X for B { }"#,
         "TypeContractError",
     );
     // Control: two contracts AGREEING on the signature state one requirement
     // twice, which any single member satisfies.
     agrees_on_error(
-        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: String) -> String } class X for A, B { public impl fun m(x: String) -> String { "x" } }"#,
+        r#"contract A { fun m(x: String) -> String } contract B { fun m(x: String) -> String } class X { public fun m(x: String) -> String { "x" } } impl X for A { } impl X for B { }"#,
         "UnsupportedConstruct",
     );
     // Control: two contracts naming DIFFERENT selectors never contradict.
     agrees_on_error(
-        r#"contract A { fun m(x: String) -> String } contract B { fun n(x: Object) -> Integer } class X for A, B { public impl fun m(x: String) -> String { "x" } public impl fun n(x: Object) -> Integer { 1 } }"#,
+        r#"contract A { fun m(x: String) -> String } contract B { fun n(x: Object) -> Integer } class X { } impl X for A { public fun m(x: String) -> String { "x" } } impl X for B { public fun n(x: Object) -> Integer { 1 } }"#,
         "UnsupportedConstruct",
     );
     // Control: a single contract has nothing to contradict.
     agrees_on_error(
-        r#"contract A { fun m(x: String) -> String } class X for A { public impl fun m(x: String) -> String { "x" } }"#,
+        r#"contract A { fun m(x: String) -> String } class X { } impl X for A { public fun m(x: String) -> String { "x" } }"#,
         "UnsupportedConstruct",
     );
 }
@@ -10137,33 +10008,33 @@ fn contradicting_contract_requirements_cannot_both_be_met() {
 fn a_shared_class_property_belongs_to_the_definition() {
     // The BARE name answers; the construction does not reach it.
     agrees_on(
-        "class Cache<T> { shared class property count: Integer = 0 } Cache.count",
+        "class Cache<T> { public shared class property count: Integer = 0 } Cache.count",
         "0",
     );
     agrees_on_error(
-        "class Cache<T> { shared class property count: Integer = 0 } Cache<String>.count",
+        "class Cache<T> { public shared class property count: Integer = 0 } Cache<String>.count",
         r#"MessageNotFound { receiver_class: "Class", selector: "count" }"#,
     );
     // Control: a PLAIN class property is the mirror image - the construction
     // answers and the bare name does not.
     agrees_on(
-        "class Cache<T> { class property count: Integer = 0 } Cache<String>.count",
+        "class Cache<T> { public class property count: Integer = 0 } Cache<String>.count",
         "0",
     );
     agrees_on_error(
-        "class Cache<T> { class property count: Integer = 0 } Cache.count",
+        "class Cache<T> { public class property count: Integer = 0 } Cache.count",
         r#"MessageNotFound { receiver_class: "Class", selector: "count" }"#,
     );
     // A write through a construction lands in the CONSTRUCTION's slot, leaving
     // the definition's own value untouched.
     agrees_on(
-        "class Cache<T> { shared class property count: Integer = 0 } Cache<String>.count = 3; Cache.count",
+        "class Cache<T> { public shared class property count: Integer = 0 } Cache<String>.count = 3; Cache.count",
         "[3, 0]",
     );
     // Control: on a NON-generic class there is no construction to distinguish,
     // so the bare name answers as it always did.
     agrees_on(
-        "class Cache { shared class property count: Integer = 0 } Cache.count",
+        "class Cache { public shared class property count: Integer = 0 } Cache.count",
         "0",
     );
 }
@@ -10237,7 +10108,7 @@ fn a_json_decode_limit_refuses_rather_than_truncates() {
 #[test]
 fn serialization_is_an_opt_in_promise() {
     agrees_on(
-        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
+        r#"contract Serializable { } class User { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } impl User for Serializable { } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
         r#""{\"schema\":1,\"name\":\"Ada\",\"age\":37}""#,
     );
     // Control: a MATCHING method without the declared promise is still
@@ -10261,13 +10132,13 @@ fn serialization_is_an_opt_in_promise() {
 #[test]
 fn a_canonical_encoding_orders_by_key() {
     agrees_on(
-        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new(), canonical: true) } } M.run()"#,
+        r#"contract Serializable { } class User { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } impl User for Serializable { } module M { public fun run() -> String { JSON.encode(User.new(), canonical: true) } } M.run()"#,
         r#""{\"age\":37,\"name\":\"Ada\",\"schema\":1}""#,
     );
     // Control: WITHOUT the keyword the insertion order is kept, so canonical
     // ordering is selected rather than assumed.
     agrees_on(
-        r#"contract Serializable { } class User for Serializable { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
+        r#"contract Serializable { } class User { public fun serialize() -> Hash { mut h = %{}; h["schema"] = 1; h["name"] = "Ada"; h["age"] = 37; h } } impl User for Serializable { } module M { public fun run() -> String { JSON.encode(User.new()) } } M.run()"#,
         r#""{\"schema\":1,\"name\":\"Ada\",\"age\":37}""#,
     );
     // An ordinary Hash orders the same way, so the rule is about the DOCUMENT
@@ -10293,35 +10164,35 @@ fn a_canonical_encoding_orders_by_key() {
 fn no_order_compares_false_and_equality_derives_from_it() {
     // A whole battery of comparisons: the body runs for each DISTINCT pair.
     agrees_on(
-        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+        "mut calls = %[]; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
          let a = Probe.new(); let same = a; let b = Probe.new(); \
-         let results = [a == same, a <=> b, a == b, a != b, a < b]; [results, calls]",
+         let results = %[a == same, a <=> b, a == b, a != b, a < b]; %[results, calls]",
         "[[true, nil, false, true, false], [:call, :call, :call, :call]]",
     );
     // `<` against NO ORDER is false rather than a refusal.
     agrees_on(
-        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
-         let a = Probe.new(); let b = Probe.new(); let r = a < b; [r, calls]",
+        "mut calls = %[]; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let b = Probe.new(); let r = a < b; %[r, calls]",
         "[false, [:call]]",
     );
     // Equality on a DISTINCT pair consults the body.
     agrees_on(
-        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
-         let a = Probe.new(); let b = Probe.new(); let r = a == b; [r, calls]",
+        "mut calls = %[]; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let b = Probe.new(); let r = a == b; %[r, calls]",
         "[false, [:call]]",
     );
     // Control: comparing an object to ITSELF is equal by identity, so the
     // body is not consulted at all.
     agrees_on(
-        "mut calls = []; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
-         let a = Probe.new(); let r = a == a; [r, calls]",
+        "mut calls = %[]; class Probe { public fun <=>(other) { calls.append(:call); nil } }; \
+         let a = Probe.new(); let r = a == a; %[r, calls]",
         "[true, []]",
     );
     // Control: a body answering a real ORDER still orders normally, so the
     // nil case did not flatten every comparison to false.
     agrees_on(
         "class Probe { public fun <=>(other) { -1 } }; let a = Probe.new(); let b = Probe.new(); \
-         [a < b, a > b, a == b]",
+         %[a < b, a > b, a == b]",
         "[true, false, false]",
     );
 }
@@ -10377,7 +10248,7 @@ fn a_closed_generic_type_carries_its_arguments() {
 #[test]
 fn a_slice_endpoint_clamps() {
     agrees_on(
-        r#"module M { public fun run() -> Array { let s = "abc"; [s[-9 ..< 2], s[2 ..< 1]] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let s = "abc"; %[s[-9 ..< 2], s[2 ..< 1]] } } M.run()"#,
         r#"["ab", ""]"#,
     );
     agrees_on(
@@ -10398,7 +10269,7 @@ fn a_slice_endpoint_clamps() {
     // An ARRAY slices by the same rule, so this is about ranges rather than
     // about text.
     agrees_on(
-        "module M { public fun run() -> Object { let a = [1,2,3]; a[-9 ..< 2] } } M.run()",
+        "module M { public fun run() -> Object { let a = %[1,2,3]; a[-9 ..< 2] } } M.run()",
         "[1, 2]",
     );
 }
@@ -10412,14 +10283,14 @@ fn a_slice_endpoint_clamps() {
 #[test]
 fn a_contract_meta_deny_narrows_its_conformers() {
     agrees_on(
-        "contract C meta deny method_set { }; class A for C { }; \
+        "contract C meta deny method_set { }; class A { }; impl A for C { }; \
          try { A.open() { |t| t.define_method(:x) { 1 } } } catch e { e }",
         ":MetaCapabilityError",
     );
     // Control: a contract denying NOTHING leaves the operation allowed, so
     // the refusal comes from the denial rather than from conforming at all.
     agrees_on(
-        "contract C { }; class A for C { }; \
+        "contract C { }; class A { }; impl A for C { }; \
          try { A.open() { |t| t.define_method(:x) { 1 } } } catch e { e }",
         "nil",
     );
@@ -10457,7 +10328,7 @@ fn a_block_ending_in_a_binding_answers_nil() {
 fn a_return_from_cleanup_records_what_it_discards() {
     agrees_on(
         "module M { public fun run() -> Symbol { try { raise :pending } finally { return :override } } } \
-         module N { public fun run() -> Array { [M.run(), Diagnostics.discarded_contexts()] } } N.run()",
+         module N { public fun run() -> Array { %[M.run(), Diagnostics.discarded_contexts()] } } N.run()",
         "[:override, [:pending]]",
     );
     // Control: ordinary callers observe ONLY the new control transfer, so the
@@ -10489,10 +10360,10 @@ fn a_return_from_cleanup_records_what_it_discards() {
 #[test]
 fn a_superclass_change_cannot_drop_a_contract() {
     agrees_on(
-        "contract Walks { fun walk() } class Animal for Walks { public impl fun walk() -> Nil { nil } } \
+        "contract Walks { fun walk() } class Animal { } impl Animal for Walks { public fun walk() -> Nil { nil } } \
          class Dog extends Animal { } \
          let refused = try { Reflection::Class.set_superclass(Dog, Object) } catch e { e }; \
-         [refused, Dog.type.subtype?(Animal.type)]",
+         %[refused, Dog.type.subtype?(Animal.type)]",
         "[:TypeContractError, true]",
     );
     // Control: with NO contract in the ancestry there is nothing to drop.
@@ -10520,25 +10391,28 @@ fn a_superclass_change_cannot_drop_a_contract() {
 fn a_class_level_initializer_runs_on_first_read() {
     // A raising body is retried, and the failure is the annotation's.
     agrees_on(
-        "mut log = []; class Box<T> { class property tag: Integer = { log.append(:attempt); raise :boom; 1 }.call() } \
-         let a = try { Box<String>.tag } catch e { e }; let b = try { Box<String>.tag } catch e { e }; [a, b, log]",
+        "mut log = %[]; class Box<T> { public class property tag: Integer = { log.append(:attempt); raise :boom; 1 }.call() } \
+         let a = try { Box<String>.tag } catch e { e }; let b = try { Box<String>.tag } catch e { e }; %[a, b, log]",
         "[:TypeContractError, :TypeContractError, [:attempt, :attempt]]",
     );
     // A body that SUCCEEDS runs exactly once, however often it is read.
     agrees_on(
-        "mut log = []; class Box<T> { class property tag: Integer = { log.append(:attempt); 1 }.call() } \
-         let a = Box<String>.tag; let b = Box<String>.tag; [a, b, log]",
+        "mut log = %[]; class Box<T> { public class property tag: Integer = { log.append(:attempt); 1 }.call() } \
+         let a = Box<String>.tag; let b = Box<String>.tag; %[a, b, log]",
         "[1, 1, [:attempt]]",
     );
     // A NON-generic class runs its initializer once by the same rule.
     agrees_on(
-        "mut log = []; class Box { class property tag: Integer = { log.append(:attempt); 1 }.call() } \
-         let a = Box.tag; let b = Box.tag; [a, b, log]",
+        "mut log = %[]; class Box { public class property tag: Integer = { log.append(:attempt); 1 }.call() } \
+         let a = Box.tag; let b = Box.tag; %[a, b, log]",
         "[1, 1, [:attempt]]",
     );
     // Control: a LITERAL initializer needs no frame at all and answers
     // directly, so the lazy path did not take over every class property.
-    agrees_on("class Box { class property tag: Integer = 5 } Box.tag", "5");
+    agrees_on(
+        "class Box { public class property tag: Integer = 5 } Box.tag",
+        "5",
+    );
 }
 
 /// A CONSTRUCTION resolves `initialize` BEFORE its property initializers run.
@@ -10550,13 +10424,13 @@ fn a_class_level_initializer_runs_on_first_read() {
 #[test]
 fn a_construction_resolves_initialize_before_its_properties() {
     agrees_on(
-        "mut ran = :none; class A { property tag: Symbol = arm() \
+        "mut ran = :none; class A { public property tag: Symbol = arm() \
          public fun initialize() -> Object { ran = :original; nil } \
          public fun arm() -> Symbol { \
            let committed = A.open() { |t| t.define_method(:initialize) { ran = :replacement; nil } }; \
            :armed } \
          public fun m() -> Symbol { :old } } \
-         module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()",
+         module Q { public fun run() -> Object { let a = A.new(); %[a.tag, ran] } } Q.run()",
         "[:armed, :original]",
     );
     // Control: with NO redefinition the declared initializer runs as always.
@@ -10567,9 +10441,9 @@ fn a_construction_resolves_initialize_before_its_properties() {
     );
     // Control: a LITERAL property initializer leaves the ordering unchanged.
     agrees_on(
-        "mut ran = :none; class A { property tag: Symbol = :plain \
+        "mut ran = :none; class A { public property tag: Symbol = :plain \
          public fun initialize() -> Object { ran = :original; nil } } \
-         module Q { public fun run() -> Object { let a = A.new(); [a.tag, ran] } } Q.run()",
+         module Q { public fun run() -> Object { let a = A.new(); %[a.tag, ran] } } Q.run()",
         "[:plain, :original]",
     );
 }
@@ -10594,7 +10468,7 @@ fn a_stepped_range_is_not_a_slice() {
     // An ARRAY refuses it the same way, so this is about ranges rather than
     // about text.
     agrees_on_error(
-        "module M { public fun run() -> Object { [1,2,3,4][(0 ..= 3).by(step: 2)] } } M.run()",
+        "module M { public fun run() -> Object { %[1,2,3,4][(0 ..= 3).by(step: 2)] } } M.run()",
         "ArgumentError",
     );
     // Control: an ordinary ascending range still slices.
@@ -10621,17 +10495,17 @@ fn append_converts_and_mutates_in_place() {
     // A conversion that raises propagates ITS value, and the receiver is
     // unchanged.
     agrees_on(
-        r#"class BadText { public fun to_string() -> String { raise :bad } } module M { public fun run() -> Array { let m = m"a"; mut raised = :none; try { m.append(BadText.new()) } catch e { raised = e }; [raised, m.to_string()] } } M.run()"#,
+        r#"class BadText { public fun to_string() -> String { raise :bad } } module M { public fun run() -> Array { let m = m"a"; mut raised = :none; try { m.append(BadText.new()) } catch e { raised = e }; %[raised, m.to_string()] } } M.run()"#,
         r#"[:bad, "a"]"#,
     );
     // An object converts through its own `to_string`.
     agrees_on(
-        r#"class OkText { public fun to_string() -> String { "z" } } module M { public fun run() -> Array { let m = m"a"; m.append(OkText.new()); [m.to_string()] } } M.run()"#,
+        r#"class OkText { public fun to_string() -> String { "z" } } module M { public fun run() -> Array { let m = m"a"; m.append(OkText.new()); %[m.to_string()] } } M.run()"#,
         r#"["az"]"#,
     );
     // Control: appending text needs no conversion at all.
     agrees_on(
-        r#"module M { public fun run() -> Array { let m = m"a"; m.append("b"); [m.to_string()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let m = m"a"; m.append("b"); %[m.to_string()] } } M.run()"#,
         r#"["ab"]"#,
     );
 }
@@ -10644,7 +10518,7 @@ fn append_converts_and_mutates_in_place() {
 #[test]
 fn an_ivar_name_is_a_sigil_and_an_identifier() {
     agrees_on(
-        r#"class A { }; let a = A.new(); [try { Reflection::Object.get_ivar(a, "@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@x?") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@1x") } catch e { e }]"#,
+        r#"class A { }; let a = A.new(); %[try { Reflection::Object.get_ivar(a, "@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@@x") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@x?") } catch e { e }, try { Reflection::Object.get_ivar(a, :"@1x") } catch e { e }]"#,
         "[:InvalidInstanceVariableNameError, :InvalidInstanceVariableNameError, \
          :InvalidInstanceVariableNameError, :InvalidInstanceVariableNameError, \
          :InvalidInstanceVariableNameError]",
@@ -10671,7 +10545,7 @@ fn an_ivar_name_is_a_sigil_and_an_identifier() {
 fn a_class_name_is_an_immutable_binding() {
     agrees_on(
         "class A {}; module M {}; contract C {}; const K = Object.new(); \
-         [try { A = 1 } catch e { e }, try { M = 1 } catch e { e }, \
+          %[try { A = 1 } catch e { e }, try { M = 1 } catch e { e }, \
           try { C = 1 } catch e { e }, try { K = Object.new() } catch e { e }]",
         "[:ImmutableBindingError, :NameError, :ImmutableBindingError, :ImmutableBindingError]",
     );
@@ -10701,24 +10575,24 @@ fn a_hash_lookup_uses_the_current_hash_and_equality() {
     // Two keys that hash alike and compare equal name ONE entry, so `delete`
     // finds what `fetch` found.
     agrees_on(
-        r#"class Key { public property id: Integer = 0 public fun ==(other: Object) -> Bool { @id == other.id() } public fun hash() -> Integer { @id } public fun id() -> Integer { @id } } module M { public fun run() -> Array { mut first = Key.new(); mut second = Key.new(); mut h = %{}; h[first] = 1; h[second] = 2; [h.fetch(first), h.delete(second)] } } M.run()"#,
+        r#"class Key { public property id: Integer = 0 public fun ==(other: Object) -> Bool { @id == other.id() } public fun hash() -> Integer { @id } public fun id() -> Integer { @id } } module M { public fun run() -> Array { mut first = Key.new(); mut second = Key.new(); mut h = %{}; h[first] = 1; h[second] = 2; %[h.fetch(first), h.delete(second)] } } M.run()"#,
         "[2, 2]",
     );
     // Keys whose EQUALITY moved after insertion still sit under their own
     // buckets, so each `fetch` finds its own entry and `rehash` reports the
     // conflict the change created.
     agrees_on(
-        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); a.equal_id = 1; a.hash_code = 11; mut b = Key.new(); b.equal_id = 2; b.hash_code = 22; mut h = %{}; h[a] = :a; h[b] = :b; a.equal_id = 0; b.equal_id = 0; mut raised = :none; try { h.rehash() } catch e { raised = e }; [raised, h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut a = Key.new(); a.equal_id = 1; a.hash_code = 11; mut b = Key.new(); b.equal_id = 2; b.hash_code = 22; mut h = %{}; h[a] = :a; h[b] = :b; a.equal_id = 0; b.equal_id = 0; mut raised = :none; try { h.rehash() } catch e { raised = e }; %[raised, h.length(), h.fetch(a), h.fetch(b)] } } M.run()"#,
         "[:KeyConflictError, 2, :a, :b]",
     );
     // Control: an ordinary key is unaffected.
     agrees_on(
-        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; [h.fetch("a"), h.delete("a")] } } M.run()"#,
+        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; %[h.fetch("a"), h.delete("a")] } } M.run()"#,
         "[1, 1]",
     );
     // Control: an ABSENT key stays absent.
     agrees_on(
-        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; [h.include?("b"), h.delete("b")] } } M.run()"#,
+        r#"module M { public fun run() -> Array { mut h = %{}; h["a"] = 1; %[h.include?("b"), h.delete("b")] } } M.run()"#,
         "[false, nil]",
     );
 }
@@ -10759,7 +10633,7 @@ fn two_yields_order_by_what_they_carry() {
     // has no order at all rather than breaking the contract.
     agrees_on(
         "class Bad { public fun compare_to(o) -> Object { :nonsense } } module M { public fun run() -> Object { \
-         [Iteration.done <=> Iteration.done, Iteration.done <=> Iteration.yield(1), \
+          %[Iteration.done <=> Iteration.done, Iteration.done <=> Iteration.yield(1), \
           Iteration.yield(1) <=> 1, Iteration.yield(1) <=> Iteration.yield(2), \
           try { Iteration.yield(Bad.new()) <=> Iteration.yield(Bad.new()) } catch e { e }] } } M.run()",
         "[0, nil, nil, -1, :ComparisonContractError]",
@@ -10777,20 +10651,20 @@ fn two_yields_order_by_what_they_carry() {
 fn an_impl_cannot_contradict_its_requirement() {
     agrees_on_error(
         "contract C { fun draw(n: Integer) -> Nil } \
-         class A for C { public impl fun draw(s: String) -> Nil { nil } } A",
+         class A { } impl A for C { public fun draw(s: String) -> Nil { nil } } A",
         "TypeContractError",
     );
     // Control: a MATCHING parameter Type implements the requirement, so the
     // check refuses a contradiction rather than every `impl`.
     agrees_on(
         "contract C { fun draw(n: Integer) -> Nil } \
-         class A for C { public impl fun draw(n: Integer) -> Nil { nil } } A",
+         class A { } impl A for C { public fun draw(n: Integer) -> Nil { nil } } A",
         "<class>",
     );
     // Control: an UNANNOTATED position states nothing and cannot contradict.
     agrees_on(
         "contract C { fun draw(n: Integer) -> Nil } \
-         class A for C { public impl fun draw(n) -> Nil { nil } } A",
+         class A { } impl A for C { public fun draw(n) -> Nil { nil } } A",
         "<class>",
     );
 }
@@ -10809,14 +10683,14 @@ fn naming_a_closed_generic_type_checks_its_bound() {
         "TypeContractError",
     );
     agrees_on_error(
-        "contract Show { fun show() -> Symbol } class Str for Show { public impl fun show() -> Symbol { :s } } \
+        "contract Show { fun show() -> Symbol } class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
          class Box<T> where T: Show {} Box<Integer>.type",
         "TypeContractError",
     );
     // Control: an argument that SATISFIES the bound answers its Type.
     agrees_on("class Box<T> where T: NonNil {} Box<String>.type", "<type>");
     agrees_on(
-        "contract Show { fun show() -> Symbol } class Str for Show { public impl fun show() -> Symbol { :s } } \
+        "contract Show { fun show() -> Symbol } class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
          class Box<T> where T: Show {} Box<Str>.type",
         "<type>",
     );
@@ -10837,24 +10711,24 @@ fn a_differing_arity_breaks_a_requirement() {
     // A REOPEN whose override takes two parameters no longer implements a
     // requirement stating none.
     agrees_on_error(
-        "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+        "contract C { fun draw() } class A { public fun draw() { 1 } } impl A for C { } \
          open class A { public fun m() { 9 } public override fun draw(a, b) { 2 } } A.new().m()",
         "TypeContractError",
     );
     // The ORIGINAL declaration is checked the same way.
     agrees_on_error(
-        "contract C { fun draw(a) } class A for C { public fun draw(a, b) { 1 } } A",
+        "contract C { fun draw(a) } class A { public fun draw(a, b) { 1 } } impl A for C { } A",
         "TypeContractError",
     );
     // Control: a reopen whose override KEEPS the arity still implements it.
     agrees_on(
-        "contract C { fun draw() } class A for C { public fun draw() { 1 } } \
+        "contract C { fun draw() } class A { public fun draw() { 1 } } impl A for C { } \
          open class A { public fun m() { 9 } public override fun draw() { 2 } } A.new().m()",
         "9",
     );
     // Control: a matching arity with parameters is unaffected.
     agrees_on(
-        "contract C { fun draw(a) } class A for C { public fun draw(a) { 1 } } \
+        "contract C { fun draw(a) } class A { public fun draw(a) { 1 } } impl A for C { } \
          open class A { public fun m() { 9 } public override fun draw(a) { 2 } } A.new().m()",
         "9",
     );
@@ -10918,19 +10792,19 @@ fn a_suspended_frame_resumes_without_double_closing() {
     // The body raises AFTER the await, so the resumed frame reaches
     // instructions the paused file had no room for.
     agrees_on(
-        r#"class R { public fun close() -> Object { raise :close_failed } } module M { public async fun inner(g) -> Object { using(R.new()) { let v = await g; raise :body_failed } } } let g = Gate.new(); let t = M.inner(g); let posted = Gate.complete(g, 7); try { Host.run(t) } catch v, c { [v, c.suppressed.length] }"#,
+        r#"class R { public fun close() -> Object { raise :close_failed } } module M { public async fun inner(g) -> Object { using(R.new()) { let v = await g; raise :body_failed } } } let g = Gate.new(); let t = M.inner(g); let posted = Gate.complete(g, 7); try { Host.run(t) } catch v, c { %[v, c.suppressed.length] }"#,
         "[:body_failed, 1]",
     );
     // The resource is closed exactly ONCE, on the way out of the resumed
     // frame rather than once at the suspension and again on re-entry.
     agrees_on(
-        r#"mut log = []; class C { public fun close() -> Nil { log.append(:closed) } } class A { public async fun f(gate: Object) -> Symbol { using(C.new()) { |r| await gate }; :done } } module M { public fun run() -> Array { let gate = Gate.new(); let task = A.new().f(gate); Gate.complete(gate, 1); [Host.run(task), log] } } M.run()"#,
+        r#"mut log = %[]; class C { public fun close() -> Nil { log.append(:closed) } } class A { public async fun f(gate: Object) -> Symbol { using(C.new()) { |r| await gate }; :done } } module M { public fun run() -> Array { let gate = Gate.new(); let task = A.new().f(gate); Gate.complete(gate, 1); %[Host.run(task), log] } } M.run()"#,
         "[:done, [:closed]]",
     );
     // Control: a `using` with NO suspension still closes once, so the guard
     // did not stop cleanup from running at all.
     agrees_on(
-        r#"mut log = []; class C { public fun close() -> Nil { log.append(:closed) } } module M { public fun run() -> Array { using(C.new()) { |r| :body }; log } } M.run()"#,
+        r#"mut log = %[]; class C { public fun close() -> Nil { log.append(:closed) } } module M { public fun run() -> Array { using(C.new()) { |r| :body }; log } } M.run()"#,
         "[:closed]",
     );
 }
@@ -10947,7 +10821,7 @@ fn a_reflected_method_binds_against_the_current_mro() {
         "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } \
          module M { public fun run() -> Object { \
            let m = Reflection::Class.method(A, :h); let a = A.new(); A.remove_module(Mo); \
-           try { Reflection::Class.invoke(m, a, []) } catch e { e } } } M.run()",
+            try { Reflection::Class.invoke(m, a, %[]) } catch e { e } } } M.run()",
         ":MethodBindingError",
     );
     // Control: with the module STILL composed the invocation answers, so the
@@ -10956,7 +10830,7 @@ fn a_reflected_method_binds_against_the_current_mro() {
         "module Mo { public fun h() -> Integer { 8 } } class A mixin Mo { } \
          module M { public fun run() -> Object { \
            let m = Reflection::Class.method(A, :h); let a = A.new(); \
-           try { Reflection::Class.invoke(m, a, []) } catch e { e } } } M.run()",
+            try { Reflection::Class.invoke(m, a, %[]) } catch e { e } } } M.run()",
         "8",
     );
     // Control: an ORDINARY send after the removal is a missing message, which
@@ -10980,7 +10854,7 @@ fn a_reflected_method_binds_against_the_current_mro() {
 fn indexing_a_hash_uses_the_current_bucket() {
     // The read BEFORE the rehash misses, and the read after finds it again.
     agrees_on(
-        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k = Key.new(); k.equal_id = 1; k.hash_code = 1; mut h = %{}; h[k] = :ok; k.hash_code = 2; let before = h[k]; h.rehash(); [before, h.fetch(k)] } } M.run()"#,
+        r#"class Key { public property equal_id: Integer = 0 public property hash_code: Integer = 0 public fun ==(other: Object) -> Bool { @equal_id == other.equal_id() } public fun hash() -> Integer { @hash_code } public fun equal_id() -> Integer { @equal_id } } module M { public fun run() -> Array { mut k = Key.new(); k.equal_id = 1; k.hash_code = 1; mut h = %{}; h[k] = :ok; k.hash_code = 2; let before = h[k]; h.rehash(); %[before, h.fetch(k)] } } M.run()"#,
         "[nil, :ok]",
     );
     // A moved hash misses on its own, without a rehash to repair it.
@@ -11029,7 +10903,7 @@ fn a_bound_method_annotation_refuses_a_closure() {
            let mismatched = try { let bad: BoundMethod<(Integer) -> Integer> = { |x: Integer| -> Integer x }; bad } catch e { e }; \
            let bound = m.bind(A.new()); \
            let closure: Closure<(Integer) -> Integer> = { |x: Integer| -> Integer x }; \
-           [mismatched, bound.call(5), closure.call(7)] } } M.run()",
+           %[mismatched, bound.call(5), closure.call(7)] } } M.run()",
         "[:TypeContractError, 5, 7]",
     );
 }
@@ -11037,7 +10911,7 @@ fn a_bound_method_annotation_refuses_a_closure() {
 /// A REMOVED `to_bool` reaches `method_missing` once.
 ///
 /// `C096` gives truth testing one last route when the selector was BLOCKED:
-/// it invokes `method_missing(:to_bool, [], nil)` and uses the result. Only a
+/// it invokes `method_missing(:to_bool, %[], nil)` and uses the result. Only a
 /// selector the class actually removed takes it - a value that never had
 /// `to_bool` at all falls through to the `C094` default rather than reaching
 /// a handler that was never meant to see it.
@@ -11048,9 +10922,9 @@ fn a_removed_to_bool_reaches_method_missing() {
     agrees_on(
         "mut calls = 0; mut seen: Object = nil; \
          class FallbackTruth { public fun method_missing(selector, args, block) { \
-           calls = calls + 1; seen = [selector, args, block]; true } } \
+           calls = calls + 1; seen = %[selector, args, block]; true } } \
          FallbackTruth.undef_method(:to_bool); \
-         let result = if FallbackTruth.new() { :then } else { :else }; [result, calls, seen]",
+         let result = if FallbackTruth.new() { :then } else { :else }; %[result, calls, seen]",
         "[nil, [:then, 1, [:to_bool, [], nil]]]",
     );
     // Control: WITHOUT the removal the handler is not consulted at all, so
@@ -11059,7 +10933,7 @@ fn a_removed_to_bool_reaches_method_missing() {
         "mut calls = 0; \
          class FallbackTruth { public fun method_missing(selector, args, block) { \
            calls = calls + 1; true } } \
-         let result = if FallbackTruth.new() { :then } else { :else }; [result, calls]",
+         let result = if FallbackTruth.new() { :then } else { :else }; %[result, calls]",
         "[:then, 0]",
     );
     // Control: a class with no handler at all still takes the default.
@@ -11080,15 +10954,15 @@ fn a_removed_to_bool_reaches_method_missing() {
 fn a_reopen_where_bound_narrows_the_class() {
     agrees_on_error(
         "contract Show { fun show() -> Symbol } \
-         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
          class Box<T> { }; let a = Box<Str>; let b = Box<Integer>; \
-         open class Box<T> where T: Show { }; [a, b]",
+         open class Box<T> where T: Show { }; %[a, b]",
         "TypeContractError",
     );
     // Control: an argument that SATISFIES the bound is admitted.
     agrees_on(
         "contract Show { fun show() -> Symbol } \
-         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
          class Box<T> where T: Show { }; let a = Box<Str>; a",
         "<class>",
     );
@@ -11097,7 +10971,7 @@ fn a_reopen_where_bound_narrows_the_class() {
     // construction.
     agrees_on(
         "contract Show { fun show() -> Symbol } \
-         class Str for Show { public impl fun show() -> Symbol { :s } } \
+         class Str { } impl Str for Show { public fun show() -> Symbol { :s } } \
          class Box<T> { }; let b = Box<Integer>; b",
         "<class>",
     );
@@ -11149,7 +11023,7 @@ fn a_builtin_superclass_is_protected_and_denials_are_readable() {
     // A subclass INHERITS the deny set, which the bare member read reports.
     agrees_on(
         "class C meta deny method_set { } class D extends C { } module Q { public fun run() -> Object { \
-           [try { D.define_method(:x) { 1 } } catch e { e }, D.denied_capabilities] } } Q.run()",
+           %[try { D.define_method(:x) { 1 } } catch e { e }, D.denied_capabilities] } } Q.run()",
         "[:MetaCapabilityError, [:method_set]]",
     );
     // Control: a class denying `method_set` refuses `define_method`.
@@ -11223,7 +11097,7 @@ fn an_object_renders_by_package_and_a_type_hashes_publishably() {
     // A Type names its RUNTIME-LOCAL package and hashes stably by it.
     agrees_on(
         "class A { } class B { } \
-         [A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]",
+         %[A.type.package(), A.type.hash() == A.type.hash(), A.type.hash() != B.type.hash()]",
         "[:runtime-local, true, true]",
     );
 }
@@ -11239,7 +11113,7 @@ fn an_object_renders_by_package_and_a_type_hashes_publishably() {
 #[test]
 fn to_array_and_type_reflection_answer_their_sequences() {
     agrees_on(
-        r#"module M { public fun run() -> Array { [(1, 2).to_array(), [1, 2].to_array(), b"\x01\x02".to_array()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { %[(1, 2).to_array(), %[1, 2].to_array(), b"\x01\x02".to_array()] } } M.run()"#,
         "[[1, 2], [1, 2], [1, 2]]",
     );
     agrees_on(
@@ -11255,7 +11129,7 @@ fn to_array_and_type_reflection_answer_their_sequences() {
     // Control: an Array's copy is INDEPENDENT, so writing through one leaves
     // the other unchanged.
     agrees_on(
-        "module M { public fun run() -> Array { let a = [1, 2]; let b = a.to_array(); b[0] = 9; [a, b] } } M.run()",
+        "module M { public fun run() -> Array { let a = %[1, 2]; let b = a.to_array(); b[0] = 9; %[a, b] } } M.run()",
         "[[1, 2], [9, 2]]",
     );
 }
@@ -11323,22 +11197,22 @@ fn text_converts_to_bytes_and_scalars() {
 fn byte_length_and_mutating_case_operations() {
     // Three scalars, six bytes: the astral character carries four of them.
     agrees_on(
-        r#"module M { public fun run() -> Array { let s = "a\u{1f600}b"; [s.length(), s[1], s.byte_length()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let s = "a\u{1f600}b"; %[s.length(), s[1], s.byte_length()] } } M.run()"#,
         r#"[3, "😀", 6]"#,
     );
     // The plain spelling COPIES and the `!` spelling answers the receiver.
     agrees_on(
-        r#"module M { public fun run() -> Array { let m = m"a"; let copy = m.upcase(); let bang = m.upcase!(); [copy.to_string(), bang.same?(m)] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let m = m"a"; let copy = m.upcase(); let bang = m.upcase!(); %[copy.to_string(), bang.same?(m)] } } M.run()"#,
         r#"["A", true]"#,
     );
     // `replace` sets the whole content, so every reference sees the new text.
     agrees_on(
-        r#"module M { public fun run() -> Array { let m = m"abc"; m.replace("zz"); [m.to_string()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let m = m"abc"; m.replace("zz"); %[m.to_string()] } } M.run()"#,
         r#"["zz"]"#,
     );
     // Control: the plain spelling leaves the RECEIVER untouched.
     agrees_on(
-        r#"module M { public fun run() -> Array { let m = m"abc"; let copy = m.upcase(); [m.to_string(), copy.to_string()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let m = m"abc"; let copy = m.upcase(); %[m.to_string(), copy.to_string()] } } M.run()"#,
         r#"["abc", "ABC"]"#,
     );
 }
@@ -11355,7 +11229,7 @@ fn byte_length_and_mutating_case_operations() {
 fn a_mutable_string_cursor_is_live() {
     // `clear` answers the receiver, and `replace` sets the whole content.
     agrees_on(
-        r#"module M { public fun run() -> Array { let m = m"ab"; [m.clear().same?(m), m.replace("x").to_string()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { let m = m"ab"; %[m.clear().same?(m), m.replace("x").to_string()] } } M.run()"#,
         r#"[true, "x"]"#,
     );
     // Appending after a cursor was taken invalidates it.
@@ -11403,7 +11277,7 @@ fn a_scalar_write_and_a_cursor_walk() {
     );
     // Control: a plain `each` visits every entry and leaves the hash intact.
     agrees_on(
-        r#"module M { public fun run() -> Array { mut h = %{}; h[:a] = 1; h[:b] = 2; mut seen = []; h.each({ |k, v| seen.append(v) }); [seen, h.length()] } } M.run()"#,
+        r#"module M { public fun run() -> Array { mut h = %{}; h[:a] = 1; h[:b] = 2; mut seen = %[]; h.each({ |k, v| seen.append(v) }); %[seen, h.length()] } } M.run()"#,
         "[[1, 2], 2]",
     );
 }
@@ -11420,12 +11294,12 @@ fn a_scalar_write_and_a_cursor_walk() {
 fn a_named_failure_carries_a_context_and_a_decoder_diagnostic() {
     // The offset names where the document stopped being readable.
     agrees_on(
-        r#"module M { public fun run() -> Object { try { JSON.decode("[1,2") } catch v, c { [v, c.decoder, c.offset, c.expected] } } } M.run()"#,
+        r#"module M { public fun run() -> Object { try { JSON.decode("[1,2") } catch v, c { %[v, c.decoder, c.offset, c.expected] } } } M.run()"#,
         "[:JSONSyntaxError, :JSON, 4, :value]",
     );
     // A LIMIT refusal names the limit it violated rather than a value.
     agrees_on(
-        r#"module M { public fun run() -> Object { try { JSON.decode("[1,[2,[3,[4]]]]", depth: 3) } catch v, c { [v, c.decoder, c.expected] } } } M.run()"#,
+        r#"module M { public fun run() -> Object { try { JSON.decode("[1,[2,[3,[4]]]]", depth: 3) } catch v, c { %[v, c.decoder, c.expected] } } } M.run()"#,
         "[:JSONLimitError, :JSON, :depth]",
     );
     // A named failure binds a CONTEXT, so `c.value` answers the name.
@@ -11440,7 +11314,7 @@ fn a_named_failure_carries_a_context_and_a_decoder_diagnostic() {
     );
     // Control: an ORDINARY raise carries no decoder diagnostic at all.
     agrees_on(
-        "module M { public fun run() -> Object { try { raise :x } catch v, c { [c.decoder, c.offset, c.expected] } } } M.run()",
+        "module M { public fun run() -> Object { try { raise :x } catch v, c { %[c.decoder, c.offset, c.expected] } } } M.run()",
         "[nil, nil, nil]",
     );
 }
@@ -11464,7 +11338,7 @@ fn a_context_is_readonly_and_a_view_refuses_by_contract() {
     agrees_on(
         "class Probe { public fun +(other: Object) -> Integer { 7 } } module M { public fun run() -> Array { \
            let p = Probe.new(); let result = p + Object.new(); let block = { raise p }; \
-           try { block.call() } catch value, context { [result, value.same?(p), context.value().same?(p)] } } } M.run()",
+           try { block.call() } catch value, context { %[result, value.same?(p), context.value().same?(p)] } } } M.run()",
         "[7, true, true]",
     );
     // Control: the BARE read still answers, so the called form was added
@@ -11474,7 +11348,7 @@ fn a_context_is_readonly_and_a_view_refuses_by_contract() {
     // names the semantic CONTRACT that refused rather than either backend's
     // local numeric identity.
     agrees_on_error(
-        "contract C { } class A for C { public fun m() { :ordinary } } let a = A.new(); (a as C)..missing()",
+        "contract C { } class A { public fun m() { :ordinary } } impl A for C { } let a = A.new(); (a as C)..missing()",
         "Construction(Dispatch(ContractDispatch { contract: C, selector: Selector(_) }))",
     );
 }
@@ -11498,7 +11372,7 @@ fn class_metadata_is_filtered_readonly_and_spine_is_fixed() {
     agrees_on(
         "class A { private fun hidden() { 1 } public fun shown() { 2 } }; \
          let methods = A.methods; let mutation = try { methods.append(:fake) } catch e { e }; \
-         [methods, mutation]",
+         %[methods, mutation]",
         "[[:to_bool, :shown], :ReadonlyMutationError]",
     );
     // Defining a method leaves the SPINE unchanged, which is what makes it
@@ -11506,7 +11380,7 @@ fn class_metadata_is_filtered_readonly_and_spine_is_fixed() {
     agrees_on(
         "class A { public fun f() -> Nil {} } module M { public fun run() -> Array { \
            let before = A.static_spine; A.define_method(:g) { 41 }; let after = A.static_spine; \
-           [before == after, A.method(:g).return_type, A.new().g()] } } M.run()",
+           %[before == after, A.method(:g).return_type, A.new().g()] } } M.run()",
         "[true, :Dynamic<Object>, 41]",
     );
     // Control: the spine is a plain identity a program can read on its own.
@@ -11525,7 +11399,7 @@ fn class_metadata_is_filtered_readonly_and_spine_is_fixed() {
 fn an_exception_context_names_its_runtime_class() {
     agrees_on(
         "try { raise :x } catch error: Symbol, context { \
-         [error, context.value, context.class_name] }",
+         %[error, context.value, context.class_name] }",
         "[:x, :x, :ExceptionContext]",
     );
     // Control: the called form names the same Class as the bare member read.
@@ -11544,7 +11418,7 @@ fn an_exception_context_names_its_runtime_class() {
 fn callable_values_name_their_runtime_kind() {
     agrees_on(
         "class A { public async fun value() -> Integer { 7 } } \
-         let t = A.new().value(); [t.class_name, Host.run(t), Host.run(t)]",
+         let t = A.new().value(); %[t.class_name, Host.run(t), Host.run(t)]",
         "[:Task, 7, 7]",
     );
     agrees_on(
@@ -11657,8 +11531,8 @@ fn closed_generic_arguments_are_invariant_in_both_backends() {
         "class Box<T> {} module M { public fun accept(value: Box<String>) -> Object { value } } M.accept(Box<String>.new())",
         "<object>",
     );
-    agrees_on("class Box<T> {} Box<String>.new() is Box<Object>", "false");
-    agrees_on("class Box<T> {} Box<String>.new() is Box<String>", "true");
+    agrees_on("class Box<T> {} Box<String>.new() is? Box<Object>", "false");
+    agrees_on("class Box<T> {} Box<String>.new() is? Box<String>", "true");
     agrees_on("class Box<T> {} Box<String>.new() as? Box<Object>", "nil");
     agrees_on(
         "class Box<T> {} Box<String>.new() as? Box<String>",
@@ -11684,7 +11558,7 @@ fn an_inherited_class_variable_uses_its_declaring_cell() {
     agrees_on(
         "class A { shared mut @@x = 1 public fun get() { @@x } \
          class fun set(v) { @@x = v } }; class B extends A {}; \
-         let ignored = A.set(2); [A.new().get(), B.new().get()]",
+         let ignored = A.set(2); %[A.new().get(), B.new().get()]",
         "[2, 2]",
     );
     // Control: unrelated classes keep distinct cells even when both declare
@@ -11692,7 +11566,7 @@ fn an_inherited_class_variable_uses_its_declaring_cell() {
     agrees_on(
         "class A { shared mut @@x = 1 public fun get() { @@x } } \
          class B { shared mut @@x = 2 public fun get() { @@x } } \
-         [A.new().get(), B.new().get()]",
+         %[A.new().get(), B.new().get()]",
         "[1, 2]",
     );
     // Control: changing B's runtime superclass does not retarget the static
@@ -11702,7 +11576,7 @@ fn an_inherited_class_variable_uses_its_declaring_cell() {
          class Other { shared mut @@x = 9 public class fun get() { @@x } } \
          class B extends A { public fun read() { @@x } public fun write() { @@x = 2 } }; \
          Reflection::Class.set_superclass(B, Other); \
-         [B.new().read(), B.new().write(), A.get(), Other.get()]",
+         %[B.new().read(), B.new().write(), A.get(), Other.get()]",
         "[nil, [1, 2, 2, 9]]",
     );
 }
@@ -11720,7 +11594,7 @@ fn a_reopened_builtin_property_overrides_the_native_constant() {
          public property fun infinity=(v) -> Object { recorded = v; nil } } \
          module Q { public fun run() -> Object { \
          let read = Float64.infinity; let wrote: Object = Float64.infinity = :written; \
-         [read, recorded, Reflection::Class.properties(Float64)] } } Q.run()",
+         %[read, recorded, Reflection::Class.properties(Float64)] } } Q.run()",
         "[:replaced, :written, []]",
     );
     // Control: without a reopen, the native constant remains available.
@@ -11735,17 +11609,18 @@ fn a_reopened_builtin_property_overrides_the_native_constant() {
 #[test]
 fn a_zero_argument_initializer_ignores_hidden_self_for_arity() {
     agrees_on(
-        "mut log = []; class A { public fun initialize() { log.append(:init) } } \
+        "mut log = %[]; class A { public fun initialize() { log.append(:init) } } \
          class B {}; let a = A.new(); let b = B.new(); \
-         [a same? a, b.to_bool(), log]",
+         %[a same? a, b.to_bool(), log]",
         "[true, true, [:init]]",
     );
     // Control: source arguments are still checked, so passing one to the same
     // initializer remains an ArgumentError.
     agrees_on(
-        "class A { public fun initialize() { nil } } \
-         try { A.new(1) } catch error { error }",
-        ":ArgumentError",
+        "mut calls = %[]; class A { public fun initialize() { calls.append(:body); nil } } \
+         try { A.new(1) } catch error: ArgumentError, context { \
+         %[error.class == ArgumentError, !(error is? Symbol), context.value same? error, calls] }",
+        "[true, true, true, []]",
     );
 }
 
@@ -11762,7 +11637,7 @@ fn a_normal_iteration_close_failure_reaches_the_outer_handler() {
          public fun close() { raise :close } } \
          class S { public fun iterator() { It.new() } } \
          try { for x in S.new() { nil } } catch _, context { \
-         [context.value, context.suppressed] }",
+         %[context.value, context.suppressed] }",
         "[:close, []]",
     );
     // Control: a successful close leaves normal loop completion unchanged.
@@ -11784,11 +11659,11 @@ fn a_normal_iteration_close_failure_reaches_the_outer_handler() {
 #[test]
 fn a_superclass_change_invalidates_a_retained_method_binding() {
     agrees_on_error(
-        "mut log = []; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; \
+        "mut log = %[]; class A { public fun m() -> Nil { log.append(:entered); raise :body } }; \
          class B extends A { }; class Other { }; \
          let method = Reflection::Class.method(A, :m); \
          Reflection::Class.set_superclass(B, Other); \
-         Reflection::Class.invoke(method, B.new(), [])",
+         Reflection::Class.invoke(method, B.new(), %[])",
         "Construction(Dispatch(MethodBinding { selector: Selector(_) }))",
     );
     // Control: before the superclass changes, the same retained Method remains
@@ -11796,7 +11671,7 @@ fn a_superclass_change_invalidates_a_retained_method_binding() {
     agrees_on(
         "class A { public fun m() -> Integer { 7 } }; class B extends A { }; \
          let method = Reflection::Class.method(A, :m); \
-         Reflection::Class.invoke(method, B.new(), [])",
+         Reflection::Class.invoke(method, B.new(), %[])",
         "7",
     );
 }
@@ -11830,16 +11705,16 @@ fn a_builtin_value_raw_ivar_write_reports_instance_state() {
 #[test]
 fn a_contract_view_hash_composes_receiver_and_contract() {
     agrees_on(
-        "contract C { fun m() } class A for C { \
-         public impl fun m() -> Nil { nil } public fun hash() -> Integer { 1 } } \
+        "contract C { fun m() } class A { public fun hash() -> Integer { 1 } } \
+         impl A for C { public fun m() -> Nil { nil } } \
          let view = A.new() as C; \
-         [view.hash(), view.hash() == view.hash(), view.hash() != A.new().hash()]",
+         %[view.hash(), view.hash() == view.hash(), view.hash() != A.new().hash()]",
         "[3192709805854531430, true, true]",
     );
     // Control: an ordinary unqualified view message still forwards.
     agrees_on(
-        "contract C { fun m() } class A for C { \
-         public impl fun m() -> Nil { nil } public fun value() { 7 } } \
+        "contract C { fun m() } class A { public fun value() { 7 } } \
+         impl A for C { public fun m() -> Nil { nil } } \
          let view = A.new() as C; view.value()",
         "7",
     );

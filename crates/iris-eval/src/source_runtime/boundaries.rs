@@ -60,6 +60,9 @@ impl SourceEvaluator {
         class: ClassId,
     ) -> Result<(), EvaluationError> {
         let registry = self.runtime.registry();
+        if registry.staged_origin(class).is_ok() {
+            return Ok(());
+        }
         let active = registry.active(class).map_err(EvaluationError::Class)?;
         for (selector, identity) in active.methods() {
             let Some(promise) = registry
@@ -96,7 +99,7 @@ impl SourceEvaluator {
         Ok(())
     }
 
-    fn nominal_subtype(&self, source: &str, target: &str) -> bool {
+    pub(super) fn nominal_subtype(&self, source: &str, target: &str) -> bool {
         if let Some(target) = self.contract_names.get(target) {
             if let Some(source) = self.contract_names.get(source) {
                 return self.contract_subtype(*source, *target);
@@ -131,7 +134,7 @@ impl SourceEvaluator {
         }
     }
 
-    fn contract_subtype(
+    pub(super) fn contract_subtype(
         &self,
         source: iris_runtime::ContractId,
         target: iris_runtime::ContractId,

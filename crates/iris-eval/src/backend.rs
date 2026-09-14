@@ -41,6 +41,15 @@ impl Observation {
 }
 
 fn normalize_evaluation_error(error: &EvaluationError) -> String {
+    if let EvaluationError::StaticDiagnostic(code) = error {
+        return (*code).to_owned();
+    }
+    if let EvaluationError::HostException(exception) = error {
+        return match exception.kind {
+            crate::CoreErrorKind::ArgumentError => "ArgumentError".to_owned(),
+            crate::CoreErrorKind::TypeError => "Runtime(Type)".to_owned(),
+        };
+    }
     if let EvaluationError::Construction(iris_runtime::ConstructionError::Dispatch(
         iris_runtime::DispatchError::ContractDispatch {
             contract_name: Some(contract_name),
@@ -122,7 +131,7 @@ impl Backend for Interpreter {
     }
 
     fn execute(&self, source: &str) -> Support {
-        Support::Ran(Observation::of(crate::evaluate(source)))
+        Support::Ran(Observation::of(crate::evaluate_host(source)))
     }
 }
 
@@ -395,6 +404,18 @@ fn render_value(value: &iris_runtime::Value) -> String {
             let rendered: Vec<String> = values.iter().map(render_value).collect();
             format!("[{}]", rendered.join(", "))
         }
+        Value::ImmutableArray(values) => {
+            let rendered: Vec<String> = values.elements().iter().map(render_value).collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        Value::ImmutableHash(entries) => {
+            let rendered: Vec<String> = entries
+                .entries()
+                .iter()
+                .map(|(key, entry)| format!("{}: {}", render_value(key), render_value(entry)))
+                .collect();
+            format!("{{{}}}", rendered.join(", "))
+        }
         Value::Hash(entries) => {
             let rendered: Vec<String> = entries
                 .entries()
@@ -408,6 +429,8 @@ fn render_value(value: &iris_runtime::Value) -> String {
         Value::IterationDone => "Iteration.done".to_owned(),
         Value::IterationYield(payload) => format!("Iteration.yield({})", render_value(payload)),
         Value::KeywordArgument(name, inner) => format!("{name}: {}", render_value(inner)),
+        Value::BlockArgument(inner) => format!("<block-argument: {}>", render_value(inner)),
+        Value::Decorator(record) => format!("<{}>", record.core_name().to_ascii_lowercase()),
         // Identity-bearing kinds render as their KIND alone.
         other => format!("<{}>", kind_of(other)),
     }
@@ -432,7 +455,7 @@ fn kind_of(value: &iris_runtime::Value) -> &'static str {
         Value::ArrayIterator(_) | Value::HashIterator(_) | Value::ByteIterator(_) => "iterator",
         Value::NativeResource(_) => "native-resource",
         Value::ExternalResource(_) => "external-resource",
-        Value::Transformation { .. } => "transformation",
+        Value::Decorator(record) => record.core_name(),
         Value::ExceptionContext(..) => "exception-context",
         Value::StackFrame(..) | Value::RaiseSite(_) | Value::SourceLocation(..) => "trace",
         _ => "value",
@@ -449,7 +472,8 @@ mod tests {
 
     #[test]
     fn same_contract_dispatch_compares_equal_across_backends() {
-        let source = "contract C { } class A for C { } let a = A.new(); (a as C)..missing()";
+        let source =
+            "contract C { } class A { } impl A for C { } let a = A.new(); (a as C)..missing()";
 
         let Support::Ran(interpreter) = Interpreter.execute(source) else {
             unreachable!("the interpreter must run the Contract-view scenario")
@@ -470,10 +494,8 @@ mod tests {
 
     #[test]
     fn different_contract_dispatches_compare_unequal() {
-        let first =
-            "contract First { } class A for First { } let a = A.new(); (a as First)..missing()";
-        let second =
-            "contract Second { } class A for Second { } let a = A.new(); (a as Second)..missing()";
+        let first = "contract First { } class A { } impl A for First { } let a = A.new(); (a as First)..missing()";
+        let second = "contract Second { } class A { } impl A for Second { } let a = A.new(); (a as Second)..missing()";
 
         let Support::Ran(first) = Interpreter.execute(first) else {
             unreachable!("the interpreter must run the first Contract-view scenario")
@@ -740,7 +762,7 @@ mod differential_tests {
         try { raise :a } catch e { raise }
       } catch e { raise }
     } catch e, context {
-      [e, context.re_raise_sites[0].location.line, context.re_raise_sites[1].location.line]
+      %[e, context.re_raise_sites[0].location.line, context.re_raise_sites[1].location.line]
     }
   }
 }
@@ -830,8 +852,8 @@ M.r()"#;
                 "false",
             ),
             (
-                "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is Box } } M.r()",
-                "class Box<T> { } class Other { } module M { public fun r() -> Object { Box<Integer>.new() is Other } } M.r()",
+                "class Box<T> { } module M { public fun r() -> Object { Box<Integer>.new() is? Box } } M.r()",
+                "class Box<T> { } class Other { } module M { public fun r() -> Object { Box<Integer>.new() is? Other } } M.r()",
                 "true",
                 "false",
             ),
@@ -887,8 +909,8 @@ M.r()"#;
                 "8",
             ),
             (
-                "mut log = []\nmodule M { public async fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let t = M.f(); [log, Host.run(t), log] } } M.r()",
-                "mut log = []\nmodule M { public fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let v = M.f(); [log, v, log] } } M.r()",
+                "mut log = %[]\nmodule M { public async fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let t = M.f(); %[log, Host.run(t), log] } } M.r()",
+                "mut log = %[]\nmodule M { public fun f() -> Nil { log.append(:ran); nil } public fun r() -> Object { let v = M.f(); %[log, v, log] } } M.r()",
                 "[[:ran], nil, [:ran]]",
                 "[[:ran], nil, [:ran]]",
             ),
@@ -899,8 +921,8 @@ M.r()"#;
                 "8",
             ),
             (
-                "mut log = []\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(1); let b = M.f(2); [log, Host.run(a), Host.run(b)] } } M.r()",
-                "mut log = []\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(2); let b = M.f(1); [log, Host.run(a), Host.run(b)] } } M.r()",
+                "mut log = %[]\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(1); let b = M.f(2); %[log, Host.run(a), Host.run(b)] } } M.r()",
+                "mut log = %[]\nmodule M { public async fun f(v: Integer) -> Integer { log.append(v); v } public fun r() -> Object { let a = M.f(2); let b = M.f(1); %[log, Host.run(a), Host.run(b)] } } M.r()",
                 "[[1, 2], 1, 2]",
                 "[[2, 1], 2, 1]",
             ),
@@ -980,7 +1002,7 @@ M.r()"#;
     fn backends_agree_on_generic_lookup_and_open_failures() {
         let cases = [
             (
-                "module M { public fun r() -> Object { Array<Integer> } } M.r()",
+                "module M { public fun r() -> Object { MissingArray<Integer> } } M.r()",
                 "class ArrayBox<T> { } module M { public fun r() -> Object { ArrayBox<Integer> } } M.r()",
                 Observation::Error("NameError".to_owned()),
                 Observation::Value("<class>".to_owned()),
@@ -1060,8 +1082,8 @@ M.r()"#;
 
     #[test]
     fn backends_agree_reflected_class_properties_remain_ordinary_arrays() {
-        let source = "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); [properties.length(), properties[0]] } } M.r()";
-        let control = "class A { public property x: Integer = 1 } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); [properties.length(), properties[0]] } } M.r()";
+        let source = "class A { public fun m() -> Integer { 1 } } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); %[properties.length(), properties[0]] } } M.r()";
+        let control = "class A { public property x: Integer = 1 } module M { public fun r() -> Object { let properties = Reflection::Class.properties(A); %[properties.length(), properties[0]] } } M.r()";
 
         let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
         let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
@@ -1087,8 +1109,8 @@ M.r()"#;
 
     #[test]
     fn backends_agree_reflected_revision_hash_tracks_open_publications() {
-        let source = "class B { } module M { public fun r() -> Object { let before = Reflection::Class.revision(B); B.open() { |t| 1 }; let after = Reflection::Class.revision(B); [before[:number], after[:number], after[:commit_id] > before[:commit_id]] } } M.r()";
-        let control = "class B { } module M { public fun r() -> Object { let revision = Reflection::Class.revision(B); [revision[:number], revision[:missing], revision[:commit_id]] } } M.r()";
+        let source = "class B { } module M { public fun r() -> Object { let before = Reflection::Class.revision(B); B.open() { |t| 1 }; let after = Reflection::Class.revision(B); %[before[:number], after[:number], after[:commit_id] > before[:commit_id]] } } M.r()";
+        let control = "class B { } module M { public fun r() -> Object { let revision = Reflection::Class.revision(B); %[revision[:number], revision[:missing], revision[:commit_id]] } } M.r()";
 
         let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
         let control_agreement = compare_backends(control, &[&Interpreter, &Bytecode]);
@@ -1114,7 +1136,7 @@ M.r()"#;
     fn backends_agree_on_raw_ivar_round_trip_and_absent_read() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, 9); [stored, Reflection::Object.get_ivar(a, :@value), Reflection::Object.get_ivar(a, :@absent)] } } M.r()";
+        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, 9); %[stored, Reflection::Object.get_ivar(a, :@value), Reflection::Object.get_ivar(a, :@absent)] } } M.r()";
 
         let agreement = compare_backends(source, &backends);
 
@@ -1128,7 +1150,7 @@ M.r()"#;
     fn reflection_object_values_remain_ordinary_downstream_values() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, [1]); let read = Reflection::Object.get_ivar(a, :@value); stored.push(2); read.push(3); [read, Reflection::Object.get_ivar(a, :@missing)] } } M.r()";
+        let source = "class A { } module M { public fun r() -> Object { let a = A.new(); let stored = Reflection::Object.set_ivar(a, :@value, %[1]); let read = Reflection::Object.get_ivar(a, :@value); stored.push(2); read.push(3); %[read, Reflection::Object.get_ivar(a, :@missing)] } } M.r()";
 
         let agreement = compare_backends(source, &backends);
 
@@ -1198,7 +1220,7 @@ M.r()"#;
     fn backends_agree_on_method_metadata_and_bound_invocation() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let source = "class A { public fun m() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :m); [method.selector, method.owner same? A, method.visibility, method.parameters, method.return_type, method.source[3], method.bind(A.new()).call()] } } M.r()";
+        let source = "class A { public fun m() -> Integer { 7 } } module M { public fun r() -> Object { let method = Reflection::Class.method(A, :m); %[method.selector, method.owner same? A, method.visibility, method.parameters, method.return_type, method.source[3], method.bind(A.new()).call()] } } M.r()";
 
         let agreement = compare_backends(source, &backends);
 
@@ -1240,16 +1262,13 @@ M.r()"#;
         let Agreement::Agreed { observation, .. } = agreement else {
             unreachable!("both backends deliver a committed event to the closure: {agreement:?}")
         };
-        assert_eq!(
-            observation,
-            Observation::Value("[:none, :RevisionEvent]".to_owned())
-        );
+        assert_eq!(observation, Observation::Value(":RevisionEvent".to_owned()));
 
         let negative = "global mut $received = :none; class B { } module M { public fun r() -> Object { Revision.subscribe({ |event| $received = event[0] }); Revision.flush(); $received } } M.r()";
         let Agreement::Agreed { observation, .. } = compare_backends(negative, &backends) else {
             unreachable!("flushing without a commit must not fabricate an event")
         };
-        assert_eq!(observation, Observation::Value("[:none, :none]".to_owned()));
+        assert_eq!(observation, Observation::Value(":none".to_owned()));
     }
 
     #[test]
@@ -1323,7 +1342,7 @@ M.r()"#;
         };
         assert_eq!(observation, &Observation::Error("NameError".to_owned()));
 
-        let Support::Unsupported(reason) = bytecode.execute("for [a, [b]] in [[1, [2]]] { a }")
+        let Support::Unsupported(reason) = bytecode.execute("for [a, [b]] in %[%[1, %[2]]] { a }")
         else {
             unreachable!("a NESTED destructuring sub-pattern must remain declined")
         };
@@ -1334,7 +1353,7 @@ M.r()"#;
         let interpreter = Interpreter;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         let Agreement::Insufficient { ran, declined } =
-            compare_backends("for [a, [b]] in [[1, [2]]] { a }", &backends)
+            compare_backends("for [a, [b]] in %[%[1, %[2]]] { a }", &backends)
         else {
             unreachable!("only one backend ran it")
         };
@@ -1348,69 +1367,77 @@ M.r()"#;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
         for (expression, expected, control) in [
             (
-                "[1, 2].map({ |x|; x * 2 })",
+                "%[1, 2].map({ |x|; x * 2 })",
                 "[2, 4]",
-                "[1, 2].map({ |x|; x * 3 })",
+                "%[1, 2].map({ |x|; x * 3 })",
             ),
             (
-                "[1, 2].each({ |x|; x }).length()",
+                "%[1, 2].each({ |x|; x }).length()",
                 "2",
-                "[1].each({ |x|; x }).length()",
+                "%[1].each({ |x|; x }).length()",
             ),
             (
-                "[1, 2, 3].select({ |x|; x > 1 })",
+                "%[1, 2, 3].select({ |x|; x > 1 })",
                 "[2, 3]",
-                "[1, 2, 3].select({ |x|; x > 2 })",
+                "%[1, 2, 3].select({ |x|; x > 2 })",
             ),
             (
-                "[1, 2, 3].reduce(0, { |a, x|; a + x })",
+                "%[1, 2, 3].reduce(0, { |a, x|; a + x })",
                 "6",
-                "[1, 2, 3].reduce(1, { |a, x|; a + x })",
+                "%[1, 2, 3].reduce(1, { |a, x|; a + x })",
             ),
-            ("[1, 2].length()", "2", "[1].length()"),
+            ("%[1, 2].length()", "2", "%[1].length()"),
             (
-                "let a = [1]; let b = a; a.push(2); b.pop()",
+                "let a = %[1]; let b = a; a.push(2); b.pop()",
                 "2",
-                "let a = [1]; let b = a; a.push(3); b.pop()",
+                "let a = %[1]; let b = a; a.push(3); b.pop()",
             ),
-            ("[1, 2].join(\"-\")", "\"1-2\"", "[1, 2].join(\":\")"),
+            ("%[1, 2].join(\"-\")", "\"1-2\"", "%[1, 2].join(\":\")"),
             (
-                "[1, 2, 3].find({ |x|; x > 1 })",
+                "%[1, 2, 3].find({ |x|; x > 1 })",
                 "2",
-                "[1, 2, 3].find({ |x|; x > 2 })",
+                "%[1, 2, 3].find({ |x|; x > 2 })",
             ),
-            ("[1, 2, 3].count()", "3", "[1, 2].count()"),
+            ("%[1, 2, 3].count()", "3", "%[1, 2].count()"),
             (
-                "[1, 2, 3].count({ |x|; x > 1 })",
+                "%[1, 2, 3].count({ |x|; x > 1 })",
                 "2",
-                "[1, 2, 3].count({ |x|; x > 2 })",
+                "%[1, 2, 3].count({ |x|; x > 2 })",
             ),
-            ("[1, 2, 3].sum()", "6", "[1, 2].sum()"),
-            ("[3, 1, 2].min()", "1", "[3, 2].min()"),
-            ("[3, 1, 2].max()", "3", "[1, 2].max()"),
-            ("[3, 1, 2].sort()", "[1, 2, 3]", "[2, 1].sort()"),
-            ("[1, 2, 3].include?(2)", "true", "[1, 2, 3].include?(4)"),
-            ("[1, 2, 3].index_of(2)", "1", "[1, 2, 3].index_of(3)"),
-            ("[1, 2].concat([3, 4])", "[1, 2, 3, 4]", "[1].concat([3])"),
-            ("[1, 2, 3].slice(1, 2)", "[2, 3]", "[1, 2, 3].slice(0, 2)"),
-            ("[1, 2, 3].take(2)", "[1, 2]", "[1, 2, 3].take(1)"),
-            ("[1, 2, 3].drop(2)", "[3]", "[1, 2, 3].drop(1)"),
-            ("[1, 1, 2].uniq()", "[1, 2]", "[1, 3, 3].uniq()"),
-            ("[1, [2, [3]]].flatten()", "[1, 2, 3]", "[[1], 2].flatten()"),
+            ("%[1, 2, 3].sum()", "6", "%[1, 2].sum()"),
+            ("%[3, 1, 2].min()", "1", "%[3, 2].min()"),
+            ("%[3, 1, 2].max()", "3", "%[1, 2].max()"),
+            ("%[3, 1, 2].sort()", "[1, 2, 3]", "%[2, 1].sort()"),
+            ("%[1, 2, 3].include?(2)", "true", "%[1, 2, 3].include?(4)"),
+            ("%[1, 2, 3].index_of(2)", "1", "%[1, 2, 3].index_of(3)"),
             (
-                "[1, 2].all?({ |x|; x > 0 })",
+                "%[1, 2].concat(%[3, 4])",
+                "[1, 2, 3, 4]",
+                "%[1].concat(%[3])",
+            ),
+            ("%[1, 2, 3].slice(1, 2)", "[2, 3]", "%[1, 2, 3].slice(0, 2)"),
+            ("%[1, 2, 3].take(2)", "[1, 2]", "%[1, 2, 3].take(1)"),
+            ("%[1, 2, 3].drop(2)", "[3]", "%[1, 2, 3].drop(1)"),
+            ("%[1, 1, 2].uniq()", "[1, 2]", "%[1, 3, 3].uniq()"),
+            (
+                "%[1, %[2, %[3]]].flatten()",
+                "[1, 2, 3]",
+                "%[%[1], 2].flatten()",
+            ),
+            (
+                "%[1, 2].all?({ |x|; x > 0 })",
                 "true",
-                "[0, 1].all?({ |x|; x > 0 })",
+                "%[0, 1].all?({ |x|; x > 0 })",
             ),
             (
-                "[0, 2].any?({ |x|; x > 1 })",
+                "%[0, 2].any?({ |x|; x > 1 })",
                 "true",
-                "[0, 1].any?({ |x|; x > 1 })",
+                "%[0, 1].any?({ |x|; x > 1 })",
             ),
             (
-                "[1, 2].each_with_index({ |x, i|; x + i })",
+                "%[1, 2].each_with_index({ |x, i|; x + i })",
                 "[1, 2]",
-                "[1].each_with_index({ |x, i|; x + i })",
+                "%[1].each_with_index({ |x, i|; x + i })",
             ),
         ] {
             let source =
@@ -1497,9 +1524,9 @@ M.r()"#;
                 "mut total = 0; for pair in JSON.decode(\"{\\\"a\\\":1,\\\"b\\\":3}\") { total = total + pair[1] }; total",
             ),
             (
-                "JSON.encode([1,true,false,nil,%{ \"a\": [2] }])",
+                "JSON.encode(%[1,true,false,nil,%{ \"a\": %[2] }])",
                 "\"[1,true,false,null,{\\\"a\\\":[2]}]\"",
-                "JSON.encode([2,true,false,nil,%{ \"a\": [2] }])",
+                "JSON.encode(%[2,true,false,nil,%{ \"a\": %[2] }])",
             ),
         ] {
             let source =
@@ -1747,8 +1774,8 @@ M.r()"#;
     fn backends_keep_array_size_absent() {
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
-        let source = "module M { public fun r() -> Object { [1].size() } } M.r()";
-        let control = "module M { public fun r() -> Object { [1].length() } } M.r()";
+        let source = "module M { public fun r() -> Object { %[1].size() } } M.r()";
+        let control = "module M { public fun r() -> Object { %[1].length() } } M.r()";
 
         let agreement = compare_backends(source, &backends);
         let Agreement::Agreed { observation, .. } = agreement else {
@@ -2030,7 +2057,7 @@ M.r()"#;
             ("let a = 2; let b = 3; a * b", "6"),
             ("let x = 10; x - 4", "6"),
             ("let a = 1; let a = 2; a", "2"),
-            ("let n = [1, 2]; n", "[1, 2]"),
+            ("let n = %[1, 2]; n", "[1, 2]"),
             // Comparisons.
             ("1 < 2", "true"),
             ("5 >= 5", "true"),
@@ -2076,34 +2103,34 @@ M.r()"#;
     fn backends_agree_on_iteration_protocol() {
         for (body, expected, control) in [
             (
-                "class C { public fun iterator() -> Object { [7].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+                "class C { public fun iterator() -> Object { %[7].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
                 "7",
-                "class C { public fun iterator() -> Object { [8].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
+                "class C { public fun iterator() -> Object { %[8].iterator() } }; mut sum = 0; for x in C.new() { sum = sum + x }; sum",
             ),
             (
-                "let it = [1, 2].iterator(); [it.next().value, it.next().value, it.next().done?]",
+                "let it = %[1, 2].iterator(); %[it.next().value, it.next().value, it.next().done?]",
                 "[1, 2, true]",
-                "let it = [1, 3].iterator(); [it.next().value, it.next().value, it.next().done?]",
+                "let it = %[1, 3].iterator(); %[it.next().value, it.next().value, it.next().done?]",
             ),
             (
-                "let it = [].iterator(); [it.close(), it.close(), it.next().done?]",
+                "let it = %[].iterator(); %[it.close(), it.close(), it.next().done?]",
                 "[nil, nil, true]",
-                "let it = [1].iterator(); [it.close(), it.close(), it.next().yield?]",
+                "let it = %[1].iterator(); %[it.close(), it.close(), it.next().yield?]",
             ),
             (
-                "let it = [].iterator(); let a = it.next(); let b = it.next(); [a.done?, b.done?]",
+                "let it = %[].iterator(); let a = it.next(); let b = it.next(); %[a.done?, b.done?]",
                 "[true, true]",
-                "let it = [1].iterator(); let a = it.next(); let b = it.next(); [a.done?, b.done?]",
+                "let it = %[1].iterator(); let a = it.next(); let b = it.next(); %[a.done?, b.done?]",
             ),
             (
-                "class C { public fun iterator() -> Object { [7, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
+                "class C { public fun iterator() -> Object { %[7, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
                 "7",
-                "class C { public fun iterator() -> Object { [8, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
+                "class C { public fun iterator() -> Object { %[8, 9].iterator() } }; mut seen = 0; for x in C.new() { seen = x; break }; seen",
             ),
             (
-                "mut sum = 0; for x in [1, 2] { sum = sum + x }; for pair in %{ :a: 3 } { sum = sum + pair[1] }; for x in (4 ..= 5) { sum = sum + x }; sum",
+                "mut sum = 0; for x in %[1, 2] { sum = sum + x }; for pair in %{ :a: 3 } { sum = sum + pair[1] }; for x in (4 ..= 5) { sum = sum + x }; sum",
                 "15",
-                "mut sum = 0; for x in [1] { sum = sum + x }; for pair in %{ :b: 4 } { sum = sum + pair[1] }; for x in (6 ..= 6) { sum = sum + x }; sum",
+                "mut sum = 0; for x in %[1] { sum = sum + x }; for pair in %{ :b: 4 } { sum = sum + pair[1] }; for x in (6 ..= 6) { sum = sum + x }; sum",
             ),
         ] {
             let source = if body.starts_with("class C")
@@ -2143,14 +2170,14 @@ M.r()"#;
     fn backends_agree_on_source_iteration_results() {
         for (body, expected, control) in [
             (
-                "let step = Iteration.yield(nil); [step.yield?, step.done?, step.value]",
+                "let step = Iteration.yield(nil); %[step.yield?, step.done?, step.value]",
                 "[true, false, nil]",
-                "let step = Iteration.yield(1); [step.yield?, step.done?, step.value]",
+                "let step = Iteration.yield(1); %[step.yield?, step.done?, step.value]",
             ),
             (
-                "let first = Iteration.done; let second = Iteration.done; [first.done?, first.yield?, first.same?(second)]",
+                "let first = Iteration.done; let second = Iteration.done; %[first.done?, first.yield?, first.same?(second)]",
                 "[true, false, true]",
-                "let first = Iteration.yield(1); let second = Iteration.done; [first.done?, first.yield?, second.yield?]",
+                "let first = Iteration.yield(1); let second = Iteration.done; %[first.done?, first.yield?, second.yield?]",
             ),
             (
                 "class It { public fun initialize() -> Nil { @n = 0; nil } public fun next() -> Object { @n = @n + 1; if @n > 2 { Iteration.done } else { Iteration.yield(@n) } } public fun close() -> Nil { nil } } class C { public fun iterator() -> Object { It.new() } } mut sum = 0; for x in C.new() { sum = sum + x }; sum",
@@ -2220,7 +2247,7 @@ M.r()"#;
     fn backends_agree_on_iteration_failures() {
         for (body, expected_fragment, control_fragment) in [
             (
-                "[].iterator().next().value",
+                "%[].iterator().next().value",
                 "IteratorState",
                 "MessageNotFound",
             ),
@@ -2230,12 +2257,12 @@ M.r()"#;
                 "receiver_class: \"String\", selector: \"iterator\"",
             ),
             (
-                "let values = [1, 2]; for x in values { values[0] = 9 }",
+                "let values = %[1, 2]; for x in values { values[0] = 9 }",
                 "ConcurrentModification",
                 "IteratorState",
             ),
             (
-                "class C { public fun iterator() -> Object { [1].iterator() } }; for x in C.new() { raise :boom }",
+                "class C { public fun iterator() -> Object { %[1].iterator() } }; for x in C.new() { raise :boom }",
                 "Raised",
                 "ConcurrentModification",
             ),
@@ -2374,7 +2401,7 @@ M.r()"#;
                  public fun f(a: Integer) -> Integer { a } } M.r()",
                 "expression keyword argument",
             ),
-            ("for [a, [b]] in [[1, [2]]] { a }", "statement for"),
+            ("for [a, [b]] in %[%[1, %[2]]] { a }", "statement for"),
         ] {
             let Support::Unsupported(reason) = bytecode.execute(source) else {
                 unreachable!("this backend does not cover: {source}")
@@ -2499,21 +2526,21 @@ M.r()"#;
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
 
         for (body, expected, wrong) in [
-            ("mut t = 0; for x in [] { t = t + x }; t", "0", "nil"),
-            ("mut t = 0; for x in [4] { t = t + x }; t", "4", "0"),
-            ("mut t = 0; for x in [1, 2, 3] { t = t + x }; t", "6", "3"),
+            ("mut t = 0; for x in %[] { t = t + x }; t", "0", "nil"),
+            ("mut t = 0; for x in %[4] { t = t + x }; t", "4", "0"),
+            ("mut t = 0; for x in %[1, 2, 3] { t = t + x }; t", "6", "3"),
             (
-                "mut t = 0; for x in [1, 2, 3] { if x == 2 { break }; t = t + x }; t",
+                "mut t = 0; for x in %[1, 2, 3] { if x == 2 { break }; t = t + x }; t",
                 "1",
                 "6",
             ),
             (
-                "mut t = 0; for x in [1, 2, 3] { if x == 2 { continue }; t = t + x }; t",
+                "mut t = 0; for x in %[1, 2, 3] { if x == 2 { continue }; t = t + x }; t",
                 "4",
                 "6",
             ),
             (
-                "mut t = 0; for x in [1, 2] { for y in [3, 4] { t = t + x * y } }; t",
+                "mut t = 0; for x in %[1, 2] { for y in %[3, 4] { t = t + x * y } }; t",
                 "21",
                 "14",
             ),
@@ -2660,17 +2687,17 @@ M.r()"#;
                 "true",
             ),
             (
-                "module M { public fun run() { let a = [1]; a same? a } } M.run()",
+                "module M { public fun run() { let a = %[1]; a same? a } } M.run()",
                 "true",
                 "false",
             ),
             (
-                "module M { public fun run() { [10, 20][1] } } M.run()",
+                "module M { public fun run() { %[10, 20][1] } } M.run()",
                 "20",
                 "nil",
             ),
             (
-                "module M { public fun run() { [10][-1] } } M.run()",
+                "module M { public fun run() { %[10][-1] } } M.run()",
                 "10",
                 "nil",
             ),
@@ -2741,8 +2768,8 @@ M.r()"#;
     #[test]
     fn an_out_of_range_index_write_raises_in_both_backends() {
         for source in [
-            "module M { public fun r() -> Object { let a = []; a[0] = 1; a } } M.r()",
-            "module M { public fun r() -> Object { let a = [1]; a[5] = 1; a } } M.r()",
+            "module M { public fun r() -> Object { let a = %[]; a[0] = 1; a } } M.r()",
+            "module M { public fun r() -> Object { let a = %[1]; a[5] = 1; a } } M.r()",
         ] {
             let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
             let Agreement::Agreed { observation, .. } = &agreement else {
@@ -2754,7 +2781,7 @@ M.r()"#;
         // Control: an IN-RANGE write stores and answers the value, so the
         // refusal above is about the position rather than about writes.
         let agreement = compare_backends(
-            "module M { public fun r() -> Object { let a = [1]; a[0] = 9; a } } M.r()",
+            "module M { public fun r() -> Object { let a = %[1]; a[0] = 9; a } } M.r()",
             &[&Interpreter, &Bytecode],
         );
         let Agreement::Agreed { observation, .. } = &agreement else {
@@ -2885,9 +2912,9 @@ M.r()"#;
     #[test]
     fn mutating_an_array_while_iterating_it_raises_in_both_backends() {
         for source in [
-            "module M { public fun r() -> Object { let a = [1,2]; mut n = 0; \
+            "module M { public fun r() -> Object { let a = %[1,2]; mut n = 0; \
              for x in a { n = n + 1; if n < 5 { a.push(9) } }; n } } M.r()",
-            "module M { public fun r() -> Object { let a = [1,2,3]; mut n = 0; \
+            "module M { public fun r() -> Object { let a = %[1,2,3]; mut n = 0; \
              for x in a { n = n + 1; a.pop() }; n } } M.r()",
         ] {
             let agreement = compare_backends(source, &[&Interpreter, &Bytecode]);
@@ -2904,7 +2931,7 @@ M.r()"#;
         // Control: an unmutated loop still runs to completion, so the raise
         // above is about the mutation rather than about iterating at all.
         let agreement = compare_backends(
-            "module M { public fun r() -> Object { let a = [1,2,3]; mut n = 0; \
+            "module M { public fun r() -> Object { let a = %[1,2,3]; mut n = 0; \
              for x in a { n = n + x }; n } } M.r()",
             &[&Interpreter, &Bytecode],
         );
@@ -2927,7 +2954,7 @@ M.r()"#;
     fn backends_agree_on_what_a_for_loop_can_traverse() {
         for (source, expected) in [
             (
-                "module M { public fun r() -> Object { mut out = []; \
+                "module M { public fun r() -> Object { mut out = %[]; \
                  for k in %{ :a: 1, :b: 2 } { out.push(k) }; out } } M.r()",
                 Observation::Value("[[:a, 1], [:b, 2]]".to_owned()),
             ),
@@ -2969,7 +2996,7 @@ M.r()"#;
         // rebuilding the loop.
         for (source, expected) in [
             (
-                "module M { public fun r() -> Object { mut n = 0; for x in [1,2,3] { n = n + x }; n } } M.r()",
+                "module M { public fun r() -> Object { mut n = 0; for x in %[1,2,3] { n = n + x }; n } } M.r()",
                 "6",
             ),
             (
@@ -3141,20 +3168,20 @@ M.r()"#;
         for (source, expected) in [
             (
                 "module M { public fun r() -> Object { \
-                 try { let a = []; a[0] = 1; :no } catch e { e } } } M.r()",
+                 try { let a = %[]; a[0] = 1; :no } catch e { e } } } M.r()",
                 ":IndexError",
             ),
             (
                 "module M { public fun r() -> Object { \
-                 try { [].iterator().next().value } catch e { e } } } M.r()",
+                 try { %[].iterator().next().value } catch e { e } } } M.r()",
                 ":IteratorStateError",
             ),
             (
-                "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()",
+                "module M { public fun r() -> Object { try { %[1].size() } catch e { e } } } M.r()",
                 ":MessageNotFound",
             ),
             (
-                "module M { public fun r() -> Object { try { let a = [1,2]; \
+                "module M { public fun r() -> Object { try { let a = %[1,2]; \
                  for x in a { a[0] = 9 } } catch e { e } } } M.r()",
                 ":ConcurrentModificationError",
             ),
@@ -3173,7 +3200,7 @@ M.r()"#;
         // Control: with NO handler the failure is still itself, so the
         // conversion above is the catch's doing rather than a rename.
         let uncaught = "module M { public fun r() -> Object { \
-             let a = [1,2]; for x in a { a[0] = 9 } } } M.r()";
+             let a = %[1,2]; for x in a { a[0] = 9 } } } M.r()";
         let agreement = compare_backends(uncaught, &[&Interpreter, &Bytecode]);
         let Agreement::Agreed { observation, .. } = &agreement else {
             unreachable!("an uncaught failure must surface as itself: {agreement:?}")
@@ -3263,7 +3290,7 @@ M.r()"#;
         // Control: the authored surface still answers on the BUILT-IN family,
         // so the change let user classes through rather than disabling it.
         let agreement = compare_backends(
-            "module M { public fun r() -> Object { [7,8].first() } } M.r()",
+            "module M { public fun r() -> Object { %[7,8].first() } } M.r()",
             &[&Interpreter, &Bytecode],
         );
         let Agreement::Agreed { observation, .. } = &agreement else {
@@ -3274,7 +3301,7 @@ M.r()"#;
         // Control: Array `size` stays ABSENT, which is the refusal the
         // authored surface exists to make.
         let agreement = compare_backends(
-            "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()",
+            "module M { public fun r() -> Object { try { %[1].size() } catch e { e } } } M.r()",
             &[&Interpreter, &Bytecode],
         );
         let Agreement::Agreed { observation, .. } = &agreement else {
@@ -3330,7 +3357,7 @@ M.r()"#;
         // Control: normalising the number must not erase the SELECTOR NAME a
         // MessageNotFound carries, which is what distinguishes two refusals.
         let named =
-            "module M { public fun r() -> Object { try { [1].size() } catch e { e } } } M.r()";
+            "module M { public fun r() -> Object { try { %[1].size() } catch e { e } } } M.r()";
         let agreement = compare_backends(named, &[&Interpreter, &Bytecode]);
         let Agreement::Agreed { observation, .. } = &agreement else {
             unreachable!("both backends must refuse alike: {agreement:?}")
@@ -3358,24 +3385,24 @@ M.r()"#;
     fn arrays_grow_and_a_top_level_binding_receives() {
         for (source, expected) in [
             // append mutates and answers nil; push answers the Array.
-            ("mut a = []; let r = a.append(1); [r, a]", "[nil, [1]]"),
-            ("mut a = []; let r = a.push(1); [r, a]", "[[1], [1]]"),
-            ("mut a = [1,2]; let r = a.clear(); [r, a]", "[nil, []]"),
+            ("mut a = %[]; let r = a.append(1); %[r, a]", "[nil, [1]]"),
+            ("mut a = %[]; let r = a.push(1); %[r, a]", "[[1], [1]]"),
+            ("mut a = %[1,2]; let r = a.clear(); %[r, a]", "[nil, []]"),
             // delete removes the FIRST equal element, not every one.
             (
-                "mut a = [1,2,1]; let r = a.delete(1); [r, a]",
+                "mut a = %[1,2,1]; let r = a.delete(1); %[r, a]",
                 "[nil, [2, 1]]",
             ),
             (
-                "mut a = [1,3]; let r = a.insert(1, 2); [r, a]",
+                "mut a = %[1,3]; let r = a.insert(1, 2); %[r, a]",
                 "[nil, [1, 2, 3]]",
             ),
             // The END position is a valid insertion point even though it is
             // out of range for a read.
-            ("mut a = [1]; a.insert(1, 9); a", "[nil, [1, 9]]"),
+            ("mut a = %[1]; a.insert(1, 9); a", "[nil, [1, 9]]"),
             // A method SENDS to a top-level binding, not just reads it.
             (
-                "mut log = []; class C { public fun add() -> Nil { log.append(:x); nil } } \
+                "mut log = %[]; class C { public fun add() -> Nil { log.append(:x); nil } } \
                  C.new().add(); log",
                 "[nil, [:x]]",
             ),
@@ -3394,7 +3421,7 @@ M.r()"#;
         // Control: past the end is still refused, so admitting the end
         // position widened the boundary by exactly one rather than removing it.
         let agreement = compare_backends(
-            "mut a = [1]; try { a.insert(5, 9) } catch e { e }",
+            "mut a = %[1]; try { a.insert(5, 9) } catch e { e }",
             &[&Interpreter, &Bytecode],
         );
         let Agreement::Agreed { observation, .. } = &agreement else {
@@ -3489,7 +3516,7 @@ M.r()"#;
     #[test]
     fn harder_constructs_remain_precisely_declined() {
         let bytecode = Bytecode;
-        let source = "for [a, [b]] in [[1, [2]]] { a }";
+        let source = "for [a, [b]] in %[%[1, %[2]]] { a }";
 
         let Support::Unsupported(reason) = bytecode.execute(source) else {
             unreachable!("the VM must not approximate the declined construct: {source}")
@@ -3512,12 +3539,12 @@ M.r()"#;
                 "false",
             ),
             (
-                "module M { public fun r() -> Object { let a = [1]; a.same?(a) } } M.r()",
+                "module M { public fun r() -> Object { let a = %[1]; a.same?(a) } } M.r()",
                 "true",
                 "false",
             ),
             (
-                "module M { public fun r() -> Object { let a = [1]; let b = [1]; a.same?(b) } } M.r()",
+                "module M { public fun r() -> Object { let a = %[1]; let b = %[1]; a.same?(b) } } M.r()",
                 "false",
                 "true",
             ),
@@ -3573,7 +3600,7 @@ M.r()"#;
                 ":other",
             ),
             (
-                "module M { public fun r() -> Object { [4, 5][1] } } M.r()",
+                "module M { public fun r() -> Object { %[4, 5][1] } } M.r()",
                 "5",
                 "nil",
             ),
@@ -3613,7 +3640,7 @@ M.r()"#;
     fn backends_agree_on_index_assignment_and_aliasing() {
         for (source, expected, wrong) in [
             (
-                "module M { public fun r() -> Object { let a = [1, 2]; let b = a; a[0] = 9; b } } M.r()",
+                "module M { public fun r() -> Object { let a = %[1, 2]; let b = a; a[0] = 9; b } } M.r()",
                 "[9, 2]",
                 "[1, 2]",
             ),
@@ -3786,22 +3813,22 @@ M.r()"#;
     fn backends_agree_on_using_and_bare_callable_refusals() {
         for (source, expected, wrong) in [
             (
-                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let value = using(R.new()) { :body }; [value, closed]",
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let value = using(R.new()) { :body }; %[value, closed]",
                 "[:body, true]",
                 "[:body, false]",
             ),
             (
-                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let value = using(R.new()) { :body }; [value, closed] } } M.r()",
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let value = using(R.new()) { :body }; %[value, closed] } } M.r()",
                 "[:body, true]",
                 "[:body, false]",
             ),
             (
-                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; [caught, closed]",
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; %[caught, closed]",
                 "[:bodyfail, true]",
                 "[:bodyfail, false]",
             ),
             (
-                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; [caught, closed] } } M.r()",
+                "mut closed = false; class R { public fun close() -> Nil { closed = true; nil } } module M { public fun r() -> Object { let caught = try { using(R.new()) { raise :bodyfail } } catch e { e }; %[caught, closed] } } M.r()",
                 "[:bodyfail, true]",
                 "[:bodyfail, false]",
             ),
@@ -3904,13 +3931,13 @@ M.r()"#;
         for (source, expected, wrong) in [
             (
                 "global let $g = 3; module M { public fun r() -> Object { $g } } M.r()",
-                "[3, 3]",
-                "[3, nil]",
+                "3",
+                "nil",
             ),
             (
                 "global mut $g = 3; module M { public fun r() -> Object { $g = 4; $g } } M.r()",
-                "[3, 4]",
-                "[3, 3]",
+                "4",
+                "3",
             ),
         ] {
             let (interpreter, bytecode) = both();
@@ -4017,12 +4044,12 @@ M.r()"#;
     fn backends_agree_on_contract_conformance_and_dispatch() {
         for (source, expected, wrong) in [
             (
-                "contract Named { fun name() -> String } class User for Named { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { let view = User.new() as Named; view..name() } } M.r()",
+                "contract Named { fun name() -> String } class User { } impl User for Named { public fun name() -> String { \"iris\" } } module M { public fun r() -> Object { let view = User.new() as Named; view..name() } } M.r()",
                 "\"iris\"",
                 "<method>",
             ),
             (
-                "contract Named { fun name() -> String } class User for Named { public impl fun name() -> String { \"iris\" } } module M { public fun r() -> Object { User.contracts().length() } } M.r()",
+                "contract Named { fun name() -> String } class User { } impl User for Named { public fun name() -> String { \"iris\" } } module M { public fun r() -> Object { User.contracts().length() } } M.r()",
                 "1",
                 "0",
             ),
@@ -4045,40 +4072,42 @@ M.r()"#;
             );
         }
 
-        // A conformance whose requirement is UNIMPLEMENTED is not refused at
-        // declaration: the reference casts it to a contract view all the same,
-        // so declining measured the backend against a rule the language does
-        // not have.
+        // A declared conformance must satisfy every requirement even when the
+        // impl body is empty.
         let agreement = compare_backends(
-            "contract Named { fun name() -> String } class User for Named { } \
+            "contract Named { fun name() -> String } class User { } impl User for Named { } \
              module M { public fun r() -> Object { User.new() as Named } } M.r()",
             &[&Interpreter, &Bytecode],
         );
         let Agreement::Agreed { observation, .. } = &agreement else {
             unreachable!("both backends must agree: {agreement:?}")
         };
-        assert_eq!(observation, &Observation::Value("<contract>".to_owned()));
+        assert_eq!(
+            observation,
+            &Observation::Error("TypeContractError".to_owned())
+        );
 
-        // Control: an `impl` marker naming NO declared conformance is still
-        // declined, so dropping the requirement check did not drop every
-        // contract rule.
-        let bytecode = Bytecode;
-        let Support::Unsupported(reason) = bytecode.execute(
+        // Control: the legacy inline `impl` spelling remains a parse refusal.
+        let agreement = compare_backends(
             "contract Named { fun name() -> String } \
              class User { public impl fun name() -> String { \"iris\" } } \
              module M { public fun r() -> Object { 1 } } M.r()",
-        ) else {
-            unreachable!("the VM must precisely decline invalid Contract promises")
+            &[&Interpreter, &Bytecode],
+        );
+        let Agreement::Agreed { observation, .. } = &agreement else {
+            unreachable!("both backends must reject legacy inline impl syntax: {agreement:?}")
         };
-        assert_ne!(reason, "declaration contract");
-        assert_eq!(reason, "contract implementation undeclared");
+        assert_eq!(
+            observation,
+            &Observation::Error("ParseDiagnostic".to_owned())
+        );
     }
 
     #[test]
     fn backends_agree_on_deferred_and_class_body_bindings() {
         for (source, expected, wrong) in [
             (
-                "class Counter { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { [Counter.new().bump(), Counter.new().bump()] } } M.r()",
+                "class Counter { shared mut @@n: Integer = 1 public fun bump() -> Integer { @@n = @@n + 1 } } module M { public fun r() -> Object { %[Counter.new().bump(), Counter.new().bump()] } } M.r()",
                 "[2, 3]",
                 "[2, 2]",
             ),
@@ -4130,7 +4159,7 @@ M.r()"#;
                 "<method>",
             ),
             (
-                "class Box { property value: Integer = 3 } module M { public fun r() -> Object { Box.new().value } } M.r()",
+                "class Box { public property value: Integer = 3 } module M { public fun r() -> Object { Box.new().value } } M.r()",
                 "3",
                 "nil",
             ),
@@ -4158,7 +4187,7 @@ M.r()"#;
     fn backends_agree_on_open_class_candidate_properties_and_rollback() {
         // Given: an open Class transaction stages a stored property and a
         // mutable outer binding captures the transaction-local reflection.
-        let rolled_back = "class A { public property x: Integer = 1 } mut inner = []; try { A.open() { |t| t.define_property(:y) { 2 }; inner = t.properties; raise :boom } } catch e { 0 }; [inner, A.properties]";
+        let rolled_back = "class A { public property x: Integer = 1 } mut inner = %[]; try { A.open() { |t| t.define_property(:y) { 2 }; inner = t.properties; raise :boom } } catch e { 0 }; %[inner, A.properties]";
         // Given: a successful open is the negative control: its candidate is
         // published, so the ordinary Class view includes the new property.
         let committed = "class A { public property x: Integer = 1 } A.open() { |t| t.define_property(:y) { 2 }; t.properties }; A.properties";
@@ -4227,7 +4256,7 @@ M.r()"#;
     fn backends_share_dynamic_stored_property_slots_with_raw_ivars() {
         // Given: a reflected property, a static-property control, and methods
         // that read their respective raw ivar backing slots.
-        let source = "class A { property x: Integer = 1; public fun raw_y() -> Object { @y }; public fun raw_x() -> Integer { @x } }; module M { public fun run() -> Object { A.open() { |t| t.define_property(:y) { 2 } }; let a = A.new(); [[a.y, a.raw_y()], [a.x, a.raw_x()]] } } M.run()";
+        let source = "class A { public property x: Integer = 1; public fun raw_y() -> Object { @y }; public fun raw_x() -> Integer { @x } }; module M { public fun run() -> Object { A.open() { |t| t.define_property(:y) { 2 } }; let a = A.new(); %[%[a.y, a.raw_y()], %[a.x, a.raw_x()]] } } M.run()";
         let (interpreter, bytecode) = both();
         let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
 
@@ -4279,7 +4308,7 @@ M.r()"#;
             ),
             ("mut n = 5; { |x|; n + x }.call(3)", "8", "3"),
             (
-                "module M { public fun r() -> Object { mut n = 0; let f = { |x|; let n = 99; n }; [f.call(1), n] } } M.r()",
+                "module M { public fun r() -> Object { mut n = 0; let f = { |x|; let n = 99; n }; %[f.call(1), n] } } M.r()",
                 "[99, 0]",
                 "[99, 99]",
             ),
@@ -4289,7 +4318,7 @@ M.r()"#;
                 "[99, 99]",
             ),
             (
-                "module M { public fun r() -> Object { mut n = 0; let add = { |x|; n = n + x }; let get = { ||; n }; [add.call(2), get.call(), add.call(3), get.call()] } } M.r()",
+                "module M { public fun r() -> Object { mut n = 0; let add = { |x|; n = n + x }; let get = { ||; n }; %[add.call(2), get.call(), add.call(3), get.call()] } } M.r()",
                 "[2, 2, 5, 5]",
                 "[2, 0, 3, 0]",
             ),
@@ -4305,7 +4334,7 @@ M.r()"#;
             ),
             ("let n = 5; { |x|; n + x }.call(3)", "8", "5"),
             (
-                "module M { public fun r() -> Object { mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); [inner.call(2), n] } } M.r()",
+                "module M { public fun r() -> Object { mut n = 0; let outer = { ||; { |x|; n = n + x } }; let inner = outer.call(); %[inner.call(2), n] } } M.r()",
                 "[2, 2]",
                 "[2, 0]",
             ),
@@ -4336,14 +4365,14 @@ M.r()"#;
     fn added_values_remain_usable_across_method_frames() {
         for (source, expected, wrong) in [
             (
-                "module M { public fun mutate(a: Object) -> Object { a[0] = 9 } public fun r() -> Object { let a = [1]; M.mutate(a); a[0] } } M.r()",
+                "module M { public fun mutate(a: Object) -> Object { a[0] = 9 } public fun r() -> Object { let a = %[1]; M.mutate(a); a[0] } } M.r()",
                 "9",
                 "1",
             ),
             (
-                "global mut $g = [1]; module M { public fun mutate() -> Object { $g[0] = 8 } public fun r() -> Object { M.mutate(); $g[0] } } M.r()",
-                "[[8], 8]",
-                "[[1], 1]",
+                "global mut $g = %[1]; module M { public fun mutate() -> Object { $g[0] = 8 } public fun r() -> Object { M.mutate(); $g[0] } } M.r()",
+                "8",
+                "1",
             ),
             (
                 "module M { public fun make() -> Object { { |x|; { |y|; x + y } } } public fun use(f: Object) -> Object { f.call(40).call(2) } public fun r() -> Object { M.use(M.make()) } } M.r()",
@@ -4526,13 +4555,13 @@ M.r()"#;
             ),
             // Every channel at once, in written order.
             (
-                "class A { public fun m(a, b = 2, *r, key k, **kw, &blk) { [a, b, r, k, kw, blk] } } \
+                "class A { public fun m(a, b = 2, *r, key k, **kw, &blk = nil) { %[a, b, r, k, kw, blk] } } \
                  A.new().m(1, 9, 8, 7, k: 5, z: 6)",
                 "[1, 9, [8, 7], 5, {:z: 6}, nil]",
             ),
             // A `key` parameter binds by NAME, so written order does not matter.
             (
-                "class A { public fun f(key x, key y) { [x, y] } } A.new().f(y: 2, x: 1)",
+                "class A { public fun f(key x, key y) { %[x, y] } } A.new().f(y: 2, x: 1)",
                 "[1, 2]",
             ),
         ] {
@@ -4735,22 +4764,22 @@ M.r()"#;
     fn backends_agree_on_nominal_is_tests() {
         let cases = [
             (
-                "module M { public fun r() -> Object { 1 is Integer } } M.r()",
+                "module M { public fun r() -> Object { 1 is? Integer } } M.r()",
                 "true",
                 "false",
             ),
             (
-                "module M { public fun r() -> Object { 1 is Float64 } } M.r()",
+                "module M { public fun r() -> Object { 1 is? Float64 } } M.r()",
                 "false",
                 "true",
             ),
             (
-                "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is A } } M.r()",
+                "class A { } class B extends A { } module M { public fun r() -> Object { B.new() is? A } } M.r()",
                 "true",
                 "false",
             ),
             (
-                "class A { } class B { } module M { public fun r() -> Object { A.new() is B } } M.r()",
+                "class A { } class B { } module M { public fun r() -> Object { A.new() is? B } } M.r()",
                 "false",
                 "true",
             ),
@@ -4772,8 +4801,8 @@ M.r()"#;
     fn backends_preserve_closed_type_arguments_on_stored_class_values() {
         // Given
         let cases = [
-            "class Box<T> { } module M { public fun r() -> Object { let ctor = Box<String>; let value = ctor.new(); [value is Box<String>, value is Box<Integer>] } } M.r()",
-            "class Box<T> { } module M { public fun r() -> Object { let strings = Box<String>; let integers = Box<Integer>; let first = strings.new(); let second = integers.new(); [first is Box<String>, first is Box<Integer>, second is Box<Integer>, second is Box<String>] } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { let ctor = Box<String>; let value = ctor.new(); %[value is? Box<String>, value is? Box<Integer>] } } M.r()",
+            "class Box<T> { } module M { public fun r() -> Object { let strings = Box<String>; let integers = Box<Integer>; let first = strings.new(); let second = integers.new(); %[first is? Box<String>, first is? Box<Integer>, second is? Box<Integer>, second is? Box<String>] } } M.r()",
         ];
 
         // When / Then
@@ -4797,7 +4826,7 @@ M.r()"#;
     #[test]
     fn backends_preserve_recursive_closed_type_identity_and_strict_casts() {
         // Given
-        let nested = "class Inner<T> { } class Outer<T> { } module M { public fun r() -> Object { let ctor = Outer<Inner<String>>; let value = ctor.new(); [value is Outer<Inner<String>>, value is Outer<Inner<Integer>>] } } M.r()";
+        let nested = "class Inner<T> { } class Outer<T> { } module M { public fun r() -> Object { let ctor = Outer<Inner<String>>; let value = ctor.new(); %[value is? Outer<Inner<String>>, value is? Outer<Inner<Integer>>] } } M.r()";
         let exact = "class Box<T> { } module M { public fun r() -> Object { let value = Box<String>.new(); (value as Box<String>) same? value } } M.r()";
         let mismatch = "class Box<T> { } module M { public fun r() -> Object { Box<String>.new() as Box<Integer> } } M.r()";
 

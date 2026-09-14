@@ -1,7 +1,13 @@
 //! Minimal literal evaluation.
 
+mod host_exception;
 mod source_method;
+pub use host_exception::{CoreErrorKind, HostException};
+mod package_history;
+mod package_upgrade;
 mod source_runtime;
+pub use package_history::{PackageHistory, RevisionArtifact};
+pub use package_upgrade::{PackageUpgrade, ResolvedPackageVersion};
 pub use source_runtime::native::evaluate_package_tree_with_natives;
 pub use source_runtime::native::{evaluate_packages_with_natives, evaluate_with_natives};
 
@@ -38,6 +44,11 @@ pub enum EvaluationError {
     UnsupportedConstruct,
     /// Source parsing rejected the requested expression.
     ParseDiagnostic,
+    StaticDiagnostic(&'static str),
+    DecoratorDiagnostic {
+        code: &'static str,
+        phase: &'static str,
+    },
     /// The runtime rejected a native send.
     Runtime(KernelError),
     /// The declaration publisher rejected a Class mutation.
@@ -48,6 +59,7 @@ pub enum EvaluationError {
     Execution(iris_runtime::ExecutionError),
     /// An Iris raise escaped the current source evaluation.
     Raised(RuntimeValue),
+    HostException(Box<HostException>),
     /// Source code attempted to write an immutable lexical binding.
     ImmutableBinding,
     /// Evaluation exceeded its step budget and was abandoned.
@@ -289,13 +301,23 @@ pub enum EvaluationError {
 
 /// Evaluates a source expression by sending every supported operator through the runtime kernel.
 pub fn evaluate(source: &str) -> Result<RuntimeValue, EvaluationError> {
+    evaluate_host(source).map_err(EvaluationError::into_language_error)
+}
+
+/// Evaluates source with owned nominal error metadata captured before runtime teardown.
+pub fn evaluate_host(source: &str) -> Result<RuntimeValue, EvaluationError> {
     let parsed = parse(source);
     if !parsed.program_accepted {
         return Err(EvaluationError::ParseDiagnostic);
     }
     if iris_parser::analyze(&parsed.program)
         .iter()
-        .any(|diagnostic| diagnostic.code == "GENERIC_ARGUMENT_INVARIANCE")
+        .any(|diagnostic| {
+            matches!(
+                diagnostic.code,
+                "GENERIC_ARGUMENT_INVARIANCE" | "QUALIFIED_NAMESPACE_COLLISION"
+            )
+        })
     {
         return Err(EvaluationError::ParseDiagnostic);
     }
@@ -467,6 +489,15 @@ pub struct PackageResolution<'a> {
     /// Each locked dependency as `(package_id, api_major, version, digest)`.
     pub locked: Vec<(String, u64, String, String)>,
     /// The audit artifact, as `(locator, digest, source)`.
+    ///
+    /// Class or Module rollback with no argument selects this artifact. The locator is
+    /// opaque and never identifies a revision. Explicit Integer targets require
+    /// keyed Host metadata supplied to [`load_resolved_package_with_history`];
+    /// this unkeyed artifact alone cannot satisfy an explicit target.
+    /// The source must contain one canonical target Class or Module and the exact source
+    /// definitions of its decorators. This source-only slice supports ordinary
+    /// non-generic instance Methods and Module/main Methods, not native/generic
+    /// or property replay. See [`PackageHistory`] for the Module slice limits.
     pub artifact: Option<(String, String, String)>,
     /// Each requested permission as `(name, scope, required)`.
     pub permissions: &'a [(String, String, bool)],
@@ -484,6 +515,42 @@ pub fn load_resolved_package_with_artifact(
     sources: &[(String, String)],
     probe: Option<&str>,
 ) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_resolved_package_with_history(
+        PackageHistory {
+            resolution,
+            artifacts: Vec::new(),
+        },
+        sources,
+        probe,
+    )
+}
+
+/// Loads a package with Host-owned, explicitly keyed rollback history.
+///
+/// Selection never interprets artifact locators or infers keys from source.
+/// Digest validation and static-spine reconstruction run before publication.
+pub fn load_resolved_package_with_history(
+    history: PackageHistory<'_>,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    load_resolved_package_with_upgrades(
+        PackageUpgrade {
+            history,
+            versions: Vec::new(),
+        },
+        sources,
+        probe,
+    )
+}
+
+/// Loads Host-resolved exact version artifacts without inferring locator keys.
+pub fn load_resolved_package_with_upgrades(
+    upgrade: PackageUpgrade<'_>,
+    sources: &[(String, String)],
+    probe: Option<&str>,
+) -> Result<(Vec<String>, Option<RuntimeValue>), EvaluationError> {
+    let history = upgrade.history;
     let PackageResolution {
         package_id,
         api_major,
@@ -492,7 +559,7 @@ pub fn load_resolved_package_with_artifact(
         artifact,
         permissions,
         grants,
-    } = resolution;
+    } = history.resolution;
     // C003 lists permission requests, and V421 refuses the load BEFORE Main
     // executes when a REQUIRED one is ungranted. An OPTIONAL request simply
     // stays ungranted, which the reflection gate then observes.
@@ -524,6 +591,8 @@ pub fn load_resolved_package_with_artifact(
     }
     evaluator.enter_package_resolution(version, locked);
     evaluator.enter_artifact(artifact);
+    evaluator.enter_revision_artifacts(history.artifacts);
+    evaluator.enter_package_upgrades(upgrade.versions, sources);
     evaluator.enter_grants(grants);
     let mut initialized = Vec::new();
     // C017 makes Module initialization an acyclic deterministic DAG and makes a
@@ -977,6 +1046,12 @@ impl Session {
     /// evaluation failure. A failure leaves the session usable, so a mistyped
     /// line does not end the session.
     pub fn evaluate(&mut self, source: &str) -> Result<RuntimeValue, EvaluationError> {
+        self.evaluate_host(source)
+            .map_err(EvaluationError::into_language_error)
+    }
+
+    /// Evaluates a chunk while retaining nominal error metadata for host observation.
+    pub fn evaluate_host(&mut self, source: &str) -> Result<RuntimeValue, EvaluationError> {
         let parsed = parse(source);
         if !parsed.program_accepted {
             return Err(EvaluationError::ParseDiagnostic);
@@ -1050,7 +1125,8 @@ enum Evaluated {
 impl Evaluator {
     fn statement(&mut self, statement: &Statement) -> Result<RuntimeValue, EvaluationError> {
         match statement {
-            Statement::GlobalBinding { .. }
+            Statement::InstanceField { .. }
+            | Statement::GlobalBinding { .. }
             | Statement::SharedBinding { .. }
             | Statement::Binding { .. }
             | Statement::DeferredBinding { .. }
@@ -1077,12 +1153,13 @@ impl Evaluator {
             // The literal-only evaluator never runs a transaction body, so an
             // `await` here is simply outside this evaluator's scope. C037's
             // prohibition is enforced statically and in the source runtime.
-            Expression::Await(_) | Expression::Yield(_) => {
+            Expression::Await(_) | Expression::Yield(_) | Expression::NonNull(_) => {
                 Err(EvaluationError::UnsupportedConstruct)
             }
             // A keyword argument is meaningless outside a call the literal
             // evaluator cannot make, so it is routed rather than evaluated.
             Expression::KeywordArgument { .. }
+            | Expression::BlockArgument { .. }
             | Expression::Index { .. }
             | Expression::Try { .. }
             // A closed generic construction and a reified Type both need the
@@ -1399,6 +1476,7 @@ impl Evaluator {
             | RuntimeValue::Contract(..)
             | RuntimeValue::Closure(_)
             | RuntimeValue::KeywordArgument(_, _)
+            | RuntimeValue::BlockArgument(_)
             | RuntimeValue::IterationYield(_)
             | RuntimeValue::ReadonlyArray(_)
             | RuntimeValue::SourceLocation(..)
@@ -1411,7 +1489,9 @@ impl Evaluator {
             | RuntimeValue::Task(_)
             | RuntimeValue::Range(..)
             | RuntimeValue::IterationDone
-            | RuntimeValue::Transformation { .. }
+            | RuntimeValue::Decorator(_)
+            | RuntimeValue::ImmutableArray(_)
+            | RuntimeValue::ImmutableHash(_)
             | RuntimeValue::ExceptionContext(..)
             | RuntimeValue::ContractView(_, _)
             | RuntimeValue::Object(_)
@@ -1443,7 +1523,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &str {
         RuntimeValue::Integer(_) => "Integer",
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
-        RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Array(_) | RuntimeValue::ImmutableArray(_) => "Array",
         RuntimeValue::Bytes(_) => "Bytes",
         RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::MutableString(_) => "MutableString",
@@ -1454,7 +1534,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &str {
         RuntimeValue::ExternalResource(resource) => resource.type_name(),
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
-        RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::Hash(_) | RuntimeValue::ImmutableHash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
@@ -1466,6 +1546,7 @@ fn receiver_class_name(value: &RuntimeValue) -> &str {
         RuntimeValue::Contract(..) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
+        RuntimeValue::BlockArgument(_) => "internal-block-argument",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::HashIterator(..)
         | RuntimeValue::ByteIterator(..)
@@ -1478,13 +1559,14 @@ fn receiver_class_name(value: &RuntimeValue) -> &str {
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",
-        RuntimeValue::Transformation { .. } => "Transformation",
+        RuntimeValue::Decorator(record) => record.core_name(),
     }
 }
 
 fn source_runtime_statement(statement: &Statement) -> bool {
     match statement {
-        Statement::GlobalBinding { .. }
+        Statement::InstanceField { .. }
+        | Statement::GlobalBinding { .. }
         | Statement::SharedBinding { .. }
         | Statement::Binding { .. }
         | Statement::DeferredBinding { .. } => true,
@@ -1530,6 +1612,26 @@ fn builds_iteration(expression: &Expression) -> bool {
 }
 
 fn source_runtime_expression(expression: &Expression) -> bool {
+    if let Expression::Name(name) = expression
+        && matches!(
+            name.strip_prefix("Kernel::").unwrap_or(name),
+            "Invocation"
+                | "InvocationSignature"
+                | "InvocationParameter"
+                | "ArgumentChanges"
+                | "DecoratorContext"
+                | "DecoratorProtocolError"
+                | "Plan"
+                | "Transformation"
+                | "ClassDecorator"
+                | "ModuleDecorator"
+                | "ContractDecorator"
+                | "MethodDecorator"
+                | "PropertyDecorator"
+        )
+    {
+        return true;
+    }
     if builds_iteration(expression) {
         return true;
     }
@@ -1537,6 +1639,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         // C037's prohibition lives in the source runtime, which is the only
         // evaluator that runs a transaction body.
         Expression::Await(_)
+        | Expression::NonNull(_)
         | Expression::Yield(_)
         // A Closure needs the heap the literal evaluator does not have.
         // A keyword argument binds by name, which only the source runtime does.
@@ -1544,6 +1647,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         | Expression::Hash(_)
         | Expression::If { .. }
         | Expression::KeywordArgument { .. }
+        | Expression::BlockArgument { .. }
         | Expression::Index { .. }
         | Expression::Try { .. }
         | Expression::ClosedGeneric { .. }
@@ -1639,7 +1743,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_v039_floor_division_from_source() {
         // Given
-        let source = "[-5 div 2, 5 div -2, -5 div -2]";
+        let source = "%[-5 div 2, 5 div -2, -5 div -2]";
 
         // When
         let result = evaluate(source);
@@ -1658,7 +1762,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_v040_modulo_from_source() {
         // Given
-        let source = "[-5 mod 2, 5 mod -2, -5 mod -2]";
+        let source = "%[-5 mod 2, 5 mod -2, -5 mod -2]";
 
         // When
         let result = evaluate(source);
@@ -1677,7 +1781,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_v019_singleton_identity_from_source() {
         // Given
-        let source = "[nil same? nil, true same? true, false same? false]";
+        let source = "%[nil same? nil, true same? true, false same? false]";
 
         // When
         let result = evaluate(source);
@@ -1840,7 +1944,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_integer_bitwise_not_and_right_shift_from_source() {
         // Given
-        let source = "[~0, -3 >> 1, 8 << -2]";
+        let source = "%[~0, -3 >> 1, 8 << -2]";
 
         // When
         let result = evaluate(source);
@@ -1893,7 +1997,7 @@ mod evaluator_bridge_tests {
     #[test]
     fn evaluates_v063_large_and_negative_shift_counts() {
         // Given
-        let source = "[1 >> 1000000, -1 >> 1000000, -3 >> 1000000, 1 << -2]";
+        let source = "%[1 >> 1000000, -1 >> 1000000, -3 >> 1000000, 1 << -2]";
 
         // When
         let result = evaluate(source);
