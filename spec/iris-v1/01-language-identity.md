@@ -153,6 +153,11 @@ IRIS-V1-IDENTITY-N002: Informative note: D-073 through D-087 define the stable p
 
 IRIS-V1-IDENTITY-C036: The following vectors are normative traceability vectors with concrete audit inputs. They cover identity and compatibility decisions without creating implementation code.
 
+IRIS-V1-IDENTITY-C037: The v1.36 language revision establishes unique nominal origins, static implementation promises, and an explicit open dynamic boundary:
+1. Unique nominal origins: Every nominal Class and Module has exactly one origin declaration within a program. Duplicate origin declarations for the same nominal Class or Module are prohibited and diagnosed at static analysis time with `QUALIFIED_NAMESPACE_COLLISION`. Structural extensions across compilation units attach to the existing unique origin via explicit `open` declarations.
+2. Static implementation promises: Contract conformance is established statically, exclusively, and immutably through top-level `impl Class for Contract` declarations. Conformance is fixed ahead of program execution and is not subject to dynamic removal or replacement.
+3. Open dynamic boundary: Runtime structural metaprogramming and dynamic mutation are restricted to explicit `open class` and `open module` blocks. Dynamic additions execute within transactional boundaries, and any modification that conflicts with established static `impl` obligations is rejected during candidate validation with `TypeContractError` and rolled back atomically. This supersedes earlier transitional unconstrained mutation models while preserving the static spine.
+
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | Validate the fixed Iris v1 artifact set and semantic source declaration. | Exactly 14 product artifacts exist under `spec/iris-v1`; `spec/drafts/iris-language-specification.md` is the approved semantic source; no implementation or archaeology file is normative. | `D-000`, `D-001` |

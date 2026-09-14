@@ -1,6 +1,6 @@
 # Iris v1 迁移与分歧台账
 
-状态：Iris v1 草案，语义冻结。
+状态：Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-MIGRATION-C001：本章是 Iris v1 对 Legacy Iris 的有意源代码和行为分歧的唯一台账。每个迁移行 MUST 记录遗留证据、v1 替代项、理由、迁移示例，以及一个处置标签：`preserve`、`intentional-divergence`、`removed` 或 `deferred`。
 
@@ -68,6 +68,12 @@ IRIS-V1-MIGRATION-C008：本表每一行作为迁移处置具有规范性，作�
 | IRIS-V1-MIG-035 | PDF `i`/`I` 和 `integer`/`interger` 拼写漂移 | `legacy/Document/Iris Revival Design Review.md:397`; `legacy/Document/Iris Revival Design Review.md:403` | `removed` | [IRIS-V1-GRAMMAR-C009](02-lexical-grammar.md), [IRIS-V1-RUNTIME-C101](03-runtime-object-model.md), [IRIS-V1-MIGRATION-C002](11-migration-divergence.md) | IRIS-V1-MIGRATION-EX035：把拼错的类型文本例如 `interger` 迁移为规范 `Integer`；按 v1 大小写敏感标识符规则，把 `i` 和 `I` 等大小写变体视为不同标识符。 | 这些是拼写考古材料，不是别名。V1 保持规范 `Integer` 和大小写敏感标识符。 |
 | IRIS-V1-MIG-036 | PDF 使用十六进制字面量，但未在字面量章节定义它们 | `legacy/Document/Iris Revival Design Review.md:397`; `legacy/Document/Iris Revival Design Review.md:404` | `intentional-divergence` | [IRIS-V1-GRAMMAR-C024](02-lexical-grammar.md), [IRIS-V1-GRAMMAR-C026](02-lexical-grammar.md), [IRIS-V1-GRAMMAR-C028](02-lexical-grammar.md) | IRIS-V1-MIGRATION-EX036：整数十六进制字面量使用 v1 定义的 `0xFF`，`0x1.fp3` 风格只在满足 v1 十六进制浮点字面量规则时使用。 | V1 保留十六进制源形式，但明确其词法定义和无效数字诊断。 |
 | IRIS-V1-MIG-037 | PDF Block closure 和 metaprogramming 章节只有标题，没有正式语义 | `legacy/Document/Iris Revival Design Review.md:397`; `legacy/Document/Iris Revival Design Review.md:405` | `intentional-divergence` | [IRIS-V1-CONTROL-C016](04-bindings-callables-control-flow.md), [IRIS-V1-CONTROL-C030](04-bindings-callables-control-flow.md), [IRIS-V1-META-C022](08-modules-metaprogramming.md), [IRIS-V1-META-C030](08-modules-metaprogramming.md) | IRIS-V1-MIGRATION-EX037：把 PDF 时代只有标题的块概念迁移为显式 Closure 语法 `{ \|value: T\| -> R; body }`，并把元编程迁移到 `open class` 或 `open module` transactions。 | V1 通过冻结的 Closure 和元编程 transaction 语义填补这些领域，而不是保留无文档标题。 |
+| IRIS-V1-MIG-038 | Class 头部 `for` Contract 符合性语法 | `spec/iris-v1/05-types-contracts-generics.md:219` | `removed` | [IRIS-V1-TYPES-C100](05-types-contracts-generics.md) | IRIS-V1-MIGRATION-EX038：将遗留 `class Box for Show { ... }` 替换为顶层 `class Box {}` 与独立的 `impl Box for Show { ... }`。 | IRIS-V1-TYPES-C100 将顶层 `impl Class for Contract` 设为唯一的符合性声明形式。Class 头部 `for` 会被拒绝并报告 `PARSE_LEGACY_CLASS_FOR`。 |
+| IRIS-V1-MIG-039 | 类或 Contract 内部方法上的成员级 `impl` 修饰符 | `spec/iris-v1/05-types-contracts-generics.md:223` | `removed` | [IRIS-V1-TYPES-C102](05-types-contracts-generics.md) | IRIS-V1-MIGRATION-EX039：将 `class Box { impl fun show() -> String { "box" } }` 替换为在顶层 `impl Box for Show { fun show() -> String { "box" } }` 内部声明且不带 `impl` 关键字修饰符的方法。 | IRIS-V1-TYPES-C102 要求 `impl` 块中的方法省略 `impl`。书写 `impl fun` 会被拒绝并报告 `PARSE_LEGACY_METHOD_IMPL`。 |
+| IRIS-V1-MIG-040 | 直接位于类和模块 origin 体内的可执行语句与局部绑定 | `spec/iris-v1/08-modules-metaprogramming.md:69` | `intentional-divergence` | [IRIS-V1-META-C140](08-modules-metaprogramming.md) | IRIS-V1-MIGRATION-EX040：将指令式语句从 `class Box { let x = 1; run() }` 移入 `open class Box { run() }` 或方法体内。 | IRIS-V1-META-C140 规定 origin 类与模块声明为纯声明式。origin 中的可执行语句会被拒绝并报告 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION`。 |
+| IRIS-V1-MIG-041 | Array 字面量表达式的裸方括号 | `spec/iris-v1/06-collections-text-regex.md:47` | `intentional-divergence` | [IRIS-V1-COLLECTIONS-C002](06-collections-text-regex.md) | IRIS-V1-MIGRATION-EX041：将裸数组表达式 `[1, 2, 3]` 替换为 `%[1, 2, 3]`。裸方括号仍保留用于索引 `a[0]` 和解构模式。 | 消除数组字面量与索引和解构语法之间的歧义。裸数组字面量会被拒绝并报告 `PARSE_ARRAY_PREFIX_REQUIRED`。 |
+| IRIS-V1-MIG-042 | 无修饰的 `is` 类型测试运算符 | `spec/iris-v1/05-types-contracts-generics.md:151` | `removed` | [IRIS-V1-TYPES-C028](05-types-contracts-generics.md) | IRIS-V1-MIGRATION-EX042：将 `value is String` 替换为 `value is? String`。 | 使布尔类型查询命名与谓词约定 (`is?`、`same?`) 保持一致。单纯的 `is` 会被拒绝并报告 `PARSE_IS_QUESTION_REQUIRED`。 |
+| IRIS-V1-MIG-043 | 不带可变性关键字的实例字段声明 | `spec/iris-v1/03-runtime-object-model.md:200` | `intentional-divergence` | [IRIS-V1-RUNTIME-C061](03-runtime-object-model.md) | IRIS-V1-MIGRATION-EX043：将类体内的 `@x = 1` 替换为显式的 `let @x: Integer` 或 `mut @x: Integer = 1`。 | 对实例状态强制显式的可变性与存储声明。 |
 
 ## 已移除词处置索引
 
@@ -149,3 +155,5 @@ IRIS-V1-MIGRATION-N001：Historical note: 所需评审漂移列表由 IRIS-V1-MI
 IRIS-V1-MIGRATION-N002：Historical note: 旧 PDF 无法在此环境中机械重新提取，因此台账使用设计评审中的 PDF 考古引用和漂移表作为可引用的 PDF 证据。IRIS-V1-MIGRATION-C003 中的保留规则防止未经佐证的仅 PDF 语法取得规范性权威。
 
 IRIS-V1-MIGRATION-C010：本章合并 D-001、D-034、D-145、D-146、D-278、D-362、D-438、D-440、D-441、D-447、D-459、D-460、D-461、D-462、D-463、D-464、D-469、D-509 和 D-510 中要求或解释遗留分歧的内容。它还记录来自 `legacy/Document/Iris Revival Design Review.md`、`legacy/Document/IrisLangHighLight(for NP++).xml`、`legacy/Document/Iris Programming Language Intro.pdf` 和 `Iris Library Test/test script/` 的历史证据，但不赋予这些来源规范性权威。
+
+IRIS-V1-MIGRATION-C013：v1.36 语言修订引入迁移行 IRIS-V1-MIG-038 至 IRIS-V1-MIG-043，以记录从过渡性 v1 语法形式到规范性 v1.36 形式的转变。符合要求的实现与迁移工具 MUST 识别这些被取代的形式，以对应的稳定诊断代码拒绝它们，并指引程序员使用规范的 v1.36 替代项。

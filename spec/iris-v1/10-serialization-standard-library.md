@@ -1,6 +1,6 @@
 # Iris v1 Serialization And Standard Library Boundary
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.36, frozen semantics with owner-approved language revision errata.
 
 IRIS-V1-LIBRARY-C001: This chapter defines the Iris v1 serialization contract boundary, JSON responsibilities, separately versioned IrisValue responsibility, safe decoding limits, Encoding and Unicode standard surfaces, core package boundary, official standard-package categories, deferred library areas, and Regex package split. It MUST be read after [README.md](README.md), [01-language-identity.md](01-language-identity.md), [05-types-contracts-generics.md](05-types-contracts-generics.md), [06-collections-text-regex.md](06-collections-text-regex.md), [08-modules-metaprogramming.md](08-modules-metaprogramming.md), and [09-native-host-ffi.md](09-native-host-ffi.md).
 
@@ -195,3 +195,5 @@ IRIS-V1-LIBRARY-C039: This chapter owns the serialization and library-boundary d
 IRIS-V1-LIBRARY-C040: Chapter-owned decision IDs are `D-502`, `D-503`, and `D-504`.
 
 IRIS-V1-LIBRARY-C041: Referenced non-owned decision IDs include `D-407`, `D-413`, `D-414`, `D-505`, and `D-506`.
+
+IRIS-V1-LIBRARY-C042: The v1.36 language revision introduces no wire-format or byte-level changes to `JSON` or `IrisValue` serialization formats. Serialized data encodings, JSON mapping rules, IrisValue header magic, version tags, and container schemas are preserved without alteration. A Class opting into serialization conformance declares `impl Class for Serializable` statically under IRIS-V1-TYPES-C100, and its explicit serialization representations remain subject to the unchanged safety and decoding limits of IRIS-V1-LIBRARY-C003 through IRIS-V1-LIBRARY-C020.

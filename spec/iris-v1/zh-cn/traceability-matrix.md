@@ -1,8 +1,36 @@
 # Iris v1 可追溯性矩阵
 
-状态：Iris v1 草案，冻结语义。
+状态：Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-TRACE-C019：该矩阵是 normative 用于语义决策覆盖。每个冻结的决策都只出现一次，并映射到明显的权威语义子句和仅直接的章节向量定义。
+
+## v1.35 装饰器勘误映射
+
+Informative note: 此新增映射配合 [README IRIS-V1-TRACE-C023](README.md)，不重写或重复下方冻结决策行。新增可执行覆盖仍由 [IRIS-V1-CONFORMANCE-C076](12-conformance.md#v135-装饰器覆盖义务)要求；这些链接均不宣称新向量通过。批准及有界 C125 取代记录在 [v1.35 台账](../../../docs/spec-defects-v1.md#v135-approved-decorator-errata)中。
+
+| 现有决策引用 | 第 08 章新增精确条款锚点 | 关系与证据边界 |
+| --- | --- | --- |
+| D-511 | [META-C127](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C128, META-C129, META-C130, META-C131, META-C132, META-C133, META-C134, META-C139 | 带类型目标/操作准入、先写最外层调用及经检查输入协议；V428 对可证明不匹配仍为静态，不证明仅运行时错误种类结果。 |
+| D-512 | [META-C127](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C138 | 每阶段构造和完整规划纯度；全新规范重放；V429 保留非确定性义务。 |
+| D-513 | [META-C128](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C133, META-C135, META-C138, META-C139 | 能力/种类矩阵、精确契约和词法权限；V430 不覆盖包裹或完整 Contract 准入。 |
+| D-514 | [META-C127](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C129, META-C131, META-C134, META-C135, META-C136, META-C137, META-C138, META-C139 | 不可变元数据、同步 transform 与异步调用的区别、生命周期、持久链状态和全新重放；V431 夹具缺少 upgrade/rollback/await 观察。 |
+| D-299 | [META-C128](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C138 | 保留 Method set/body 正交性；V361 仍为基线证据，仍需包裹路径覆盖。 |
+| D-300 | [META-C128](08-modules-metaprogramming.md#v135-装饰器调用协议), META-C135, META-C138 | Property set/body 正交性、现有访问器和 setter 结果检查；不绕过形状或能力。 |
+
+## v1.36 语言修订映射
+
+Informative note: 此新增映射记录所有者批准的 v1.36 语言修订，不修改或重复下方冻结决策行。一致性义务在 [IRIS-V1-CONFORMANCE-C077](12-conformance.md) 与 [IRIS-V1-CONFORMANCE-C078](12-conformance.md) 中规定。决策轨迹记录在 [docs/spec-defects-v1.md](../../../docs/spec-defects-v1.md#v136-approved-language-revision-errata) 中。
+
+| 现有决策引用 | 新增精确条款锚点 | 关系与证据边界 |
+| --- | --- | --- |
+| D-173 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C105](05-types-contracts-generics.md), [TYPES-C107](05-types-contracts-generics.md), [META-C142](08-modules-metaprogramming.md) | 顶层静态 `impl Class for Contract` 建立不可变静态脊柱契约义务；候选验证重新验证所有静态 `impl` 义务。 |
+| D-175 | [META-C141](08-modules-metaprogramming.md), [META-C142](08-modules-metaprogramming.md) | `open class Target mixin Module` 在候选事务中原子执行；重新验证所有静态 Contract 义务。 |
+| D-220 | [TYPES-C108](05-types-contracts-generics.md), [META-C144](08-modules-metaprogramming.md) | 模块 `where Self: Contract` 约束要求进行组合的 Class 通过顶层 `impl` 静态满足 Contract。 |
+| D-222 | [META-C140](08-modules-metaprogramming.md), [META-C143](08-modules-metaprogramming.md) | origin 类与模块体为纯声明式；拒绝可执行 origin 语句；拒绝重复 origin。 |
+| D-233 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C102](05-types-contracts-generics.md), [TYPES-C103](05-types-contracts-generics.md) | 顶层 `impl Class for Contract` 替代成员级 `impl fun`；要求方法填充普通槽与限定槽。 |
+| D-234 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C103](05-types-contracts-generics.md), [TYPES-C104](05-types-contracts-generics.md) | 每个 Contract 恰好一个 `impl` 声明；空 `impl` 复用兼容类方法；填充普通槽与限定槽。 |
+| D-278 | [TYPES-C100](05-types-contracts-generics.md) | 取代类头部 `for`；顶层 `impl Class for Contract` 是唯一的符合性声明形式。 |
+| D-279 | [TYPES-C108](05-types-contracts-generics.md), [META-C144](08-modules-metaprogramming.md) | 模块不声明 `for`；模块 `where Self: Contract` 约束接收者 Class。 |
 
 ## 决策行
 

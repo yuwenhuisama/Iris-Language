@@ -1,6 +1,6 @@
 # Iris v1 绑定、可调用体与控制流
 
-状态：Iris v1.15，冻结语义并有所有者批准的勘误。
+状态：Iris v1.36，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-CONTROL-C001: 本章定义 Iris v1 的绑定、作用域、名称查找、可调用运行时种类、参数绑定、Closure 捕获与返回、调用与尾随块、赋值、条件、循环、match、Iterator 降低、异常，以及控制转移结果。它 MUST 在 [README.md](README.md)、[02-lexical-grammar.md](02-lexical-grammar.md) 和 [03-runtime-object-model.md](03-runtime-object-model.md) 之后阅读。
 
@@ -564,3 +564,8 @@ IRIS-V1-CONTROL-N003: Informative note：Hash rehash、Hash 遍历、构造生�
 | `IRIS-V1-CONTROL-V360` | positive | 需要 interpreter；需要 JIT；native 不适用 | `try { raise :x } catch value: Symbol, context { raise :y from context } finally { nil }` | 向外 context 有`value == :y`，且其 cause 的 `value == :x`。 | `D-469` |
 | `IRIS-V1-CONTROL-V361` | diagnostic | 需要 interpreter；需要 JIT；native 不适用 | Raise`:body`，同时 cleanup raises `:close`；将捕获的 context 保留到 catch 之外，并提交给结构化诊断 sink fixture。 | Payload 报告不可变`value == :body`、一个 suppressed `ExceptionContext.value == :close`、原始 stack、raise location 和稳定保留 context identity。 | `D-473` |
 | `IRIS-V1-CONTROL-V362` | positive | 需要 interpreter；需要 JIT；native 不适用 | 移除继承的`to_bool` Method，来自 fixture Class `FallbackTruth`；其 `method_missing(selector, args, block)` 记录调用并返回 `true`；求值 `if FallbackTruth.new() { :then } else { :else }`。 | 结果是`:then`；`method_missing` 以 `[:to_bool, [], nil]` 被恰好调用一次，其 Bool 结果被直接使用且不再做真值测试。 | `D-353` |
+IRIS-V1-CONTROL-C081：v1.36 字段形式 `let @name = expression` 与 `mut @name = expression` 是 Class 成员声明，而不是词法绑定。无 sigil 的 `let name` 或 `mut name` 保持普通词法绑定含义，因此禁止出现在声明式 Class 或 Module origin body 的外层。Method、字段/属性初始化器、默认值、Closure 与 decorator 参数仍保留普通可执行表达式语义。
+
+IRIS-V1-CONTROL-C082：`expression!` 对 `expression` 恰好求值一次。若结果为 `nil`，执行通过普通异常与 `ExceptionContext` 机制抛出规范的 `TypeError`；否则返回该原始结果。断言仅把自身表达式结果收窄为与 `NonNil` 的规范化交集，不会永久收窄源绑定或存储位置。
+
+IRIS-V1-CONTROL-C083：Class 与 Module origin body 是声明列表，MUST NOT 执行外层控制流、局部绑定、发送、`raise`、`await` 或 `yield`。`open class` 或 `open module` body 是可执行 candidate 事务，在事务限制下 MAY 使用普通控制流。所有 candidate 效果在验证后原子发布，或完整回滚。

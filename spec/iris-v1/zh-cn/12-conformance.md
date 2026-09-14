@@ -1,6 +1,6 @@
 # Iris v1 一致性框架
 
-状态：Iris v1 草案，冻结一致性契约。
+状态：Iris v1.36，冻结一致性契约并附所有者批准的语言修订义务。
 
 IRIS-V1-CONFORMANCE-C001：本章定义了稳定的Iris v1可执行示例和一致性向量模式。它指定如何表示 normative 示例、章节向量表、diagnostic 案例、格式错误的输入、differential 后端检查、legacy 迁移标签、未来语料库记录和冻结门槛。它 MUST NOT 实现运行程序、添加测试、定义产品 source 代码或更改语言语义。
 
@@ -250,6 +250,41 @@ IRIS-V1-CONFORMANCE-C072：本章锚定了已批准的验证策略，示例将�
 IRIS-V1-CONFORMANCE-C073：本章引用了决策 ID `D-049`、`D-050`、`D-077`、`D-078`、`D-079`、`D-080`、`D-081`、`D-082`、 `D-083`、`D-084`、`D-085`、`D-086`、`D-113`、`D-272`、`D-503`、`D-507`、`D-508`、`D-509` 和`D-510` 用于一致性敏感的文字、散列、工件、序列化、优先级、关联性、关键字和上下文令牌义务。
 
 IRIS-V1-CONFORMANCE-C074：本章还依赖于 [README.md](README.md) 子句 IRIS-V1-TRACE-C001 到 IRIS-V1-TRACE-C018 用于库存、ID、编辑、非目标、冻结语义和后端独立规则。
+
+## v1.35 装饰器覆盖义务
+
+IRIS-V1-CONFORMANCE-C076: 对[第 08 章](08-modules-metaprogramming.md#v135-装饰器调用协议) IRIS-V1-META-C127 至 IRIS-V1-META-C139 所述获批 v1.35 协议的一致性 MUST 包含以下可观察覆盖义务。每种获准行为需要正向覆盖，每种拒绝需要负向或诊断覆盖，并依据 C016/C033/C047/C049 提供精确条款锚点、适用后端比较、失败阶段和副作用观察。这些行不分配向量或示例 ID，且 MUST NOT 算作可执行记录或通过证据。已发布 META V428 至 V431 及 V361 均保留；其范围更窄的已提交夹具不能证明这些义务。缺失覆盖 MUST 依据 C057 保持可见；README TRACE-C023 的修订批准不豁免该门槛。报告 MUST 区分变更的语义预期与未变但不完整的夹具，不得通过重写或重新标记掩盖失败。
+
+IRIS-V1-CONFORMANCE-C077：对获批 v1.36 语言修订的一致性 MUST 验证以下规范性语言义务：
+1. 顶层静态 `impl Class for Contract` 声明根据 IRIS-V1-TYPES-C100 至 IRIS-V1-TYPES-C103 同时填充普通 Contract 槽分派与限定 Contract 槽分派。
+2. 顶层 `impl` 声明在跨 Class、Contract 及 `impl` 定义时具有与顺序无关性，依据 IRIS-V1-TYPES-C101。
+3. 空的 `impl Class for Contract {}` 正确复用兼容的既有方法，并依据 IRIS-V1-TYPES-C104 拒绝不完整的类。
+4. 依据 IRIS-V1-TYPES-C105 的唯一性、连贯性 (coherence)、孤儿阻止 (orphan prevention) 以及无重叠实现规则。
+5. 依据 IRIS-V1-TYPES-C106 拒绝封闭泛型特化 `impl Box<Integer> for Show`。
+6. 纯声明式的 origin 类与模块体，以及在 IRIS-V1-META-C140 下以 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION` 拒绝可执行 origin 语句。
+7. 依据 IRIS-V1-META-C141 对 `open class Target mixin MixedModule` 进行原子发布。
+8. 在 open class 事务期间依据 IRIS-V1-META-C142 重新验证静态 `impl` 义务。
+9. 唯一 origin 并在 IRIS-V1-META-C143 下以 `QUALIFIED_NAMESPACE_COLLISION` 拒绝重复 origin。
+10. 在 mixin 组合时依据 IRIS-V1-META-C144 强制模块 `where Self: Contract` 约束。
+11. 针对 IRIS-V1-MIG-038 至 IRIS-V1-MIG-043 下所有被取代的遗留语法形式给出稳定诊断 (`PARSE_LEGACY_CLASS_FOR`、`PARSE_LEGACY_METHOD_IMPL`、`PARSE_ORIGIN_BODY_REQUIRES_DECLARATION`、`PARSE_ARRAY_PREFIX_REQUIRED`、`PARSE_IS_QUESTION_REQUIRED`)。
+12. 依据 IRIS-V1-TYPES-C109 的 Contract 视图相等性以及在 `same?` 时抛出 `IdentityError`。
+
+IRIS-V1-CONFORMANCE-C078：依据 IRIS-V1-TRACE-C022 和 IRIS-V1-CONFORMANCE-C011，既有的一致性向量与语料库记录 MUST NOT 被删除，亦不得弱化其预期语义结果。当某个一致性向量使用了早期语言修订中被取代的语法（例如裸 `[1, 2]` 数组字面量、单纯的 `is`、`class for` 或 `impl fun`）时，该向量记录 MAY 通过仅限源码的语法迁移，迁移至规范性 v1.36 等价语法（`%[1, 2]`、`is?`、顶层 `impl`），同时保留向量 ID、类别、决策锚点、适用性以及实质性预期观察。若某个向量专门测试对遗留语法的拒绝，则其 MUST 断言迁移台账中指定的稳定诊断代码。
+
+| 条款锚点 | 必需观察 |
+| --- | --- |
+| META-C127, META-C139 | 全部五种目标 Contract 要求两个阶段成员；零实参构造按应用和阶段分离；应用点实参仅到达阶段成员；构造器及传递规划调用的非确定性在运行时/发布前静态拒绝；全部种类 Symbol/原因 Symbol 可读；保留空值保持标签；阶段外构造拒绝；可证明错误种类静态拒绝，仅运行时确定的错误种类在候选验证拒绝，完整回滚且不消耗修订/提交。 |
+| META-C128, META-C129 | 工厂与链式形式产生等价惰性持久化描述；旧值不改变；多个添加按顺序组合；getter 与 setter 合并为一个 Property 结果；重复包裹保持先写最外层；A 后 B 的阶段顺序产生 A(B(original))，反转源顺序反转嵌套；Logged/Cached/Retry 的外层日志只进入一次，缓存命中跳过内层/原始体，重试不重新进入外层。 |
+| META-C130, META-C131 | 无效原始元数、重复/未知关键字、块、参数或默认值阻止包括缓存命中在内的回调；接收者/操作数/默认值计数及失败优先级保持普通规则；默认值只求值一次；快照字段 Type/顺序、精确接收者/限定槽、泛型绑定和原始/当前块身份可观察；快照变更被拒绝且不暴露私有状态。 |
+| META-C132, META-C133 | empty/new 及全部五个可选字段；缺省与显式 nil；构造器输入容器快照隔离；未知/重复字段与错误容器/键 Type 拒绝；固定槽按 Symbol 名而非下标绑定；错误通道名称拒绝；rest/keyword-rest 替换整个容器；未知关键字要求原始 keyword rest；内层标记递增前检查完整结果载荷；块的省略/必需/可选/无通道全部情形及不变 Block 签名；成功改变内层快照而外层/来源不变；嵌套同名修改和重复 next 使用指定传入基准；不重新运行默认值/splat/泛型推断。 |
+| META-C133, META-C134 | 零次/一次/顺序多次尝试，包含失败后重试及每次不同变更；next 具有一个可选位置参数，无关键字/rest/尾随块；每层/体尝试的参数单元和 rest 容器全新，逃逸捕获独立，共享对象副作用保留；无效变更的计算不回滚。 |
+| META-C135 | 无效原始体、内层包裹器及零次尝试结果各在自身精确 R 边界失败，先于外层观察；普通 TypeError 可捕获并恢复；Never、可 nil 性、封闭泛型及 setter 结果语义保持精确；回调元数/种类/模式/结果注解不匹配拒绝；无 Closure 协变或 BoundMethod 转换；同步 Task 值结果不被等待。 |
+| META-C136 | transform 注册异步回调时仍同步且不等待；立即前缀与已完成 await 不增加调度跳转；每次调用具有全新外层 Task，每个 next 具有全新桥接；Task 不变性通过真正适配器及逐层 R 检查实现；重复 await 保留完成/失败根身份；异步准备和替换失败在内层副作用前进入失败 Task；操作数失败保留 Task 前路径。 |
+| META-C137, META-C139 | 同所属者同步辅助调用成功，所属者挂起/恢复成功；完成后、外部异步辅助函数（含立即前缀）、重入及重叠 next 调用按精确类别和模式相关交付拒绝；仅在前一个桥接完成后允许下一尝试；提前正常完成使准入失败，提前异常完成保留主要上下文并附结构化诊断；未完成内层工作继续，不隐式取消/join，被放弃失败仍可报告。 |
+| META-C138 | 捕获/缓存在普通调用之间持续；不同应用和封闭具体化隔离，除非对象显式共享；全部五种重放原因从规范未装饰工件将每个应用重建一次并使用全新状态；保留 Method/BoundMethod 保留旧链/缓存；当前所有者缺失在缓存进入前拒绝；移除/undef 与普通/限定槽隔离保持精确；原始 super 使用当前 MRO；包裹器/块词法接收者/包及反射权限不转移。 |
+| META-C128, META-C138, META-C139 | Method 包裹需要 method_body 而非 method_set；Property 包裹需要 property_body，不能利用 method_body 绕过；仅 deny-set 允许兼容包裹，deny-body 拒绝；Class/Module 添加需要 method_set 及既有 override/impl/可见性/Contract 授权；缺失访问器与 Contract 可执行变更拒绝；普通、Module/main、类对象、运算符、泛型、限定、生成、原生支持及异步目标保持精确契约；运行时明确保护其体不被替换、因其他原因不可替换或原生不安全的目标拒绝且无部分发布；具有 `protected` 可见性的普通 Method 仍可在现有访问及能力检查约束下包裹。 |
+
+Informative note: [v1.35 台账](../../../docs/spec-defects-v1.md#v135-approved-decorator-errata)记录实际语料库审计及 V428–V431 夹具不匹配。本表是覆盖要求，不是实现，也不宣称新运行时测试通过。
 
 ## 审计精确一致性向量
 

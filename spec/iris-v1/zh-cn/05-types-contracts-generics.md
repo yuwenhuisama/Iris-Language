@@ -1,6 +1,6 @@
 # Iris v1 类型、Contracts 与泛型
 
-状态：Iris v1.1，冻结语义并有所有者批准的勘误。
+Status: Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-TYPES-C001: 本章定义 Iris v1 的渐进类型 Contracts、`Dynamic<T>`、运行时类型测试与 cast、Type 对象、顶层和底层类型、nilability、`NonNil`、union 和 intersection 代数、callable 子类型、Contract 声明与视图、泛型约束与物化、Type aliases，以及 `Never` 流。它 MUST 在 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[02-lexical-grammar.md](02-lexical-grammar.md)、[03-runtime-object-model.md](03-runtime-object-model.md) 和 [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md) 之后阅读。
 
@@ -443,6 +443,26 @@ IRIS-V1-TYPES-C097：v1.21 勘误确定了逐闭合物化失败时抛出的诊�
 IRIS-V1-TYPES-C098：v1.29 勘误确定了 IRIS-V1-TYPES-C045 与 `D-174` 所保护的祖先界限。当所提议的祖先关系丢弃了一个在 `D-173` 意义上携带静态脊事实的声明祖先——即携带声明的 Contract，或目标所依赖的 contract-visible 成员名与签名——则该事务性运行时超类变更**必须**在发布前以 `TypeContractError` 拒绝。不携带此类事实的声明祖先**不**受本条款保护，丢弃它将正常发布；对于自该祖先保留下来的方法，其后果由 `D-104` 与 IRIS-V1-RUNTIME-C015 所有，二者在反射调用入口抛出 `MethodBindingError`，而非拒绝该祖先变更。通过插入一个仍可抵达每一个受保护声明祖先的类来收窄祖先关系是允许的，因为它保留了全部静态子类型假设。`D-262` 所述的永久声明界限不变：本条款确定的是该界限**保护哪些**声明祖先，且不推翻任何已发布的结论。
 
 IRIS-V1-TYPES-C099：v1.30 勘误确定了**尝试**从类移除已声明 Contract 的拼写。事务候选**可以**以 `remove_contract(contract)` 发起该尝试，其反射形式为 `Reflection::Class.remove_contract(target, contract)`；依 IRIS-V1-META-C119，它与类级入口是**同一个**实现，正如 `set_superclass` 那样。该尝试是 IRIS-V1-META-C023 意义上的候选变更，因此作用于**当前**事务候选。IRIS-V1-TYPES-C045 使已声明的 Contract 遵从对某一修订的静态脊而言**不可变**，故该尝试**必须**在发布**前**以 `TypeContractError` 拒绝，且目标**必须**保留其已声明 Contract 集合、其活动修订与其遵从关系。本条款仅提供使该拒绝**可被观测**所需的**拼写**；它不授予移除已声明 Contract 的任何能力，也不推翻任何已发布的结论。不同的已声明 Contract 集合需要通过显式的类演化系统创建不同的类修订或声明，这正是 `D-173` 已有的规定。
+
+IRIS-V1-TYPES-C100: v1.36 勘误引入顶层静态 `impl Class for Contract` 声明，并明确取代 IRIS-V1-TYPES-C044 中的类头 `for` 遵从语法与 IRIS-V1-TYPES-C046 中的成员级 `impl` 修饰符语法。名义 Class MUST NOT 在其类头中声明 Contract 遵从，且书写 `class Name for Contract` MUST 被拒绝并报告诊断 `PARSE_LEGACY_CLASS_FOR`。Contract 遵从由顶层 `impl TargetClass for TargetContract { ... }` 声明静态且唯一确立。每个 `impl` 块 MUST 恰好命名一个目标 Class 和恰好一个目标 Contract。在单个 `impl` 块中声明对多个 Contracts 遵从的尝试（例如 `impl Box for Show, Hashable`）MUST 在解析期被拒绝并报告诊断 `PARSE_IMPL_REQUIRES_ONE_CONTRACT`。
+
+IRIS-V1-TYPES-C101: 顶层静态 `impl Class for Contract` 声明与顺序无关。在编译单元内，`impl` 块 MAY 出现在其目标 Class 和目标 Contract 声明之前、之间或之后。静态解析在执行前收集所有顶层 `impl` 声明，并在运行 origin 主体之前验证名义遵从。
+
+IRIS-V1-TYPES-C102: `impl Class for Contract` 声明的主体仅包含要求。它 MUST 仅包含直接对应于目标 Contract 或其继承父项所声明要求的实例 Method 声明。它 MUST NOT 包含存储字段、原始实例变量、初始化器、类变量、可执行语句、嵌套类型或 Contract 未要求的无关方法。在 `impl` 块内部书写字段 MUST 被拒绝并报告诊断 `PARSE_IMPL_METHODS_ONLY`。书写 Contract 要求中不存在的无关方法 MUST 以 `TypeContractError` 拒绝。在 `impl` 块内声明的方法 MUST NOT 带有成员级 `impl` 修饰符；在 `impl` 块或类主体内书写 `impl fun` MUST 被拒绝并报告诊断 `PARSE_LEGACY_METHOD_IMPL`。
+
+IRIS-V1-TYPES-C103: 在 `impl Class for Contract` 块内声明的方法同时填充目标 Class 的普通派发与限定 Contract slot 派发。在 `impl` 块中声明为 `public fun m()` 的方法安装一个可通过 `receiver.m()` 访问的普通 slot，以及一个可通过 `(receiver as TargetContract)..m()` 访问的限定 slot。若实现方法声明为 `private fun m()`，普通派发依据可见性受到限制，而通过 Contract 视图的限定派发对受授权调用方保持可访问。两个表面均反映单一实现方法身份。
+
+IRIS-V1-TYPES-C104: 空的 `impl Class for Contract {}` 声明当且仅当目标 Class 已为目标 Contract 的所有要求定义或继承兼容方法时有效。空 `impl` 复用现有兼容类方法以满足 Contract 义务，并安装对应的限定 Contract slots，而不重复方法主体。若缺少任何要求或存在不兼容要求，空 `impl` MUST 以 `TypeContractError` 拒绝。
+
+IRIS-V1-TYPES-C105: 跨编译单元的遵从义务强制执行唯一性、一致性、孤儿预防以及非重叠实现规则。在一个程序内，对任何给定的 `(Class, Contract)` 对，MUST 存在至多一个 `impl Class for Contract` 声明。对同一 Class 和 Contract 的重复 `impl` 声明 MUST 以 `TypeContractError` 拒绝。`impl` 声明 MUST 位于定义目标 Class 的包或定义目标 Contract 的包中（孤儿规则）。两个不同的 `impl` 声明 MUST NOT 为同一目标 Class 和 Contract 提供冲突或重叠的实现。目标 Class 和目标 Contract MUST 存在；指定未知的 Class 或未知的 Contract MUST 以 `TypeContractError` 拒绝。
+
+IRIS-V1-TYPES-C106: 顶层 `impl` 声明适用于泛型 Class 的泛型定义，例如 `impl Box<T> for Show where T: Object { ... }`。在 Iris v1 中禁止闭合泛型特化：源语法 MUST NOT 声明 `impl Box<Integer> for Show` 或提供闭合特化实现主体。所有闭合泛型构造共享定义在泛型定义上的单一静态实现。
+
+IRIS-V1-TYPES-C107: Class 实现的 Contracts 集合在程序执行前静态固定，且在运行时不可变。运行时元编程、open class 事务、动态反射与原生扩展 MUST NOT 在现有 Class 上添加、移除或替换名义 Contract 遵从。Class 上的动态 open 事务针对活动候选重新验证完整的静态 `impl` 义务；任何破坏已确立 `impl` 义务的修改 MUST 以 `TypeContractError` 拒绝并原子回滚。
+
+IRIS-V1-TYPES-C108: Modules MUST NOT 使用 `for` 声明 Contract 遵从，且 MUST NOT 作为顶层 `impl Module for Contract` 的目标。Module MAY 使用 `module Name where Self: Contract { ... }` 声明对其实现接收者的约束。当带有 `where Self: Contract` 约束的 Module 通过 `mixin` 组合进 Class 时，进行组合的 Class MUST 通过 `impl Class for Contract` 声明静态满足该 `Contract` 约束；否则，候选验证 MUST 失败并报告 `TypeContractError`。
+
+IRIS-V1-TYPES-C109: Contract 视图依据 IRIS-V1-TYPES-C050 仍为不可变且无身份的 capability 值。Contract 视图上的相等性 `==` 与哈希 `hash` 依据 IRIS-V1-TYPES-C050 和 IRIS-V1-TYPES-C051 严格派生自接收者身份/相等性与 Contract 身份。在任何 Contract 视图上使用 `same?` 测试身份 MUST 引发 `IdentityError`。此无身份 capability 模型与错误行为在 Iris v1.36 中保持不变。
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

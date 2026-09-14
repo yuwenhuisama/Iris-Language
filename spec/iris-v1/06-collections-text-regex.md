@@ -1,6 +1,6 @@
 # Iris v1 Collections, Text, Binary, Regex, And Stable Hashing
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.36, frozen semantics with owner-approved errata.
 
 IRIS-V1-COLLECTIONS-C001: This chapter defines Tuple, Array, Hash, Range, Iterable, Iterator, Iteration, String, MutableString, Symbol, Bytes, ByteArray, Regex, Match, mutation, fail-fast traversal, equality, hashability, and stable BLAKE3 hashing for Iris v1. It MUST be read after [README.md](README.md), [01-language-identity.md](01-language-identity.md), [02-lexical-grammar.md](02-lexical-grammar.md), [03-runtime-object-model.md](03-runtime-object-model.md), and [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md).
 
@@ -473,3 +473,4 @@ IRIS-V1-COLLECTIONS-C100: The following vector is normative direct coverage for 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-COLLECTIONS-V356` | diagnostic | compiler required; interpreter required; JIT not applicable; native not applicable | Three isolated UTF-8 source fixtures: hex `2261225c0a226222` (`"a"` followed immediately by backslash, LF, then `"b"`); hex `2261225c200a226222` (space between backslash and LF); and source `"a" \ // comment` followed by LF and `"b"`. | The first fixture evaluates to String `"ab"`. The second and third report `LEX_BAD_CONTINUATION`, severity `error`, phase `lex`, and publish no String value. | `D-388` |
+IRIS-V1-COLLECTIONS-C101: The v1.36 Array expression literal is `%[element, ...]`, including the empty literal `%[]`. This supersedes only the source spelling of earlier Array expression literals; evaluation order, element inference, mutability, identity, equality, iteration, and runtime representation are unchanged. Square brackets without `%` remain Array destructuring patterns in pattern context and postfix indexing in `receiver[index]`; they are not Array expressions.

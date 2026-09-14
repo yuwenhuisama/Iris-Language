@@ -1,6 +1,6 @@
 # Iris v1 集合、文本、二进制、Regex 与稳定哈希
 
-状态：Iris v1 草案，语义已冻结。
+状态：Iris v1.36，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-COLLECTIONS-C001: 本章定义 Iris v1 的 Tuple、Array、Hash、Range、Iterable、Iterator、Iteration、String、MutableString、Symbol、Bytes、ByteArray、Regex、Match、mutation、fail-fast traversal、equality、hashability，以及稳定 BLAKE3 hashing。必须在阅读 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[02-lexical-grammar.md](02-lexical-grammar.md)、[03-runtime-object-model.md](03-runtime-object-model.md) 和 [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md) 之后阅读本章。
 
@@ -472,3 +472,4 @@ IRIS-V1-COLLECTIONS-C100: 下列向量是 trace audit 分配给本章的文本�
 | 向量 ID | 类别 | 适用性 | Source/Input | 期望可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-COLLECTIONS-V356` | diagnostic | 需要 compiler; 需要 interpreter; JIT 不适用; native 不适用 | 三个隔离 UTF-8 source fixtures: hex `2261225c0a226222` (`"a"` 后面紧接 backslash、LF，然后是 `"b"`); hex `2261225c200a226222` (backslash 与 LF 之间有 space); 以及 source `"a" \ // comment` 后接 LF 和 `"b"`. | 第一个 fixture 求值得到 String `"ab"`. 第二个和第三个报告 `LEX_BAD_CONTINUATION`, severity `error`, phase `lex`, 且不发布 String value. | `D-388` |
+IRIS-V1-COLLECTIONS-C101：v1.36 Array 表达式字面量写作 `%[element, ...]`，包括空字面量 `%[]`。这仅取代早期 Array 表达式字面量的源码拼写；求值顺序、元素推断、可变性、身份、相等性、迭代和运行时表示均不改变。不带 `%` 的方括号在 pattern 上下文中仍是 Array 解构 pattern，在 `receiver[index]` 中仍是后缀索引；它们不是 Array 表达式。

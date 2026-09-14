@@ -155,6 +155,11 @@ IRIS-V1-IDENTITY-N002: Informative note: D-073 到 D-087 定义稳定公共数�
 
 IRIS-V1-IDENTITY-C036: 以下向量是带有具体审计输入的规范性可追溯性向量。它们覆盖身份和兼容性决策，而不创建实现代码。
 
+IRIS-V1-IDENTITY-C037: v1.36 语言修订确立了唯一名义 origin、静态实现承诺以及显式的 open 动态边界：
+1. 唯一名义 origin：程序内的每个名义 Class 和 Module 恰好具有一个 origin 声明。针对同一名义 Class 或 Module 的重复 origin 声明被严格禁止，并在静态分析期以 `QUALIFIED_NAMESPACE_COLLISION` 报告诊断。跨编译单元的结构扩展通过显式 `open` 声明附加到现有的唯一 origin。
+2. 静态实现承诺：Contract 遵从通过顶层 `impl Class for Contract` 声明静态、唯一且不可变地确立。遵从在程序执行前固定，不受动态移除或替换的影响。
+3. open 动态边界：运行时结构元编程与动态修改受限于显式 `open class` 与 `open module` 块。动态添加在事务边界内执行，任何与已确立的静态 `impl` 义务冲突的修改在候选验证期间均以 `TypeContractError` 拒绝并原子回滚。这取代了早期的过渡性无约束修改模型，同时保留了静态脊柱。
+
 | 向量 ID | 类别 | 适用性 | 源/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-IDENTITY-V001` | diagnostic | documentation validator required; interpreter not applicable; JIT not applicable; native not applicable | 验证固定的 Iris v1 产物集和语义来源声明。 | `spec/iris-v1` 下恰好存在 14 个产品产物；`spec/drafts/iris-language-specification.md` 是已批准的语义来源；没有实现文件或考古资料是规范性的。 | `D-000`, `D-001` |

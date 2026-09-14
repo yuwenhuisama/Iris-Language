@@ -1,6 +1,6 @@
 # Iris v1 运行时对象模型
 
-状态：Iris v1.2，冻结语义并有所有者批准的勘误。
+状态：Iris v1.36，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-RUNTIME-C001：本章定义 Iris v1 的运行时值、对象性、身份、派发、逻辑 Class 与活动修订语义、Module MRO、Method 与 BoundMethod 身份、构造、属性、原始 ivar、类变量、真值性、缺失消息处理、内置数值行为、哈希以及内置开放性。本章 MUST 在 [README.md](README.md)、[01-language-identity.md](01-language-identity.md) 和 [02-lexical-grammar.md](02-lexical-grammar.md) 之后阅读。
 
@@ -654,3 +654,8 @@ IRIS-V1-RUNTIME-C164：v1.13 勘误将常规迁移签名改写为 `migrate_revis
 | `IRIS-V1-RUNTIME-V016` | 正向 | 需要解释器；需要 JIT；本地人不适用；原因：纯 Iris BoundMethod 身份源没有原生边界 | `obj.method same? obj.method` | `value`: `false`;每个 Method 读取都会创建一个不同的 BoundMethod 身份。 | `D-106` |
 | `IRIS-V1-RUNTIME-V017`| 正向 |需要解释器；需要 JIT；本地人不适用；原因：受控 BoundMethod 替换没有原生边界 | `fixture: {source: "let saved = obj.method; open class A { override public fun method() { :new } }; [saved same? saved, saved(), obj.method()]", setup: "obj is an A and original A#method returns :old"}` | `value`：`[true, :old, :new]`；保存的 BoundMethod 保留其 Method 身份，而稍后查找会选择替换。 | `D-105`, `D-106` |
 | `IRIS-V1-RUNTIME-V026` | 负向 | 需要解释器；需要 JIT；本地人不适用；原因：受控施工失败没有本土边界 | `fixture: {source: "let escaped = nil; class A { public fun initialize() { escaped = self; raise :sentinel } }; A.new()", observations_after_catch: ["escaped is A", "escaped.to_bool()"]}` | `error`：升高值`:sentinel`，相位`runtime`； `side_effects`：`new`不返回实例，而转义的是普通的内存安全`A`，`escaped.to_bool()`是`true`。 | `D-443`|
+IRIS-V1-RUNTIME-C165：v1.36 修订规定，每个具名 Class 与 Module 在一个包身份中恰好拥有一个 origin 声明。同一限定身份的第二个非 open origin MUST 被拒绝，且 MUST NOT 合并成员、布局、超类、泛型参数、策略或初始化顺序。兼容的运行时结构变化仍通过 `open class` 或 `open module` 作用于同一逻辑身份。
+
+IRIS-V1-RUNTIME-C166：实例字段声明在 Class origin 中写作 `let @name type_annotation? = expression` 或 `mut @name type_annotation? = expression`。其初始化器对每个构造实例恰好执行一次，且 `self` 绑定到该实例。`let` 字段拒绝后续赋值；`mut` 字段允许满足声明 Type 的赋值。open 事务 MUST NOT 添加、删除、重排或改变实例字段与布局。
+
+IRIS-V1-RUNTIME-C167：后缀非空断言返回操作数的原始值，因此保持所有可观察身份、相等性、哈希和接收者关系。它不引入包装、转换、复制、Method 发送或新分配。Contract view 在 C031-C032 下仍是无身份的 capability value：`==` 与 `hash` 保持 receiver 加 Contract 的语义，而 `same?` 仍抛出 `IdentityError`。

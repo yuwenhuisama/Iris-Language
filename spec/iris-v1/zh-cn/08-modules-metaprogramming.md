@@ -1,6 +1,6 @@
 # Iris v1 模块与元编程
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-META-C001: 本章定义 Iris v1 的包身份、Module 源结构、导入、导出、再导出、初始化顺序、manifest 与 lock 语义、声明体执行、声明式与程序式 open 事务、候选隔离、安全点提交、冲突处理、修订审计与回滚入口点、Module 组合授权、装饰器、MetaCapabilities、ReflectionPolicy、反射视图、`respond_to?`、原始 ivar 反射，以及静态成员可见性与动态成员可见性。它 MUST 在阅读 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[02-lexical-grammar.md](02-lexical-grammar.md)、[03-runtime-object-model.md](03-runtime-object-model.md)、[04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md) 和 [05-types-contracts-generics.md](05-types-contracts-generics.md) 之后阅读。
 
@@ -251,6 +251,97 @@ IRIS-V1-META-C093: Origin construction、declarative open、hot upgrade、rollba
 
 IRIS-V1-META-C094: Reflection 暴露有序 decorator identity、arguments、package 和 source identity、static 和 runtime phase participation，以及经权限过滤的 generated diff metadata。它 MUST NOT 暴露 mutable transform internals 或 candidate mutation handles。
 
+## v1.35 装饰器调用协议
+
+IRIS-V1-META-C127: 所有者批准的 v1.35 勘误依据 [README.md](README.md) 中的 IRIS-V1-TRACE-C023 补全具体装饰器协议。`Invocation`、`InvocationSignature`、`InvocationParameter`、`ArgumentChanges`、`DecoratorContext` 与 `DecoratorProtocolError` 是依据 IRIS-V1-RUNTIME-C163 经 `Kernel` 可见的语言核心具名 Type，不是关键字或新增可调用种类。前五者是不可调用的不可变记录；只有 `ArgumentChanges` 有公开构造器。每次装饰器应用在每个实际执行的阶段 MUST 分别以零实参构造其已解析装饰器 Class 的全新实例，再依据 C122/C124 调用 `plan(declaration, arguments)` 或 `transform(declaration, arguments, context)`。应用点实参传给这些阶段成员，不传给 `initialize`。两个成员仍然都必需。C088 的静态纯度要求 MUST 覆盖构造、`initialize` 及完整规划调用图；失败阻止运行时变换和目标发布。实例 MUST NOT 在阶段、应用、重放或封闭具体化之间共享。`Plan.empty` 和 `Transformation.empty` 是属性读取，产生永久带有当前目标种类标签的空值；二者均暴露只读 `kind: Symbol`。种类 Symbol 恰好为 `:class`、`:module`、`:contract`、`:method`、`:property`。工厂及链式操作构造从运行时拥有的阶段数据取得种类，该范围包含此阶段的构造器及同步辅助调用；范围之外的构造按 C139 拒绝。可以读取保留的记录，但读取不会重新标记它，也不会授权构造。仅运行时提供的 `context: DecoratorContext` 恰好暴露只读 `kind: Symbol` 与 `reason: Symbol`；原因值为 `:origin`、`:open`、`:upgrade`、`:rollback`、`:closed_materialization`。它不暴露候选、变更操作、原始体句柄或授权令牌，捕获 context 也不延长阶段。
+
+IRIS-V1-META-C128: `Transformation` 操作 MUST 是惰性的、有序的、持久化的描述，只有完整候选验证与原子发布才能安装它们。下表是初始操作表面的完整定义；每个工厂返回同种类 `Transformation`，同名实例 Method 将一个操作追加到新值，不改变接收者。因此 `Transformation.empty.add_method(selector, body)` 是 `Transformation.add_method(selector, body)` 的链式对应形式。每个操作恰好接收列出的必需位置实参，不接收关键字、rest 或尾随块；`wrapper` 与 `body` 以 `Object` 接收，再依据完整可调用元数据准入，而非通过不变泛型转换。`selector` 的 Type 为 `Symbol`。`body` 是普通 Closure，提供新 Method 的完整参数/结果及同步/异步契约，并保留自身词法捕获；安装不会重新绑定其捕获的接收者。此最小 `add_method` 形式在被装饰 Class 的实例表面或 Module 的声明成员表面添加新的普通 Method 槽。它不携带 `override`/`impl` 授权，因此冲突或需要这类授权的操作被拒绝，而非静默获得授权。现有 C050/C051/C081/C090 的签名、可见性、Contract、静态脊柱、权限及原生检查仍为强制要求。
+
+| 目标种类 | 工厂及同名链式 Method | 必需能力与边界 |
+| --- | --- | --- |
+| Class、Module | `Transformation.add_method(selector, body)` | `method_set`；新普通槽依据 RUNTIME-C077/CONTROL-C012 默认 private；无寻址成员或批量包裹、组合或特权替换 |
+| Method | `Transformation.wrap_method(wrapper)` | `method_body`；保持精确槽、可见性、完整签名、泛型参数及义务 |
+| Property | `Transformation.wrap_getter(wrapper)`、`Transformation.wrap_setter(wrapper)` | `property_body`；仅现有访问器，不创建缺失 setter，不改变存储、布局或 Type；缺失访问器在候选验证时产生 `ArgumentError` |
+| Contract | 仅 `Transformation.empty` | 仅现有有序描述性装饰器反射；无可执行体、新成员、要求变更或任意元数据 API |
+
+| 持久化表达式 | 操作顺序 |
+| --- | --- |
+| `Transformation.empty.add_method(:first, first_body).add_method(:second, second_body)` | 先添加 first，再添加 second；返回一个值并执行一次候选验证 |
+| `Transformation.wrap_getter(read_wrapper).wrap_setter(write_wrapper)` | 先包裹 getter，再包裹 setter；返回一个 Property 变换 |
+| `Transformation.empty.wrap_method(first_wrapper).wrap_method(second_wrapper)` | 按此顺序排列的两个 Method 层，由 C129 管理 |
+
+IRIS-V1-META-C129: 阶段执行 MUST 保持 C086 规定的书写顺序，即自上而下。`@A()` 后接 `@B()` 时，Method 包裹安装 `A(B(original))`，而非 `B(A(original))`：先写的包裹层位于最外侧。调用依次进入 A、B、original，成功退出依次经过 B、A。返回操作先按应用源顺序、再按链式追加顺序排列；对每个所指访问器或 Method，后续层放在先前层内侧、紧邻底层体之前。getter 和 setter 链分别累积。此组装 MUST NOT 重新运行先前装饰器、在变换期间执行包裹器，或把已累积的链作为新的原始体再次包裹。其他操作保留候选顺序和普通冲突检查。`next` 在调用时绑定到捕获的内层后缀，绝不绑定到选择器重新派发、`super` 或公开原始 Method 句柄。
+
+IRIS-V1-META-C130: 在进入任何外层包裹器之前，即使该层进行零次尝试，调用也 MUST 按 IRIS-V1-CONTROL-C033 顺序求值接收者与操作数，执行普通选择器解析、可见性及当前所有者验证，选定一个精确的普通或 Contract 限定槽及其封闭泛型绑定，并依据 CONTROL-C022 至 C027 绑定及验证完整原始输入契约。默认表达式在原始词法环境中从左到右求值一次。协议 MUST NOT 改变普通绑定/默认值失败的优先顺序。任何初始绑定、默认值或参数失败都阻止所有包裹器及原始体进入；缓存不能修复无效源调用。只有准备成功才创建外层 `Invocation`。尝试 MUST NOT 重新求值接收者、操作数、splat、关键字、块创建或默认表达式，不重新选槽，也不重新推断泛型绑定。默认表达式产生的对象仍为同一共享对象，即使先前尝试修改了它们。同步失败正常抛出；异步准备遵循 C136。
+
+IRIS-V1-META-C131: 以下只读字段定义 `Invocation` 快照的完整公开表面。全部快照容器 MUST 是运行时创建、具有所述元素 Type 的不可变 Array/Hash；构造它们是显式存储元素，不是泛型容器 Type 之间的协变。容器不可变性是浅层的：接收者和实参对象保留普通可变性。字段不暴露绑定单元、可执行 Method、候选或私有状态反射授权。每层接收描述其传入载荷的新记录；原始调用来源信息在整条链及每次重试中保持不变。
+
+| 字段 | Type | 内容及顺序 |
+| --- | --- | --- |
+| `receiver` | `Object` | 精确选定的接收者关系，绝不是包裹器的 `self` |
+| `slot` | `Tuple<Object, Symbol, Type?, Symbol>` | 声明逻辑 Class/Module 对象、选择器、封闭限定 Contract Type 或 `nil`，最后为 `:method`、`:getter` 或 `:setter`；这是描述性的精确槽键，不是可调用句柄 |
+| `signature` | `InvocationSignature` | 下述已选定且完全替换类型参数的调用契约 |
+| `owner_type_arguments`、`method_type_arguments` | `Array<Type>` | 各自声明顺序中的封闭替换；非泛型时为空 |
+| `positional` | `Hash<Symbol, Object>` | 按声明参数名索引的已绑定固定位置槽，按声明顺序排列，包含已计算默认值 |
+| `keywords` | `Hash<Symbol, Object>` | 按声明顺序排列的已绑定声明关键字专用槽，包含已计算默认值 |
+| `rest` | `Array<Object>` | 按绑定顺序排列的当前位置 rest 元素；无 rest 时为空 |
+| `keyword_rest` | `Hash<Symbol, Object>` | 按传入遇见顺序排列的当前未匹配关键字项；无关键字 rest 时为空 |
+| `block` | `Object` | 当前精确块对象或 `nil`，独立于全部实参容器 |
+| `original_positional` | `Array<Object>` | 原始位置实参完成 splat 展开后的求值结果，按调用顺序排列，不含默认值 |
+| `original_keywords` | `Array<Tuple<Symbol, Object>>` | 原始关键字实参展开后的已求值名称/值对，按遇见顺序排列，不含默认值 |
+| `original_block` | `Object` | 原始已求值块对象或 `nil` |
+| `block_omitted` | `Bool` | 源调用是否没有提供块，与显式提供 `nil` 区别 |
+| `omitted`、`defaulted` | `Array<Symbol>` | 分别为源调用省略的固定位置/关键字参数名，以及默认表达式实际运行的参数名，各按声明顺序；块来源使用 `block_omitted` |
+| `replaced` | `Array<Symbol>` | 沿该载荷路径显式替换的声明参数名，包含 rest/keyword-rest/block 绑定名；唯一且按声明顺序排列；值相等的替换也计入 |
+
+| 记录 | 只读字段及含义 |
+| --- | --- |
+| `InvocationSignature` | `parameters: Array<InvocationParameter>` 按完整 CONTROL-C022 声明顺序排列；`result: Type` 为精确封闭结果契约 R（异步时为被等待的 R）；`is_async: Bool` 记录声明模式 |
+| `InvocationParameter` | `name: Symbol`；`category: Symbol` 为 `:positional`、`:keyword`、`:rest`、`:keyword_rest` 或 `:block`；`type: Type` 为封闭固定槽 Type、rest 元素 Type、keyword-rest 值 Type，或块的精确 `Block<S>` 契约；`optional: Bool` 记录是否接受省略（rest 类别为 false）。不暴露默认表达式或可执行默认值句柄。 |
+
+IRIS-V1-META-C132: `ArgumentChanges.empty` MUST 返回不可变的不变更记录，在装饰器阶段内外均可使用。`ArgumentChanges.new` 是返回 `ArgumentChanges` 的普通类对象 Method；下列规范性表格给出完整构造签名，而不新增可调用 Type 语法。它没有位置参数，恰好具有以下顺序的五个可选关键字专用字段，没有 rest 或尾随块。缺省状态由内部字段存在性元数据表示，不是 Iris 哨兵值或 `nil`。`new()` 与 `empty` 都表示不变更；其身份不是缓存契约。构造器 MUST 立即快照所供容器结构，包括 Symbol 键和元素引用，使输入 Hash/Array 的后续编辑不能改变记录。它不深复制值，也不绑定目标。未知或重复构造关键字是 `ArgumentError`；所供容器形状错误或键不是 Symbol 是 `TypeError`。普通 Hash 构造在此 API 接收到 Hash 之前已经解决重复键；API 不恢复已丢弃的项。不存在可变更新/合并 API。在另一调用中复用记录时，按该调用选定的签名检查。
+
+| 关键字专用字段 | 所供值 Type | 缺省 / 提供时的含义 |
+| --- | --- | --- |
+| `positional` | `Hash<Symbol, Object>` | 保留所有固定位置槽 / 仅修改列出的声明位置参数名 |
+| `keywords` | `Hash<Symbol, Object>` | 保留所有声明关键字专用槽 / 仅修改列出的声明关键字参数名 |
+| `rest` | `Array<Object>` | 保留传入位置 rest / 替换整个位置 rest 序列 |
+| `keyword_rest` | `Hash<Symbol, Object>` | 保留传入关键字 rest / 按所供遇见顺序替换整个未匹配关键字映射 |
+| `block` | `Object` | 保留精确传入块身份或 `nil` / 替换独立块通道，受 C133 约束 |
+
+IRIS-V1-META-C133: 获准尝试 MUST 从其自身层的传入快照和所供变更导出完整载荷，在任何内层副作用之前依据原始精确封闭签名验证整个载荷，再以新的不可变记录、全新参数单元和 rest 容器进入内层。固定槽修改按 Symbol 名称绑定，绝不按源实参下标绑定。未知名称、错误通道中的名称，或在不存在该通道时提供 rest/keyword-rest/block 字段，均为 `ArgumentError`，即使替换内容为空也如此。只有原始签名具有 keyword rest 时，才允许在 `keyword_rest` 中提供未知关键字；声明的位置/关键字名称不能借此混入。每个字段影响互不相交的类别：源关键字顺序或 Hash 迭代顺序不会使修改覆盖另一通道。同一记录中每个名称只有一个值；嵌套层之间，后续内层修改替换该名称的传入值，而同一 `next` 的连续调用每次都从该层原始传入快照开始，绝不从其上一次尝试开始。省略的修改项保留传入值和已计算默认值；显式 `nil` 是按槽 Type 检查的已提供值。必需槽、固定槽 Type、rest 元素 Type 和 keyword-rest 名称/值契约 MUST 全部保持有效。块省略转发精确传入身份；非 nil 替换 MUST 满足目标原始封闭 `Block<S>`，不允许变型或重新绑定。仅可选块通道接受 `nil`；匹配的非 nil 块可替换可选通道传入的 `nil`。不创建或改变任何通道、接收者、选择器、限定槽或泛型替换。值契约失败在内层进入前产生 `TypeError`。拒绝使全部 Invocation 记录保持不变；成功只改变内层载荷及其累积 `replaced` 名称，不改变原始省略/默认值来源。计算变更或修改共享实参对象的副作用不回滚。每次最终原始体尝试也获得全新参数单元和 rest 容器，因此一次尝试中逃逸的参数捕获或容器编辑不会改变另一次尝试的绑定或容器结构。
+
+IRIS-V1-META-C134: 每个包裹器 MUST 恰好按顺序接收两个必需位置值 `invocation` 和 `next`。`next` 是新构造的普通 Closure，不是第四种可调用种类，其精确完整签名如下。现有 `S` 语法仅列出参数 Type，不能编码可选参数或其默认值；实现和读者 MUST 使用完整签名表进行准入及调用检查，不得在 `Closure<S>` 内发明 `changes: ArgumentChanges = ...` 语法。下列可在源中命名的 next Type 描述其参数/结果 Type；完整签名元数据另外记录可选性与默认值，因此 `next.call()` 无需重载即可成立。这不擦除已安装 Method 的签名，也不改变可调用类型不变性。不引入新的可调用 Type 别名。每个包裹器 MAY 按 C137 零次、一次或顺序多次调用 `next`。零次尝试仍要求初始输入有效且结果经检查；多次尝试只重复捕获的内层后缀，不重复外层或源调用准备。
+
+| 可调用对象 | 按顺序排列的完整参数 | 声明结果 | 调用结果 |
+| --- | --- | --- | --- |
+| 同步包裹器 Closure | 必需位置参数 `invocation: Invocation`、`next: Closure<(ArgumentChanges) -> Object>`；无可选、关键字、rest 或块参数 | `Object` | `Object` |
+| 异步包裹器 Closure | 必需位置参数 `invocation: Invocation`、`next: Closure<(ArgumentChanges) -> Task<Object>>`；无可选、关键字、rest 或块参数 | 被等待的 `Object` | `Task<Object>` |
+| 同步 `next` Closure | 一个可选位置参数 `changes: ArgumentChanges`，默认值 `ArgumentChanges.empty`；无关键字、rest 或块参数 | `Object` | `Object` |
+| 异步模式 `next` 桥接 Closure | 一个可选位置参数 `changes: ArgumentChanges`，默认值 `ArgumentChanges.empty`；无关键字、rest 或块参数 | 被等待的 `Object` | `Task<Object>` |
+
+IRIS-V1-META-C135: 同步目标 MUST 仅接纳具有 C134 签名的同步包裹器；异步目标仅接纳异步形式。注册检查实际 Closure 种类、精确参数类别及结果注解；可证明的不匹配静态拒绝，否则在候选验证中以普通 `TypeError` 拒绝；MUST NOT 静默适配 BoundMethod、改变目标模式或执行协变 Closure 转换。运行时拥有的准入适配器针对精确封闭目标签名专门化，验证输入、调用注册回调，并在每层依据原始结果契约 R 检查成功结果，包括零次尝试层。原始体自身的返回守卫仍然保留。`next` 只有在内层边界已经检查 R 之后才将内层值作为 `Object` 暴露；外层包裹器不能观察到无效的内层成功值，但可以捕获普通失败并以自己的有效 R 恢复。所有失败的结果守卫 MUST 使用普通 `TypeError`；`Never`、可 nil 性、不变泛型替换、getter 和 setter 结果均保持精确。setter 赋值仍产生经检查的 setter 结果，不自动产生被赋实参。把 Task 作为普通值返回的同步目标仍为同步，检查该精确 Task 值类型 R，而不等待它。
+
+IRIS-V1-META-C136: 异步包裹 MUST 保持 `transform` 同步且不等待：变换注册 async Closure，但不在事务中运行或等待它。每次被装饰异步调用都创建全新的、调用者可见的外层 `Task<R>`，与所有回调及内层尝试 Task 不同，包括透明转发和缓存命中。每层的带类型准入 Task 等待其回调的 `Task<Object>`，依据精确被等待的 R 检查完成值，并以 `Task<R>` 完成。每次获准异步 `next.call(...)` 都创建全新 `Task<Object>` 桥接，等待内层尝试的 `Task<R>` 并将其已检查值作为 Object 暴露；这些是真正的适配器，绝不是 `Task<R> as Task<Object>` 或反向转换。每层完成值都在作为成功值暴露前检查。准备和回调 MUST 保持立即启动，直到完成、失败或首次未完成 await；适配器不添加调度/公平性跳转，已完成 Task 也如此。接收者/操作数求值失败保留普通 Task 前路径；绑定/默认值/输入准备失败使外层 Task 失败，且不进入包裹器。无效尝试载荷在内层进入前使返回的桥接 Task 失败，可以通过等待它捕获。对同一 Task 重复 await 保留完成身份；依据 ASYNC-C023，传播失败跨适配器保留原始 ExceptionContext 根，而新发生的结果守卫失败创建自己的普通上下文。这些细化保留[第 07 章](07-async-resources-diagnostics.md)的调度、完成和无取消规则。
+
+IRIS-V1-META-C137: `next` 执行许可 MUST 限于其所属同步包裹器激活，或所属异步回调 Task，而不是等待该回调的适配器 Task。在所属者动态执行中的同步辅助函数可以调用它。异步所属者在自身挂起/恢复期间保留许可。新调用的异步辅助函数即使在立即执行的同步前缀期间也属于外部 Task。运行时拥有的 next 桥接 MUST 在切换到桥接执行前检查发起调用的 Task 身份；该内部切换不会授权外部用户 Task。每层最多有一次进行中的尝试：同步尝试在返回或抛出时结束；异步尝试在返回的桥接 Task 成功或异常完成时结束。进入内层代码前设置进行中标记，因此重入或重叠调用不能绕过立即执行前缀。完成后、外部 Task 及重叠调用按 C139 在任何新内层尝试前失败。允许存储/传递 Closure，并保留普通捕获，但绝不延长许可。如果异步回调在其尝试未完成时结束，正常完成 MUST 改为使准入 Task 以 `DecoratorProtocolError` 失败；如果它已经失败，则保留主要失败并发出 C139 的结构化生命周期诊断。已启动的内层工作以自身有效内层作用域继续：不隐式取消、join、等待完成或追溯中止体。完成状态跟踪不算失败观察。适配器失败传播 MUST 使被放弃的失败仍可依据 ASYNC-C027/C028 报告，而非吞掉它。这些限制仅属于 next，不属于被替换块代码捕获并调用的普通原始块。
+
+IRIS-V1-META-C138: 发布包裹链 MUST 依据 RUNTIME-C012 至 C015 创建新的 Method 身份，同时保持逻辑 Class/Module 身份。保留的 Method 或 BoundMethod 执行其精确旧链和捕获状态；未来查找看到新链。保留调用入口仍验证当前词法所有者成员关系，即使缓存命中也在包裹器之前检查；所有者缺失抛出 `MethodBindingError`。移除或 undef 改变未来查找，不改变捕获的延续，也不改变所有者仍有效的保留 Method。原始代码保持其词法所有者/包，显式 `super(args...)` 保持当前 MRO 语义；包裹器与替换块 Closure 保持自身词法接收者/包，依据 C104/C105 绝不借用调用者、目标或原始块权限。每应用的包裹器捕获 MUST 在已发布链的普通调用之间持续存在，以支持缓存和计数器；不同应用及重建链获得全新应用状态，刻意共享的普通对象仍然共享，不隐式克隆或同步。origin、声明式 open、upgrade、rollback 及封闭具体化 MUST 从精确规范化的未装饰声明工件加有序应用列表重建，每个应用组装一次，而非重新装饰活动包裹体。rollback 验证历史工件及当前静态脊柱/策略约束，发布新修订，绝不重新激活旧缓存。构造器/transform 的外部副作用仍由作者依据 C042 负责。普通、Module/main、类对象及运算符 Method 在实际可替换槽存在时均受支持；泛型及限定目标保留精确封闭身份；生成访问器使用 Property 操作；原生支持的兼容体在精确 ABI 签名元数据可用时使用同一托管准入边界。原生结构变更仍需要 `native`；运行时明确保护其体不被替换的项，或因其他原因不可替换的项，被拒绝。具有 `protected` 可见性的普通 Method 仍可在现有访问及能力检查约束下包裹；可见性本身不等于运行时禁止体替换的保护。不虚构原语槽、AST API 或 Class/Module 批量包裹。
+
+IRIS-V1-META-C139: 本条依据 TRACE-C023 记录的、所有者对 README TRACE-C021 的有界授权例外，明确仅取代 C125 中错误种类 Transformation 拒绝必须无条件发生于 `phase static` 的要求。目标 Contract 不匹配、错误种类的 Plan/Transformation 结果、永久标签值在另一目标种类上复用，以及该种类不接纳的操作，在可证明时 MUST 报告 `IRIS-DECORATOR-KIND`、严重性 error、阶段 `static`；否则 MUST 在发布前的运行时 `candidate validation` 中拒绝。失败 origin 不发布目标；现有目标保留其先前修订、成员及提交身份；整个候选组回滚。静态纯度失败仍为 `IRIS-DECORATOR-NONDETERMINISTIC`、严重性 error、阶段 `static`，包含非确定性构造器。此例外不授权改变种类或弱化验证，也不重写已发布的 V428 行：其可证明的不匹配仍为静态；仅运行时产生的错误种类结果遵循本条。`DecoratorProtocolError` 是普通可捕获的核心错误，具有只读 `category: Symbol` 和 `owner: Object`（所属 next Closure，无阶段构造时为 `nil`），不含不可访问实参。下表固定其类别及交付方式。普通实参形状失败使用 `ArgumentError`，错误载荷/结果 Type 使用 `TypeError`，而非本协议错误。求值调用操作数或构造 ArgumentChanges 期间的错误发生在普通表达式位置，此时尚无 next Task；异步 next 调用内部发现的失败由其全新失败 `Task<Object>` 捕获，即使作用域无效也如此。被拒绝的作用域调用不创建内层尝试，也不改变已有进行中标记。
+
+| 类别 | 条件 | 交付方式 |
+| --- | --- | --- |
+| `:outside_phase` | 无活动阶段时进行上下文派生 Plan/Transformation 构造 | 同步 `DecoratorProtocolError` |
+| `:expired` | 所属激活/Task 完成后调用 next；先于外部 Task 身份检查，而后者先于重叠检查 | 同步 next 抛出；异步 next 返回失败的 `Task<Object>` |
+| `:foreign_task` | 从所属者之外的 Task 调用 next；同步激活记录进入时的 Task 身份，或无 Task 状态 | 相同的模式相关交付；不进入内层 |
+| `:overlap` | 该层有进行中尝试时调用 next | 相同的模式相关交付；不进入内层 |
+| `:unfinished_inner` | 异步回调在其尝试完成前结束 | 正常回调结果改为失败准入 `Task<R>`；已经失败的回调保留主要失败并额外发出诊断 |
+
+| 结构化生命周期诊断 | 必需字段 |
+| --- | --- |
+| `IRIS-DECORATOR-PROTOCOL` | 严重性 `error`，阶段 `runtime`，类别 `:unfinished_inner`，所属回调 Task 身份、next Closure 身份、进行中桥接 Task 身份，以及主要 ExceptionContext；在回调已经失败的情况下发出，不改变该主要上下文 |
+
 ## ReflectionPolicy 与反射视图
 
 IRIS-V1-META-C095: 反射 API 返回按权限过滤的不可变元数据快照，或返回带身份的元数据对象及其惰性不可变视图。它们 MUST NOT 暴露可变内部映射、可变内部表、候选变更句柄、作为通用 API 的 compiler AST，或 eval-string primary mutation。被阻止的访问会返回结构化权限诊断。
@@ -389,7 +480,19 @@ IRIS-V1-META-C124：v1.27 勘误修正 IRIS-V1-META-C122 所述的阶段签名�
 
 IRIS-V1-META-C125：v1.28 勘误确定了 IRIS-V1-META-C122 所命名的 `Plan` 与 `Transformation` 类型的最小成员。`Plan` 承载 IRIS-V1-META-C087 所述的编译器可见元数据；其最小表面是 `Plan.empty`，即不贡献静态元数据的装饰器所返回的计划。若静态计划读取了 IRIS-V1-META-C088 所定白名单之外的输入，则在运行时阶段执行前即被拒绝，诊断为 `IRIS-DECORATOR-NONDETERMINISTIC`，阶段为 static，且不发生任何运行时变换或目标发布。`Transformation` 承载同类候选变换；其最小表面是 `Transformation.empty`，即不做改变的装饰器所返回的变换；`Transformation.add_method(selector, body)`，它向目标候选暂存一个方法，并要求与 IRIS-V1-META-C090 对手写声明所要求的相同的 `method_set` 能力；以及 `kind`，即该变换所针对的声明类别。若 `Transformation` 的 `kind` 与被装饰目标的类别不同，则以 `IRIS-DECORATOR-KIND` 拒绝，阶段为 static，且目标不保留任何候选或修订，这是 IRIS-V1-META-C086 与 C091 已有的要求。对已应用装饰器的反射依据 IRIS-V1-META-C094 与 C095 将生成的差异暴露为不可变的、经权限过滤的视图，绝不暴露为可变的变换句柄。本表面是**最小**的：IRIS-V1-META-C090 还列出了生成属性、存储、Module、元数据与方法体包裹等操作，后续修订**可以**在不改变此处所定成员的前提下增补。
 
+Informative note: 上方 C125 保留已发布原文。其错误种类必须无条件于 `phase static` 拒绝的要求，仅由 IRIS-V1-META-C139 根据 README IRIS-V1-TRACE-C023 记录的所有者批准 v1.35 例外明确取代；C125 的其他保证均保留。具体构造及操作细节见 C127/C128。
+
 IRIS-V1-META-C126：v1.31 勘误确定了 `D-271` 留待另行规定的摘要范围，并更正 IRIS-V1-META-V357 的工件摘要。轻量审计记录的加密摘要是对所引用工件的**源字节**做 BLAKE3-256，而非对其定位符或任何外围记录框架，正因如此，V357 中仅更改定位符的变体保持摘要不变，而更改源字节则改变全部 32 字节。V357 的工件为 `conformance/iris-v1/fixtures/meta/v357/artifact.json`，其源为 `class Owner {\n  public fun status() -> Symbol { :ok }\n}\n`，在此范围下其摘要为 `7513f737323f64751a41ef3215b226725c0eef9c54d89918085ad5b0ee9a9360`。V357 行中所述的 `6e7c0d24c82a8dc03b320c790a7c8c2d4f2f9b77b9635c315d21ea34e92f4601` 因**不可复现**而予以**撤回**：从未为其发布过任何工件字节，因此它并不指称任何可计算的量。本条款不改变 V357、`D-270` 或 `D-271` 的任何行为要求；该行所述的每一个变体与结论均保持不变。
+
+IRIS-V1-META-C140: v1.36 勘误确立纯声明式的 Class 与 Module origins，并将动态结构修改严格限制于 `open` 块。origin 声明 `class Name { ... }` 或 `module Name { ... }` 是纯声明式且静态的。可执行语句、局部变量绑定以及裸控制流表达式 MUST NOT 直接出现在 origin 类或模块主体中，且在 origin 声明内部书写可执行语句 MUST 被拒绝并报告诊断 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION`。所有可执行成员定义、命令式初始化逻辑与运行时结构元编程 MUST 置于显式的 `open class Name { ... }` 或 `open module Name { ... }` 块内，或通过程序式 `Class#open` 与 `Module#open` 事务执行。
+
+IRIS-V1-META-C141: 声明式 `open class` 与 `open module` 块是修改现有名义类型的唯一动态结构入口点。`open class` 块 MAY 使用头部 `mixin` 子句组合模块，例如 `open class Target mixin MixedModule { ... }`。通过 `open class ... mixin` 进行的动态模块组合以及在 open 块主体中声明的任何成员添加或替换，均在单个事务候选内执行，并在提交时原子发布，遵循 IRIS-V1-META-C034 与 IRIS-V1-META-C041。
+
+IRIS-V1-META-C142: open class 事务，无论是声明式还是程序式，MUST 重新验证依据 IRIS-V1-TYPES-C100 至 IRIS-V1-TYPES-C107 为目标 Class 确立的所有静态 `impl Class for Contract` 义务。若 open 事务引入 mixin 或以与静态承诺的 Contract 要求冲突的实现替换现有方法，或者若动态候选未能满足已确立的 Contract 签名，候选验证 MUST 失败并报告 `TypeContractError`。失败时，事务原子回滚，保留目标的先前活动修订、方法表和 MRO，而不发布部分变更。
+
+IRIS-V1-META-C143: 每个逻辑 Class 与 Module 在程序内恰好具有一个 origin 声明。针对同一名义 Class 或 Module 的重复 origin 声明 MUST 在分析期间被静态拒绝并报告诊断 `QUALIFIED_NAMESPACE_COLLISION`。跨源文件或编译单元的结构添加 MUST 使用 `open class` 或 `open module` 块，这些块附加到唯一 origin 而不是创建重复 origin。
+
+IRIS-V1-META-C144: Module 声明 MAY 使用 `module Name where Self: Contract { ... }` 指定接收者类型约束。该约束表示任何通过 `mixin` 组合该 Module 的 Class MUST 满足指定的 Contract。将带有 `where Self: Contract` 约束的 Module 组合进缺少有效静态 `impl Class for Contract` 声明的 Class 中，MUST 在候选验证期间被拒绝并报告 `TypeContractError`。
 
 | Vector ID | Category | 适用性 | 来源/输入 | 预期可观察结果 | Decisions |
 | --------------------- | ------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |

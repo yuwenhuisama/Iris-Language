@@ -1,8 +1,36 @@
 # Iris v1 Traceability Matrix
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.36, frozen semantics with owner-approved language revision errata.
 
 IRIS-V1-TRACE-C019: This matrix is normative for semantic decision coverage. Every frozen decision appears exactly once and maps to manifest-authoritative semantic clauses and only direct chapter vector definitions.
+
+## v1.35 Decorator Errata Mapping
+
+Informative note: This additive mapping accompanies [README IRIS-V1-TRACE-C023](README.md) without rewriting or duplicating the frozen decision rows below. New executable coverage remains required by [IRIS-V1-CONFORMANCE-C076](12-conformance.md#v135-decorator-coverage-obligations); none of these links claims a new passing vector. Approval and bounded C125 supersession are recorded in the [v1.35 ledger](../../docs/spec-defects-v1.md#v135-approved-decorator-errata).
+
+| Existing decision reference | Added exact clause anchors in chapter 08 | Relation and evidence boundary |
+| --- | --- | --- |
+| D-511 | [META-C127](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C128, META-C129, META-C130, META-C131, META-C132, META-C133, META-C134, META-C139 | Typed target/operation admission, first-written-outermost invocation and checked input protocol; V428 remains static for provable mismatch, not evidence for a runtime-only wrong-kind result. |
+| D-512 | [META-C127](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C138 | Per-phase construction and complete planner purity; fresh canonical replay; V429 keeps its nondeterminism obligation. |
+| D-513 | [META-C128](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C133, META-C135, META-C138, META-C139 | Capability/kind matrix, exact contracts and lexical authority; V430 does not cover wrapping or complete Contract admission. |
+| D-514 | [META-C127](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C129, META-C131, META-C134, META-C135, META-C136, META-C137, META-C138, META-C139 | Immutable metadata, synchronous transform versus async invocation, lifetime, persistent chain state and fresh replay; V431 fixture lacks upgrade/rollback/await observations. |
+| D-299 | [META-C128](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C138 | Method set/body orthogonality preserved; V361 remains baseline evidence, with wrapping lanes still required. |
+| D-300 | [META-C128](08-modules-metaprogramming.md#v135-decorator-invocation-protocol), META-C135, META-C138 | Property set/body orthogonality, existing-accessor and setter-result checks; no shape or capability bypass. |
+
+## v1.36 Language Revision Mapping
+
+Informative note: This additive mapping records the owner-approved v1.36 language revision without modifying or duplicating the frozen decision rows below. Conformance obligations are specified in [IRIS-V1-CONFORMANCE-C077](12-conformance.md) and [IRIS-V1-CONFORMANCE-C078](12-conformance.md). The decision trail is recorded in [docs/spec-defects-v1.md](../../docs/spec-defects-v1.md#v136-approved-language-revision-errata).
+
+| Existing decision reference | Added exact clause anchors | Relation and evidence boundary |
+| --- | --- | --- |
+| D-173 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C105](05-types-contracts-generics.md), [TYPES-C107](05-types-contracts-generics.md), [META-C142](08-modules-metaprogramming.md) | Top-level static `impl Class for Contract` establishes immutable static spine contract obligations; candidate validation revalidates all static `impl` obligations. |
+| D-175 | [META-C141](08-modules-metaprogramming.md), [META-C142](08-modules-metaprogramming.md) | `open class Target mixin Module` executes atomically in candidate transaction; revalidates all static Contract obligations. |
+| D-220 | [TYPES-C108](05-types-contracts-generics.md), [META-C144](08-modules-metaprogramming.md) | Module `where Self: Contract` constraint requires composing Class to statically satisfy Contract via top-level `impl`. |
+| D-222 | [META-C140](08-modules-metaprogramming.md), [META-C143](08-modules-metaprogramming.md) | Origin class and module bodies are purely declarative; executable origin statements rejected; duplicate origins rejected. |
+| D-233 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C102](05-types-contracts-generics.md), [TYPES-C103](05-types-contracts-generics.md) | Top-level `impl Class for Contract` replaces member-level `impl fun`; requirement methods populate ordinary and qualified slots. |
+| D-234 | [TYPES-C100](05-types-contracts-generics.md), [TYPES-C103](05-types-contracts-generics.md), [TYPES-C104](05-types-contracts-generics.md) | One `impl` declaration per Contract; empty `impl` reuses compatible class methods; populates ordinary and qualified slots. |
+| D-278 | [TYPES-C100](05-types-contracts-generics.md) | Supersedes class header `for`; top-level `impl Class for Contract` is the sole conformance declaration form. |
+| D-279 | [TYPES-C108](05-types-contracts-generics.md), [META-C144](08-modules-metaprogramming.md) | Modules do not declare `for`; Module `where Self: Contract` constrains receiver Class. |
 
 ## Decision Rows
 

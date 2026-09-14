@@ -1,6 +1,6 @@
 # Iris v1 原生 Host 与 FFI
 
-Status: Iris v1 draft, frozen semantics.
+Status: Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-FFI-C001: 本章定义 Iris v1 的稳定 Host ABI、原生扩展边界、运行时有根句柄模型、原生错误模型、原生元数据绑定、原生载荷所有权、异步完成桥、ABI 版本协商、脚本 FFI 表面，以及 Rust/C++ 集成规则。它 MUST 在阅读 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[03-runtime-object-model.md](03-runtime-object-model.md)、[05-types-contracts-generics.md](05-types-contracts-generics.md)、[07-async-resources-diagnostics.md](07-async-resources-diagnostics.md) 和 [08-modules-metaprogramming.md](08-modules-metaprogramming.md) 之后阅读。
 
@@ -276,3 +276,5 @@ IRIS-V1-FFI-C055: 本章拥有 native 和 script FFI boundary decisions D-491 �
 IRIS-V1-FFI-C056: 本章拥有的 decision IDs 是 `D-491`, `D-492`, `D-493`, `D-494`, `D-495`, `D-496`, `D-497`, `D-498`, `D-499`, `D-500`, and `D-501`。
 
 IRIS-V1-FFI-C057: 引用但不由本章拥有的 decision IDs 包括 `D-001`, `D-002`, `D-077`, `D-172`, `D-173`, `D-174`, `D-175`, `D-176`, `D-177`, `D-178`, `D-179`, `D-180`, `D-181`, `D-207`, `D-208`, `D-209`, `D-210`, `D-211`, `D-212`, `D-213`, `D-214`, `D-215`, `D-216`, `D-217`, `D-218`, `D-219`, `D-220`, `D-242`, `D-243`, `D-244`, `D-245`, `D-246`, `D-247`, `D-248`, `D-249`, `D-250`, `D-322`, `D-323`, `D-324`, `D-325`, `D-326`, `D-327`, `D-469`, `D-470`, `D-471`, `D-472`, `D-473`, `D-474`, `D-475`, `D-476`, `D-477`, `D-478`, `D-479`, `D-480`, `D-481`, `D-482`, `D-483`, `D-484`, `D-485`, `D-486`, `D-487`, `D-488`, `D-489`, and `D-490`。
+
+IRIS-V1-FFI-C059：v1.36 语言修订未对 C Host ABI、原生元数据结构或 FFI 派发表引入任何线格式 (wire-format) 或二进制 ABI 变更。不透明句柄表示、句柄所有权生命周期以及 `extern "C"` 调用约定均不作修改地保留。原生扩展与 FFI 库通过现有句柄 API 与 Iris 对象交互，名义 Contract 符合性继续针对由顶层 `impl Class for Contract` 声明所建立的活动静态脊柱进行验证。

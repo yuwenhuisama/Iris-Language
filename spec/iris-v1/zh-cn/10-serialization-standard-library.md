@@ -1,6 +1,6 @@
 # Iris v1 序列化与标准库边界
 
-状态：Iris v1 草案，语义冻结。
+状态：Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
 
 IRIS-V1-LIBRARY-C001：本章定义 Iris v1 的序列化契约边界、JSON 职责、单独版本化的 IrisValue 职责、安全解码限制、Encoding 和 Unicode 标准表面、核心包边界、官方标准包类别、延后库领域，以及 Regex 包拆分。本章 MUST 在阅读 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[05-types-contracts-generics.md](05-types-contracts-generics.md)、[06-collections-text-regex.md](06-collections-text-regex.md)、[08-modules-metaprogramming.md](08-modules-metaprogramming.md) 和 [09-native-host-ffi.md](09-native-host-ffi.md) 之后阅读。
 
@@ -195,3 +195,5 @@ IRIS-V1-LIBRARY-C039：本章拥有序列化和库边界决策 D-502 到 D-504�
 IRIS-V1-LIBRARY-C040：本章拥有的决策 ID 是 `D-502`、`D-503` 和 `D-504`。
 
 IRIS-V1-LIBRARY-C041：引用但不拥有的决策 ID 包括 `D-407`、`D-413`、`D-414`、`D-505` 和 `D-506`。
+
+IRIS-V1-LIBRARY-C042：v1.36 语言修订未对 `JSON` 或 `IrisValue` 序列化格式引入任何线格式 (wire-format) 或字节级变更。已序列化的数据编码、JSON 映射规则、IrisValue 头部魔数、版本标签以及容器 schema 均不作修改地保留。选择加入序列化符合性的 Class 在 IRIS-V1-TYPES-C100 下以静态方式声明 `impl Class for Serializable`，其显式序列化表示继续受 IRIS-V1-LIBRARY-C003 至 IRIS-V1-LIBRARY-C020 中未改变的安全与解码限制约束。

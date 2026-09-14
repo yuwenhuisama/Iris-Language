@@ -1,6 +1,6 @@
 # Iris v1 Async、Resources 与 Diagnostics
 
-状态：Iris v1 草案，语义已冻结。
+状态：Iris v1.36，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-ASYNC-C001: 本章定义 Iris v1 的 async Method、async Closure、`Task<T>`、`Awaitable<T>`、单一 IrisRuntime 调度器、`await`、async 异常传播、未被观察到的失败 Task 诊断、Closeable 资源、普通 `using`、Iterator 清理之间的交互、结构化诊断报告、修订事件交付、`GapEvent` 和审计历史恢复。必须在阅读 [README.md](README.md)、[01-language-identity.md](01-language-identity.md)、[03-runtime-object-model.md](03-runtime-object-model.md) 和 [04-bindings-callables-control-flow.md](04-bindings-callables-control-flow.md) 之后阅读本章。
 
@@ -291,3 +291,4 @@ IRIS-V1-ASYNC-N001: 信息性说明：Native 和 Host 章节将定义外部 IO �
 | `IRIS-V1-ASYNC-V082` | diagnostic | 需要 compiler; JIT 不适用; native 不适用 | `async fun bad() -> Task { nil }`. | static generic-Task-result diagnostic；只有 `Task<T>` 结果为 valid. | `D-488` |
 | `IRIS-V1-ASYNC-V083` | diagnostic | 需要 interpreter; 需要 JIT; native 不适用 | 调用 `async fun fail() -> Nil { raise :x }`, 不保留其 failed Task 的 observer，驱动 scheduler 到 diagnostic checkpoint，并消费 runtime diagnostic event. | 恰好一个 unobserved-failure diagnostic 携带 `ExceptionContext.value == :x` 以及 async stack linkage；该 failure 不是 silent. | `D-489` |
 | `IRIS-V1-ASYNC-V084` | positive | 需要 interpreter; 需要 JIT; native 不适用 | Async `using` awaits an incomplete `Gate`, 恢复并返回 `:done`. | resumption 后 resource 精确关闭一次，Task result 为 `:done`. | `D-490` |
+IRIS-V1-ASYNC-C063：同步或异步代码中的后缀非空断言失败时，抛出 IRIS-V1-CONTROL-C082 定义的同一规范 `TypeError`。在 async callable 内，它遵循既有 Task 失败、观察、cause、stack 与未观察失败规则；不引入特殊调度器状态或取消行为。

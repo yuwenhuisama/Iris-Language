@@ -596,6 +596,20 @@ IRIS-V1-GRAMMAR-C071：v1.32 勘误提供 IRIS-V1-ASYNC-C008 与 IRIS-V1-META-C0
 
 IRIS-V1-GRAMMAR-C072：v1.33 勘误依 IRIS-V1-TRACE-C021 **第二次**扩大保留字清单，新增且仅新增 `yield`。就地取代 v1.1 的计数，v1.33 的保留字集合恰好包含 **50** 个小写词。`yield` 标记生成器挂起点，其产生式为 `yield_expr ::= "yield" expression?`，依 IRIS-V1-GRAMMAR-C071 与 `await` 同处 `unary_expr` 优先级。含 `yield` 的可调用体即**生成器**：调用它返回满足 IRIS-V1-COLLECTIONS-C011 的 `Iterator<T>`，其 `next()` 将体恢复执行至下一个 `yield` 并给出 `Iteration.yield(value)`，体执行完毕后给出 `Iteration.done`。IRIS-V1-META-C037 禁止 `yield` 出现在开放或修订事务体内，与其禁止 `await` 完全相同，理由同为不可挂起。本条款取代 IRIS-V1-GRAMMAR-V001 所述计数：该行的“恰好 48”相对 v1.1 的 49 早已过时，现读作 50。
 
+IRIS-V1-GRAMMAR-C073: v1.36 语言修订确立了带有显式可变性关键字的实例字段声明语法，添加 `instance_field_decl ::= ("let" | "mut") ivar_name type_annotation? ("=" expression)?` 并允许其出现在 Class 与 Module 主体中。以 `let` 声明的字段在实例初始化后不可变，而 `mut` 声明可赋值的实例 cell。在类主体中声明不带 `let` 或 `mut` 的实例字段将被拒绝并报告诊断 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION`。这明确取代了 IRIS-V1-RUNTIME-C061 下的无修饰字段声明。
+
+IRIS-V1-GRAMMAR-C074: v1.36 语言修订引入 `%[` 数组字面量起始词元（`ARRAY_OPEN`），并要求数组字面量表达式使用 `%[ elements ]`。就地取代 IRIS-V1-GRAMMAR-C015 与 IRIS-V1-GRAMMAR-C040，固定的词元清单通过添加 `ARRAY_OPEN`（`%[`）从 69 个名称增加到 70 个名称。裸方括号 `[` 与 `]`（`LBRACKET` 与 `RBRACKET`）仍严格保留用于索引（`receiver[index]`）、切片以及模式匹配解构（`[head, *tail]`）。在表达式位置书写裸方括号表达式 `[elements]` 将被拒绝并报告诊断 `PARSE_ARRAY_PREFIX_REQUIRED`。
+
+IRIS-V1-GRAMMAR-C075: v1.36 语言修订以谓词运算符 `is?`（`IS_QUERY`）取代无修饰的类型测试运算符 `is`。就地取代 IRIS-V1-GRAMMAR-C015 与 IRIS-V1-GRAMMAR-C016，运算符拼写 `is?` 在优先级等级 11（关系和类型运算符）处取代 `is`。固定的表达式运算符清单保持 45 个固定拼写和 47 个运算符形式，其中 `is?` 占据 `is` 的槽位。在表达式中书写无修饰的 `is` 将被拒绝并报告诊断 `PARSE_IS_QUESTION_REQUIRED`。`same?` 仍为具名中缀优先级等级 13 处的上下文身份选择器。
+
+IRIS-V1-GRAMMAR-C076: v1.36 语言修订在后缀优先级等级 1 处确立了后缀非空求值语法 `expression !`。后缀 `!` 运算符对其接收者表达式求值并断言非空性：若操作数求值为 `nil`，求值终止并引发 `TypeError`。后缀 `!` 与成员访问（`x!.member`）、索引（`x![0]`）和调用（`(expr)!()`）形成调用链。构成标识符选择器一部分的尾随 `!`（如 `foo!()`）依据 IRIS-V1-GRAMMAR-C010 被词法化为选择器身份的一部分，不被重写为非空求值；显式加括号 `(foo)!()` 强制进行后缀非空求值。
+
+IRIS-V1-GRAMMAR-C077: v1.36 语言修订在程序作用域引入顶层静态 `impl_decl ::= "export"? "impl" type_expr "for" type_expr where_clause? "{" method_decl* "}"` 声明，依据 IRIS-V1-TYPES-C100 至 IRIS-V1-TYPES-C107 确立静态 Contract 遵从。每个 `impl` 块 MUST 恰好命名一个目标 Class 和一个目标 Contract，多个目标以 `PARSE_IMPL_REQUIRES_ONE_CONTRACT` 拒绝。主体仅包含要求：它 MUST 仅包含不带成员级 `impl` 修饰符的 Method 声明，存储字段以 `PARSE_IMPL_METHODS_ONLY` 拒绝，书写 `impl fun` 以 `PARSE_LEGACY_METHOD_IMPL` 拒绝。类头部的 `for` 被移除，并以 `PARSE_LEGACY_CLASS_FOR` 拒绝。
+
+IRIS-V1-GRAMMAR-C078: v1.36 语言修订区分了纯声明式 origin 主体与可执行 open 主体。`class` 与 `module` 的 origin 主体 MUST 仅包含成员声明（`method_decl`、`property_decl`、`instance_field_decl`、`shared_decl` 或常量绑定）。可执行表达式、局部变量绑定和裸控制流语句在 origin 中被禁止，并以诊断 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION` 拒绝。命令式初始化与动态结构修改严格归属于 `open class` 与 `open module` 主体。
+
+IRIS-V1-GRAMMAR-C079: v1.36 语言修订允许 `open class` 声明使用头部 `mixin` 子句动态组合 Module，例如 `open class Target mixin MixedModule { ... }`。open class 头部中的动态模块组合在 IRIS-V1-META-C141 下的候选事务验证内执行，并在原子发布前重新验证 IRIS-V1-META-C142 下的所有静态 `impl Class for Contract` 义务。IRIS-V1-GRAMMAR-C013 与 C072 下的保留关键字清单保持恰好 50 个小写词；v1.36 未添加新关键字。
+
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |
 | `IRIS-V1-GRAMMAR-V003`| 正向 |需要解释器；需要 JIT；原生不适用 | Iris 来源：`2 ** 3 ** 2; -2 ** 2; 2 ** -3`。 | 解析形状为 `2 ** (3 ** 2)`、`-(2 ** 2)` 和 `2 ** (-3)`；求幂是右结合的，并且比一元否定结合得更紧密。 | `D-033` |
