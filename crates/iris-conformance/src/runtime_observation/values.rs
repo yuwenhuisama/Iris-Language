@@ -1,4 +1,4 @@
-use iris_eval::{EvaluationError, evaluate, evaluate_with_class_publication};
+use iris_eval::{EvaluationError, evaluate_host as evaluate, evaluate_with_class_publication};
 use iris_runtime::{KernelError, NumericError, Value as RuntimeValue};
 
 use crate::{
@@ -281,6 +281,16 @@ fn render_value(value: &RuntimeValue) -> String {
         // order would let a vector depend on an order the clause refuses to
         // promise.
         RuntimeValue::Hash(entries) => format!("{{\"hash\":\"{}\"}}", entries.len()),
+        RuntimeValue::ImmutableHash(entries) => format!("{{\"hash\":\"{}\"}}", entries.len()),
+        RuntimeValue::ImmutableArray(values) => format!(
+            "{{\"array\":[{}]}}",
+            values
+                .elements()
+                .iter()
+                .map(render_value)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
         // IRIS-V1-CONFORMANCE-C027 names `string` as the expectation key for an
         // observable String value.
         // A String is embedded in JSON, so a quote or backslash inside it must
@@ -296,6 +306,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::Contract(..)
         | RuntimeValue::Closure(_)
         | RuntimeValue::KeywordArgument(_, _)
+        | RuntimeValue::BlockArgument(_)
         | RuntimeValue::IterationYield(_)
         | RuntimeValue::SourceLocation(..)
         | RuntimeValue::StackFrame(..)
@@ -312,7 +323,7 @@ fn render_value(value: &RuntimeValue) -> String {
         | RuntimeValue::Object(_)
         | RuntimeValue::BoundMethod(_)
         | RuntimeValue::Method(_)
-        | RuntimeValue::Transformation { .. } => "{\"opaque\":true}".into(),
+        | RuntimeValue::Decorator(_) => "{\"opaque\":true}".into(),
     }
 }
 
@@ -323,7 +334,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Integer(_) => "Integer",
         RuntimeValue::Float32(_) => "Float32",
         RuntimeValue::Float64(_) => "Float64",
-        RuntimeValue::Array(_) => "Array",
+        RuntimeValue::Array(_) | RuntimeValue::ImmutableArray(_) => "Array",
         RuntimeValue::Bytes(_) => "Bytes",
         RuntimeValue::ByteArray(_) => "ByteArray",
         RuntimeValue::MutableString(_) => "MutableString",
@@ -334,7 +345,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::ExternalResource(_) => "Native::Resource",
         RuntimeValue::Gate(_) => "Gate",
         RuntimeValue::Tuple(_) => "Tuple",
-        RuntimeValue::Hash(_) => "Hash",
+        RuntimeValue::Hash(_) | RuntimeValue::ImmutableHash(_) => "Hash",
         RuntimeValue::ReadonlyArray(_) => "ReadonlyArray",
         RuntimeValue::SourceLocation(..) => "SourceLocation",
         RuntimeValue::StackFrame(..) => "StackFrame",
@@ -346,6 +357,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Contract(..) => "Contract",
         RuntimeValue::Closure(_) => "Closure",
         RuntimeValue::KeywordArgument(_, _) | RuntimeValue::IterationYield(_) => "Iteration",
+        RuntimeValue::BlockArgument(_) => "internal-block-argument",
         RuntimeValue::ArrayIterator(..)
         | RuntimeValue::HashIterator(..)
         | RuntimeValue::ByteIterator(..)
@@ -358,7 +370,7 @@ fn type_name(value: &RuntimeValue) -> &'static str {
         RuntimeValue::Object(_) => "Object",
         RuntimeValue::BoundMethod(_) => "BoundMethod",
         RuntimeValue::Method(_) => "Method",
-        RuntimeValue::Transformation { .. } => "Transformation",
+        RuntimeValue::Decorator(record) => record.core_name(),
     }
 }
 
@@ -368,10 +380,13 @@ fn render_evaluation_error(error: EvaluationError) -> String {
 
 fn error_code(error: &EvaluationError) -> String {
     match error {
+        EvaluationError::HostException(exception) => exception.kind.code().into(),
         EvaluationError::LexicalDiagnostic(code) => (*code).into(),
         EvaluationError::UnsupportedConstruct => "UnsupportedConstruct".into(),
         EvaluationError::ParseDiagnostic => "ParseDiagnostic".into(),
+        EvaluationError::StaticDiagnostic(code) => (*code).into(),
         EvaluationError::TypeContractError => "TypeContractError".into(),
+        EvaluationError::DecoratorDiagnostic { code, .. } => (*code).into(),
         // C033 forbids both targets and V439 requires the same name the
         // declarative spelling reports statically.
         EvaluationError::ClosedGenericOpenForbidden => "CLOSED_GENERIC_OPEN_FORBIDDEN".into(),
@@ -475,6 +490,11 @@ fn error_code(error: &EvaluationError) -> String {
         EvaluationError::Construction(_)
         | EvaluationError::Execution(_)
         | EvaluationError::Symbol(_) => "RuntimeError".into(),
+        EvaluationError::Raised(RuntimeValue::Symbol(value))
+            if matches!(value.as_str(), "ArgumentError" | "TypeError") =>
+        {
+            "Raised".into()
+        }
         EvaluationError::Raised(RuntimeValue::Symbol(value)) => value.clone(),
         EvaluationError::Raised(_) => "Raised".into(),
         EvaluationError::ImmutableBinding => "ImmutableBindingError".into(),
@@ -485,6 +505,39 @@ fn error_code(error: &EvaluationError) -> String {
         // non-terminating vector is visible evidence instead of a hang.
         EvaluationError::StepBudgetExhausted => "StepBudgetExhausted".into(),
         EvaluationError::MessageNotFound { .. } => "MessageNotFoundError".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{error_code, evaluate};
+    use iris_eval::EvaluationError;
+
+    #[test]
+    fn core_codes_are_nominal_when_observing_uncaught_errors() {
+        for (given, expected) in [
+            ("\"value\".split(1)", "TypeError"),
+            (
+                "try { let callback = { |value| value }; callback.call() } catch error: Symbol { error }",
+                "ArgumentError",
+            ),
+            ("raise :ArgumentError", "Raised"),
+            ("raise :TypeError", "Raised"),
+        ] {
+            let when = evaluate(given).unwrap_err();
+
+            assert_eq!(error_code(&when), expected, "{given}");
+        }
+    }
+
+    #[test]
+    fn decorator_diagnostic_uses_code_when_rendering_error() {
+        let error = EvaluationError::DecoratorDiagnostic {
+            code: "IRIS-DECORATOR-KIND",
+            phase: "candidate validation",
+        };
+
+        assert_eq!(error_code(&error), "IRIS-DECORATOR-KIND");
     }
 }
 

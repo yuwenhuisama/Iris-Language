@@ -1,0 +1,39 @@
+class Payload {}
+class Effects {
+    public class property first: Object = nil
+    public class property second: Object = nil
+    public class property result: Object = nil
+    public class property body: Integer = 0
+}
+class Twice {}
+impl Twice for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            let first: Task<Object> = next.call()
+            Effects.first = first
+            await first
+            let second: Task<Object> = next.call()
+            Effects.second = second
+            await second
+        })
+    }
+}
+class Target {
+    @Twice()
+    public async fun value() -> Payload { Effects.body = Effects.body + 1; Effects.result }
+}
+Effects.result = Payload.new()
+let target = Target.new()
+let outer: Task<Payload> = target.value()
+let first = Effects.first
+let second = Effects.second
+let another: Task<Payload> = target.value()
+print(outer same? first)
+print(outer same? second)
+print(first same? second)
+print(outer same? another)
+let result = Host.run(outer)
+print(result same? Effects.result)
+print(result same? Host.run(outer))
+print(Effects.body)

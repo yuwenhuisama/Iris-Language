@@ -1,0 +1,52 @@
+class Box { public property count: Integer = 0 }
+class Saved {
+    public class property shared: Box = Box.new()
+    public class property rests: Array<Object> = %[]
+    public class property keywords: Array<Object> = %[]
+    public class property captures: Array<Object> = %[]
+}
+class Retry {}
+impl Retry for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            let rest: Array<Object> = %[Saved.shared]
+            let keywords: Hash<Symbol, Object> = %{:fresh: Saved.shared}
+            let first: Hash<Symbol, Object> = %{:value: 10}
+            let second: Hash<Symbol, Object> = %{:value: 20}
+            let first_capture = next.call(ArgumentChanges.new(positional: first, rest: rest, keyword_rest: keywords)) as Closure<() -> Integer>
+            let second_capture = next.call(ArgumentChanges.new(positional: second, rest: rest, keyword_rest: keywords)) as Closure<() -> Integer>
+            print(Saved.rests[0] same? Saved.rests[1])
+            print(Saved.keywords[0] same? Saved.keywords[1])
+            print(Saved.rests[0] same? rest)
+            print(Saved.keywords[0] same? keywords)
+            print(first_capture.call())
+            print(second_capture.call())
+            print((Saved.captures[0] as Closure<() -> Integer>).call())
+            print((Saved.captures[1] as Closure<() -> Integer>).call())
+            print(rest.length())
+            print(keywords.length())
+            second_capture
+        })
+    }
+}
+class Target {
+    @Retry()
+    public fun value(value: Integer, *rest: Object, **options: Object) -> Closure<() -> Integer> {
+        print(rest.length())
+        print(options.length())
+        print(rest[0] same? Saved.shared)
+        print(options[:fresh] same? Saved.shared)
+        print(Saved.shared.count)
+        Saved.shared.count = Saved.shared.count + 1
+        Saved.rests.append(rest)
+        Saved.keywords.append(options)
+        rest.append(nil)
+        options[:edited] = nil
+        let capture = { || -> Integer; value }
+        Saved.captures.append(capture)
+        capture
+    }
+}
+Target.new().value(7, Box.new(), Box.new(), old: Box.new(), other: Box.new())
+print(Saved.shared.count)

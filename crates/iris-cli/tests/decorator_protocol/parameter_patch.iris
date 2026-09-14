@@ -1,0 +1,29 @@
+class Patch {}
+impl Patch for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            mut fixed: Hash<Symbol, Object> = %{:second: 20, :first: 10}
+            let keywords: Hash<Symbol, Object> = %{:label: :patched}
+            let changes = ArgumentChanges.new(positional: fixed, keywords: keywords, block: nil)
+            fixed[:first] = 99
+            let result = next.call(changes)
+            print(invocation.positional[:first])
+            print(invocation.positional[:second])
+            print(invocation.keywords[:label])
+            print(invocation.block == nil)
+            result
+        })
+    }
+}
+class Target {
+    @Patch()
+    public fun value(first: Integer, second: Integer, key label: Symbol, &block: Block<() -> Integer> = nil) -> Integer {
+        print(first)
+        print(second)
+        print(label)
+        print(block == nil)
+        first + second
+    }
+}
+print(Target.new().value(1, 2, label: :original) { || -> Integer; 5 })

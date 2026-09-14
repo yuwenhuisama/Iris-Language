@@ -1,0 +1,17 @@
+class Inspect {}
+impl Inspect for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(invocation.block == nil)
+            print(invocation.block_omitted)
+            print(invocation.positional[:callback] same? invocation.original_positional[0])
+            next.call()
+        })
+    }
+}
+class Target {
+    @Inspect()
+    public fun value(callback: Closure<() -> Integer>) -> Integer { callback.call() }
+}
+print(Target.new().value({ || -> Integer; 42 }))

@@ -81,13 +81,13 @@ const SHIPPING: &str = "class ShippingRule { public fun total(subtotal: Integer)
 
 both_engines! {
     inferred_literal_fails_when_assignment_changes_type:
-        "print(\"before\"); mut port = 8080; port = \"9090\"; print(port is String);"
+        "print(\"before\"); mut port = 8080; port = \"9090\"; print(port is? String);"
         => Expected::TypeFailure("");
     annotated_literal_fails_when_assignment_changes_type:
-        "print(\"before\"); mut port: Integer = 8080; port = \"9090\"; print(port is String);"
+        "print(\"before\"); mut port: Integer = 8080; port = \"9090\"; print(port is? String);"
         => Expected::TypeFailure("");
     union_literal_fails_when_assignment_leaves_union:
-        "print(\"before\"); mut port: Integer | String = 8080; port = true; print(port is Bool);"
+        "print(\"before\"); mut port: Integer | String = 8080; port = true; print(port is? Bool);"
         => Expected::TypeFailure("");
 
     inferred_method_local_fails_when_method_is_uncalled:
@@ -126,10 +126,10 @@ both_engines! {
         "mut port: Integer | String = 8080; port = \"9090\"; print(port);"
         => Expected::Success("9090\n");
     object_local_succeeds_when_updates_are_heterogeneous:
-        "mut port: Object = 8080; port = \"9090\"; print(port is String); port = true; print(port is Bool);"
+        "mut port: Object = 8080; port = \"9090\"; print(port is? String); port = true; print(port is? Bool);"
         => Expected::Success("true\ntrue\n");
     dynamic_local_succeeds_when_updates_are_heterogeneous:
-        "mut port: Dynamic<Object> = 8080; port = \"9090\"; print(port is String); port = true; print(port is Bool);"
+        "mut port: Dynamic<Object> = 8080; port = \"9090\"; print(port is? String); port = true; print(port is? Bool);"
         => Expected::Success("true\ntrue\n");
 
     inferred_local_fails_when_dynamic_rhs_changes_type:

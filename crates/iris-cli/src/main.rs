@@ -72,7 +72,7 @@ fn run_file(path: &str, engine: Engine) -> ExitCode {
 /// purpose; a script runner does not.
 fn run_source(source: &str, origin: &str, engine: Engine) -> ExitCode {
     match engine {
-        Engine::Reference => match iris_eval::evaluate(source) {
+        Engine::Reference => match iris_eval::evaluate_host(source) {
             Ok(_) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("iris: {origin}: {}", repl::describe(&error));
@@ -98,7 +98,15 @@ fn run_on_machine(source: &str, origin: &str) -> ExitCode {
                     error.construct
                 ),
                 iris_vm::CompileErrorKind::StaticDiagnostic { code } => {
-                    eprintln!("iris: {origin}: TypeContractError: {code}");
+                    if matches!(
+                        code,
+                        "BINDING_LET_REQUIRES_INITIALIZER"
+                            | "BINDING_MISSING_TYPE_FOR_DEFERRED_INIT"
+                    ) {
+                        eprintln!("iris: {origin}: {code}");
+                    } else {
+                        eprintln!("iris: {origin}: TypeContractError: {code}");
+                    }
                 }
             }
             return ExitCode::FAILURE;

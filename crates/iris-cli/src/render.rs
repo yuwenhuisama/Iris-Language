@@ -29,6 +29,18 @@ pub fn render(value: &Value) -> String {
             let rendered: Vec<String> = values.iter().map(render).collect();
             format!("[{}]", rendered.join(", "))
         }
+        Value::ImmutableArray(values) => {
+            let rendered: Vec<String> = values.elements().iter().map(render).collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        Value::ImmutableHash(entries) => {
+            let rendered: Vec<String> = entries
+                .entries()
+                .iter()
+                .map(|(key, entry)| format!("{}: {}", render(key), render(entry)))
+                .collect();
+            format!("{{{}}}", rendered.join(", "))
+        }
         Value::Tuple(values) => {
             let rendered: Vec<String> = values.iter().map(render).collect();
             format!("({})", rendered.join(", "))
@@ -65,11 +77,12 @@ pub fn render(value: &Value) -> String {
             "<iterator>".to_owned()
         }
         Value::NativeResource(_) | Value::ExternalResource(_) => "<native-resource>".to_owned(),
-        Value::Transformation { .. } => "<transformation>".to_owned(),
+        Value::Decorator(record) => format!("<{}>", record.core_name().to_ascii_lowercase()),
         Value::ExceptionContext(..) => "<exception-context>".to_owned(),
         Value::StackFrame(..) | Value::RaiseSite(_) | Value::SourceLocation(..) => {
             "<trace>".to_owned()
         }
         Value::KeywordArgument(name, inner) => format!("{name}: {}", render(inner)),
+        Value::BlockArgument(inner) => format!("<block-argument: {}>", render(inner)),
     }
 }

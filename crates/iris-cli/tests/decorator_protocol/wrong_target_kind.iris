@@ -1,0 +1,10 @@
+class Wrong {}
+impl Wrong for ClassDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation { Transformation.empty }
+}
+class Target {
+    @Wrong()
+    public fun value() -> Integer { 7 }
+}
+print(:forbidden_publication)

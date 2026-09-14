@@ -1,0 +1,16 @@
+class Effects { public class property body: Integer = 0 }
+class Cache {}
+impl Cache for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            "wrong"
+        })
+    }
+}
+class Target {
+    @Cache()
+    public fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+try { Target.new().value() } catch error { print(error is? TypeError) }
+print(Effects.body)

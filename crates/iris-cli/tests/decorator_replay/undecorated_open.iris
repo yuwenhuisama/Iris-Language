@@ -1,0 +1,37 @@
+// Given: distinct declarations have distinct populated application caches.
+class Count {}
+impl Count for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:assemble)
+        mut calls = 0
+        mut ready = false
+        mut cached: Object = nil
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(calls)
+            if !ready { cached = next.call(); ready = true }
+            cached
+        })
+    }
+}
+class Target {
+    @Count()
+    public fun value() -> Integer { print(:old_body); 10 }
+    @Count()
+    public fun sibling() -> Integer { print(:sibling_body); 30 }
+}
+let target = Target.new()
+let retained = target.value
+let sibling = target.sibling
+print(Target.active_revision)
+print(target.value())
+print(target.sibling())
+// When: only value is redeclared, with an empty ordered application list.
+open class Target { public override fun value() -> Integer { 20 } }
+// Then: the replacement is bare; neither retained nor untouched chains rebuild.
+print(Target.active_revision)
+print(target.value())
+print(retained.call())
+print(target.sibling())
+print(sibling.call())

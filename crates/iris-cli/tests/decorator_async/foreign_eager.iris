@@ -1,0 +1,36 @@
+class Effects {
+    public class property helper: Integer = 0
+    public class property body: Integer = 0
+}
+module Helpers {
+    public async fun foreign(next) -> Object {
+        Effects.helper = Effects.helper + 1
+        let rejected = next.call()
+        print(:returned)
+        await rejected
+    }
+}
+class Guard {}
+impl Guard for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            let helper = Helpers.foreign(next)
+            try { await helper } catch error {
+                print(error is? DecoratorProtocolError)
+                print(error.category)
+                print(error.owner same? next)
+            }
+            print(Effects.body)
+            await next.call()
+        })
+    }
+}
+class Target {
+    @Guard()
+    public async fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+let task = Target.new().value()
+print(Host.run(task))
+print(Effects.helper)
+print(Effects.body)

@@ -1,0 +1,26 @@
+class Effects { public class property wrappers: Integer = 0 }
+class NeedsSetter {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_setter({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.wrappers = Effects.wrappers + 1
+            next.call()
+        })
+    }
+}
+impl NeedsSetter for PropertyDecorator {}
+class Target { public fun value() -> Symbol { :old } }
+let revision = Target.active_revision
+let commit = Reflection::Class.revision(Target).fetch(:commit_id)
+try {
+    Target.open() { |candidate|;
+        candidate.define_method(:staged, { || -> Integer; 99 })
+        @NeedsSetter()
+        public property fun read_only() -> Integer { 7 }
+    }
+} catch error { print(error is? ArgumentError) }
+print(Target.active_revision == revision)
+print(Reflection::Class.revision(Target).fetch(:commit_id) == commit)
+print(Target.method(:staged) == nil)
+print(Target.new().value())
+print(Effects.wrappers)

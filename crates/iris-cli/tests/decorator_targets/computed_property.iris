@@ -1,0 +1,55 @@
+class Effects {
+    public class property reads: Integer = 0
+    public class property writes: Integer = 0
+}
+class Read {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        mut calls = 0
+        Transformation.wrap_getter({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(:get)
+            print(invocation.slot[3])
+            print(calls)
+            next.call()
+        })
+    }
+}
+impl Read for PropertyDecorator {}
+class Write {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        mut calls = 0
+        Transformation.wrap_setter({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(:set)
+            print(invocation.slot[3])
+            print(calls)
+            print(invocation.positional[:value])
+            next.call()
+        })
+    }
+}
+impl Write for PropertyDecorator {}
+class Target {
+    fun initialize() { @value = 5 }
+    @Read()
+    public property fun value() -> Integer {
+        Effects.reads = Effects.reads + 1
+        @value
+    }
+    @Write()
+    public property fun value=(value: Integer) -> Symbol {
+        Effects.writes = Effects.writes + 1
+        @value = value
+        :written
+    }
+}
+let target = Target.new()
+print(Effects.reads)
+print(Effects.writes)
+print(target.value)
+print(target.value = 8)
+print(target.value)
+print(Effects.reads)
+print(Effects.writes)

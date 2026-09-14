@@ -1,0 +1,29 @@
+class Effects { public class property wrappers: Integer = 0 }
+class Wrap {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.wrappers = Effects.wrappers + 1
+            print(Effects.wrappers)
+            print(invocation.slot[0] == Target.type)
+            print(invocation.slot[1])
+            print(invocation.slot[2] == Named.type)
+            print(invocation.slot[3])
+            next.call()
+        })
+    }
+}
+impl Wrap for MethodDecorator {}
+contract Named { fun name() -> Symbol }
+class Target {}
+impl Target for Named {
+    @Wrap()
+    public fun name() -> Symbol { :name }
+}
+let target = Target.new()
+print(target.name())
+print(Effects.wrappers)
+print((target as Named)..name())
+print(Effects.wrappers)
+print(target.name())
+print(Effects.wrappers)

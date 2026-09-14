@@ -1,0 +1,29 @@
+class Effects {
+    public class property wrappers: Integer = 0
+    public class property bodies: Integer = 0
+}
+class Inspect {}
+impl Inspect for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.wrappers = Effects.wrappers + 1
+            print(invocation.positional[:callback] same? invocation.original_positional[0])
+            print(invocation.block_omitted)
+            next.call()
+        })
+    }
+}
+class Target {
+    @Inspect()
+    public fun value(callback: Closure<() -> Integer> = { || -> Integer; 100 }, &block: Block<() -> Integer>) -> Integer {
+        Effects.bodies = Effects.bodies + 1
+        callback.call() + block.call()
+    }
+}
+try { Target.new().value({ || -> Integer; 42 }) } catch error { print(error is? ArgumentError) }
+print(Effects.wrappers)
+print(Effects.bodies)
+print(Target.new().value({ || -> Integer; 42 }) { || -> Integer; 5 })
+print(Effects.wrappers)
+print(Effects.bodies)

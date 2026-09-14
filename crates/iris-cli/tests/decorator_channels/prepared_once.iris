@@ -1,0 +1,43 @@
+class Box { public property count: Integer = 0 }
+class Effects {
+    public class property receivers: Integer = 0
+    public class property operands: Integer = 0
+    public class property keywords: Integer = 0
+    public class property first: Integer = 0
+    public class property second: Integer = 0
+    public class property shared: Box = Box.new()
+    public class fun receiver() -> Target { print(:receiver); Effects.receivers = Effects.receivers + 1; Target.new() }
+    public class fun operand() -> Integer { print(:operand); Effects.operands = Effects.operands + 1; 7 }
+    public class fun keyword() -> Symbol { print(:keyword); Effects.keywords = Effects.keywords + 1; :label }
+    public class fun first_default() -> Box { print(:first_default); Effects.first = Effects.first + 1; Effects.shared }
+    public class fun second_default() -> Integer { print(:second_default); Effects.second = Effects.second + 1; 9 }
+}
+class Retry {}
+impl Retry for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            next.call()
+            next.call(ArgumentChanges.empty)
+        })
+    }
+}
+class Target {
+    @Retry()
+    public fun value(value: Integer, payload: Box = Effects.first_default(), later: Integer = Effects.second_default(), key label: Symbol) -> Integer {
+        print(Effects.first)
+        print(Effects.second)
+        print(payload same? Effects.shared)
+        print(later == 9 && label == :label)
+        print(payload.count)
+        payload.count = payload.count + 1
+        value
+    }
+}
+print(Effects.receiver().value(Effects.operand(), label: Effects.keyword()))
+print(Effects.receivers)
+print(Effects.operands)
+print(Effects.keywords)
+print(Effects.first)
+print(Effects.second)
+print(Effects.shared.count)

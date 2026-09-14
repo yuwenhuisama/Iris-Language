@@ -1,0 +1,43 @@
+class Effects {
+    public class property inner: Integer = 0
+    public class property body: Integer = 0
+}
+class Reject {}
+impl Reject for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            try { next.call(ArgumentChanges.new(block: nil)) } catch error { print(error is? TypeError) }
+            print(Effects.inner)
+            print(Effects.body)
+            try { next.call(ArgumentChanges.new(block: { |value: Object| -> Integer; 9 })) } catch error { print(error is? TypeError) }
+            print(Effects.inner)
+            print(Effects.body)
+            try { next.call(ArgumentChanges.new(block: { |value: Integer| -> Object; value })) } catch error { print(error is? TypeError) }
+            print(Effects.inner)
+            print(Effects.body)
+            next.call()
+        })
+    }
+}
+class Inner {}
+impl Inner for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.inner = Effects.inner + 1
+            next.call()
+        })
+    }
+}
+class Target {
+    @Reject()
+    @Inner()
+    public fun value(&block: Block<(Integer) -> Integer>) -> Integer {
+        Effects.body = Effects.body + 1
+        block.call(7)
+    }
+}
+print(Target.new().value() { |value: Integer| -> Integer; value })
+print(Effects.inner)
+print(Effects.body)

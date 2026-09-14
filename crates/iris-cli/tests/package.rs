@@ -118,7 +118,7 @@ fn refuses_import_when_module_not_declared() -> TestResult {
 
 #[test]
 fn executes_helper_when_same_package_has_multiple_sources() -> TestResult {
-    let given = project("import Main; print(Main.answer())")?;
+    let given = project("print(Main.answer())")?;
     let path = given.path().join("iris.toml");
     fs::write(
         &path,

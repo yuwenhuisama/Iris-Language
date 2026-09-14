@@ -1,0 +1,29 @@
+class Wrap {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context.kind)
+        print(declaration.visibility)
+        mut calls = 0
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(calls)
+            print(invocation.receiver == invocation.slot[0])
+            print(invocation.slot[1])
+            print(invocation.slot[2] == nil)
+            print(invocation.slot[3])
+            print(invocation.owner_type_arguments.length())
+            print(invocation.method_type_arguments.length())
+            print(invocation.method_type_arguments[0] == Integer.type)
+            print(invocation.signature.parameters[0].type == Integer.type)
+            print(invocation.signature.result == Integer.type)
+            print(invocation.positional[:value])
+            next.call()
+        })
+    }
+}
+impl Wrap for MethodDecorator {}
+class Target {
+    @Wrap()
+    public class fun echo<Element>(value: Element) -> Element { value }
+}
+print(Target.echo<Integer>(7))

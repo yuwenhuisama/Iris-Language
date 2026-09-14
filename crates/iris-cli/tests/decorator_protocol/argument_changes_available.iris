@@ -1,0 +1,2 @@
+print(ArgumentChanges.empty is? ArgumentChanges)
+print(ArgumentChanges.new() is? ArgumentChanges)

@@ -136,7 +136,7 @@ fn independent_source_mismatch_is_reported() {
 fn value_and_side_effects_are_accepted_when_both_match() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); %[true, log] } }; mut log = %[]; Probe.observe()",
         vec![],
         "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
     );
@@ -152,7 +152,7 @@ fn value_and_side_effects_are_accepted_when_both_match() {
 fn side_effect_mismatch_is_reported_when_value_matches() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [true, log] } }; mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); %[true, log] } }; mut log = %[]; Probe.observe()",
         vec![],
         "{\"value\":{\"bool\":true},\"side_effects\":{\"array\":[{\"symbol\":\"missing\"}]}}",
     );
@@ -168,7 +168,7 @@ fn side_effect_mismatch_is_reported_when_value_matches() {
 fn side_effects_without_value_are_accepted_from_a_single_item_observation() {
     // Given
     let record = record(
-        "class Probe { class fun observe() { log.append(:observed); [log] } }; mut log = []; Probe.observe()",
+        "class Probe { class fun observe() { log.append(:observed); %[log] } }; mut log = %[]; Probe.observe()",
         vec![],
         "{\"side_effects\":{\"array\":[{\"symbol\":\"observed\"}]}}",
     );
@@ -220,7 +220,7 @@ fn runtime_v067_observes_equal_rounding_results_and_float64_promotion() {
 fn runtime_v094_observes_unbound_method_alias_identity_and_slot_changes() {
     // Given
     let record = record(
-        "class Base { public fun g() -> Symbol { :base } }; class A extends Base { public fun g() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:f, :g); let aliases = Reflection::Class.method(A, :f) same? Reflection::Class.method(A, :g); let ignored_remove = A.remove_method(:g); let exposed = A.new().g(); let ignored_undef = A.undef_method(:g); [aliases, exposed, A.new().g()]",
+        "class Base { public fun g() -> Symbol { :base } }; class A extends Base { public fun g() -> Symbol { :local } public fun method_missing(selector, arguments, block) -> Symbol { :missing } }; let ignored_alias = A.alias_method(:f, :g); let aliases = Reflection::Class.method(A, :f) same? Reflection::Class.method(A, :g); let ignored_remove = A.remove_method(:g); let exposed = A.new().g(); let ignored_undef = A.undef_method(:g); %[aliases, exposed, A.new().g()]",
         vec![],
         "{\"value\":{\"array\":[{\"bool\":true},{\"symbol\":\"base\"},{\"symbol\":\"missing\"}]}}",
     );

@@ -1,0 +1,26 @@
+class Effects {
+    public class property wrapper: Integer = 0
+    public class property body: Integer = 0
+}
+class Cache {}
+impl Cache for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.wrapper = Effects.wrapper + 1
+            "wrong"
+        })
+    }
+}
+class Target {
+    @Cache()
+    public async fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+let task = Target.new().value()
+print(:returned)
+print(Effects.wrapper)
+print(Effects.body)
+try { Host.run(task) } catch error { print(error is? TypeError) }
+try { Host.run(task) } catch error { print(error is? TypeError) }
+print(Effects.wrapper)
+print(Effects.body)

@@ -1,0 +1,25 @@
+class Add {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context.kind)
+        print(declaration.name)
+        print(context.reason)
+        let held: Integer = arguments[0] as Integer
+        mut calls = 0
+        Transformation.empty.add_method(:added, { |delta: Integer| -> Integer;
+            calls = calls + 1
+            print(calls)
+            held + delta
+        })
+    }
+}
+impl Add for ModuleDecorator {}
+@Add(40)
+module Provider {
+    public fun value(delta: Integer) -> Integer { self.added(delta) }
+}
+class Target mixin Provider {}
+let target = Target.new()
+print(target.value(3))
+print(target.value(5))
+try { target.added(7) } catch error { print(error) }

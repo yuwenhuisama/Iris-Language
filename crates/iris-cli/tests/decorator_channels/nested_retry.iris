@@ -1,0 +1,35 @@
+class Outer {}
+impl Outer for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            let fixed: Hash<Symbol, Object> = %{:value: 10}
+            print(next.call(ArgumentChanges.new(positional: fixed)))
+            let result = next.call()
+            print(invocation.positional[:value])
+            result
+        })
+    }
+}
+class Inner {}
+impl Inner for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(invocation.positional[:value])
+            let fixed: Hash<Symbol, Object> = %{:value: 20}
+            try { next.call(ArgumentChanges.new(positional: fixed)) } catch error { print(error == :retry) }
+            next.call()
+        })
+    }
+}
+class Target {
+    @Outer()
+    @Inner()
+    public fun value(value: Integer) -> Integer {
+        print(value)
+        if value == 20 { raise :retry }
+        value
+    }
+}
+print(Target.new().value(7))

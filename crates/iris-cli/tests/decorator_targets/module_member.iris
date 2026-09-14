@@ -1,0 +1,25 @@
+class Wrap {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context.kind)
+        print(declaration.selector)
+        mut calls = 0
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(calls)
+            print(invocation.slot[0] == Provider)
+            print(invocation.slot[1])
+            print(invocation.slot[2] == nil)
+            print(invocation.slot[3])
+            print(invocation.positional[:value])
+            (next.call() as Integer) + 10
+        })
+    }
+}
+impl Wrap for MethodDecorator {}
+module Provider {
+    @Wrap()
+    public fun value(value: Integer) -> Integer { value }
+}
+class Target mixin Provider {}
+print(Target.new().value(7))

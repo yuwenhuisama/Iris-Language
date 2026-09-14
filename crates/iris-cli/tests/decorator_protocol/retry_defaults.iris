@@ -1,0 +1,26 @@
+class Effects {
+    public class property defaults: Integer = 0
+    public class property body: Integer = 0
+    public class fun default_value() -> Integer { Effects.defaults = Effects.defaults + 1; 7 }
+}
+class Retry {}
+impl Retry for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            next.call()
+            next.call(ArgumentChanges.empty)
+        })
+    }
+}
+class Target {
+    @Retry()
+    public fun value(value: Integer = Effects.default_value()) -> Integer {
+        Effects.body = Effects.body + 1
+        print(Effects.defaults)
+        value
+    }
+}
+print(Target.new().value())
+print(Effects.defaults)
+print(Effects.body)

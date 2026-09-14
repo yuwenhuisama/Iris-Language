@@ -1,0 +1,3 @@
+let available = ArgumentChanges.empty
+try { ArgumentChanges.new(positional: %{"value": 1}) }
+catch error { print(error is? TypeError) }

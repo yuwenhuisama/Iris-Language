@@ -1,0 +1,33 @@
+class Effects {
+    public class property prefix: Integer = 0
+    public class property body: Integer = 0
+    public class property suffix: Integer = 0
+}
+class Forward {}
+impl Forward for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.prefix = Effects.prefix + 1
+            let result = await next.call()
+            Effects.suffix = Effects.suffix + 1
+            result
+        })
+    }
+}
+class Target {
+    @Forward()
+    public async fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+print(Effects.prefix)
+print(Effects.body)
+print(Effects.suffix)
+let task = Target.new().value()
+print(Effects.prefix)
+print(Effects.body)
+print(Effects.suffix)
+print(Host.run(task))
+print(Host.run(task))
+print(Effects.prefix)
+print(Effects.body)
+print(Effects.suffix)

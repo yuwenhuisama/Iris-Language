@@ -1,0 +1,13 @@
+class Stop {}
+impl Stop for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { raise :plan_ran }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:forbidden_transform_effect)
+        Transformation.empty
+    }
+}
+class Target {
+    @Stop()
+    public fun value() -> Integer { 7 }
+}
+print(:forbidden_publication)

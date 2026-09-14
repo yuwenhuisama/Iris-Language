@@ -1,0 +1,33 @@
+class Effects {
+    public class property prefix: Integer = 0
+    public class property resumed: Integer = 0
+    public class property body: Integer = 0
+    public class property gate: Object = nil
+}
+module Helpers { public fun sync(next) { next.call() } }
+class Park {}
+impl Park for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.prefix = Effects.prefix + 1
+            await Effects.gate
+            Effects.resumed = Effects.resumed + 1
+            await Helpers.sync(next)
+        })
+    }
+}
+class Target {
+    @Park()
+    public async fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+Effects.gate = Gate.new()
+let task = Target.new().value()
+print(Effects.prefix)
+print(Effects.resumed)
+print(Effects.body)
+Gate.complete(Effects.gate, 1)
+print(Host.run(task))
+print(Effects.prefix)
+print(Effects.resumed)
+print(Effects.body)

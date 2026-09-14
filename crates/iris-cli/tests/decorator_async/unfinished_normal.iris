@@ -1,0 +1,42 @@
+class Effects {
+    public class property started: Integer = 0
+    public class property finished: Integer = 0
+    public class property gate: Object = nil
+    public class property bridge: Object = nil
+    public class property saved: Object = nil
+}
+class Abandon {}
+impl Abandon for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.saved = next
+            Effects.bridge = next.call()
+            9
+        })
+    }
+}
+class Target {
+    @Abandon()
+    public async fun value() -> Integer {
+        Effects.started = Effects.started + 1
+        await Effects.gate
+        Effects.finished = Effects.finished + 1
+        7
+    }
+}
+Effects.gate = Gate.new()
+let task = Target.new().value()
+print(:returned)
+try { Host.run(task) } catch error {
+    print(error is? DecoratorProtocolError)
+    print(error.category)
+    print(error.owner same? Effects.saved)
+}
+print(Effects.started)
+print(Effects.finished)
+Gate.complete(Effects.gate, 1)
+print(Host.run(Effects.bridge))
+print(Effects.started)
+print(Effects.finished)
+print(Diagnostics.unobserved_failures().length())

@@ -1,0 +1,6 @@
+try { Transformation.empty }
+catch error {
+    print(error is? DecoratorProtocolError)
+    print(error.category)
+    print(error.owner)
+}

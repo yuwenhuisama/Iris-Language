@@ -54,7 +54,7 @@ pub fn run() -> ExitCode {
         } else {
             entry.to_owned()
         };
-        match session.evaluate(&chunk) {
+        match session.evaluate_host(&chunk) {
             Ok(value) => {
                 // A binding or declaration has no useful value to show.
                 if !session_state {
@@ -95,11 +95,14 @@ fn is_session_state(entry: &str) -> bool {
 /// Describes an evaluation failure for a human reader.
 pub fn describe(error: &EvaluationError) -> String {
     match error {
+        EvaluationError::HostException(exception) => exception.kind.code().to_owned(),
+        EvaluationError::Runtime(iris_runtime::KernelError::Type) => "TypeError".to_owned(),
         EvaluationError::MessageNotFound {
             receiver_class,
             selector,
         } => format!("{receiver_class} has no method `{selector}`"),
         EvaluationError::ParseDiagnostic => "could not parse that".to_owned(),
+        EvaluationError::StaticDiagnostic(code) => (*code).to_owned(),
         EvaluationError::NameError => "unknown name".to_owned(),
         EvaluationError::UnsupportedConstruct => "unsupported construct".to_owned(),
         other => format!("{other:?}"),

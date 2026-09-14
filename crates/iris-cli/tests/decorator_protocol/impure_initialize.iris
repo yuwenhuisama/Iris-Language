@@ -1,0 +1,15 @@
+class Impure {
+    fun initialize() { print(:forbidden_initialize_effect) }
+}
+impl Impure for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:forbidden_transform_effect)
+        Transformation.empty
+    }
+}
+class Target {
+    @Impure()
+    public fun value() -> Integer { 7 }
+}
+print(:forbidden_publication)

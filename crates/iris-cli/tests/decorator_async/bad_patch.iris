@@ -1,0 +1,38 @@
+class Effects {
+    public class property inner: Integer = 0
+    public class property body: Integer = 0
+}
+class BadPatch {}
+impl BadPatch for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            let fixed: Hash<Symbol, Object> = %{:value: "wrong"}
+            let bridge = next.call(ArgumentChanges.new(positional: fixed))
+            print(:returned)
+            try { await bridge } catch error { print(error is? TypeError) }
+            print(Effects.inner)
+            print(Effects.body)
+            7
+        })
+    }
+}
+class Inner {}
+impl Inner for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.inner = Effects.inner + 1
+            await next.call()
+        })
+    }
+}
+class Target {
+    @BadPatch()
+    @Inner()
+    public async fun value(value: Integer) -> Integer { Effects.body = Effects.body + 1; value }
+}
+let task = Target.new().value(7)
+print(Host.run(task))
+print(Effects.inner)
+print(Effects.body)

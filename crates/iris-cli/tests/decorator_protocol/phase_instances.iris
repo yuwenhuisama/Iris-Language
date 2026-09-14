@@ -1,0 +1,26 @@
+class Fresh {
+    fun initialize() { @phase = :fresh }
+}
+impl Fresh for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan {
+        if @phase != :fresh { raise :shared_phase_instance }
+        if arguments[0] != 23 { raise :missing_plan_arguments }
+        @phase = :planned
+        Plan.empty
+    }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(@phase)
+        print(context.kind)
+        print(context.reason)
+        print(arguments[0])
+        print(Transformation.empty.kind)
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            next.call()
+        })
+    }
+}
+class Target {
+    @Fresh(23)
+    public fun value() -> Integer { print(:body); 7 }
+}
+print(Target.new().value())

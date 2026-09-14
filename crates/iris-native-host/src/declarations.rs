@@ -1,6 +1,14 @@
-use crate::{NativeError, NativeRegistry};
+use crate::{NativeError, NativeRegistry, NativeType};
+use iris_syntax::{Statement, TypeExpression};
 
 impl NativeRegistry {
+    /// Projects validated ABI signatures into source Types without changing native dispatch.
+    ///
+    /// ABI v1 is synchronous. Its `Integer` is signed i64, not all Iris Integers;
+    /// the linked `FunctionMetadata` and `NativeRegistry::call` retain that range
+    /// contract. Resources have no registered source nominal Type, so their
+    /// projection is `Object`; the registry retains and checks the exact
+    /// module-local resource name and ownership instead of inventing a Type.
     pub fn declarations(
         &self,
     ) -> Result<Vec<(String, iris_syntax::ModuleDeclaration)>, NativeError> {
@@ -29,13 +37,37 @@ impl NativeRegistry {
                     return Err(NativeError::Metadata);
                 }
                 for declaration in parsed.program.declarations {
-                    let iris_syntax::Declaration::Module(module) = declaration else {
+                    let iris_syntax::Declaration::Module(mut declaration) = declaration else {
                         return Err(NativeError::Metadata);
                     };
-                    declarations.push((metadata.package_id.clone(), module));
+                    for (statement, function) in declaration.body.iter_mut().zip(&module.functions)
+                    {
+                        let Statement::Method(method) = statement else {
+                            return Err(NativeError::Metadata);
+                        };
+                        for (parameter, metadata) in
+                            method.parameters.iter_mut().zip(&function.parameters)
+                        {
+                            parameter.annotation = Some(source_type(&metadata.value_type)?);
+                        }
+                        method.return_type = Some(source_type(&function.returns)?);
+                    }
+                    declarations.push((metadata.package_id.clone(), declaration));
                 }
             }
         }
         Ok(declarations)
     }
+}
+
+fn source_type(name: &str) -> Result<TypeExpression, NativeError> {
+    let name = match NativeType::parse(name)? {
+        NativeType::Nil => "Nil",
+        NativeType::Bool => "Bool",
+        NativeType::Integer => "Integer",
+        NativeType::String => "String",
+        NativeType::Bytes => "Bytes",
+        NativeType::Resource(_) => "Object",
+    };
+    Ok(TypeExpression::Name(name.to_owned()))
 }

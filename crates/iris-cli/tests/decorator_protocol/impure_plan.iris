@@ -1,0 +1,18 @@
+class Impure {
+    fun read_ambient_state() { print(:forbidden_plan_effect) }
+}
+impl Impure for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan {
+        self.read_ambient_state()
+        Plan.empty
+    }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:forbidden_transform_effect)
+        Transformation.empty
+    }
+}
+class Target {
+    @Impure()
+    public fun value() -> Integer { 7 }
+}
+print(:forbidden_publication)

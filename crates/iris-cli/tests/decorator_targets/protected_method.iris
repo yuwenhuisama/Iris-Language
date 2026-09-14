@@ -1,0 +1,30 @@
+class Effects {
+    public class property wrappers: Integer = 0
+    public class property bodies: Integer = 0
+}
+class Wrap {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(declaration.visibility)
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.wrappers = Effects.wrappers + 1
+            print(Effects.wrappers)
+            print(invocation.positional[:value])
+            (next.call() as Integer) + 10
+        })
+    }
+}
+impl Wrap for MethodDecorator {}
+class Target {
+    @Wrap()
+    protected fun hidden(value: Integer) -> Integer {
+        Effects.bodies = Effects.bodies + 1
+        value
+    }
+    public fun value(value: Integer) -> Integer { self.hidden(value) }
+}
+let target = Target.new()
+print(target.value(7))
+try { target.hidden(9) } catch error { print(error) }
+print(Effects.wrappers)
+print(Effects.bodies)

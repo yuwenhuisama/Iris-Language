@@ -1,0 +1,54 @@
+// Given: each application owns a counter; first-written Count is outermost.
+class Count {}
+impl Count for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:assemble_count)
+        print(context.reason)
+        mut calls = 0
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            print(calls)
+            (next.call() as Integer) + calls
+        })
+    }
+}
+class Trace {}
+impl Trace for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:assemble_trace)
+        print(context.reason)
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(:enter_trace)
+            let result = next.call()
+            print(:exit_trace)
+            result
+        })
+    }
+}
+class Target {
+    @Count()
+    @Trace()
+    public fun value() -> Integer { print(:old_body); 100 }
+}
+let owner = Target
+let target = Target.new()
+let retained = target.value
+let method = Target.method(:value)
+print(Target.active_revision)
+print(target.value())
+print(target.value())
+// When: the same ordered applications decorate a different canonical body.
+open class Target {
+    @Count()
+    @Trace()
+    public override fun value() -> Integer { print(:new_body); 200 }
+}
+// Then: one assembly per application, fresh current counter, exact old binding.
+print(Target.active_revision)
+print(Target same? owner)
+print(Target.method(:value) same? method)
+print(target.value())
+print(retained.call())
+print(target.value())

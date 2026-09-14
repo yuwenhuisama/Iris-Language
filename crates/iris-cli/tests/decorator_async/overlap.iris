@@ -1,0 +1,40 @@
+class Effects {
+    public class property started: Integer = 0
+    public class property finished: Integer = 0
+    public class property gate: Object = nil
+}
+class Guard {}
+impl Guard for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            let first = next.call()
+            let rejected = next.call()
+            print(:returned)
+            try { await rejected } catch error {
+                print(error is? DecoratorProtocolError)
+                print(error.category)
+                print(error.owner same? next)
+            }
+            await first
+            await next.call()
+        })
+    }
+}
+class Target {
+    @Guard()
+    public async fun value() -> Integer {
+        Effects.started = Effects.started + 1
+        await Effects.gate
+        Effects.finished = Effects.finished + 1
+        7
+    }
+}
+Effects.gate = Gate.new()
+let task = Target.new().value()
+print(Effects.started)
+print(Effects.finished)
+Gate.complete(Effects.gate, 1)
+print(Host.run(task))
+print(Effects.started)
+print(Effects.finished)

@@ -1,0 +1,34 @@
+class Effects {
+    public class property saved: Object = nil
+    public class property body: Integer = 0
+}
+class Save {}
+impl Save for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+            Effects.saved = next
+            7
+        })
+    }
+}
+class Target {
+    @Save()
+    public async fun value() -> Integer { Effects.body = Effects.body + 1; 7 }
+}
+let task = Target.new().value()
+print(Host.run(task))
+let bridge = Effects.saved.call()
+let another = Effects.saved.call()
+print(:returned)
+print(bridge same? another)
+try { Host.run(bridge) } catch error {
+    print(error is? DecoratorProtocolError)
+    print(error.category)
+    print(error.owner same? Effects.saved)
+}
+try { Host.run(another) } catch error {
+    print(error is? DecoratorProtocolError)
+    print(error.category)
+}
+print(Effects.body)

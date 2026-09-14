@@ -1,0 +1,41 @@
+class Saved { public class property expected: Object = nil }
+class Replace {
+    fun initialize() { @value = 40 }
+}
+impl Replace for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        let replacement = { || -> Integer; @value }
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(invocation.block_omitted)
+            print(invocation.original_block == nil)
+            Saved.expected = invocation.block
+            print(next.call())
+            Saved.expected = nil
+            print(next.call(ArgumentChanges.new(block: nil)))
+            Saved.expected = replacement
+            print(next.call(ArgumentChanges.new(block: replacement)))
+            print(invocation.block same? invocation.original_block)
+            40
+        })
+    }
+}
+class Inspect {}
+impl Inspect for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(invocation.block same? Saved.expected)
+            print(invocation.block_omitted == (invocation.original_block == nil))
+            if invocation.block == nil { invocation.replaced.length() } else { next.call() }
+        })
+    }
+}
+class Target {
+    fun initialize() { @value = 900 }
+    @Replace()
+    @Inspect()
+    public fun value(&block: Block<() -> Integer> = nil) -> Integer { block.call() }
+}
+Target.new().value()
+Target.new().value() { || -> Integer; 5 }

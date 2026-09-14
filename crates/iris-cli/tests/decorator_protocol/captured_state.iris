@@ -1,0 +1,23 @@
+class Counter {}
+impl Counter for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        mut calls = 0
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            calls
+        })
+    }
+}
+class Target {
+    @Counter()
+    public fun first() -> Integer { 100 }
+    @Counter()
+    public fun second() -> Integer { 200 }
+}
+let target = Target.new()
+print(target.first())
+print(target.first())
+print(target.second())
+print(Target.new().first())
+print(target.second())

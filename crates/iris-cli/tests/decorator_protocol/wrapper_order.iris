@@ -1,0 +1,33 @@
+class A {}
+impl A for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:transform_A)
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(:enter_A)
+            let result = next.call()
+            print(:exit_A)
+            result
+        })
+    }
+}
+class B {}
+impl B for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(:transform_B)
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(:enter_B)
+            let result = next.call()
+            print(:exit_B)
+            result
+        })
+    }
+}
+class Target {
+    @A()
+    @B()
+    public fun value() -> Integer { print(:body); 7 }
+}
+print(:ready)
+print(Target.new().value())

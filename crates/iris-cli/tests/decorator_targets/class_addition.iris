@@ -1,0 +1,26 @@
+class Add {
+    fun initialize() { @seed = 30 }
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context.kind)
+        print(declaration.name)
+        print(context.reason)
+        let held: Integer = arguments[0] as Integer
+        mut calls = 0
+        Transformation.add_method(:added, { |delta: Integer| -> Integer;
+            calls = calls + 1
+            print(calls)
+            @seed + held + delta
+        })
+    }
+}
+impl Add for ClassDecorator {}
+@Add(10)
+class Target {
+    fun initialize() { @seed = 900 }
+    public fun value(delta: Integer) -> Integer { self.added(delta) }
+}
+let target = Target.new()
+print(target.value(2))
+print(target.value(4))
+try { target.added(5) } catch error { print(error) }

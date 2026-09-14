@@ -1,0 +1,31 @@
+// Given: the lexical owner remains in the MRO after removing its local slot.
+class Count {}
+impl Count for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        mut calls = 0
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            if calls == 1 { Target.remove_method(:value) }
+            (next.call() as Integer) + calls
+        })
+    }
+}
+class Parent { public fun value() -> Integer { print(:ancestor_body); 7 } }
+class Target extends Parent {
+    @Count()
+    public override fun value() -> Integer { print(:old_body); 10 }
+}
+let target = Target.new()
+let retained = target.value
+print(Target.active_revision)
+// When: an active wrapper removes its slot before invoking its captured next.
+print(target.value())
+// Then: future lookup reaches Parent, while the retained suffix stays local.
+print(Target.active_revision)
+print(target.value())
+print(retained.call())
+Target.undef_method(:value)
+print(Target.active_revision)
+print(Target.method(:value) == nil)
+print(retained.call())

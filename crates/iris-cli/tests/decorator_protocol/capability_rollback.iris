@@ -1,0 +1,25 @@
+class Wrap {}
+impl Wrap for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            next.call()
+        })
+    }
+}
+class Target meta deny method_body {
+    public fun value() -> Symbol { :old }
+}
+let revision = Target.active_revision
+let commit = Reflection::Class.revision(Target).fetch(:commit_id)
+try {
+    Target.open() { |candidate|;
+        candidate.define_method(:staged, { || -> Integer; 99 })
+        @Wrap()
+        public fun wrapped() -> Symbol { :new }
+    }
+} catch error { print(error is? MetaCapabilityError) }
+print(Target.active_revision == revision)
+print(Reflection::Class.revision(Target).fetch(:commit_id) == commit)
+print(Target.method(:staged) == nil)
+print(Target.new().value())

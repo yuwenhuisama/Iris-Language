@@ -1,0 +1,35 @@
+class Effects {
+    public class property reads: Integer = 0
+    public class property writes: Integer = 0
+}
+class Access {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context.kind)
+        print(declaration.name)
+        print(declaration.type == Integer.type)
+        let getter = { |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.reads = Effects.reads + 1
+            print(invocation.slot[3])
+            next.call()
+        }
+        let setter = { |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            Effects.writes = Effects.writes + 1
+            print(invocation.slot[3])
+            print(invocation.original_positional[0])
+            next.call()
+        }
+        Transformation.wrap_getter(getter).wrap_setter(setter)
+    }
+}
+impl Access for PropertyDecorator {}
+class Target {
+    @Access()
+    public property value: Integer = 4 { public get; public set; }
+}
+let target = Target.new()
+print(target.value)
+print(target.value = 9)
+print(target.value)
+print(Effects.reads)
+print(Effects.writes)

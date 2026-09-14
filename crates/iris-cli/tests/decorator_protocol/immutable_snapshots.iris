@@ -1,0 +1,22 @@
+class Inspect {}
+impl Inspect for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(context is? DecoratorContext)
+        try { context.kind = :class } catch error { print(error) }
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            print(invocation is? Invocation)
+            print(invocation.signature is? InvocationSignature)
+            print(invocation.signature.parameters[0] is? InvocationParameter)
+            try { invocation.signature.parameters[0].name = :changed } catch error { print(error) }
+            try { invocation.positional[:value] = 99 } catch error { print(error) }
+            try { invocation.omitted.append(:value) } catch error { print(error) }
+            next.call()
+        })
+    }
+}
+class Target {
+    @Inspect()
+    public fun value(value: Integer) -> Integer { value }
+}
+print(Target.new().value(7))

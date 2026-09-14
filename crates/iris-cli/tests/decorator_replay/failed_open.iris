@@ -1,0 +1,60 @@
+// Given: a populated cache also has a persistent counter and an uncached path.
+class Saved { public class property transformation: Object = nil }
+class Count {}
+impl Count for MethodDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Saved.transformation = Transformation.empty
+        mut calls = 0
+        mut ready = false
+        mut cached: Object = nil
+        Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+            calls = calls + 1
+            if invocation.positional[:fresh] as Bool {
+                (next.call() as Integer) + calls
+            } else {
+                if !ready { cached = next.call(); ready = true }
+                (cached as Integer) + calls
+            }
+        })
+    }
+}
+class WrongKind {}
+impl WrongKind for PropertyDecorator {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        Saved.transformation as Transformation
+    }
+}
+class Target {
+    @Count()
+    public fun value(fresh: Bool) -> Integer { print(:old_body); if fresh { 20 } else { 10 } }
+}
+let target = Target.new()
+let retained = target.value
+let method = Target.method(:value)
+let revision = Target.active_revision
+let commit = Reflection::Class.revision(Target).fetch(:commit_id)
+print(revision)
+print(target.value(false))
+// When: a candidate stages a replacement before returning a runtime wrong kind.
+try {
+    Target.open() { |candidate|;
+        public override fun value(fresh: Bool) -> Integer { 900 }
+        candidate.define_method(:staged, { || -> Integer; 99 })
+        @WrongKind()
+        public property fun extra() -> Integer { 99 }
+    }
+} catch error {
+    // Then: publication and cache state are intact; rethrow pins the exact error.
+    print(Target.active_revision == revision)
+    print(Reflection::Class.revision(Target).fetch(:commit_id) == commit)
+    print(Target.method(:value) same? method)
+    print(Target.method(:staged) == nil)
+    print(Target.method(:extra) == nil)
+    print(target.value(false))
+    print(retained.call(false))
+    print(target.value(false))
+    print(retained.call(true))
+    raise
+}

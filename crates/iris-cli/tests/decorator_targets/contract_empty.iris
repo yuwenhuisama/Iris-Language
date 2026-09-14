@@ -1,0 +1,38 @@
+class First {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(arguments[0])
+        print(context.kind)
+        print(declaration.name)
+        print(declaration.requirements.length())
+        Transformation.empty
+    }
+}
+impl First for ContractDecorator {}
+class Second {
+    public fun plan(declaration, arguments) -> Plan { Plan.empty }
+    public fun transform(declaration, arguments, context) -> Transformation {
+        print(arguments[0])
+        print(context.kind)
+        print(declaration.name)
+        print(declaration.requirements.length())
+        Transformation.empty
+    }
+}
+impl Second for ContractDecorator {}
+@First(:first)
+@Second(:second)
+contract Named {
+    fun name() -> Symbol
+    fun number(value: Integer) -> Integer
+}
+class Target {
+    public fun name() -> Symbol { :name }
+    public fun number(value: Integer) -> Integer { value }
+}
+impl Target for Named {}
+print(Named.reflect.requirements.length())
+print(Named.reflect.decorators[0])
+print(Named.reflect.decorators[1])
+print(Target.new().name())
+print(Target.new().number(9))
