@@ -195,10 +195,26 @@ fn type_identity_stays_local_when_compiled_as_script() -> Result<(), String> {
 }
 
 #[test]
-fn package_reflection_is_explicitly_unsupported_in_vm() {
-    let given = [source("app", "Reflection::Package.version()")];
-    let when = iris_vm::compile_package_tree_with_natives(&given, &NativeRegistry::new());
-    assert!(when.is_err());
+fn package_reflection_identity_and_version_expose_package_metadata() -> Result<(), String> {
+    let given = [source(
+        "app",
+        "%[Reflection::Package.identity(), Reflection::Package.version()]",
+    )];
+    let program = iris_vm::compile_package_tree_with_natives(&given, &NativeRegistry::new())
+        .map_err(|error| error.construct)?;
+    assert_eq!(
+        iris_vm::run(&program),
+        Ok(iris_runtime::Value::Array(iris_runtime::ArrayRef::new(
+            vec![
+                iris_runtime::Value::Array(iris_runtime::ArrayRef::new(vec![
+                    iris_runtime::Value::Symbol("app".into()),
+                    iris_runtime::Value::Integer(1_u64.into()),
+                ])),
+                iris_runtime::Value::Symbol("1.0.0".into()),
+            ]
+        )))
+    );
+    Ok(())
 }
 
 #[test]

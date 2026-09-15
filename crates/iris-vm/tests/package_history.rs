@@ -1,5 +1,7 @@
 use iris_runtime::{ArrayRef, Value};
-use iris_vm::{Machine, PackageHistory, RevisionArtifact, compile};
+use iris_vm::{
+    Machine, PackageHistory, PackageUpgrade, ResolvedPackageVersion, RevisionArtifact, compile,
+};
 
 fn artifact(source: &str) -> RevisionArtifact {
     RevisionArtifact {
@@ -12,6 +14,17 @@ fn artifact(source: &str) -> RevisionArtifact {
             iris_runtime::artifact_digest(source.as_bytes()),
             source.into(),
         ),
+    }
+}
+
+fn host_source(version: &str, source: &str) -> iris_native_host::PackageSource {
+    iris_native_host::PackageSource {
+        package_id: "upgrade.test".into(),
+        api_major: 1,
+        version: version.into(),
+        path: format!("upgrade-{version}.iris"),
+        allowed_imports: Default::default(),
+        source: source.into(),
     }
 }
 
@@ -321,4 +334,560 @@ fn absent_historical_constructor_when_current_added_one_does_not_run_live_code()
         ),
     );
     assert_eq!(when, Ok(Value::Integer(1_u64.into())));
+}
+
+#[test]
+fn host_upgrade_when_canonical_plan_is_supplied_replaces_dispatch_but_retains_bound_body() {
+    let decorator = "class Keep {} impl Keep for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } }";
+    let candidate =
+        format!("{decorator}; class Target {{ @Keep() public fun value() -> Integer {{ 10 }} }}");
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{decorator}; class Target {{ @Keep() public fun value() -> Integer {{ 1 }} }}; let object = Target.new(); let retained = object.value; let identity = Target; let before = Reflection::Package.version(); let ignored = Reflection::Package.upgrade(:\"1.1.0\"); %[object.value(), retained.call(), Target == identity, before, Reflection::Package.version()]"
+        ),
+    );
+    let target = host_source("1.1.0", &candidate);
+    assert!(iris_parser::parse(&candidate).program_accepted);
+    iris_vm::compile_package_tree_with_natives(&[target], &iris_native_host::NativeRegistry::new())
+        .unwrap();
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+            version: "1.1.0".into(),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    );
+    assert!(
+        program.is_ok(),
+        "VM package reflection must compile before a host upgrade can run"
+    );
+    assert_eq!(
+        machine.execute(&program.unwrap()),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Integer(10_u64.into()),
+            Value::Integer(1_u64.into()),
+            Value::Bool(true),
+            Value::Symbol("1.0.0".into()),
+            Value::Symbol("1.1.0".into()),
+        ])))
+    );
+}
+
+#[test]
+fn host_upgrade_when_candidate_plan_is_not_exactly_empty_preserves_live_package() {
+    let helper = "class Reject {} impl Reject for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } }";
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{helper}; class Target {{ public fun value() -> Integer {{ 1 }} }}; let object = Target.new(); let retained = object.value; let before = Reflection::Package.version(); let rejected = try {{ Reflection::Package.upgrade(:\"1.1.0\"); false }} catch error {{ true }}; %[rejected, object.value(), retained.call(), Reflection::Package.version() == before]"
+        ),
+    );
+    let candidate = "class Reject {} impl Reject for MethodDecorator { public fun plan(d, a) -> Plan { if true { Plan.empty } else { Plan.empty } }; public fun transform(d, a, c) -> Transformation { Transformation.empty } } class Target { @Reject() public fun value() -> Integer { 10 } }";
+    let target = host_source("1.1.0", candidate);
+    assert!(iris_parser::parse(candidate).program_accepted);
+    iris_vm::compile_package_tree_with_natives(&[target], &iris_native_host::NativeRegistry::new())
+        .unwrap();
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+            version: "1.1.0".into(),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    );
+    assert!(
+        program.is_ok(),
+        "VM package reflection must compile before a host upgrade can run"
+    );
+    assert_eq!(
+        machine.execute(&program.unwrap()),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(1_u64.into()),
+            Value::Integer(1_u64.into()),
+            Value::Bool(true),
+        ])))
+    );
+}
+
+#[test]
+fn host_upgrade_rejects_duplicate_or_bad_exact_selection_before_publication() {
+    let current = host_source(
+        "1.0.0",
+        "class Target { public fun value() -> Integer { 1 } }; let before = Reflection::Package.version(); let rejected = try { Reflection::Package.upgrade(:\"1.1.0\"); false } catch error { error == :RevisionArtifactUnavailableError }; %[rejected, Target.new().value(), Reflection::Package.version() == before]",
+    );
+    let candidate = "class Target { public fun value() -> Integer { 10 } }";
+    for versions in [
+        vec![
+            ResolvedPackageVersion {
+                package_id: "upgrade.test".into(),
+                api_major: 1,
+                version: "1.1.0".into(),
+                artifact: (
+                    "upgrade-1.1.0.iris".into(),
+                    iris_runtime::artifact_digest(candidate.as_bytes()),
+                    candidate.into(),
+                ),
+            },
+            ResolvedPackageVersion {
+                package_id: "upgrade.test".into(),
+                api_major: 1,
+                version: "1.1.0".into(),
+                artifact: (
+                    "upgrade-1.1.0-copy.iris".into(),
+                    iris_runtime::artifact_digest(candidate.as_bytes()),
+                    candidate.into(),
+                ),
+            },
+        ],
+        vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                "b3:bad".into(),
+                candidate.into(),
+            ),
+        }],
+    ] {
+        let mut machine = Machine::new().unwrap();
+        machine.enter_package_upgrades(PackageUpgrade { versions });
+        let program = iris_vm::compile_package_tree_with_natives(
+            &[current.clone()],
+            &iris_native_host::NativeRegistry::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            machine.execute(&program),
+            Ok(Value::Array(ArrayRef::new(vec![
+                Value::Bool(true),
+                Value::Integer(1_u64.into()),
+                Value::Bool(true),
+            ])))
+        );
+    }
+}
+
+#[test]
+fn package_upgrade_when_class_and_module_share_artifact_commits_once() {
+    let candidate = "class Target { public fun value() -> Integer { 10 } } module Provider { public fun value() -> Integer { 20 } }";
+    let current = host_source(
+        "1.0.0",
+        "class Target { public fun value() -> Integer { 1 } } module Provider { public fun value() -> Integer { 2 } } let object = Target.new(); let retained = object.value; let before_class = Reflection::Class.revision(Target); let ignored = Reflection::Package.upgrade(:\"1.1.0\"); let after_class = Reflection::Class.revision(Target); %[object.value(), retained.call(), Provider.value(), after_class[:number] == before_class[:number] + 1, Reflection::Package.version()]",
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Integer(10_u64.into()),
+            Value::Integer(1_u64.into()),
+            Value::Integer(20_u64.into()),
+            Value::Bool(true),
+            Value::Symbol("1.1.0".into()),
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_module_method_is_decorated_replays_upgrade_wrappers_in_source_order() {
+    let helper = "class First {} impl First for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object; next.call() * 10 + 1 }) } } class Second {} impl Second for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object; next.call() * 10 + 2 }) } }";
+    let candidate = format!(
+        "{helper} module Provider {{ @First() @Second() public fun value() -> Integer {{ 1 }} }}"
+    );
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{helper} module Provider {{ @First() @Second() public fun value() -> Integer {{ 2 }} }}; let ignored = Reflection::Package.upgrade(:\"1.1.0\"); Provider.value()"
+        ),
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Integer(121_u64.into()))
+    );
+}
+
+#[test]
+fn package_upgrade_when_helper_contract_mismatches_application_rejects_before_publication() {
+    let current = host_source(
+        "1.0.0",
+        "class Target { public fun value() -> Integer { 1 } }; let rejected = try { Reflection::Package.upgrade(:\"1.1.0\"); false } catch error { true }; %[rejected, Target.new().value()]",
+    );
+    let candidate = "class Wrong {} impl Wrong for ClassDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } } class Target { @Wrong() public fun value() -> Integer { 10 } }";
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(1_u64.into())
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_candidate_classes_are_reordered_keeps_each_logical_identity() {
+    let candidate = "class Second { public fun value() -> Integer { 20 } } class First { public fun value() -> Integer { 10 } }";
+    let current = host_source(
+        "1.0.0",
+        "class First { public fun value() -> Integer { 1 } } class Second { public fun value() -> Integer { 2 } } let ignored = Reflection::Package.upgrade(:\"1.1.0\"); %[First.new().value(), Second.new().value()]",
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Integer(10_u64.into()),
+            Value::Integer(20_u64.into())
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_candidate_contains_native_code_rejects_before_transform_or_publication() {
+    let helper = "class Wrap {} impl Wrap for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { NativeFixture.raise(:transform); Transformation.empty } }";
+    let candidate = format!(
+        "{helper} class Target {{ @Wrap() public fun value() -> Integer {{ NativeFixture.compact_gc(); 10 }} }}"
+    );
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{helper} class Target {{ public fun value() -> Integer {{ 1 }} }}; let before = Reflection::Package.version(); let rejected = try {{ Reflection::Package.upgrade(:\"1.1.0\"); false }} catch error {{ true }}; %[rejected, Target.new().value(), Reflection::Package.version() == before]"
+        ),
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(1_u64.into()),
+            Value::Bool(true)
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_named_export_is_used_refuses_before_publication() {
+    let current = host_source(
+        "1.0.0",
+        "class Target { public fun value() -> Integer { 1 } }; let rejected = try { Reflection::Package.upgrade(:\"1.1.0\"); false } catch error { true }; %[rejected, Target.new().value()]",
+    );
+    let candidate = "export Target; class Target { public fun value() -> Integer { 10 } }";
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(1_u64.into())
+        ])))
+    );
+}
+
+#[test]
+fn package_reflection_identity_when_arity_is_wrong_refuses() {
+    let current = host_source("1.0.0", "Reflection::Package.identity(:extra)");
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        Machine::new().unwrap().execute(&program),
+        Err(iris_vm::MachineError::UnsupportedConstruct)
+    );
+}
+
+#[test]
+fn package_reflection_version_when_arity_is_wrong_refuses() {
+    let current = host_source("1.0.0", "Reflection::Package.version(:extra)");
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        Machine::new().unwrap().execute(&program),
+        Err(iris_vm::MachineError::UnsupportedConstruct)
+    );
+}
+
+#[test]
+fn package_reflection_upgrade_when_target_is_not_symbol_refuses() {
+    let current = host_source("1.0.0", "Reflection::Package.upgrade(1)");
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        Machine::new().unwrap().execute(&program),
+        Err(iris_vm::MachineError::UnsupportedConstruct)
+    );
+}
+
+#[test]
+fn package_upgrade_when_module_decorator_is_applied_observes_upgrade_reason() {
+    let origin_helper = "class Mark {} impl Mark for ModuleDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } }";
+    let candidate_helper = "class Mark {} impl Mark for ModuleDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { if c.reason == :upgrade { Transformation.empty } else { raise :wrong_reason } } }";
+    let candidate = format!(
+        "{candidate_helper} @Mark() module Provider {{ public fun value() -> Integer {{ 10 }} }}"
+    );
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{origin_helper} @Mark() module Provider {{ public fun value() -> Integer {{ 1 }} }}; let ignored = Reflection::Package.upgrade(:\"1.1.0\"); Provider.value()"
+        ),
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(machine.execute(&program), Ok(Value::Integer(10_u64.into())));
+}
+
+#[test]
+fn package_upgrade_when_existing_owner_becomes_helper_rejects_before_publication() {
+    let current = host_source(
+        "1.0.0",
+        "class H { public fun required() -> Integer { 7 } } class Target { public fun value() -> Integer { 1 } }; let before = Reflection::Package.version(); let rejected = try { Reflection::Package.upgrade(:\"1.1.0\"); false } catch error { true }; %[rejected, H.new().required(), Target.new().value(), Reflection::Package.version() == before]",
+    );
+    let candidate = "class H {} impl H for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } } class Target { @H() public fun value() -> Integer { 10 } }";
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate.into(),
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(7_u64.into()),
+            Value::Integer(1_u64.into()),
+            Value::Bool(true)
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_late_transform_raises_restores_staged_class_and_module_state() {
+    let helpers = "class Wrap {} impl Wrap for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object; next.call() + 100 }) } } class Fail {} impl Fail for MethodDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { if c.reason == :upgrade { raise :late } else { Transformation.empty } } }";
+    let candidate = format!(
+        "{helpers} class Target {{ @Wrap() public fun value() -> Integer {{ 10 }} }} module Provider {{ @Fail() public fun value() -> Integer {{ 20 }} }}"
+    );
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{helpers} class Target {{ @Wrap() public fun value() -> Integer {{ 1 }} }} module Provider {{ @Fail() public fun value() -> Integer {{ 2 }} }} let object = Target.new(); let retained = object.value; let before = Reflection::Class.revision(Target); let version = Reflection::Package.version(); let rejected = try {{ Reflection::Package.upgrade(:\"1.1.0\"); false }} catch error {{ error == :late }}; let after = Reflection::Class.revision(Target); %[rejected, object.value(), retained.call(), Provider.value(), after[:commit_id] == before[:commit_id], Reflection::Package.version() == version]"
+        ),
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        machine.execute(&program),
+        Ok(Value::Array(ArrayRef::new(vec![
+            Value::Bool(true),
+            Value::Integer(101_u64.into()),
+            Value::Integer(101_u64.into()),
+            Value::Integer(2_u64.into()),
+            Value::Bool(true),
+            Value::Bool(true)
+        ])))
+    );
+}
+
+#[test]
+fn package_upgrade_when_property_method_uses_property_decorator_admits_the_matching_helper() {
+    let helper = "class Wrap {} impl Wrap for PropertyDecorator { public fun plan(d, a) -> Plan { Plan.empty }; public fun transform(d, a, c) -> Transformation { Transformation.empty } }";
+    let candidate = format!(
+        "{helper} class Target {{ @Wrap() public property fun value() -> Integer {{ 10 }} }}"
+    );
+    let current = host_source(
+        "1.0.0",
+        &format!(
+            "{helper} class Target {{ @Wrap() public property fun value() -> Integer {{ 1 }} }}; let ignored = Reflection::Package.upgrade(:\"1.1.0\"); Target.new().value"
+        ),
+    );
+    let mut machine = Machine::new().unwrap();
+    machine.enter_package_upgrades(PackageUpgrade {
+        versions: vec![ResolvedPackageVersion {
+            package_id: "upgrade.test".into(),
+            api_major: 1,
+            version: "1.1.0".into(),
+            artifact: (
+                "upgrade-1.1.0.iris".into(),
+                iris_runtime::artifact_digest(candidate.as_bytes()),
+                candidate,
+            ),
+        }],
+    });
+    let program = iris_vm::compile_package_tree_with_natives(
+        &[current],
+        &iris_native_host::NativeRegistry::new(),
+    )
+    .unwrap();
+    assert_eq!(machine.execute(&program), Ok(Value::Integer(10_u64.into())));
 }
