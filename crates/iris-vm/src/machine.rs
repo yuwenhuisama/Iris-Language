@@ -130,6 +130,8 @@ pub use verify::{MachineError, VerifyError, verify};
 /// A register machine over runtime values.
 pub struct Machine {
     history: crate::PackageHistory,
+    upgrades: crate::PackageUpgrade,
+    package_versions: std::collections::HashMap<(String, u64), String>,
     history_context: Option<std::rc::Rc<Program>>,
     code: code::CodeStore,
     method_types: Vec<(String, Value)>,
@@ -322,6 +324,8 @@ impl Machine {
         let kernel = Kernel::new(runtime.registry_mut())?;
         Ok(Self {
             history: crate::PackageHistory::default(),
+            upgrades: crate::PackageUpgrade::default(),
+            package_versions: std::collections::HashMap::new(),
             history_context: None,
             code: code::CodeStore::default(),
             method_types: Vec::new(),
