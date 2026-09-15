@@ -36,6 +36,14 @@ pub(super) struct CodeStore {
     next_contract: u64,
 }
 
+#[derive(Clone)]
+pub(super) struct CodeCheckpoint {
+    bundles: usize,
+    functions: usize,
+    selectors: HashMap<String, Selector>,
+    next_contract: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ResolvedBody {
     pub(super) program: Rc<Program>,
@@ -44,6 +52,21 @@ pub(super) struct ResolvedBody {
 }
 
 impl CodeStore {
+    pub(super) fn checkpoint(&self) -> CodeCheckpoint {
+        CodeCheckpoint {
+            bundles: self.bundles.len(),
+            functions: self.functions.len(),
+            selectors: self.selectors.clone(),
+            next_contract: self.next_contract,
+        }
+    }
+
+    pub(super) fn rollback(&mut self, checkpoint: CodeCheckpoint) {
+        self.bundles.truncate(checkpoint.bundles);
+        self.functions.truncate(checkpoint.functions);
+        self.selectors = checkpoint.selectors;
+        self.next_contract = checkpoint.next_contract;
+    }
     pub(super) fn allocate_contract(&mut self) -> Result<iris_runtime::ContractId, MachineError> {
         let identity = iris_runtime::ContractId::new(self.next_contract);
         self.next_contract = self
