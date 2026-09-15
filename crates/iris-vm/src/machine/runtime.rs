@@ -1214,9 +1214,14 @@ impl Machine {
                 .find_map(|(known, id)| (known == name).then_some(*id))
         });
         let context = match (caller.and_then(|index| classes.get(index).copied()), module) {
-            (Some(owner), _) => {
-                iris_runtime::DispatchContext::implementation(owner, owner == class)
-            }
+            (Some(owner), _) => iris_runtime::DispatchContext::implementation(
+                owner,
+                self.runtime
+                    .registry()
+                    .active(class)?
+                    .mro()
+                    .contains(&iris_runtime::MroEntry::Class(owner)),
+            ),
             // A MODULE composed with `private` access is the authority for the
             // class's private methods, which a class owner cannot express.
             (None, Some(module)) => {

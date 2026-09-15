@@ -99,3 +99,40 @@ fn wrapped_protected_super_runs_the_retained_chain() {
         ])))
     );
 }
+
+#[test]
+fn retained_parent_decorated_method_keeps_protected_self_authority_on_child() {
+    let source = r#"
+class Wrap {}
+impl Wrap for MethodDecorator {
+ public fun plan(declaration, arguments) -> Plan { Plan.empty }
+ public fun transform(declaration, arguments, context) -> Transformation {
+  Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object; next.call() })
+ }
+}
+class Parent {
+ protected fun shield() -> Integer { 4 }
+ @Wrap()
+ public fun retained() -> Integer { self.shield() }
+}
+class Child extends Parent {
+ public fun capture() -> BoundMethod<() -> Integer> { self.retained }
+ public fun current() -> Integer { self.retained() }
+}
+let child = Child.new()
+let retained = child.capture()
+open class Parent {
+ @Wrap()
+ public override fun retained() -> Integer { self.shield() + 10 }
+}
+%[retained.call(), child.current()]
+"#;
+    let result = run(&compile(source).expect("protected retained source compiles"));
+    assert_eq!(
+        result,
+        Ok(Value::Array(iris_runtime::ArrayRef::new(vec![
+            Value::Integer(4_u64.into()),
+            Value::Integer(14_u64.into()),
+        ])))
+    );
+}
