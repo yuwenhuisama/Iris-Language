@@ -787,6 +787,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                     | "Reflection::Module"
                     | "Reflection::Contract"
                     | "Reflection::Object"
+                    | "Reflection::Package"
             )
             && matches!(
                 (namespace.as_str(), selector.as_str()),
@@ -803,6 +804,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                         | "remove_module"
                 ) | ("Reflection::Contract", "requirement")
                     | ("Reflection::Object", "get_ivar" | "set_ivar")
+                    | ("Reflection::Package", "identity" | "version" | "upgrade")
             )
         {
             let (first, count) = self.argument_window(arguments)?;

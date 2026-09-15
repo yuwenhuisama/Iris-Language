@@ -73,7 +73,7 @@ pub(crate) fn compile_in_mode(
     compile_parsed((source, natives, mode), parsed)
 }
 
-fn compile_parsed(
+pub(crate) fn compile_parsed(
     (source, natives, mode): (&str, &iris_native_host::NativeRegistry, CompilationMode),
     mut parsed: iris_parser::ParseResult,
 ) -> Result<Program, CompileError> {

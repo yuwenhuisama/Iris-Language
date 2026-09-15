@@ -30,6 +30,18 @@ pub(super) fn supported(module: &ModuleDeclaration) -> bool {
                 && method.body.is_some() && matches!(method.kind, MethodKind::Instance | MethodKind::Module)))
 }
 
+pub(super) fn supported_upgrade(module: &ModuleDeclaration) -> bool {
+    module.parameters.is_empty()
+        && module.constraints.is_empty()
+        && module.contract_for.is_empty()
+        && module.mixins.is_empty()
+        && module.body.iter().all(|statement| {
+            matches!(statement,
+                Statement::Method(method) if method.type_parameters.is_empty() && method.impl_contract.is_none()
+                    && method.body.is_some() && matches!(method.kind, MethodKind::Instance | MethodKind::Module))
+        })
+}
+
 pub(crate) fn validate_module_source(source: &str, name: &str) -> Result<(), MachineError> {
     let parsed = iris_parser::parse(source);
     if !parsed.program_accepted {
