@@ -153,8 +153,13 @@ the ID and major, not the release version. Manifestless scripts retain
 input and use major 1 with an unknown version.
 The VM rejects empty sources and rejects cross-package source execution explicitly.
 Native-only dependencies do not add source units and retain their own metadata
-ownership. VM `Reflection::Package` and native Module Type reflection remain
-unsupported rather than reporting the entry package's metadata.
+ownership. The VM supports only `Reflection::Package.identity()`,
+`Reflection::Package.version()`, and a narrow host-resolved
+`Reflection::Package.upgrade(Symbol)`. Upgrade selects one exact host-injected
+artifact by package identity, API major, version, and digest; it performs no
+package discovery, imports, top-level side effects, or general package-manager
+operation. Native Module Type reflection remains unsupported rather than
+reporting the entry package's metadata.
 VM package execution also refuses built-in Type package/hash reflection until
 built-in declaration ownership is represented; it never labels built-ins as
 belonging to the entry package.
