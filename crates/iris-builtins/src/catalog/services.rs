@@ -406,19 +406,19 @@ const SERVICES: &[BuiltinMember] = &[
         "Reflection::Package",
         Service,
         "identity",
-        shapes![Reference []],
+        shapes![Both []],
         Known(Array),
-        "Array [package Symbol, major Integer]; reference ignores extra arguments.",
-        "crates/iris-eval/src/source_runtime.rs:9553"
+        "Array [package Symbol, major Integer]; VM requires zero arguments.",
+        "crates/iris-eval/src/source_runtime.rs:9767; crates/iris-vm/src/machine/execute.rs:3034"
     ),
     service!(
         "Reflection::Package",
         Service,
         "version",
-        shapes![Reference []],
+        shapes![Both []],
         Unknown,
-        "Version Symbol or nil; reference ignores extra arguments.",
-        "crates/iris-eval/src/source_runtime.rs:9557"
+        "Version Symbol or nil; VM requires zero arguments.",
+        "crates/iris-eval/src/source_runtime.rs:9771; crates/iris-vm/src/machine/execute.rs:3040"
     ),
     service!(
         "Reflection::Package",
@@ -460,10 +460,10 @@ const SERVICES: &[BuiltinMember] = &[
         "Reflection::Package",
         Service,
         "upgrade",
-        shapes![Reference[SYMBOL]],
+        shapes![Both[SYMBOL]],
         Unknown,
-        "Partial version/hook transaction for target version Symbol; hook result or nil, not complete package manager.",
-        "crates/iris-eval/src/source_runtime.rs:9488"
+        "Host-resolved same-major transaction for target version Symbol; not a package manager.",
+        "crates/iris-eval/src/source_runtime.rs:9761; crates/iris-vm/src/machine/execute.rs:3046"
     ),
     service!(
         "Package",

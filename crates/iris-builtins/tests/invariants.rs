@@ -130,3 +130,28 @@ fn refusals_are_absent_when_public_surface_is_requested() {
         );
     }
 }
+
+#[test]
+fn package_reflection_rows_are_vm_available_only_for_the_supported_slice() {
+    let rows: Vec<_> = members()
+        .iter()
+        .filter(|row| row.owner == "Reflection::Package")
+        .collect();
+    for row in rows {
+        match row.selector {
+            "identity" | "version" | "upgrade" => {
+                assert_eq!(row.shapes.len(), 1);
+                assert!(
+                    row.shapes
+                        .iter()
+                        .all(|shape| shape.availability == Availability::Both)
+                );
+            }
+            _ => assert!(
+                row.shapes
+                    .iter()
+                    .all(|shape| shape.availability == Availability::Reference)
+            ),
+        }
+    }
+}

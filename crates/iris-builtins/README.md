@@ -134,8 +134,12 @@ are not formal setter return annotations.
   clear or default/block fetch, ByteArray clear/replace, String iterator,
   normalize/normalize!/casefold!, blanket readonly/tuple Array conveniences,
   Range step/length/construction, direct Contract.requirement, unlisted
-  reflection signatures, Package.load/reload/upgrade, Plan protocols, or bare
+  reflection signatures, Package.load/reload and other Package adapters, Plan protocols, or bare
   type_of/type_and_value/same?/puts/len/Float32 helpers.
+- `Reflection::Package.identity`, `.version`, and the narrow host-resolved
+  `.upgrade(Symbol)` transaction are cataloged and supported by the VM.
+  Upgrade selects an exact host-injected artifact only; it performs no package
+  discovery, import execution, side effects, or general package management.
 - serialize/deserialize are declared Serializable user hooks, not installed
   builtins; diagnostic exception names do not imply constructors or methods.
 
