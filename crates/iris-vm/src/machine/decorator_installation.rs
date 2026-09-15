@@ -1,6 +1,7 @@
 use super::decorator_wrappers::WrapperChain;
 use super::{Machine, MachineError, selector_id};
 use crate::compile::Program;
+use iris_runtime::decorator_protocol::DecoratorReason;
 use iris_runtime::decorator_protocol::Operation;
 use iris_runtime::{ClassId, DecoratorValue, Value};
 
@@ -32,12 +33,27 @@ impl Machine {
         program: &Program,
         classes: &[ClassId],
     ) -> Result<(), MachineError> {
+        self.install_decorator_applications_with_reason(class, applications, program, classes, None)
+    }
+
+    pub(super) fn install_decorator_applications_with_reason(
+        &mut self,
+        class: ClassId,
+        applications: &[&crate::compile::decorators::Application],
+        program: &Program,
+        classes: &[ClassId],
+        reason: Option<DecoratorReason>,
+    ) -> Result<(), MachineError> {
         let root_base = self.active_values.len();
         let result = (|| {
             let mut wrappers: std::collections::BTreeMap<usize, Vec<iris_runtime::ObjectId>> =
                 std::collections::BTreeMap::new();
             for application in applications {
-                let value = self.execute_decorator_phase(application, program, classes)?;
+                let value = self.execute_decorator_phase_with_reason(
+                    (application, reason),
+                    program,
+                    classes,
+                )?;
                 if self.decorator_planning {
                     continue;
                 }
@@ -275,7 +291,7 @@ impl Machine {
             Ok(())
         })();
         self.active_values.truncate(root_base);
-        if result.is_err() {
+        if result.is_err() && reason.is_none() {
             self.runtime.registry_mut().roll_back_transaction(class);
         }
         result

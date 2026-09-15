@@ -69,7 +69,7 @@ impl Machine {
         Ok(Value::Symbol(digest))
     }
 
-    fn validate_module_history(
+    pub(super) fn validate_module_history(
         &mut self,
         (module, target): (ModuleId, usize),
         (current, historical): (&Program, &Program),

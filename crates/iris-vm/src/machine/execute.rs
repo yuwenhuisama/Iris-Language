@@ -3031,6 +3031,25 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                         return self.invoke_wrapped(*method, passed, None, program, classes);
                     }
                     match (namespace.as_str(), selector.as_str(), arguments) {
+                        ("Reflection::Package", "identity", []) => Value::Array(
+                            iris_runtime::ArrayRef::new(vec![
+                                Value::Symbol(program.package_id().to_owned()),
+                                Value::Integer(program.api_major().into()),
+                            ]),
+                        ),
+                        ("Reflection::Package", "version", []) => self
+                            .package_versions
+                            .get(&(program.package_id().to_owned(), program.api_major()))
+                            .cloned()
+                            .or_else(|| program.package_identity().and_then(|identity| identity.version.clone()))
+                            .map_or(Value::Nil, Value::Symbol),
+                        ("Reflection::Package", "upgrade", [Value::Symbol(target)]) => {
+                            self.upgrade_package(program, target).map_err(|error| match error {
+                                MachineError::UnsupportedConstruct => MachineError::TypeContractError,
+                                error => error,
+                            })?
+                        }
+                        ("Reflection::Package", _, _) => Err(MachineError::UnsupportedConstruct)?,
                         (_, _, [Value::Symbol(target), ..])
                             if self
                                 .natives
