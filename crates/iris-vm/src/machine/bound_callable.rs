@@ -122,7 +122,7 @@ impl Machine {
         passed.extend(receiver);
         passed.extend_from_slice(arguments);
         if self.wrapper_chains.contains_key(&method.id()) {
-            return self.invoke_wrapped(method, passed, program, classes);
+            return self.invoke_wrapped(method, passed, None, program, classes);
         }
         let owner = self
             .resolve_method_body(method.body(), program)

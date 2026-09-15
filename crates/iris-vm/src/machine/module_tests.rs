@@ -117,7 +117,13 @@ fn retained_method_keeps_wrapper_when_module_body_is_replaced() {
         )
         .expect("stage");
     machine.runtime.commit_structural_group().expect("commit");
-    let result = machine.invoke_wrapped(old, vec![Value::Symbol("Provider".into())], &program, &[]);
+    let result = machine.invoke_wrapped(
+        old,
+        vec![Value::Symbol("Provider".into())],
+        None,
+        &program,
+        &[],
+    );
     assert_eq!(result, Ok(Value::Integer(17_u64.into())));
     assert_eq!(
         machine.invoke_module_member(("Provider", "value", None), Vec::new(), &program, &[]),

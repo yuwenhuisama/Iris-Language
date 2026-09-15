@@ -133,6 +133,7 @@ pub struct Machine {
     history_context: Option<std::rc::Rc<Program>>,
     code: code::CodeStore,
     method_types: Vec<(String, Value)>,
+    selected_qualifier: Option<Value>,
     explicit_method_types: Vec<Value>,
     closed_methods: Vec<generic_methods::ClosedMethod>,
     bound_signatures:
@@ -324,6 +325,7 @@ impl Machine {
             history_context: None,
             code: code::CodeStore::default(),
             method_types: Vec::new(),
+            selected_qualifier: None,
             explicit_method_types: Vec::new(),
             closed_methods: Vec::new(),
             bound_signatures: std::collections::HashMap::new(),

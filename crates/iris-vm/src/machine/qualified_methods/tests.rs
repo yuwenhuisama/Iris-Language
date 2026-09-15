@@ -68,6 +68,7 @@ fn closed_chain_keeps_owner_when_program_is_dropped_after_republication() {
     let when = machine.invoke_wrapped(
         old,
         vec![receiver, Value::Integer(9_u64.into())],
+        None,
         &unrelated,
         &[],
     );
@@ -155,7 +156,7 @@ fn old_chain_is_stable_when_qualified_identity_is_republished() {
         machine.invoke_selected_method(current, vec![receiver.clone()], &program, &[]),
         Ok(Value::Integer(7_u64.into()))
     );
-    let when = machine.invoke_wrapped(old, vec![receiver], &program, &[]);
+    let when = machine.invoke_wrapped(old, vec![receiver], None, &program, &[]);
     assert_ne!(old.id(), current.id());
     assert_eq!(when, Ok(Value::Integer(17_u64.into())));
     assert!(machine.method_signatures.contains_key(&old.id()));

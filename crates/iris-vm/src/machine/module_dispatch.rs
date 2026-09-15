@@ -127,7 +127,7 @@ impl Machine {
                 self.explicit_method_types.clear();
                 return Err(MachineError::ArgumentError);
             }
-            return self.invoke_wrapped(method, passed, program, classes);
+            return self.invoke_wrapped(method, passed, None, program, classes);
         }
         let explicit = std::mem::take(&mut self.explicit_method_types);
         let bindings = match &body.signature {

@@ -12,6 +12,7 @@ impl Machine {
         &mut self,
         method: Method,
         arguments: Vec<Value>,
+        qualifier: Option<Value>,
         program: &Program,
         classes: &[ClassId],
     ) -> Result<Value, MachineError> {
@@ -29,14 +30,19 @@ impl Machine {
                     )?
                     .is_empty()
                 {
-                    return self.invoke_selected_method(method, arguments, program, classes);
+                    return match qualifier {
+                        Some(qualifier) => self.with_selected_qualifier(qualifier, |machine| {
+                            machine.invoke_selected_method(method, arguments, program, classes)
+                        }),
+                        None => self.invoke_selected_method(method, arguments, program, classes),
+                    };
                 }
                 Vec::new()
             }
         };
         let previous = std::mem::replace(&mut self.method_types, bindings);
         self.active_values.push(Value::Method(method));
-        let result = self.invoke_wrapped_bound(method, arguments, program, classes);
+        let result = self.invoke_wrapped_bound(method, arguments, qualifier, program, classes);
         self.active_values.pop();
         self.method_types = previous;
         result
@@ -46,6 +52,7 @@ impl Machine {
         &mut self,
         method: Method,
         arguments: Vec<Value>,
+        qualifier: Option<Value>,
         _program: &Program,
         _classes: &[ClassId],
     ) -> Result<Value, MachineError> {
@@ -88,7 +95,7 @@ impl Machine {
                 classes,
             )?;
             let outer = self.allocate_task(result);
-            let prepared = self.prepare_wrapped(method, arguments, program, classes);
+            let prepared = self.prepare_wrapped(method, arguments, qualifier, program, classes);
             match prepared {
                 Ok(invocation) => {
                     self.start_async_layer(outer, chain, 0, invocation, program, classes)?
@@ -97,7 +104,7 @@ impl Machine {
             }
             return Ok(Value::Task(outer));
         }
-        let invocation = self.prepare_wrapped(method, arguments, program, classes)?;
+        let invocation = self.prepare_wrapped(method, arguments, qualifier, program, classes)?;
         self.invoke_layer(chain, 0, invocation, program, classes)
     }
 
@@ -105,6 +112,7 @@ impl Machine {
         &mut self,
         method: Method,
         arguments: Vec<Value>,
+        qualifier: Option<Value>,
         _program: &Program,
         _classes: &[ClassId],
     ) -> Result<Invocation, MachineError> {
@@ -256,7 +264,7 @@ impl Machine {
             (signature.selector.as_str(), SlotKind::Method)
         };
         let slot = InvocationSlot::new(owner, selector, kind);
-        let slot = match self.selected_qualifier(method, (program, classes))? {
+        let slot = match qualifier {
             Some(qualifier) => slot.qualified(qualifier),
             None => slot,
         };

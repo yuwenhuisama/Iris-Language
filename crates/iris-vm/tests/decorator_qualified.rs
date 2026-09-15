@@ -47,7 +47,7 @@ fn wrapper_metadata_is_ordinary_when_impl_precedes_owner() {
         "#,
         WRAP.replace(
             "(next.call() as Integer) + 10",
-            "if !(invocation.slot[0] is? Type) || invocation.slot[0] != Target.type || invocation.slot[0] == Target || invocation.slot[1] != :value || invocation.slot[2] != nil || invocation.slot[3] != :method { raise :slot }; (next.call() as Integer) + 10"
+            "if !(invocation.slot[0] is? Type) || invocation.slot[0] != Target.type || invocation.slot[0] == Target || invocation.slot[1] != :value || invocation.slot[2] != Named.type || invocation.slot[3] != :method { raise :slot }; (next.call() as Integer) + 10"
         )
     );
     let when = run(&compile(&given).expect("compile impl before owner"));
@@ -93,17 +93,49 @@ fn qualified_result_is_checked_when_wrapper_changes_return_type() {
 }
 
 #[test]
-fn qualified_slots_share_body_when_two_contracts_have_compatible_selector() {
+fn ordinary_decorator_drops_outer_qualified_context_for_nested_send() {
     let given = format!(
-        "{WRAP} contract Other {{ fun value(input: Integer) -> Integer }} class Target {{}} impl Target for Named {{ @Wrap() public fun value(input: Integer) -> Integer {{ input }} }} impl Target for Other {{}} let target = Target.new(); %[target.value(1), (target as Named)..value(7), (target as Other)..value(3)]"
+        "{} class Target {{ @Wrap() public fun decorated(input: Integer) -> Integer {{ input }}; public fun value(input: Integer) -> Integer {{ decorated(input) }} }} impl Target for Named {{}} let target = Target.new(); (target as Named)..value(7)",
+        WRAP.replace(
+            "(next.call() as Integer) + 10",
+            "if invocation.slot[2] != nil { raise :qualifier }; next.call()"
+        )
     );
     let when = run(&compile(&given).expect("compile"));
+    assert_eq!(when, Ok(Value::Integer(7_u64.into())));
+}
+
+#[test]
+fn async_ordinary_decorator_drops_outer_qualified_context_for_nested_send() {
+    let given = r#"
+        class Wrap {}
+        impl Wrap for MethodDecorator {
+            public fun plan(d, a) -> Plan { Plan.empty }
+            public fun transform(d, a, c) -> Transformation {
+                Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+                    let result = await next.call()
+                    if invocation.slot[2] != nil { raise :qualifier }
+                    result
+                })
+            }
+        }
+        contract Named { async fun value(value: Integer, gate) -> Integer }
+        class Target {
+            @Wrap() public async fun decorated(value: Integer, gate) -> Integer { await gate; value }
+            public async fun value(value: Integer, gate) -> Integer { await decorated(value, gate) }
+        }
+        impl Target for Named {}
+        let gate = Gate.new()
+        let task = (Target.new() as Named)..value(7, gate)
+        Gate.complete(gate, nil)
+        Host.run(task)
+    "#;
+    let when = run(&compile(given).expect("compile"));
     assert_eq!(
         when,
         Ok(Value::Array(ArrayRef::new(vec![
-            Value::Integer(11_u64.into()),
-            Value::Integer(17_u64.into()),
-            Value::Integer(13_u64.into()),
+            Value::Nil,
+            Value::Integer(7_u64.into()),
         ])))
     );
 }

@@ -13,7 +13,6 @@ pub(super) struct ClosedMethod {
     pub(super) canonical: MethodId,
     pub(super) types: Vec<Value>,
     pub(super) owner_bindings: Vec<(String, Value)>,
-    pub(super) qualifier: Option<Value>,
     pub(super) method: Method,
 }
 
@@ -53,6 +52,7 @@ impl Machine {
         program: &Program,
         _classes: &[ClassId],
     ) -> Result<Value, MachineError> {
+        let qualifier = self.selected_qualifier.take();
         let function = self
             .resolve_method_body(method.body(), program)
             .map_err(|_| MachineError::UnsupportedConstruct)?;
@@ -86,9 +86,6 @@ impl Machine {
         };
         let owner_bindings =
             self.direct_owner_bindings(method, arguments.first(), (program, classes))?;
-        let qualifier = self.with_method_types(owner_bindings.clone(), |machine| {
-            machine.selected_qualifier(method, (program, classes))
-        })?;
         if let Some(class) = receiver_class {
             self.runtime
                 .registry()
@@ -107,10 +104,10 @@ impl Machine {
             let selected = if types.is_empty() && owner_bindings.is_empty() {
                 method
             } else {
-                self.materialize_method(method, (types, owner_bindings, qualifier), program)?
+                self.materialize_method(method, (types, owner_bindings), program)?
             };
             if self.wrapper_chains.contains_key(&selected.id()) {
-                self.invoke_wrapped(selected, arguments, program, classes)
+                self.invoke_wrapped(selected, arguments, qualifier, program, classes)
             } else {
                 self.invoke_function(function, arguments, program, classes)
             }
@@ -180,14 +177,13 @@ impl Machine {
     fn materialize_method(
         &mut self,
         canonical: Method,
-        (types, owner_bindings, qualifier): (Vec<Value>, Vec<(String, Value)>, Option<Value>),
+        (types, owner_bindings): (Vec<Value>, Vec<(String, Value)>),
         program: &Program,
     ) -> Result<Method, MachineError> {
         if let Some(closed) = self.closed_methods.iter().find(|closed| {
             closed.canonical == canonical.id()
                 && closed.types == types
                 && closed.owner_bindings == owner_bindings
-                && closed.qualifier == qualifier
         }) {
             return Ok(closed.method);
         }
@@ -267,7 +263,6 @@ impl Machine {
                 canonical: canonical.id(),
                 types,
                 owner_bindings,
-                qualifier,
                 method,
             });
             Ok(method)

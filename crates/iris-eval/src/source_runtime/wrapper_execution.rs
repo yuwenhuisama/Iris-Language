@@ -50,11 +50,13 @@ impl SourceEvaluator {
         arguments: &[Value],
     ) -> Result<Value, EvaluationError> {
         let previous = self.wrapper_context();
+        let selected_contract = self.current_contract;
         let chain = self.rooted(chain);
         let _previous_root = self.rooted(previous.clone());
         if let Some(canonical) = &chain.canonical {
             self.restore_wrapper_context(canonical.context.clone());
         }
+        self.current_contract = selected_contract;
         self.current_method = Some(chain.original);
         if let MethodOwner::Class(class) = chain.original.owner() {
             self.lexical_class = Some(class);
@@ -77,6 +79,7 @@ impl SourceEvaluator {
                 self.task_types.insert(identity, result);
             }
             let invocation = self.prepare_wrapper_invocation(&chain, receiver, arguments)?;
+            self.current_contract = None;
             let owner_types = invocation.selected().owner_type_arguments().to_vec();
             let chain = self.materialize_wrapper_chain(Rc::unwrap_or_clone(chain), owner_types)?;
             self.current_method = Some(chain.original);

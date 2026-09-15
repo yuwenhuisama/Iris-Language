@@ -9,13 +9,14 @@ impl Wrap for MethodDecorator {
         mut calls = 0
         Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
             calls = calls + 1
-            if invocation.owner_type_arguments[0] == Integer.type {
-                if invocation.slot[2] != nil { raise :qualifier }
+            if invocation.slot[2] == nil {
                 if invocation.slot[0] != Box<Integer>.type { raise :owner }
             } else {
-                if invocation.slot[2] != nil { raise :qualifier }
-                if invocation.slot[0] != Box<String>.type { raise :owner }
+                if invocation.owner_type_arguments[0] == Integer.type && invocation.slot[2] != Named<Integer>.type { raise :qualifier }
+                if invocation.owner_type_arguments[0] == String.type && invocation.slot[2] != Named<String>.type { raise :qualifier }
             }
+            if invocation.owner_type_arguments[0] == Integer.type && invocation.slot[0] != Box<Integer>.type { raise :owner }
+            if invocation.owner_type_arguments[0] == String.type && invocation.slot[0] != Box<String>.type { raise :owner }
             Effects.calls = calls
             next.call()
         })
@@ -67,7 +68,7 @@ fn owner_and_method_arguments_are_separate_when_names_shadow() {
                 Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
                     if invocation.owner_type_arguments[0] != Integer.type { raise :owner }
                     if invocation.method_type_arguments[0] != String.type { raise :method }
-                    if invocation.slot[2] != nil { raise :qualifier }
+                    if invocation.slot[2] != Named<Integer>.type { raise :qualifier }
                     next.call()
                 })
             }
@@ -93,9 +94,9 @@ fn async_closed_qualifiers_survive_when_owners_suspend_together() {
                 Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
                     let result = await next.call()
                     if invocation.owner_type_arguments[0] == Integer.type {
-                        if invocation.slot[2] != nil || invocation.slot[0] != Box<Integer>.type { raise :qualifier }
+                        if invocation.slot[2] != Named<Integer>.type || invocation.slot[0] != Box<Integer>.type { raise :qualifier }
                     } else {
-                        if invocation.slot[2] != nil || invocation.slot[0] != Box<String>.type { raise :qualifier }
+                        if invocation.slot[2] != Named<String>.type || invocation.slot[0] != Box<String>.type { raise :qualifier }
                     }
                     result
                 })

@@ -70,7 +70,7 @@ target_cases! {
     meta_c128_c139_property_candidate_when_setter_is_absent:
         "missing_accessor_rollback" => "true\ntrue\ntrue\ntrue\nold\n0\n";
     meta_c131_c138_qualified_method_when_one_ordinary_surface_is_reused:
-        "qualified_method" => "1\ntrue\nname\nfalse\nmethod\nname\n1\n2\ntrue\nname\nfalse\nmethod\nname\n2\n3\ntrue\nname\nfalse\nmethod\nname\n3\n";
+        "qualified_method" => "1\ntrue\nname\nfalse\nmethod\nname\n1\n2\ntrue\nname\ntrue\nmethod\nname\n2\n3\ntrue\nname\nfalse\nmethod\nname\n3\n";
     meta_c128_c138_protected_method_when_visibility_is_not_runtime_protection:
         "protected_method" => "protected\n1\n7\n17\nMethodVisibilityError\n1\n1\n";
 }

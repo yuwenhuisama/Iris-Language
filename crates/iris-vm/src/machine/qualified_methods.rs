@@ -44,45 +44,24 @@ impl Machine {
         Ok(identity)
     }
 
-    pub(super) fn selected_qualifier(
+    pub(super) fn with_selected_qualifier<T>(
         &mut self,
-        method: Method,
-        context: (&Program, &[ClassId]),
-    ) -> Result<Option<iris_runtime::Value>, MachineError> {
-        if let Some(closed) = self
-            .closed_methods
-            .iter()
-            .find(|closed| closed.method.id() == method.id())
-        {
-            return Ok(closed.qualifier.clone());
+        qualifier: iris_runtime::Value,
+        run: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.selected_qualifier.replace(qualifier);
+        let result = run(self);
+        self.selected_qualifier = previous;
+        result
+    }
+
+    pub(super) fn selected_contract_value(&self, contract: ContractId) -> iris_runtime::Value {
+        match self.qualified_methods.views.get(&contract) {
+            Some((definition, arguments)) => {
+                iris_runtime::Value::Contract(*definition, arguments.clone())
+            }
+            None => iris_runtime::Value::Contract(contract, Vec::new()),
         }
-        let Some(definition) = self
-            .qualified_methods
-            .definitions
-            .get(&method.id())
-            .copied()
-        else {
-            return Ok(None);
-        };
-        let MethodOwner::Class(owner) = method.owner() else {
-            return Err(MachineError::UnsupportedConstruct);
-        };
-        let (program, classes) = context;
-        let index = classes
-            .iter()
-            .position(|class| *class == owner)
-            .ok_or(MachineError::UnsupportedConstruct)?;
-        let contract = program
-            .contract_index(definition)
-            .ok_or(MachineError::UnsupportedConstruct)?;
-        let arguments = program.classes[index]
-            .contract_arguments
-            .iter()
-            .find(|(index, _)| *index == contract)
-            .map(|(_, arguments)| arguments.as_slice())
-            .unwrap_or_default();
-        let arguments = self.nominal_arguments(arguments, program, classes)?;
-        Ok(Some(iris_runtime::Value::Contract(definition, arguments)))
     }
     pub(super) fn allocate_managed_method_identity(&mut self) -> Result<MethodId, MachineError> {
         let raw = u64::MAX

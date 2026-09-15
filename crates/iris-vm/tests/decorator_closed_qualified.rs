@@ -116,7 +116,7 @@ fn owner_and_method_arguments_are_separate_when_names_shadow() {
         (Box<Integer>.new() as Named<Integer>)..value<String>("s")
     "#, SOURCE.replace("fun value(value: Element) -> Element", "fun value<T>(value: T) -> T")
         .replace("fun value(value: T) -> T", "fun value<T>(value: T) -> T")
-        .replace("Effects.calls = calls", "if invocation.method_type_arguments[0] != String.type { raise :method }; Effects.calls = calls"));
+        .replace("Effects.calls = calls", "if invocation.method_type_arguments[0] != String.type { raise :method }; if invocation.slot[2] != Named<Integer>.type { raise :qualifier }; Effects.calls = calls"));
     let when = run(&compile(&given).expect("compile"));
     assert_eq!(when, Ok(Value::Text("s".into())));
 }

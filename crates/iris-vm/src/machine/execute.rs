@@ -1677,7 +1677,7 @@ instruction_group!(execute_member, (self, instruction, state, registers, program
                                 .dispatch_from(object, selector_id, *caller, caller_module.as_deref(), classes)
                                 .map_err(MachineError::Construction));
                             if self.wrapper_chains.contains_key(&method.id()) {
-                                let value = run_frame!('frame, self.invoke_wrapped(method, vec![Value::Object(object)], program, classes));
+                                let value = run_frame!('frame, self.invoke_wrapped(method, vec![Value::Object(object)], None, program, classes));
                                 return Ok(InstructionAction::Produced(value));
                             }
                             let function = self.resolve_method_body(method.body(), program)
@@ -2358,7 +2358,7 @@ instruction_group!(execute_call, (self, instruction, state, registers, program, 
                     }
                     passed.extend_from_slice(&registers[start..start + *count as usize]);
                     if self.wrapper_chains.contains_key(&bound.method().id()) {
-                        let value = run_frame!('frame, self.invoke_wrapped(bound.method(), passed, program, classes));
+                        let value = run_frame!('frame, self.invoke_wrapped(bound.method(), passed, None, program, classes));
                         return Ok(InstructionAction::Produced(value));
                     }
                     let callee =
@@ -2817,7 +2817,7 @@ instruction_group!(execute_send, (self, instruction, state, registers, program, 
                             return Ok(InstructionAction::Produced(value));
                         }
                         if self.wrapper_chains.contains_key(&method.id()) {
-                            let value = run_frame!('frame, self.invoke_wrapped(method, arguments, program, classes));
+                            let value = run_frame!('frame, self.invoke_wrapped(method, arguments, None, program, classes));
                             return Ok(InstructionAction::Produced(value));
                         }
                         let callee = program.functions.get(function).cloned().ok_or(
@@ -2935,7 +2935,7 @@ instruction_group!(execute_class_send, (self, instruction, state, registers, pro
                     arguments.extend_from_slice(&registers[start..start + *count as usize]);
                     if self.wrapper_chains.contains_key(&method.id()) {
                         let value = run_frame!('frame, self.invoke_wrapped(
-                            method, arguments, program, classes
+                            method, arguments, None, program, classes
                         ));
                         return Ok(InstructionAction::Produced(value));
                     }
@@ -3028,7 +3028,7 @@ instruction_group!(execute_reflection, (self, instruction, state, registers, pro
                         }
                         let mut passed = vec![receiver.clone()];
                         passed.extend(extra.elements());
-                        return self.invoke_wrapped(*method, passed, program, classes);
+                        return self.invoke_wrapped(*method, passed, None, program, classes);
                     }
                     match (namespace.as_str(), selector.as_str(), arguments) {
                         (_, _, [Value::Symbol(target), ..])
@@ -3942,7 +3942,10 @@ instruction_group!(execute_contract, (self, instruction, state, registers, progr
                                 let start = *first as usize;
                                 let mut arguments = vec![Value::Object(object)];
                                 arguments.extend_from_slice(&registers[start..start + *count as usize]);
-                                let value = run_frame!('frame, self.invoke_selected_method(method, arguments, program, classes));
+                                let qualifier = self.selected_contract_value(contract);
+                                let value = run_frame!('frame, self.with_selected_qualifier(qualifier, |machine| {
+                                    machine.invoke_selected_method(method, arguments, program, classes)
+                                }));
                                 if let Some(destination) = instruction.destination() {
                                     registers.write(destination as usize, value);
                                 }

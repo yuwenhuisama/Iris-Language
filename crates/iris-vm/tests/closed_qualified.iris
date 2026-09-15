@@ -5,13 +5,14 @@ impl Wrap for MethodDecorator {
   mut calls = 0
   Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
    calls = calls + 1
-   if invocation.owner_type_arguments[0] == Integer.type {
-    if invocation.slot[2] != nil { raise :qualifier }
+   if invocation.slot[2] == nil {
     if invocation.slot[0] != Box<Integer>.type { raise :owner }
    } else {
-    if invocation.slot[2] != nil { raise :qualifier }
-    if invocation.slot[0] != Box<String>.type { raise :owner }
+    if invocation.owner_type_arguments[0] == Integer.type && invocation.slot[2] != Named<Integer>.type { raise :qualifier }
+    if invocation.owner_type_arguments[0] == String.type && invocation.slot[2] != Named<String>.type { raise :qualifier }
    }
+    if invocation.owner_type_arguments[0] == Integer.type && invocation.slot[0] != Box<Integer>.type { raise :owner }
+    if invocation.owner_type_arguments[0] == String.type && invocation.slot[0] != Box<String>.type { raise :owner }
    Effects.calls = calls
    next.call()
   })

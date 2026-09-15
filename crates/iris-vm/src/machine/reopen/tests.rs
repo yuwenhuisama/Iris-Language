@@ -146,7 +146,7 @@ fn assert_failed_candidate(source: &str, expected: MachineError) {
     assert!(machine.decorator_phases.is_empty());
     assert_eq!(machine.open_depth, 0);
     assert_eq!(
-        machine.invoke_wrapped(old, vec![Value::Object(target)], &program, &classes),
+        machine.invoke_wrapped(old, vec![Value::Object(target)], None, &program, &classes),
         Ok(Value::Integer(12_u64.into()))
     );
 
@@ -177,15 +177,27 @@ fn assert_failed_candidate(source: &str, expected: MachineError) {
         before.number() + 1
     );
     assert_eq!(
-        machine.invoke_wrapped(current, vec![Value::Object(target)], &program, &classes),
+        machine.invoke_wrapped(
+            current,
+            vec![Value::Object(target)],
+            None,
+            &program,
+            &classes
+        ),
         Ok(Value::Integer(21_u64.into()))
     );
     assert_eq!(
-        machine.invoke_wrapped(old, vec![Value::Object(target)], &program, &classes),
+        machine.invoke_wrapped(old, vec![Value::Object(target)], None, &program, &classes),
         Ok(Value::Integer(13_u64.into()))
     );
     assert_eq!(
-        machine.invoke_wrapped(sibling, vec![Value::Object(target)], &program, &classes),
+        machine.invoke_wrapped(
+            sibling,
+            vec![Value::Object(target)],
+            None,
+            &program,
+            &classes
+        ),
         Ok(Value::Integer(32_u64.into()))
     );
     assert!(machine.runtime.registry().method_by_id(old.id()).is_some());

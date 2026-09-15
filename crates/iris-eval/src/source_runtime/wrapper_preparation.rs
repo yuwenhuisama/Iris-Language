@@ -22,7 +22,7 @@ impl SourceEvaluator {
             .iter()
             .map(|argument| Value::Type(argument.class(), argument.arguments().to_vec()))
             .collect();
-        self.current_contract = chain.qualifier;
+        let qualifier = self.current_contract;
         let mut positional = Vec::new();
         let mut keywords = Vec::new();
         let block = super::call_channels::block(arguments)?.cloned();
@@ -128,8 +128,7 @@ impl SourceEvaluator {
                 self.core_boundary_error(super::decorator_errors::argument_error(error))
             })?;
         let declaring = match chain.original.owner() {
-            MethodOwner::Class(class) => match chain.qualifier {
-                Some(_) if owner_arguments.is_empty() => Value::Class(class),
+            MethodOwner::Class(class) => match qualifier {
                 Some(_) => Value::Type(class, owner_arguments.clone()),
                 None if declaration.kind == MethodKind::Class => Value::Class(class),
                 None => Value::Type(class, owner_arguments.clone()),
@@ -146,7 +145,7 @@ impl SourceEvaluator {
             }
         };
         let slot = InvocationSlot::new(declaring, selector, kind);
-        let slot = match chain.qualifier {
+        let slot = match qualifier {
             Some(contract) => {
                 let MethodOwner::Class(class) = chain.original.owner() else {
                     return Err(EvaluationError::UnsupportedConstruct);

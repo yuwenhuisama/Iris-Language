@@ -8,7 +8,6 @@ class Wrap {
         mut calls = 0
         Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
             calls = calls + 1
-            if invocation.slot[2] != nil { raise :qualifier }
             if (invocation.receiver is? Target) == false { raise :receiver }
             next.call() + calls
         })
@@ -130,7 +129,6 @@ fn qualified_async_adapter_checks_the_shared_method_contract() {
             public fun plan(d, a) -> Plan { Plan.empty }
             public fun transform(d, a, c) -> Transformation {
                 Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
-                    if invocation.slot[2] != nil { raise :qualifier }
                     await next.call()
                 })
             }
@@ -146,6 +144,66 @@ fn qualified_async_adapter_checks_the_shared_method_contract() {
     "#;
     let when = evaluate(given);
     assert_eq!(when, evaluate("%[true, 7, true]"));
+}
+
+#[test]
+fn ordinary_decorator_drops_outer_qualified_context_for_nested_send() {
+    let given = r#"
+        class Wrap {}
+        impl Wrap for MethodDecorator {
+            public fun plan(d, a) -> Plan { Plan.empty }
+            public fun transform(d, a, c) -> Transformation {
+                Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
+                    if invocation.slot[2] != nil { raise :qualifier }
+                    next.call()
+                })
+            }
+        }
+        contract Named { fun value(value: Integer) -> Integer }
+        class Target {
+            @Wrap() public fun decorated(value: Integer) -> Integer { value }
+            public fun value(value: Integer) -> Integer { decorated(value) }
+        }
+        impl Target for Named {}
+        let target = Target.new()
+        (target as Named)..value(7)
+    "#;
+    let when = evaluate(&given);
+    assert_eq!(when, Ok(Value::Integer(7u64.into())));
+}
+
+#[test]
+fn async_ordinary_decorator_drops_outer_qualified_context_for_nested_send() {
+    let given = r#"
+        class Wrap {}
+        impl Wrap for MethodDecorator {
+            public fun plan(d, a) -> Plan { Plan.empty }
+            public fun transform(d, a, c) -> Transformation {
+                Transformation.wrap_method({ async |invocation: Invocation, next: Closure<(ArgumentChanges) -> Task<Object>>| -> Object;
+                    let result = await next.call()
+                    if invocation.slot[2] != nil { raise :qualifier }
+                    result
+                })
+            }
+        }
+        contract Named { async fun value(value: Integer, gate) -> Integer }
+        class Target {
+            @Wrap() public async fun decorated(value: Integer, gate) -> Integer { await gate; value }
+            public async fun value(value: Integer, gate) -> Integer { await decorated(value, gate) }
+        }
+        impl Target for Named {}
+        let gate = Gate.new()
+        let task = (Target.new() as Named)..value(7, gate)
+        Gate.complete(gate, nil)
+        Host.run(task)
+    "#;
+    assert_eq!(
+        evaluate(given),
+        Ok(Value::Array(iris_runtime::ArrayRef::new(vec![
+            Value::Nil,
+            Value::Integer(7u64.into()),
+        ])))
+    );
 }
 
 #[test]

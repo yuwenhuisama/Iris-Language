@@ -5,8 +5,10 @@ class Wrap {
         Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
             Effects.wrappers = Effects.wrappers + 1
             print(Effects.wrappers)
-            print(invocation.slot[0] == Target.type)
+            if invocation.slot[0] != Target.type { raise "C131 declaring Type mismatch" }
+            print(true)
             print(invocation.slot[1])
+            if invocation.slot[2] != Named.type && invocation.slot[2] != nil { raise "C131 qualifier mismatch" }
             print(invocation.slot[2] == Named.type)
             print(invocation.slot[3])
             next.call()

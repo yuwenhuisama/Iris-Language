@@ -171,7 +171,6 @@ impl Machine {
                         }
                         if closed.method.id() == method.id() {
                             edges.extend(closed.types.iter().cloned());
-                            edges.extend(closed.qualifier.iter().cloned());
                             edges.extend(
                                 closed.owner_bindings.iter().map(|(_, value)| value.clone()),
                             );

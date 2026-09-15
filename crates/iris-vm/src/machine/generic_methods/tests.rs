@@ -162,6 +162,7 @@ Target.echo<Integer>(7)
     let when = machine.invoke_wrapped(
         old,
         vec![Value::Class(owner), Value::Integer(7_u64.into())],
+        None,
         &program,
         &[],
     );
@@ -204,6 +205,7 @@ open class Target { @Wrap() public override fun echo<Element>(value: Element) ->
     let when = machine.invoke_wrapped(
         old,
         vec![receiver, Value::Integer(7_u64.into())],
+        None,
         &program,
         &[],
     );

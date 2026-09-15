@@ -113,6 +113,7 @@ open module Provider {
         machine.invoke_wrapped(
             old,
             vec![Value::Symbol("Provider".into())],
+            None,
             &program,
             &classes
         ),
@@ -139,6 +140,7 @@ open module Provider {
         machine.invoke_wrapped(
             old,
             vec![Value::Symbol("Provider".into())],
+            None,
             &program,
             &classes
         ),

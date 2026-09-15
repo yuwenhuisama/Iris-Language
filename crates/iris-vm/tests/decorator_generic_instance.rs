@@ -17,7 +17,7 @@ impl Wrap for MethodDecorator {
   Transformation.wrap_method({ |invocation: Invocation, next: Closure<(ArgumentChanges) -> Object>| -> Object;
    if Element.marker() != 9 { raise :lexical }
      if !(invocation.receiver is? Target) || !(invocation.slot[0] is? Type) || invocation.slot[0] != Target.type || invocation.slot[0] == Target { raise :receiver }
-   if invocation.slot[2] != nil || invocation.owner_type_arguments.length() != 0 { raise :slot }
+    if invocation.slot[2] != nil && invocation.slot[2] != Named.type || invocation.owner_type_arguments.length() != 0 { raise :slot }
    if invocation.method_type_arguments.length() != 1 { raise :arity }
    if invocation.signature.parameters[0].type != invocation.method_type_arguments[0] { raise :parameter }
    if invocation.signature.result != invocation.method_type_arguments[0] { raise :result }
@@ -137,7 +137,7 @@ fn generic_owner_class_method_remains_rejected_when_decorated() {
 
 fn qualified_source() -> String {
     SOURCE.replace("class Target {", "contract Named { fun echo<Element>(value: Element) -> Element } class Target {} impl Target for Named {")
-        .replace("invocation.slot[2] != nil", "invocation.slot[2] != nil || invocation.slot[1] != :echo")
+        .replace("invocation.slot[2] != nil", "invocation.slot[2] != nil && invocation.slot[2] != Named.type || invocation.slot[1] != :echo")
         .replace("class Effects {", "class Effects { public class property wrappers: Integer = 0;")
         .replace("if Element.marker()", "Effects.wrappers = Effects.wrappers + 1; if Element.marker()")
 }
@@ -156,7 +156,7 @@ fn qualified_generic_shares_cache_when_closed_type_is_selected() {
         let given = format!(r#"{}
 let target = Target.new()
 %[(target as Named)..echo<{selected_type}>({first}), target.echo({second}),
- (target as Named)..echo({second}), target.echo<{selected_type}>({second}), Effects.transforms, Effects.wrappers, Effects.bodies]
+  (target as Named)..echo({second}), target.echo<{selected_type}>({second}), Effects.transforms, Effects.wrappers, Effects.bodies]
 "#, qualified_source().replace("if cached == nil", &format!("if invocation.method_type_arguments[0] != {selected_type}.type {{ raise :closed_type }}; if cached == nil")));
         let when = run(&compile(&given).expect("compile qualified generic"));
         assert_eq!(

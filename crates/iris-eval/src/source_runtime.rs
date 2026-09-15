@@ -12710,7 +12710,12 @@ impl SourceEvaluator {
                 std::mem::replace(&mut self.package, context.package.clone()),
             )
         });
+        let previous_contract =
+            (!self.wrapper_chains.contains_key(&method.id())).then(|| self.current_contract.take());
         let result = self.invoke_method_with_context(method, receiver, arguments);
+        if let Some(contract) = previous_contract {
+            self.current_contract = contract;
+        }
         if let Some((source, package)) = previous_source {
             self.source = source;
             self.package = package;
