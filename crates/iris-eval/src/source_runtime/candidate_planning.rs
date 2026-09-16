@@ -2,7 +2,9 @@ use super::candidate_declarations::stored_decorator_declaration;
 use super::decorator_phases::{PhaseTarget, method_kind};
 use super::{EvaluationError, SourceEvaluator};
 use iris_runtime::decorator_protocol::DecoratorReason;
-use iris_syntax::{Declaration, Expression, MethodDeclaration, Program, ProgramEntry, Statement};
+use iris_syntax::{
+    Declaration, Expression, MethodDeclaration, PostfixPart, Program, ProgramEntry, Statement,
+};
 
 pub(super) struct OpenDeclaration {
     target: String,
@@ -131,20 +133,7 @@ fn expression(value: &Expression, declarations: &mut Vec<OpenDeclaration>) {
                 && let [callback] = arguments.as_slice()
                 && let Expression::Closure { body, .. } = super::call_channels::operand(callback)
             {
-                for statement in body {
-                    let method = match statement {
-                        Statement::Method(method) => Some(method.clone()),
-                        statement => stored_decorator_declaration(statement),
-                    };
-                    if let Some(method) = method
-                        && !method.decorators.is_empty()
-                    {
-                        declarations.push(OpenDeclaration {
-                            target: target.clone(),
-                            method,
-                        });
-                    }
-                }
+                collect_decorated_open(target, body, declarations);
             }
             expression(callee, declarations);
             for argument in arguments {
@@ -152,6 +141,61 @@ fn expression(value: &Expression, declarations: &mut Vec<OpenDeclaration>) {
             }
         }
         Expression::Closure { body, .. } => statements(body, declarations),
+        Expression::SafeNavigation { receiver, parts } => {
+            expression(receiver, declarations);
+            let mut callee = receiver.as_ref().clone();
+            let mut parts = parts.iter().peekable();
+            while let Some(part) = parts.next() {
+                match part {
+                    PostfixPart::Member { selector, .. } => {
+                        callee = Expression::Member {
+                            receiver: Box::new(callee),
+                            selector: selector.clone(),
+                        };
+                    }
+                    PostfixPart::Call {
+                        type_arguments,
+                        arguments,
+                    } => {
+                        let callback = match arguments.as_slice() {
+                            [callback] => Some(callback),
+                            [] => match parts.peek() {
+                                Some(PostfixPart::TrailingBlock(callback)) => {
+                                    Some(callback.as_ref())
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Expression::Member { receiver, selector } = &callee
+                            && selector == "open"
+                            && let Expression::Name(target) = receiver.as_ref()
+                            && let Some(callback) = callback
+                            && let Expression::Closure { body, .. } =
+                                super::call_channels::operand(callback)
+                        {
+                            collect_decorated_open(target, body, declarations);
+                        }
+                        for argument in arguments {
+                            expression(argument, declarations);
+                        }
+                        callee = Expression::Call {
+                            callee: Box::new(callee),
+                            type_arguments: type_arguments.clone(),
+                            arguments: arguments.clone(),
+                        };
+                    }
+                    PostfixPart::Index(index) => {
+                        expression(index, declarations);
+                        callee = Expression::Index {
+                            receiver: Box::new(callee),
+                            index: index.clone(),
+                        };
+                    }
+                    PostfixPart::TrailingBlock(block) => expression(block, declarations),
+                }
+            }
+        }
         Expression::Try {
             body,
             catches,
@@ -216,5 +260,26 @@ fn expression(value: &Expression, declarations: &mut Vec<OpenDeclaration>) {
         }
         Expression::Yield(Some(value)) => expression(value, declarations),
         _ => {}
+    }
+}
+
+fn collect_decorated_open(
+    target: &str,
+    body: &[Statement],
+    declarations: &mut Vec<OpenDeclaration>,
+) {
+    for statement in body {
+        let method = match statement {
+            Statement::Method(method) => Some(method.clone()),
+            statement => stored_decorator_declaration(statement),
+        };
+        if let Some(method) = method
+            && !method.decorators.is_empty()
+        {
+            declarations.push(OpenDeclaration {
+                target: target.to_owned(),
+                method,
+            });
+        }
     }
 }

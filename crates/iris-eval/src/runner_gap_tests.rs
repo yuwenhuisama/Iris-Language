@@ -2385,6 +2385,33 @@ fn c045_activates_a_static_extension_only_for_a_direct_importer() {
 }
 
 #[test]
+fn c045_rejects_an_unactivated_static_extension_inside_a_safe_chain() {
+    // Given: `tag` is exported by a package the consumer does not directly import.
+    let ext = (
+        "org.x.ext".to_owned(),
+        vec![(
+            "ext".to_owned(),
+            "export class Base { } \
+             export open class Base { public fun tag() -> Symbol { :tag } }"
+                .to_owned(),
+        )],
+    );
+    let consumer = (
+        "org.x".to_owned(),
+        vec![(
+            "main".to_owned(),
+            "module Main { public fun run() -> Symbol { Base.new()?.tag() } }".to_owned(),
+        )],
+    );
+
+    // When
+    let result = crate::load_package_tree(&[ext, consumer], Some("Main.run()"));
+
+    // Then: safe navigation retains the same static extension activation rule.
+    assert_eq!(result, Err(EvaluationError::StaticMemberNotFound));
+}
+
+#[test]
 fn c080_confines_a_getter_replacement_to_ordinary_reads() {
     // C065 and D-143 both authorize replacing a public ExceptionContext getter,
     // but the Class was not nameable, so the replacement had no entry point.

@@ -8,7 +8,7 @@ use iris_runtime::{
 };
 use iris_syntax::{
     BinaryOperator, ClassDeclaration, Expression, ImplDeclaration, MethodDeclaration, MethodKind,
-    ModuleDeclaration, Program, ProgramEntry, Statement,
+    ModuleDeclaration, PostfixPart, Program, ProgramEntry, Statement,
 };
 
 use crate::EvaluationError;
@@ -34,6 +34,8 @@ mod gc_tests;
 #[cfg(test)]
 mod gc_wrapper_tests;
 mod host_boundary;
+#[cfg(test)]
+mod safe_navigation_tests;
 use continuation::SuspendedTask;
 #[cfg(test)]
 mod block_argument_tests;
@@ -365,6 +367,17 @@ fn body_yields(body: &[Statement]) -> bool {
                 in_expression(left) || in_expression(right)
             }
             Expression::Member { receiver, .. } => in_expression(receiver),
+            Expression::SafeNavigation { receiver, parts } => {
+                in_expression(receiver)
+                    || parts.iter().any(|part| match part {
+                        iris_syntax::PostfixPart::Member { .. } => false,
+                        iris_syntax::PostfixPart::Call { arguments, .. } => {
+                            arguments.iter().any(in_expression)
+                        }
+                        iris_syntax::PostfixPart::Index(index)
+                        | iris_syntax::PostfixPart::TrailingBlock(index) => in_expression(index),
+                    })
+            }
             Expression::Index { receiver, index } => {
                 in_expression(receiver) || in_expression(index)
             }
@@ -6798,6 +6811,63 @@ impl SourceEvaluator {
             _ => Err(EvaluationError::UnsupportedConstruct),
         }
     }
+
+    fn safe_navigation(
+        &mut self,
+        target: &Expression,
+        parts: &[PostfixPart],
+        locals: &HashMap<String, Value>,
+        receiver: Option<Value>,
+    ) -> Result<Value, EvaluationError> {
+        let mut current = self.expression(target, locals, receiver.clone())?;
+        let mut position = 0;
+        while let Some(part) = parts.get(position) {
+            if current == Value::Nil {
+                return Ok(Value::Nil);
+            }
+            match part {
+                PostfixPart::Member { selector, .. } => {
+                    current = self.member_read(current, selector)?;
+                    position += 1;
+                }
+                PostfixPart::Call {
+                    type_arguments,
+                    arguments,
+                } => {
+                    let current_root = self.rooted(current);
+                    let mut arguments =
+                        self.evaluate_arguments(arguments, (locals, receiver.clone()))?;
+                    if let Some(PostfixPart::TrailingBlock(block)) = parts.get(position + 1) {
+                        arguments.push(self.expression(block, locals, receiver.clone())?);
+                        position += 1;
+                    }
+                    let arguments = self.rooted(arguments);
+                    let previous = std::mem::replace(
+                        &mut self.explicit_method_types,
+                        type_arguments
+                            .iter()
+                            .map(|annotation| {
+                                wrapper_generics::substitute(annotation, &self.method_type_bindings)
+                            })
+                            .collect(),
+                    );
+                    let result = self.call(std::rc::Rc::unwrap_or_clone(current_root), &arguments);
+                    self.explicit_method_types = previous;
+                    current = result?;
+                    position += 1;
+                }
+                PostfixPart::Index(index) => {
+                    let current_root = self.rooted(current);
+                    let index = self.expression(index, locals, receiver.clone())?;
+                    current = self.index_read(std::rc::Rc::unwrap_or_clone(current_root), index)?;
+                    position += 1;
+                }
+                PostfixPart::TrailingBlock(_) => return Err(EvaluationError::UnsupportedConstruct),
+            }
+        }
+        Ok(current)
+    }
+
     fn expression(
         &mut self,
         expression: &Expression,
@@ -6811,6 +6881,10 @@ impl SourceEvaluator {
             return Ok(value);
         }
         match expression {
+            Expression::SafeNavigation {
+                receiver: target,
+                parts,
+            } => self.safe_navigation(target, parts, locals, receiver),
             Expression::NonNull(operand) => {
                 let value = self.expression(operand, locals, receiver)?;
                 if value == Value::Nil {

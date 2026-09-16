@@ -58,6 +58,28 @@ fn open_decorator_plan_runs_before_earlier_runtime_effects() {
 }
 
 #[test]
+fn safe_open_decorator_plan_runs_before_earlier_runtime_effects() {
+    // Given: a safe-navigation open carries a decorated candidate declaration.
+    let source = "class Stop {}
+    impl Stop for MethodDecorator {
+        public fun plan(d, a) -> Plan { raise :planning }
+        public fun transform(d, a, c) -> Transformation { raise :runtime }
+    }
+    class Target { }
+    raise :earlier_runtime
+    Target?.open() { |candidate|; @Stop() public fun value() { 7 } }";
+
+    // When
+    let result = evaluate(source);
+
+    // Then: collection reaches safe ordered postfix parts before source execution.
+    assert_eq!(
+        result,
+        Err(EvaluationError::Raised(Value::Symbol("planning".into())))
+    );
+}
+
+#[test]
 fn retained_method_transformation_rejects_property_and_rolls_back() {
     let mut session = Session::new().unwrap();
     let fixture = include_str!("../../iris-cli/tests/decorator_protocol/wrong_kind_rollback.iris");

@@ -846,6 +846,7 @@ fn uses_member(program: &iris_syntax::Program, class: &str, selector: &str) -> b
             iris_syntax::Expression::Member { receiver, .. }
             | iris_syntax::Expression::Index { receiver, .. } => mentions(receiver, class),
             iris_syntax::Expression::Call { callee, .. } => mentions(callee, class),
+            iris_syntax::Expression::SafeNavigation { receiver, .. } => mentions(receiver, class),
             _ => false,
         }
     }
@@ -870,6 +871,52 @@ fn uses_member(program: &iris_syntax::Program, class: &str, selector: &str) -> b
             } => {
                 (written == selector && mentions(receiver, class))
                     || in_expression(receiver, class, selector)
+            }
+            iris_syntax::Expression::SafeNavigation { receiver, parts } => {
+                let mut callee = receiver.as_ref().clone();
+                for part in parts {
+                    match part {
+                        iris_syntax::PostfixPart::Member {
+                            selector: written, ..
+                        } => {
+                            callee = iris_syntax::Expression::Member {
+                                receiver: Box::new(callee),
+                                selector: written.clone(),
+                            };
+                            if written == selector && mentions(&callee, class) {
+                                return true;
+                            }
+                        }
+                        iris_syntax::PostfixPart::Call { arguments, .. } => {
+                            if arguments
+                                .iter()
+                                .any(|argument| in_expression(argument, class, selector))
+                            {
+                                return true;
+                            }
+                            callee = iris_syntax::Expression::Call {
+                                callee: Box::new(callee),
+                                type_arguments: Vec::new(),
+                                arguments: arguments.clone(),
+                            };
+                        }
+                        iris_syntax::PostfixPart::Index(index) => {
+                            if in_expression(index, class, selector) {
+                                return true;
+                            }
+                            callee = iris_syntax::Expression::Index {
+                                receiver: Box::new(callee),
+                                index: index.clone(),
+                            };
+                        }
+                        iris_syntax::PostfixPart::TrailingBlock(block) => {
+                            if in_expression(block, class, selector) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                in_expression(receiver, class, selector)
             }
             iris_syntax::Expression::Array(values) => values
                 .iter()
@@ -1161,6 +1208,7 @@ impl Evaluator {
             Expression::KeywordArgument { .. }
             | Expression::BlockArgument { .. }
             | Expression::Index { .. }
+            | Expression::SafeNavigation { .. }
             | Expression::Try { .. }
             // A closed generic construction and a reified Type both need the
             // Class registry the literal evaluator does not have.
@@ -1641,6 +1689,7 @@ fn source_runtime_expression(expression: &Expression) -> bool {
         Expression::Await(_)
         | Expression::NonNull(_)
         | Expression::Yield(_)
+        | Expression::SafeNavigation { .. }
         // A Closure needs the heap the literal evaluator does not have.
         // A keyword argument binds by name, which only the source runtime does.
         | Expression::Closure { .. }
