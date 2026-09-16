@@ -1,6 +1,6 @@
 # Iris v1 运行时对象模型
 
-状态：Iris v1.36，冻结语义并有所有者批准的勘误。
+状态：Iris v1.37，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-RUNTIME-C001：本章定义 Iris v1 的运行时值、对象性、身份、派发、逻辑 Class 与活动修订语义、Module MRO、Method 与 BoundMethod 身份、构造、属性、原始 ivar、类变量、真值性、缺失消息处理、内置数值行为、哈希以及内置开放性。本章 MUST 在 [README.md](README.md)、[01-language-identity.md](01-language-identity.md) 和 [02-lexical-grammar.md](02-lexical-grammar.md) 之后阅读。
 
@@ -659,3 +659,9 @@ IRIS-V1-RUNTIME-C165：v1.36 修订规定，每个具名 Class 与 Module 在一
 IRIS-V1-RUNTIME-C166：实例字段声明在 Class origin 中写作 `let @name type_annotation? = expression` 或 `mut @name type_annotation? = expression`。其初始化器对每个构造实例恰好执行一次，且 `self` 绑定到该实例。`let` 字段拒绝后续赋值；`mut` 字段允许满足声明 Type 的赋值。open 事务 MUST NOT 添加、删除、重排或改变实例字段与布局。
 
 IRIS-V1-RUNTIME-C167：后缀非空断言返回操作数的原始值，因此保持所有可观察身份、相等性、哈希和接收者关系。它不引入包装、转换、复制、Method 发送或新分配。Contract view 在 C031-C032 下仍是无身份的 capability value：`==` 与 `hash` 保持 receiver 加 Contract 的语义，而 `same?` 仍抛出 `IdentityError`。
+
+IRIS-V1-RUNTIME-C168：安全成员导航 `receiver?.member` 是仅限 nil 的短路边界。当 `receiver` 求值为 `nil` 单例时，跳过对 `member` 的运行时查找和调用，产出 `nil`。当 `receiver` 为非 nil 时，导航在接收者的活动类修订和 MRO 上发起普通属性 getter 或方法查找，与 `receiver.member` 完全一致。非 nil 的假值（`false`）不会触发安全导航短路，而是继续执行正常派发。
+
+IRIS-V1-RUNTIME-C169：安全成员导航对接收者表达式求值恰好一次。若接收者为非 nil，`?.member(...)` 后续的方法实参或调用参数按从左到右的顺序正常求值。若接收者为 `nil`，该直接后缀调用链内的所有后续调用实参、嵌套成员访问、索引和尾随块均被跳过而不予求值，防止未执行的调用参数产生副作用。
+
+IRIS-V1-RUNTIME-C170：安全成员导航所得值保留普通值语义。当安全导航以非 nil 结果正常完成时，该对象保留其身份、Class、修订以及能力。跳过的链产出单例 `nil`。安全导航不引入包装对象、哨兵或动态类型包装。

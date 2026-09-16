@@ -1,6 +1,6 @@
 # Iris v1 绑定、可调用体与控制流
 
-状态：Iris v1.36，冻结语义并有所有者批准的勘误。
+状态：Iris v1.37，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-CONTROL-C001: 本章定义 Iris v1 的绑定、作用域、名称查找、可调用运行时种类、参数绑定、Closure 捕获与返回、调用与尾随块、赋值、条件、循环、match、Iterator 降低、异常，以及控制转移结果。它 MUST 在 [README.md](README.md)、[02-lexical-grammar.md](02-lexical-grammar.md) 和 [03-runtime-object-model.md](03-runtime-object-model.md) 之后阅读。
 
@@ -569,3 +569,9 @@ IRIS-V1-CONTROL-C081：v1.36 字段形式 `let @name = expression` 与 `mut @nam
 IRIS-V1-CONTROL-C082：`expression!` 对 `expression` 恰好求值一次。若结果为 `nil`，执行通过普通异常与 `ExceptionContext` 机制抛出规范的 `TypeError`；否则返回该原始结果。断言仅把自身表达式结果收窄为与 `NonNil` 的规范化交集，不会永久收窄源绑定或存储位置。
 
 IRIS-V1-CONTROL-C083：Class 与 Module origin body 是声明列表，MUST NOT 执行外层控制流、局部绑定、发送、`raise`、`await` 或 `yield`。`open class` 或 `open module` body 是可执行 candidate 事务，在事务限制下 MAY 使用普通控制流。所有 candidate 效果在验证后原子发布，或完整回滚。
+
+IRIS-V1-CONTROL-C084：安全成员导航控制流在 `nil` 时短路，且仅在 `nil` 时短路。当 `receiver?.member` 将 `receiver` 求值为 `nil` 时，该后缀表达式链的后续求值立即完成并产出 `nil`。`receiver` 求值为假值 `false` 时不会短路；`false?.to_string()` 在 `false` 上正常求值 `to_string()`。
+
+IRIS-V1-CONTROL-C085：安全导航后缀链内部的下游表达式组件按条件执行。在 `receiver?.method(side_effect())` 中，若 `receiver` 为 `nil`，实参表达式 `side_effect()` 绝不被求值。在链式成员访问 `receiver?.first.second(compute())` 中，若 `receiver` 为 `nil`，`.first`、`.second` 与 `compute()` 均不执行。在链式索引访问 `receiver?.items[index()]` 中，若 `receiver` 为 `nil`，`index()` 不执行。在尾随块 `receiver?.each() { |item| work(item) }` 中，若 `receiver` 为 `nil`，该块既不被实例化也不被调用。
+
+IRIS-V1-CONTROL-C086：安全成员导航产生的短路在包围它的后缀表达式边界处终止。它不会短路包围它的二元运算符、赋值、外层调用的实参或控制流语句。在 `let val = receiver?.member + 1` 中，短路使 `receiver?.member` 产出 `nil`，求值继续进行至 `nil + 1`。对安全导航结果进行非空断言写作 `(receiver?.member)!`，若安全导航产生 `nil` 则引发 `TypeError`。

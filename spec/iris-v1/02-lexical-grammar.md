@@ -1,6 +1,6 @@
 # Iris v1 Lexical Grammar
 
-Status: Iris v1.2, frozen semantics with owner-approved errata.
+Status: Iris v1.37, frozen semantics with owner-approved errata.
 
 IRIS-V1-GRAMMAR-C001: This chapter defines the normative source encoding, lexical token set, literals, reserved keywords, contextual token rules, precedence, associativity, declaration headers, calls, blocks, and EBNF grammar for Iris v1. Later semantic chapters MUST use the syntax anchors and token names in this chapter.
 
@@ -610,6 +610,21 @@ IRIS-V1-GRAMMAR-C077: The v1.36 language revision introduces top-level static `i
 IRIS-V1-GRAMMAR-C078: The v1.36 language revision distinguishes pure declarative origin bodies from executable open bodies. Origin bodies for `class` and `module` MUST contain only member declarations (`method_decl`, `property_decl`, `instance_field_decl`, `shared_decl`, or constant bindings). Executable expressions, local variable bindings, and raw control-flow statements are forbidden in origins and rejected with diagnostic `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION`. Imperative initialization and dynamic structural modification belong exclusively in `open class` and `open module` bodies.
 
 IRIS-V1-GRAMMAR-C079: The v1.36 language revision permits `open class` declarations to compose Modules dynamically using the header `mixin` clause, as in `open class Target mixin MixedModule { ... }`. Dynamic module composition in an open class header executes within candidate transaction validation under IRIS-V1-META-C141 and revalidates all static `impl Class for Contract` obligations under IRIS-V1-META-C142 before atomic publication. The reserved keyword inventory under IRIS-V1-GRAMMAR-C013 and C072 remains exactly 50 lowercase words; no new keywords are added by v1.36.
+
+IRIS-V1-GRAMMAR-C080: The v1.37 safe navigation errata introduces the atomic token `SAFE_DOT` (`?.`) for safe member access. The fixed token inventory increases from 70 to 71 names. The two characters `?` and `.` form a single token without intervening whitespace or comments. `SAFE_DOT` is recognized in expression postfix context and begins a safe member navigation operation.
+
+IRIS-V1-GRAMMAR-C081: Safe navigation syntax is strictly member-only: `postfix_expr` admits `safe_property_suffix ::= "?." selector`. A selector following `?.` is an ordinary or predicate/mutator selector identifier under IRIS-V1-GRAMMAR-C010 and IRIS-V1-GRAMMAR-C049. Safe navigation MAY be chained with subsequent member accesses, method calls, indices, or trailing blocks: `receiver?.member`, `receiver?.method(args...)`, `receiver?.member.nested`, and `receiver?.items[0]`.
+
+IRIS-V1-GRAMMAR-C082: Selector suffix punctuation is distinct from safe navigation. A selector MAY end with `?` as in `ready?`, or with `!` as in `save!`. Lexing resolves selector identifiers greedily: in `account.ready?`, the `?` is the selector suffix of `ready?`. In `account?.ready?`, the first token after `account` is `?.`, and the selector is `ready?`. In `account?.save!()`, the selector is `save!`.
+
+IRIS-V1-GRAMMAR-C083: Safe navigation syntax excludes `?.(...)`, `?[...]`, and `.!`. Direct invocation of a receiver via safe navigation `receiver?.(...)` is forbidden and MUST be diagnosed as `PARSE_UNSUPPORTED_SAFE_CALL`. Safe indexing without a member name `receiver?[...]` is forbidden and MUST be diagnosed as `PARSE_UNSUPPORTED_SAFE_INDEX`. The spelling `.!` is not a token; non-null evaluation uses postfix `!` or explicit `(expr)!`.
+
+IRIS-V1-GRAMMAR-C084: The consolidations of `postfix_part` in the grammar EBNF are updated as follows:
+```ebnf
+postfix_part       ::= call_suffix | index_suffix | property_suffix | safe_property_suffix | contract_view_suffix | trailing_block
+safe_property_suffix ::= "?." selector
+```
+The precedence of safe member navigation `?.` is identical to member access `.` at rank 1. Chain associativity is left postfix.
 
 | Vector ID | Category | Applicability | Source/Input | Expected observable | Decisions |
 | --- | --- | --- | --- | --- | --- |

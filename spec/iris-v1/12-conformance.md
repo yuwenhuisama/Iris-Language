@@ -1,6 +1,6 @@
 # Iris v1 Conformance Framework
 
-Status: Iris v1.36, frozen conformance contract with owner-approved language revision obligations.
+Status: Iris v1.37, frozen conformance contract with owner-approved errata obligations.
 
 IRIS-V1-CONFORMANCE-C001: This chapter defines the stable Iris v1 executable example and conformance vector schema. It specifies how normative examples, chapter vector tables, diagnostic cases, malformed inputs, differential backend checks, legacy migration tags, future corpus records, and freeze gates are represented. It MUST NOT implement a runner, add tests, define product source code, or change language semantics.
 
@@ -270,6 +270,18 @@ IRIS-V1-CONFORMANCE-C077: Conformance to the approved v1.36 language revision MU
 12. Contract view equality and `IdentityError` upon `same?` under IRIS-V1-TYPES-C109.
 
 IRIS-V1-CONFORMANCE-C078: In accordance with IRIS-V1-TRACE-C022 and IRIS-V1-CONFORMANCE-C011, existing conformance vectors and corpus records MUST NOT be deleted or have their expected semantic outcomes weakened. When a conformance vector uses superseded syntax from earlier language revisions (such as bare `[1, 2]` array literals, plain `is`, `class for`, or `impl fun`), the vector record MAY be migrated via a source-only syntax migration to the canonical v1.36 equivalent syntax (`%[1, 2]`, `is?`, top-level `impl`) while preserving vector ID, category, decision anchors, applicability, and substantive expected observations. If a vector specifically tests the rejection of legacy syntax, it MUST assert the stable diagnostic code specified in the migration ledger.
+
+IRIS-V1-CONFORMANCE-C079: Conformance to the approved v1.37 safe navigation errata MUST verify the following normative language obligations:
+1. Lexical recognition of atomic token `SAFE_DOT` (`?.`) without intervening whitespace under IRIS-V1-GRAMMAR-C080.
+2. Member-only safe navigation syntax `receiver?.member` and chaining under IRIS-V1-GRAMMAR-C081.
+3. Disambiguation between safe navigation `?.` and selector suffixes `?` / `!` under IRIS-V1-GRAMMAR-C082.
+4. Rejection of unsupported forms `receiver?.(...)` with `PARSE_UNSUPPORTED_SAFE_CALL`, `receiver?[...]` with `PARSE_UNSUPPORTED_SAFE_INDEX`, and token rejection of `.!` under IRIS-V1-GRAMMAR-C083.
+5. Nil-only short-circuiting where `nil?.member` produces `nil` without method lookup under IRIS-V1-RUNTIME-C168 and IRIS-V1-CONTROL-C084.
+6. Non-nil execution where `false?.to_string()` executes dispatch normally without short-circuiting under IRIS-V1-RUNTIME-C168 and IRIS-V1-CONTROL-C084.
+7. Exactly-once receiver evaluation and skipping of downstream member calls, argument evaluation, indexing, and trailing blocks upon nil under IRIS-V1-RUNTIME-C169 and IRIS-V1-CONTROL-C085.
+8. Bounding of safe short-circuiting to the enclosing postfix expression, retaining surrounding evaluation and non-null assertion `(receiver?.member)!` under IRIS-V1-CONTROL-C086.
+
+IRIS-V1-CONFORMANCE-C080: In accordance with IRIS-V1-TRACE-C022 and IRIS-V1-CONFORMANCE-C057, the committed v1.37 safe navigation vectors provide concrete evidence for the listed clauses. The corpus contains `IRIS-V1-GRAMMAR-V908` through `IRIS-V1-GRAMMAR-V910`, `IRIS-V1-RUNTIME-V986`, and `IRIS-V1-CONFORMANCE-V938`; their results remain reportable under IRIS-V1-CONFORMANCE-C057. Existing published vector rows and expectations remain preserved.
 
 | Clause anchors | Required observations |
 | --- | --- |

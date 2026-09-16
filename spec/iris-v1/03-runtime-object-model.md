@@ -1,6 +1,6 @@
 # Iris v1 Runtime Object Model
 
-Status: Iris v1.36, frozen semantics with owner-approved errata.
+Status: Iris v1.37, frozen semantics with owner-approved errata.
 
 IRIS-V1-RUNTIME-C001: This chapter defines runtime values, objecthood, identity, dispatch, logical Class and active revision semantics, Module MRO, Method and BoundMethod identity, construction, properties, raw ivars, class variables, truthiness, missing-message handling, built-in numeric behavior, hashing, and built-in openness for Iris v1. It MUST be read after [README.md](README.md), [01-language-identity.md](01-language-identity.md), and [02-lexical-grammar.md](02-lexical-grammar.md).
 
@@ -659,3 +659,9 @@ IRIS-V1-RUNTIME-C165: The v1.36 revision gives every named Class and Module exac
 IRIS-V1-RUNTIME-C166: An instance field declaration is written `let @name type_annotation? = expression` or `mut @name type_annotation? = expression` in a Class origin. Its initializer executes exactly once per constructed instance with `self` bound to that instance. `let` fields reject later assignment; `mut` fields permit assignments satisfying the declared Type. An open transaction MUST NOT add, remove, reorder, or change instance fields or layout.
 
 IRIS-V1-RUNTIME-C167: Postfix non-null assertion returns the exact operand value and therefore preserves every observable identity, equality, hash, and receiver relation. It introduces no wrapper, conversion, copy, Method send, or new allocation. Contract views remain identity-less capability values under C031-C032: `==` and `hash` retain their receiver-plus-Contract semantics, while `same?` still raises `IdentityError`.
+
+IRIS-V1-RUNTIME-C168: Safe member navigation `receiver?.member` is a nil-only short-circuit boundary. When `receiver` evaluates to the `nil` singleton, runtime lookup and invocation for `member` are bypassed, yielding `nil`. When `receiver` is non-nil, navigation dispatches ordinary property getter or method lookup on the receiver's active class revision and MRO exactly like `receiver.member`. Falsy non-nil values (`false`) do NOT trigger safe-navigation short circuit and proceed through normal dispatch.
+
+IRIS-V1-RUNTIME-C169: Safe member navigation evaluates the receiver expression exactly once. If the receiver is non-nil, method arguments or call parameters following `?.member(...)` are evaluated normally in left-to-right order. If the receiver is `nil`, all subsequent call arguments, nested member accesses, indices, and trailing blocks within that immediate postfix chain are skipped without evaluation, preventing side effects from unexecuted call parameters.
+
+IRIS-V1-RUNTIME-C170: Resulting values from safe member navigation retain ordinary value semantics. When safe navigation completes normally with a non-nil result, that object preserves its identity, Class, revision, and capabilities. A skipped chain produces the singleton `nil`. Safe navigation introduces no wrapper object, sentinel, or dynamic type wrapping.

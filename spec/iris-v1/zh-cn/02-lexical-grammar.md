@@ -1,6 +1,6 @@
 # Iris v1 词法语法
 
-状态：Iris v1.2，冻结语义并有所有者批准的勘误。
+状态：Iris v1.37，冻结语义并有所有者批准的勘误。
 
 IRIS-V1-GRAMMAR-C001：本章定义了 Iris v1 的规范源编码、词法标记集、字面量、保留关键字、上下文标记规则、优先级、结合性、声明头部、调用、块和 EBNF 语法。后面的语义章节 MUST 使用本章中的语法锚点和标记名称。
 
@@ -609,6 +609,21 @@ IRIS-V1-GRAMMAR-C077: v1.36 语言修订在程序作用域引入顶层静态 `im
 IRIS-V1-GRAMMAR-C078: v1.36 语言修订区分了纯声明式 origin 主体与可执行 open 主体。`class` 与 `module` 的 origin 主体 MUST 仅包含成员声明（`method_decl`、`property_decl`、`instance_field_decl`、`shared_decl` 或常量绑定）。可执行表达式、局部变量绑定和裸控制流语句在 origin 中被禁止，并以诊断 `PARSE_ORIGIN_BODY_REQUIRES_DECLARATION` 拒绝。命令式初始化与动态结构修改严格归属于 `open class` 与 `open module` 主体。
 
 IRIS-V1-GRAMMAR-C079: v1.36 语言修订允许 `open class` 声明使用头部 `mixin` 子句动态组合 Module，例如 `open class Target mixin MixedModule { ... }`。open class 头部中的动态模块组合在 IRIS-V1-META-C141 下的候选事务验证内执行，并在原子发布前重新验证 IRIS-V1-META-C142 下的所有静态 `impl Class for Contract` 义务。IRIS-V1-GRAMMAR-C013 与 C072 下的保留关键字清单保持恰好 50 个小写词；v1.36 未添加新关键字。
+
+IRIS-V1-GRAMMAR-C080：v1.37 安全导航勘误引入用于安全成员访问的原子词元 `SAFE_DOT`（`?.`）。固定词元清单由 70 项增至 71 项。两个字符 `?` 与 `.` 构成单个词元，中间无空格或注释。`SAFE_DOT` 在表达式后缀上下文中被识别，开启安全成员导航操作。
+
+IRIS-V1-GRAMMAR-C081：安全导航语法严格仅限成员访问：`postfix_expr` 允许 `safe_property_suffix ::= "?." selector`。紧随 `?.` 之后的选择器是符合 IRIS-V1-GRAMMAR-C010 与 IRIS-V1-GRAMMAR-C049 的普通或谓词/变化选择器标识符。安全导航 MAY 与后续成员访问、方法调用、索引或尾随块链式组合：`receiver?.member`、`receiver?.method(args...)`、`receiver?.member.nested` 与 `receiver?.items[0]`。
+
+IRIS-V1-GRAMMAR-C082：选择器后缀标点与安全导航相互区分。选择器 MAY 像 `ready?` 一样以 `?` 结尾，或像 `save!` 一样以 `!` 结尾。词法分析贪婪地解析选择器标识符：在 `account.ready?` 中，`?` 是 `ready?` 的选择器后缀。在 `account?.ready?` 中，`account` 之后的首个词元是 `?.`，选择器是 `ready?`。在 `account?.save!()` 中，选择器是 `save!`。
+
+IRIS-V1-GRAMMAR-C083：安全导航语法排除 `?.(...)`、`?[...]` 与 `.!`。禁止通过安全导航直接调用接收者 `receiver?.(...)`，且 MUST 诊断为 `PARSE_UNSUPPORTED_SAFE_CALL`。禁止没有成员名称的安全索引 `receiver?[...]`，且 MUST 诊断为 `PARSE_UNSUPPORTED_SAFE_INDEX`。拼写 `.!` 不是词元；非空断言求值使用后缀 `!` 或显式 `(expr)!`。
+
+IRIS-V1-GRAMMAR-C084：语法 EBNF 中 `postfix_part` 的合并规则更新如下：
+```ebnf
+postfix_part       ::= call_suffix | index_suffix | property_suffix | safe_property_suffix | contract_view_suffix | trailing_block
+safe_property_suffix ::= "?." selector
+```
+安全成员导航 `?.` 的优先级与成员访问 `.` 相同，同处于等级 1。链式结合性为左后缀结合。
 
 | 向量 ID | 类别 | 适用性 | 源代码/输入 | 预期可观察结果 | 决策 |
 | --- | --- | --- | --- | --- | --- |

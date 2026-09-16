@@ -1,6 +1,6 @@
 # Iris v1 一致性框架
 
-状态：Iris v1.36，冻结一致性契约并附所有者批准的语言修订义务。
+状态：Iris v1.37，冻结一致性契约并附所有者批准的勘误义务。
 
 IRIS-V1-CONFORMANCE-C001：本章定义了稳定的Iris v1可执行示例和一致性向量模式。它指定如何表示 normative 示例、章节向量表、diagnostic 案例、格式错误的输入、differential 后端检查、legacy 迁移标签、未来语料库记录和冻结门槛。它 MUST NOT 实现运行程序、添加测试、定义产品 source 代码或更改语言语义。
 
@@ -270,6 +270,18 @@ IRIS-V1-CONFORMANCE-C077：对获批 v1.36 语言修订的一致性 MUST 验证�
 12. 依据 IRIS-V1-TYPES-C109 的 Contract 视图相等性以及在 `same?` 时抛出 `IdentityError`。
 
 IRIS-V1-CONFORMANCE-C078：依据 IRIS-V1-TRACE-C022 和 IRIS-V1-CONFORMANCE-C011，既有的一致性向量与语料库记录 MUST NOT 被删除，亦不得弱化其预期语义结果。当某个一致性向量使用了早期语言修订中被取代的语法（例如裸 `[1, 2]` 数组字面量、单纯的 `is`、`class for` 或 `impl fun`）时，该向量记录 MAY 通过仅限源码的语法迁移，迁移至规范性 v1.36 等价语法（`%[1, 2]`、`is?`、顶层 `impl`），同时保留向量 ID、类别、决策锚点、适用性以及实质性预期观察。若某个向量专门测试对遗留语法的拒绝，则其 MUST 断言迁移台账中指定的稳定诊断代码。
+
+IRIS-V1-CONFORMANCE-C079：对获批 v1.37 安全导航勘误的一致性 MUST 验证以下规范性语言义务：
+1. 依据 IRIS-V1-GRAMMAR-C080 词法识别中间无空白的原子词元 `SAFE_DOT`（`?.`）。
+2. 依据 IRIS-V1-GRAMMAR-C081 的仅限成员的安全导航语法 `receiver?.member` 及链式调用。
+3. 依据 IRIS-V1-GRAMMAR-C082 消除安全导航 `?.` 与选择器后缀 `?` / `!` 的歧义。
+4. 依据 IRIS-V1-GRAMMAR-C083 拒绝不支持的形式：以 `PARSE_UNSUPPORTED_SAFE_CALL` 拒绝 `receiver?.(...)`，以 `PARSE_UNSUPPORTED_SAFE_INDEX` 拒绝 `receiver?[...]`，并拒绝词元 `.!`。
+5. 依据 IRIS-V1-RUNTIME-C168 与 IRIS-V1-CONTROL-C084 的仅限 nil 短路，其中 `nil?.member` 产出 `nil` 且不进行方法查找。
+6. 依据 IRIS-V1-RUNTIME-C168 与 IRIS-V1-CONTROL-C084 的非 nil 执行，其中 `false?.to_string()` 正常执行派发而不发生短路。
+7. 依据 IRIS-V1-RUNTIME-C169 与 IRIS-V1-CONTROL-C085，在遇到 nil 时对接收者表达式恰好求值一次，并跳过下游成员调用、参数求值、索引与尾随块。
+8. 依据 IRIS-V1-CONTROL-C086 将安全短路约束在所属后缀表达式边界内，保留外层求值与非空断言 `(receiver?.member)!`。
+
+IRIS-V1-CONFORMANCE-C080：依据 IRIS-V1-TRACE-C022 与 IRIS-V1-CONFORMANCE-C057，已提交的 v1.37 安全导航向量为所列条款提供具体证据。语料库包含 `IRIS-V1-GRAMMAR-V908` 至 `IRIS-V1-GRAMMAR-V910`、`IRIS-V1-RUNTIME-V986` 和 `IRIS-V1-CONFORMANCE-V938`；其结果仍须依据 IRIS-V1-CONFORMANCE-C057 报告。既有已发布向量行与预期保持完整。
 
 | 条款锚点 | 必需观察 |
 | --- | --- |

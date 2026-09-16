@@ -1,6 +1,6 @@
 # Iris v1 Bindings, Callables, And Control Flow
 
-Status: Iris v1.36, frozen semantics with owner-approved errata.
+Status: Iris v1.37, frozen semantics with owner-approved errata.
 
 IRIS-V1-CONTROL-C001: This chapter defines bindings, scopes, name lookup, callable runtime kinds, parameter binding, Closure capture and return, calls and trailing blocks, assignment, conditionals, loops, match, Iterator lowering, exceptions, and control-transfer results for Iris v1. It MUST be read after [README.md](README.md), [02-lexical-grammar.md](02-lexical-grammar.md), and [03-runtime-object-model.md](03-runtime-object-model.md).
 
@@ -569,3 +569,9 @@ IRIS-V1-CONTROL-C081: The v1.36 field forms `let @name = expression` and `mut @n
 IRIS-V1-CONTROL-C082: `expression!` evaluates `expression` exactly once. If the result is `nil`, execution raises the canonical `TypeError` through ordinary exception and `ExceptionContext` machinery. Otherwise it returns that exact result. The assertion narrows only its own expression result to the normalized intersection with `NonNil`; it does not permanently narrow a source binding or storage location.
 
 IRIS-V1-CONTROL-C083: Class and Module origin bodies are declaration lists and MUST NOT execute outer-level control flow, local bindings, sends, `raise`, `await`, or `yield`. An `open class` or `open module` body is an executable candidate transaction and MAY use ordinary control flow subject to transaction restrictions. All candidate effects publish atomically after validation or roll back completely.
+
+IRIS-V1-CONTROL-C084: Safe member navigation control flow short-circuits on `nil` and only on `nil`. When `receiver?.member` evaluates `receiver` to `nil`, evaluation of the remainder of that postfix expression chain immediately completes with `nil`. Falsy evaluation of `receiver` to `false` does not short-circuit; `false?.to_string()` evaluates `to_string()` on `false`.
+
+IRIS-V1-CONTROL-C085: Downstream expression components inside a safe-navigated postfix chain are conditionally executed. In `receiver?.method(side_effect())`, if `receiver` is `nil`, the argument expression `side_effect()` is never evaluated. In chained member access `receiver?.first.second(compute())`, if `receiver` is `nil`, neither `.first`, `.second`, nor `compute()` executes. In chained indexed access `receiver?.items[index()]`, if `receiver` is `nil`, `index()` does not execute. In trailing blocks `receiver?.each() { |item| work(item) }`, if `receiver` is `nil`, the block is neither instantiated nor invoked.
+
+IRIS-V1-CONTROL-C086: Short-circuiting from safe member navigation terminates at the boundary of the enclosing postfix expression. It does not short-circuit surrounding binary operators, assignments, arguments of containing calls, or control flow statements. In `let val = receiver?.member + 1`, short-circuiting yields `nil` for `receiver?.member`, and evaluation proceeds to `nil + 1`. Non-null assertion on a safe navigation result is written `(receiver?.member)!`, raising `TypeError` if the safe navigation produced `nil`.
