@@ -1,7 +1,7 @@
 use super::wrapper_execution::LexicalContext;
 use super::{Binding, EvaluationError, Expression, SourceEvaluator, Statement, Value};
 use iris_runtime::ObjectId;
-use iris_syntax::{CatchClause, MatchArm, MatchBody, Pattern, TypeExpression};
+use iris_syntax::{CatchClause, MatchArm, MatchBody, Pattern, PostfixPart, TypeExpression};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -53,6 +53,9 @@ enum Step {
     Assign(Operands, Option<Value>),
     Await,
     NonNull,
+    RemoveTemporary(String),
+    SafeNavigation(Vec<PostfixPart>, usize),
+    SafeNavigationIndex(Value, Vec<PostfixPart>, usize),
     Branch(Vec<Statement>, Option<Vec<Statement>>),
     Logical(iris_syntax::BinaryOperator, Expression),
     Transfer(Statement),

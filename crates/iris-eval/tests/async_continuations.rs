@@ -138,6 +138,65 @@ fn async_closure_keeps_captured_cell_when_it_suspends() {
 }
 
 #[test]
+fn safe_navigation_in_async_body_skips_nil_chain_work_and_dispatches_false() {
+    // Given
+    let source = r#"
+        module Work {
+            public async fun nil_chain() -> Object {
+                nil?.missing({ raise :argument }.call()).later()
+            }
+            public async fun false_chain() -> Object { false?.to_string }
+        }
+        let nil_task = Work.nil_chain(); let false_task = Work.false_chain();
+        %[Host.run(nil_task), Host.run(false_task)]
+    "#;
+
+    // When
+    let outcome = evaluate(source);
+
+    // Then
+    assert_eq!(outcome, evaluate("%[nil, \"false\"]"));
+}
+
+#[test]
+fn safe_navigation_resumes_a_suspended_receiver_through_its_remaining_suffix() {
+    // Given
+    let source = r#"
+        module Work {
+            public async fun run(gate) -> Object { (await gate)?.to_string() }
+        }
+        let gate = Gate.new(); let task = Work.run(gate);
+        let posted = Gate.complete(gate, false); Host.run(task)
+    "#;
+
+    // When
+    let outcome = evaluate(source);
+
+    // Then
+    assert_eq!(outcome, Ok(Value::Text("false".into())));
+}
+
+#[test]
+fn safe_navigation_resumes_a_nil_receiver_without_evaluating_its_suffix() {
+    // Given
+    let source = r#"
+        module Work {
+            public async fun run(gate) -> Object {
+                (await gate)?.missing({ raise :argument }.call())
+            }
+        }
+        let gate = Gate.new(); let task = Work.run(gate);
+        let posted = Gate.complete(gate, nil); Host.run(task)
+    "#;
+
+    // When
+    let outcome = evaluate(source);
+
+    // Then
+    assert_eq!(outcome, Ok(Value::Nil));
+}
+
+#[test]
 fn assignment_preserves_read_and_skips_logical_rhs_when_suspended() {
     let mut session = Session::new().unwrap();
     session

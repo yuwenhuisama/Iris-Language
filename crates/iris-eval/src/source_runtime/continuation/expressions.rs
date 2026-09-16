@@ -21,6 +21,10 @@ impl Continuation {
                 self.work.push(Step::NonNull);
                 self.work.push(Step::Expression(*operand));
             }
+            Expression::SafeNavigation { receiver, parts } => {
+                self.work.push(Step::SafeNavigation(parts, 0));
+                self.work.push(Step::Expression(*receiver));
+            }
             Expression::If {
                 condition,
                 then_body,
@@ -66,6 +70,104 @@ impl Continuation {
                 }));
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn safe_navigation(
+        &mut self,
+        evaluator: &mut SourceEvaluator,
+        parts: Vec<iris_syntax::PostfixPart>,
+        position: usize,
+    ) -> Result<(), EvaluationError> {
+        let current = self.value()?;
+        if current == Value::Nil || position == parts.len() {
+            self.outcome = Ok(current);
+            return Ok(());
+        }
+        match parts[position].clone() {
+            iris_syntax::PostfixPart::Member { selector, .. }
+                if matches!(
+                    parts.get(position + 1),
+                    Some(iris_syntax::PostfixPart::Call { .. })
+                ) =>
+            {
+                let iris_syntax::PostfixPart::Call {
+                    type_arguments,
+                    mut arguments,
+                } = parts[position + 1].clone()
+                else {
+                    return Err(EvaluationError::UnsupportedConstruct);
+                };
+                let name = format!("\0safe{}", self.temporary);
+                self.temporary += 1;
+                if let Some(mut locals) = self.scopes.last_mut() {
+                    locals.insert(name.clone(), current);
+                }
+                let mut next = position + 2;
+                if let Some(iris_syntax::PostfixPart::TrailingBlock(block)) = parts.get(next) {
+                    arguments.push((**block).clone());
+                    next += 1;
+                }
+                self.work.push(Step::SafeNavigation(parts, next));
+                self.work.push(Step::RemoveTemporary(name.clone()));
+                self.work.push(Step::Expression(Expression::Call {
+                    callee: Box::new(Expression::Member {
+                        receiver: Box::new(Expression::Name(name)),
+                        selector,
+                    }),
+                    type_arguments,
+                    arguments,
+                }));
+            }
+            iris_syntax::PostfixPart::Member { selector, .. } => {
+                self.outcome = evaluator.member_read(current, &selector);
+                self.work.push(Step::SafeNavigation(parts, position + 1));
+            }
+            iris_syntax::PostfixPart::Call {
+                type_arguments,
+                arguments,
+            } => {
+                let name = format!("\0safe{}", self.temporary);
+                self.temporary += 1;
+                if let Some(mut locals) = self.scopes.last_mut() {
+                    locals.insert(name.clone(), current);
+                }
+                let mut arguments = arguments;
+                let mut next = position + 1;
+                if let Some(iris_syntax::PostfixPart::TrailingBlock(block)) = parts.get(next) {
+                    arguments.push((**block).clone());
+                    next += 1;
+                }
+                self.work.push(Step::SafeNavigation(parts, next));
+                self.work.push(Step::RemoveTemporary(name.clone()));
+                self.work.push(Step::Expression(Expression::Call {
+                    callee: Box::new(Expression::Name(name)),
+                    type_arguments,
+                    arguments,
+                }));
+            }
+            iris_syntax::PostfixPart::Index(index) => {
+                self.work
+                    .push(Step::SafeNavigationIndex(current, parts, position + 1));
+                self.work.push(Step::Expression(*index));
+            }
+            iris_syntax::PostfixPart::TrailingBlock(_) => {
+                return Err(EvaluationError::UnsupportedConstruct);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn safe_navigation_index(
+        &mut self,
+        evaluator: &mut SourceEvaluator,
+        receiver: Value,
+        parts: Vec<iris_syntax::PostfixPart>,
+        position: usize,
+    ) -> Result<(), EvaluationError> {
+        let index = self.value()?;
+        self.outcome = evaluator.index_read(receiver, index);
+        self.work.push(Step::SafeNavigation(parts, position));
         Ok(())
     }
 
@@ -117,6 +219,7 @@ impl Continuation {
                 self.operand(receiver, pending);
                 self.operand(index, pending);
             }
+            Expression::SafeNavigation { .. } => {}
             Expression::Member { receiver, .. } => {
                 if !matches!(
                     receiver.as_ref(),

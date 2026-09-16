@@ -61,7 +61,8 @@ impl TraceRoots for Step {
             | Self::Close(value)
             | Self::ForNext(_, value)
             | Self::ForBody(_, value)
-            | Self::MatchGuard(value, ..) => value.trace_roots(roots),
+            | Self::MatchGuard(value, ..)
+            | Self::SafeNavigationIndex(value, ..) => value.trace_roots(roots),
             Self::FinishFinally(outcome, previous, context) => {
                 outcome.trace_roots(roots);
                 previous.trace_roots(roots);
@@ -73,6 +74,8 @@ impl TraceRoots for Step {
             | Self::Expression(_)
             | Self::Await
             | Self::NonNull
+            | Self::RemoveTemporary(_)
+            | Self::SafeNavigation(..)
             | Self::Branch(..)
             | Self::Logical(..)
             | Self::Transfer(_)

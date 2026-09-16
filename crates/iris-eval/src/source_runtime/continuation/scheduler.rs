@@ -126,6 +126,11 @@ impl Continuation {
                 let outcome = self.value();
                 self.outcome = evaluator.close_after(resource, outcome);
             }
+            Step::RemoveTemporary(name) => {
+                if let Some(mut locals) = self.scopes.last_mut() {
+                    locals.remove(&name);
+                }
+            }
             Step::Try(catches, finally) => self.catch(evaluator, catches, finally)?,
             Step::Finally(finally) => self.finally(evaluator, finally),
             Step::FinishFinally(pending, previous, context) => {
@@ -187,6 +192,12 @@ impl Continuation {
                 } else {
                     Ok(value)
                 };
+            }
+            Step::SafeNavigation(parts, position) => {
+                self.safe_navigation(evaluator, parts, position)?
+            }
+            Step::SafeNavigationIndex(receiver, parts, position) => {
+                self.safe_navigation_index(evaluator, receiver, parts, position)?
             }
             Step::Branch(then_body, else_body) => {
                 let test = self.value()?;
