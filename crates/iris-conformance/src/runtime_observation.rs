@@ -5,7 +5,7 @@ use crate::{
     model::{Record, array, object, parse_expect, string},
 };
 
-mod values;
+pub(crate) mod values;
 
 pub fn compare_runtime(record: &Record) -> Result<(), String> {
     let expected = parse_expect(&record.expect)?;

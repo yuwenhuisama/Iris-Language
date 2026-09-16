@@ -1,4 +1,8 @@
-use crate::{model::Record, observation::compare, runtime_observation::compare_runtime};
+use crate::{
+    model::{Record, object, parse_expect},
+    observation::compare,
+    runtime_observation::{compare_runtime, values::compare_evaluated},
+};
 use iris_lexer::{convert_literals, lex};
 use iris_parser::parse;
 
@@ -95,8 +99,21 @@ fn run_differential(record: &Record) -> Outcome {
     let bytecode = Bytecode;
     let backends: Vec<&dyn Backend> = vec![&interpreter, &bytecode];
     match iris_eval::backend::compare_backends(&source, &backends) {
-        Agreement::Agreed { .. } => Outcome::Passed {
-            id: record.id.clone(),
+        Agreement::Agreed { .. } => match parse_expect(&record.expect).and_then(|expected| {
+            let expected = object(&expected)?;
+            if expected.contains_key("value") {
+                compare_evaluated(expected, iris_eval::evaluate_host(&source))?;
+            }
+            Ok(())
+        }) {
+            Ok(()) => Outcome::Passed {
+                id: record.id.clone(),
+            },
+            Err(actual) => Outcome::Failed {
+                id: record.id.clone(),
+                expected: record.expect.clone(),
+                actual,
+            },
         },
         Agreement::Disagreed { observations } => Outcome::Failed {
             id: record.id.clone(),
@@ -1265,6 +1282,18 @@ fn execute_record(record: &Record) -> Outcome {
             id: record.id.clone(),
         };
     }
+    if record.tags.iter().any(|tag| tag == "execution:runtime") {
+        return match compare_runtime(record) {
+            Ok(()) => Outcome::Passed {
+                id: record.id.clone(),
+            },
+            Err(actual) => Outcome::Failed {
+                id: record.id.clone(),
+                expected: record.expect.clone(),
+                actual,
+            },
+        };
+    }
     let parsed = parse(&record.source);
     match compare(record, &parsed) {
         Ok(()) => Outcome::Passed {
@@ -1275,5 +1304,101 @@ fn execute_record(record: &Record) -> Outcome {
             expected: record.expect.clone(),
             actual,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Outcome, execute_record, execute_runtime_record};
+    use crate::model::Record;
+
+    fn differential_record(value: &str) -> Record {
+        Record {
+            id: "IRIS-V1-CONFORMANCE-V938".into(),
+            source: "1".into(),
+            independent_sources: Vec::new(),
+            package_sources: Vec::new(),
+            package_fixture: None,
+            package_probe: None,
+            expect: format!(
+                "{{\"backends\":[\"interpreter\",\"jit\"],\"equivalence\":\"semantic observations agree\",\"value\":{{\"integer\":\"{value}\"}}}}"
+            ),
+            tags: vec!["bucket:differential".into()],
+        }
+    }
+
+    #[test]
+    fn differential_rows_require_the_stated_value_after_backends_agree() {
+        // Given
+        let record = differential_record("2");
+
+        // When
+        let outcome = execute_runtime_record(&record);
+
+        // Then
+        assert!(matches!(outcome, Outcome::Failed { .. }));
+    }
+
+    #[test]
+    fn runtime_execution_tag_does_not_accept_literal_conversion() {
+        // Given
+        let record = Record {
+            id: "IRIS-V1-GRAMMAR-V908".into(),
+            source: "nil?.ready?()".into(),
+            independent_sources: Vec::new(),
+            package_sources: Vec::new(),
+            package_fixture: None,
+            package_probe: None,
+            expect: "{\"value\":{\"bool\":true}}".into(),
+            tags: vec!["execution:runtime".into()],
+        };
+
+        // When
+        let outcome = execute_record(&record);
+
+        // Then
+        assert!(matches!(outcome, Outcome::Failed { .. }));
+    }
+
+    #[test]
+    fn independent_diagnostic_expectations_fail_when_one_source_names_the_wrong_code() {
+        // Given
+        let record = Record {
+            id: "IRIS-V1-GRAMMAR-V909".into(),
+            source: String::new(),
+            independent_sources: vec!["a?.()".into(), "a.!".into()],
+            package_sources: Vec::new(),
+            package_fixture: None,
+            package_probe: None,
+            expect: "{\"independent_expectations\":[{\"diagnostics\":[{\"code\":\"PARSE_UNSUPPORTED_SAFE_CALL\"}]},{\"diagnostics\":[{\"code\":\"PARSE_UNSUPPORTED_SAFE_CALL\"}]}]}".into(),
+            tags: vec!["bucket:diagnostic".into()],
+        };
+
+        // When
+        let outcome = execute_record(&record);
+
+        // Then
+        assert!(matches!(outcome, Outcome::Failed { .. }));
+    }
+
+    #[test]
+    fn independent_diagnostic_expectations_compare_each_source_in_order() {
+        // Given
+        let record = Record {
+            id: "IRIS-V1-GRAMMAR-V909".into(),
+            source: String::new(),
+            independent_sources: vec!["a?.()".into(), "a.!".into()],
+            package_sources: Vec::new(),
+            package_fixture: None,
+            package_probe: None,
+            expect: "{\"independent_expectations\":[{\"diagnostics\":[{\"code\":\"PARSE_UNSUPPORTED_SAFE_CALL\"}]},{\"diagnostics\":[{\"code\":\"PARSE_UNEXPECTED_TOKEN\"}]}]}".into(),
+            tags: vec!["bucket:diagnostic".into()],
+        };
+
+        // When
+        let outcome = execute_record(&record);
+
+        // Then
+        assert!(matches!(outcome, Outcome::Passed { .. }));
     }
 }

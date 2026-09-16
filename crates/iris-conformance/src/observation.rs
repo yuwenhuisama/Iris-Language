@@ -12,11 +12,20 @@ pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(),
     let expected = parse_expect(&record.expect)?;
     let expected_map = object(&expected)?;
     let expected = expected_map;
+    if let Some(Value::Array(expectations)) = expected.get("independent_expectations") {
+        if record.independent_sources.len() != expectations.len() {
+            return Err(format!(
+                "independent sources {}, expectations {}",
+                record.independent_sources.len(),
+                expectations.len()
+            ));
+        }
+        for (source, expectation) in record.independent_sources.iter().zip(expectations) {
+            let expectation = object(expectation)?;
+            compare_diagnostics(expectation, diagnostics(source))?;
+        }
+    }
     if let Some(Value::Array(entries)) = expected.get("diagnostics") {
-        let expected = entries
-            .iter()
-            .map(|entry| string(object(entry)?, "code").map(str::to_owned))
-            .collect::<Result<Vec<_>, String>>()?;
         // Lexical diagnostics do not accumulate across a whole source: lexing
         // reports the first and stops. A row naming several INDEPENDENT
         // malformed inputs therefore states them as independent sources, and
@@ -39,30 +48,57 @@ pub fn compare(record: &Record, parsed: &iris_parser::ParseResult) -> Result<(),
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        // Diagnostics match as a SUBSET by default, since most rows name the
-        // codes they care about rather than every code a source produces. A
-        // row that observes an exact INVENTORY, such as the reserved keyword
-        // count, sets `exhaustive` so a missing or extra code fails it.
-        let exhaustive = matches!(
-            expected_map.get("diagnostics_exhaustive"),
-            Some(Value::Bool(true))
-        );
-        let matched = if exhaustive {
-            actual == expected
-        } else {
-            expected.iter().all(|code| actual.contains(code))
-        };
-        if !matched {
-            return Err(format!(
-                "diagnostics expected {expected:?}, actual {actual:?}"
-            ));
-        }
+        compare_diagnostic_codes(expected_map, entries, actual)?;
     }
     if let Some(value) = expected.get("value") {
         compare_value(value, &record.source)?;
     }
     if let Some(Value::Object(artifact)) = expected.get("artifact") {
         compare_artifact(artifact, parsed, &record.source)?;
+    }
+    Ok(())
+}
+
+fn compare_diagnostics(
+    expected: &std::collections::BTreeMap<String, Value>,
+    actual: Vec<crate::runner::Diagnostic>,
+) -> Result<(), String> {
+    let Some(Value::Array(entries)) = expected.get("diagnostics") else {
+        return Err("independent expectation diagnostics required".into());
+    };
+    compare_diagnostic_codes(
+        expected,
+        entries,
+        actual.into_iter().map(|value| value.code).collect(),
+    )
+}
+
+fn compare_diagnostic_codes(
+    expected_map: &std::collections::BTreeMap<String, Value>,
+    entries: &[Value],
+    actual: Vec<String>,
+) -> Result<(), String> {
+    let expected = entries
+        .iter()
+        .map(|entry| string(object(entry)?, "code").map(str::to_owned))
+        .collect::<Result<Vec<_>, String>>()?;
+    // Diagnostics match as a SUBSET by default, since most rows name the
+    // codes they care about rather than every code a source produces. A row
+    // that observes an exact INVENTORY, such as the reserved keyword count,
+    // sets `exhaustive` so a missing or extra code fails it.
+    let exhaustive = matches!(
+        expected_map.get("diagnostics_exhaustive"),
+        Some(Value::Bool(true))
+    );
+    let matched = if exhaustive {
+        actual == expected
+    } else {
+        expected.iter().all(|code| actual.contains(code))
+    };
+    if !matched {
+        return Err(format!(
+            "diagnostics expected {expected:?}, actual {actual:?}"
+        ));
     }
     Ok(())
 }

@@ -11,7 +11,7 @@ use crate::{
 /// A multi-package program is evaluated by the caller, because `D-431` needs
 /// its packages to share one runtime, so the outcome arrives here rather than
 /// a source string.
-pub(super) fn compare_evaluated(
+pub(crate) fn compare_evaluated(
     expected: &std::collections::BTreeMap<String, Value>,
     outcome: Result<iris_runtime::Value, iris_eval::EvaluationError>,
 ) -> Result<(), String> {
