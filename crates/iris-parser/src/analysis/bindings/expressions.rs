@@ -29,6 +29,23 @@ impl Analyzer {
                     self.prepare_expression(argument);
                 }
             }
+            Expression::SafeNavigation { receiver, parts } => {
+                self.prepare_expression(receiver);
+                for part in parts {
+                    match part {
+                        iris_syntax::PostfixPart::Member { .. } => {}
+                        iris_syntax::PostfixPart::Call { arguments, .. } => {
+                            for argument in arguments {
+                                self.prepare_expression(argument);
+                            }
+                        }
+                        iris_syntax::PostfixPart::Index(index)
+                        | iris_syntax::PostfixPart::TrailingBlock(index) => {
+                            self.prepare_expression(index)
+                        }
+                    }
+                }
+            }
             Expression::If {
                 condition,
                 then_body,

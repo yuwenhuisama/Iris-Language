@@ -30,6 +30,25 @@ impl Aliases<'_> {
                     self.expression(argument);
                 }
             }
+            Expression::SafeNavigation { receiver, parts } => {
+                self.expression(receiver);
+                for part in parts {
+                    match part {
+                        iris_syntax::PostfixPart::Member { .. } => {}
+                        iris_syntax::PostfixPart::Call {
+                            type_arguments,
+                            arguments,
+                        } => {
+                            self.types(type_arguments);
+                            for argument in arguments {
+                                self.expression(argument);
+                            }
+                        }
+                        iris_syntax::PostfixPart::Index(index)
+                        | iris_syntax::PostfixPart::TrailingBlock(index) => self.expression(index),
+                    }
+                }
+            }
             Expression::If {
                 condition,
                 then_body,

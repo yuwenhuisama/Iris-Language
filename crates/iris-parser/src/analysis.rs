@@ -2393,58 +2393,14 @@ impl Analyzer {
                 }
                 self.scopes.pop();
             }
-            // IRIS-V1-FFI-C005 makes the standard `FFI` subsystem the ONLY
-            // script-originated binary path, and IRIS-V1-FFI-C004 forbids an
-            // ordinary script from calling Host ABI tables, extension tables,
-            // raw loader APIs or runtime handles directly. Reaching `HostABI`
-            // from source is therefore rejected before anything loads.
-            Expression::Call { callee, .. }
-                if matches!(callee.as_ref(), Expression::Member { receiver, .. }
-                    if matches!(receiver.as_ref(), Expression::Name(name) if name == "HostABI")) =>
-            {
-                self.report("ffi.host-abi-script-access");
-            }
             Expression::Call {
                 callee,
                 type_arguments,
                 arguments,
             } => {
-                // C037 makes an open or revision transaction body
-                // non-suspending, and ASYNC-C018 rejects an `await` LEXICALLY
-                // inside one before execution. The body is the Closure argument
-                // of an `open` call, so the walk of that argument is what
-                // carries the transaction depth. V355 observes the diagnostic.
-                let transactional = matches!(
-                    callee.as_ref(),
-                    Expression::Member { selector, .. } if selector == "open"
-                );
+                let transactional = self.check_call_static_policies(callee, type_arguments);
                 if transactional {
                     self.transaction_depth += 1;
-                }
-                // C060 gives every Method application FIXED FULL ARITY: a
-                // missing trailing type argument is an arity error and never
-                // means `Object` or an inferred default. V230 names the code.
-                if let Expression::Name(selector) = callee.as_ref()
-                    && !type_arguments.is_empty()
-                    && self.generic_methods.iter().any(|method| {
-                        method.selector == *selector
-                            && method.type_parameters.len() != type_arguments.len()
-                    })
-                {
-                    self.report("GENERIC_ARGUMENT_ARITY");
-                }
-                // C061: ordinary construction requires a closed `Box<Type>`, so
-                // `Box.new()` on a generic Class supplies no arguments for its
-                // declared parameters. V232 names the code.
-                if let Expression::Member { receiver, selector } = callee.as_ref()
-                    && selector == "new"
-                    && let Expression::Name(name) = receiver.as_ref()
-                    && self
-                        .generic_classes
-                        .iter()
-                        .any(|(declared, arity)| declared == name && *arity > 0)
-                {
-                    self.report("GENERIC_ARGUMENT_ARITY");
                 }
                 self.expression(callee, control);
                 for argument in arguments {
@@ -2457,6 +2413,62 @@ impl Analyzer {
             Expression::Index { receiver, index } => {
                 self.expression(receiver, control);
                 self.expression(index, control);
+            }
+            Expression::SafeNavigation { receiver, parts } => {
+                self.expression(receiver, control);
+                let mut callee = receiver.as_ref().clone();
+                let mut parts = parts.iter().peekable();
+                let mut transactional_trailing_block = false;
+                while let Some(part) = parts.next() {
+                    match part {
+                        iris_syntax::PostfixPart::Member { selector, .. } => {
+                            callee = Expression::Member {
+                                receiver: Box::new(callee),
+                                selector: selector.clone(),
+                            };
+                        }
+                        iris_syntax::PostfixPart::Call {
+                            type_arguments,
+                            arguments,
+                        } => {
+                            let transactional =
+                                self.check_call_static_policies(&callee, type_arguments);
+                            if transactional {
+                                self.transaction_depth += 1;
+                            }
+                            for argument in arguments {
+                                self.expression(argument, control);
+                            }
+                            transactional_trailing_block = transactional
+                                && matches!(
+                                    parts.peek(),
+                                    Some(iris_syntax::PostfixPart::TrailingBlock(_))
+                                );
+                            if transactional && !transactional_trailing_block {
+                                self.transaction_depth -= 1;
+                            }
+                            callee = Expression::Call {
+                                callee: Box::new(callee),
+                                type_arguments: type_arguments.clone(),
+                                arguments: arguments.clone(),
+                            };
+                        }
+                        iris_syntax::PostfixPart::Index(index) => {
+                            self.expression(index, control);
+                            callee = Expression::Index {
+                                receiver: Box::new(callee),
+                                index: index.clone(),
+                            };
+                        }
+                        iris_syntax::PostfixPart::TrailingBlock(block) => {
+                            self.expression(block, control);
+                            if transactional_trailing_block {
+                                self.transaction_depth -= 1;
+                                transactional_trailing_block = false;
+                            }
+                        }
+                    }
+                }
             }
             // A reified Type expression names Types and holds no subexpression
             // to analyse, but its generic arguments carry the same arity
@@ -2544,6 +2556,42 @@ impl Analyzer {
                 }
             }
         }
+    }
+
+    fn check_call_static_policies(
+        &mut self,
+        callee: &Expression,
+        type_arguments: &[iris_syntax::TypeExpression],
+    ) -> bool {
+        if matches!(callee, Expression::Member { receiver, .. }
+            if matches!(receiver.as_ref(), Expression::Name(name) if name == "HostABI"))
+        {
+            self.report("ffi.host-abi-script-access");
+        }
+        let transactional =
+            matches!(callee, Expression::Member { selector, .. } if selector == "open");
+        if let Expression::Name(selector) = callee
+            && !type_arguments.is_empty()
+            && self.generic_methods.iter().any(|method| {
+                method.selector == *selector && method.type_parameters.len() != type_arguments.len()
+            })
+        {
+            self.report("GENERIC_ARGUMENT_ARITY");
+        }
+        if let Expression::Member { receiver, selector } = callee
+            && selector == "new"
+            && let Expression::Name(name) = receiver.as_ref()
+            && self
+                .generic_classes
+                .iter()
+                .any(|(declared, arity)| declared == name && *arity > 0)
+        {
+            self.report("GENERIC_ARGUMENT_ARITY");
+        }
+        for argument in type_arguments {
+            self.check_generic_arity(argument);
+        }
+        transactional
     }
 }
 
@@ -3197,6 +3245,31 @@ class B { public fun m() -> Integer { 2 } } let value: A | B = A.new(); value.m(
         assert_eq!(codes(explicit), Vec::<&str>::new());
         assert_eq!(codes(placeholder), Vec::<&str>::new());
         assert_eq!(codes(inferred), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn safe_navigation_calls_obey_ordinary_static_call_policies() {
+        // Given
+        let host_abi = ("HostABI.forbidden()", "HostABI?.forbidden()");
+        let open_await = (
+            "class A {} module M { public async fun run() { A.open() { await M.run() } } }",
+            "class A {} module M { public async fun run() { A?.open() { await M.run() } } }",
+        );
+        let generic = (
+            "class Pair<T,U> {} module A { fun choose<T>() -> Nil { nil } } A.choose<Pair<String>>()",
+            "class Pair<T,U> {} module A { fun choose<T>() -> Nil { nil } } A?.choose<Pair<String>>()",
+        );
+
+        // When / Then
+        assert_eq!(codes(host_abi.0), vec!["ffi.host-abi-script-access"]);
+        assert_eq!(
+            codes(open_await.0),
+            vec!["IRIS-TRANSACTION-SUSPENSION", "ASYNC_RESULT_TYPE_REQUIRED"]
+        );
+        assert_eq!(codes(generic.0), vec!["GENERIC_ARGUMENT_ARITY"]);
+        assert_eq!(codes(host_abi.0), codes(host_abi.1));
+        assert_eq!(codes(open_await.0), codes(open_await.1));
+        assert_eq!(codes(generic.0), codes(generic.1));
     }
 
     #[test]
@@ -3957,10 +4030,42 @@ fn expression_reads_global(expression: &Expression) -> bool {
         Expression::Member { receiver, .. } | Expression::Index { receiver, .. } => {
             expression_reads_global(receiver)
         }
+        Expression::SafeNavigation { receiver, parts } => {
+            expression_reads_global(receiver)
+                || parts.iter().any(|part| match part {
+                    iris_syntax::PostfixPart::Member { .. } => false,
+                    iris_syntax::PostfixPart::Call {
+                        type_arguments,
+                        arguments,
+                    } => {
+                        type_arguments.iter().any(type_reads_global)
+                            || arguments.iter().any(expression_reads_global)
+                    }
+                    iris_syntax::PostfixPart::Index(index)
+                    | iris_syntax::PostfixPart::TrailingBlock(index) => {
+                        expression_reads_global(index)
+                    }
+                })
+        }
         Expression::Call {
             callee, arguments, ..
         } => expression_reads_global(callee) || arguments.iter().any(expression_reads_global),
         _ => false,
+    }
+}
+
+fn type_reads_global(expression: &iris_syntax::TypeExpression) -> bool {
+    match expression {
+        iris_syntax::TypeExpression::Typeof(value) => expression_reads_global(value),
+        iris_syntax::TypeExpression::Intersection(values)
+        | iris_syntax::TypeExpression::Union(values)
+        | iris_syntax::TypeExpression::Generic {
+            arguments: values, ..
+        } => values.iter().any(type_reads_global),
+        iris_syntax::TypeExpression::Function { parameters, result } => {
+            parameters.iter().any(type_reads_global) || type_reads_global(result)
+        }
+        iris_syntax::TypeExpression::Name(_) => false,
     }
 }
 
@@ -4152,6 +4257,12 @@ mod decorator_kind_tests {
                             global mut $tick: Integer = 0 class Stamp {} \
                             impl Stamp for ClassDecorator { public fun plan(d, a) -> Integer { $tick } }";
         assert_eq!(codes(reads_global), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
+
+        let safe_chain = "contract ClassDecorator { fun plan(d, a) } \
+                          global mut $tick: Integer = 0 class Stamp {} \
+                          impl Stamp for ClassDecorator { public fun plan(d, a) -> Integer { \
+                            nil?.run($tick).next() } }";
+        assert_eq!(codes(safe_chain), ["IRIS-DECORATOR-NONDETERMINISTIC"]);
 
         // A plan confined to whitelisted inputs is accepted.
         let pure = "contract ClassDecorator { fun plan(d, a) } class Stamp {} \
