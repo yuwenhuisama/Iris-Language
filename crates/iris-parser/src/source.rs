@@ -204,6 +204,10 @@ pub enum ExpressionFact {
         name: NameSite,
         contract: bool,
     },
+    SafeNavigation {
+        receiver: SyntaxId,
+        name: NameSite,
+    },
     IncompleteMember {
         receiver: SyntaxId,
         dot: Span,

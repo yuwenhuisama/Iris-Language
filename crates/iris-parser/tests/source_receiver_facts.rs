@@ -235,3 +235,25 @@ fn binary_facts_when_operator_is_not_a_range_remain_unsupported() -> Result<(), 
     }
     Ok(())
 }
+
+#[test]
+fn safe_navigation_fact_retains_the_guarded_receiver_and_selector() -> Result<(), &'static str> {
+    let text = "a?.ready?";
+    let result = parse_with_source(text);
+    assert!(
+        result.parse.program_accepted,
+        "{:?}",
+        result.parse.diagnostics
+    );
+    let navigation = expression_at(&result.source, text, "a?.ready?")?;
+    let SourceKind::Expression(ExpressionFact::SafeNavigation { receiver, name }) =
+        &navigation.kind
+    else {
+        return Err("safe navigation fact");
+    };
+    assert_eq!(&text[name.span.start..name.span.end], "ready?");
+    assert_eq!(name.text, "ready?");
+    assert_eq!(result.source.node(*receiver).span.start, 0);
+    assert_eq!(result.source.node(*receiver).span.end, 1);
+    Ok(())
+}

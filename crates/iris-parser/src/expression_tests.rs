@@ -1,5 +1,5 @@
 use crate::parse;
-use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
+use iris_syntax::{BinaryOperator, Expression, PostfixPart, Statement, UnaryOperator};
 
 #[test]
 fn parses_array_literals_with_named_infix_and_unary_elements() {
@@ -102,6 +102,90 @@ fn parses_symbols_and_postfix_chains() {
         ],
         "{result:#?}"
     );
+}
+
+#[test]
+fn parses_safe_navigation_as_one_guarded_postfix_chain() {
+    // Given
+    let source = "a?.b; a?.b?.c; a?.ready?(); a?.save!(); a.ready?(); a.save!(); a?.b.c()[index]; a?.each() { work() }";
+
+    // When
+    let result = parse(source);
+
+    // Then
+    assert!(result.is_clean(), "{result:#?}");
+    assert_eq!(
+        result.program.statements,
+        [
+            safe_chain("a", vec![safe_member("b")]),
+            safe_chain("a", vec![safe_member("b"), safe_member("c")]),
+            safe_chain("a", vec![safe_member("ready?"), call(Vec::new())]),
+            safe_chain("a", vec![safe_member("save!"), call(Vec::new())]),
+            Statement::Expression(Expression::Call {
+                callee: Box::new(Expression::Member {
+                    receiver: Box::new(Expression::Name("a".into())),
+                    selector: "ready?".into(),
+                }),
+                type_arguments: Vec::new(),
+                arguments: Vec::new(),
+            }),
+            Statement::Expression(Expression::Call {
+                callee: Box::new(Expression::Member {
+                    receiver: Box::new(Expression::Name("a".into())),
+                    selector: "save!".into(),
+                }),
+                type_arguments: Vec::new(),
+                arguments: Vec::new(),
+            }),
+            safe_chain(
+                "a",
+                vec![
+                    safe_member("b"),
+                    member("c"),
+                    call(Vec::new()),
+                    PostfixPart::Index(Box::new(Expression::Name("index".into()))),
+                ],
+            ),
+            safe_chain(
+                "a",
+                vec![
+                    safe_member("each"),
+                    call(Vec::new()),
+                    PostfixPart::TrailingBlock(Box::new(Expression::BlockArgument {
+                        value: Box::new(Expression::Closure {
+                            parameters: Vec::new(),
+                            full_parameters: Vec::new(),
+                            is_async: false,
+                            return_type: None,
+                            has_header: false,
+                            body: vec![Statement::Expression(Expression::Call {
+                                callee: Box::new(Expression::Name("work".into())),
+                                type_arguments: Vec::new(),
+                                arguments: Vec::new(),
+                            })],
+                        }),
+                    })),
+                ],
+            ),
+        ]
+    );
+}
+
+#[test]
+fn rejects_non_member_safe_navigation_forms_with_the_stable_diagnostic() {
+    // Given
+    let sources = [
+        ("a?.()", "PARSE_UNSUPPORTED_SAFE_CALL"),
+        ("a?[0]", "PARSE_UNSUPPORTED_SAFE_INDEX"),
+        ("a.!", "PARSE_UNEXPECTED_TOKEN"),
+    ];
+
+    // When / Then
+    for (source, diagnostic) in sources {
+        let result = parse(source);
+        assert!(!result.program_accepted, "{source}");
+        assert_eq!(result.diagnostics[0].code, diagnostic);
+    }
 }
 
 #[test]
@@ -231,5 +315,33 @@ fn named_infix(left: Expression, right: Expression) -> Expression {
             selector: "div".into(),
         },
         right: Box::new(right),
+    }
+}
+
+fn safe_chain(receiver: &str, parts: Vec<PostfixPart>) -> Statement {
+    Statement::Expression(Expression::SafeNavigation {
+        receiver: Box::new(Expression::Name(receiver.into())),
+        parts,
+    })
+}
+
+fn member(selector: &str) -> PostfixPart {
+    PostfixPart::Member {
+        selector: selector.into(),
+        safe: false,
+    }
+}
+
+fn safe_member(selector: &str) -> PostfixPart {
+    PostfixPart::Member {
+        selector: selector.into(),
+        safe: true,
+    }
+}
+
+fn call(arguments: Vec<Expression>) -> PostfixPart {
+    PostfixPart::Call {
+        type_arguments: Vec::new(),
+        arguments,
     }
 }

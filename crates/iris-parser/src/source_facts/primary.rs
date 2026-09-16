@@ -82,9 +82,9 @@ impl Parser {
             Expression::Unary { .. } => ExpressionFact::Unsupported { form: "unary" },
             Expression::Binary { .. } => ExpressionFact::Unsupported { form: "binary" },
             Expression::Assignment { .. } => ExpressionFact::Unsupported { form: "assignment" },
-            Expression::Member { .. } | Expression::ContractView { .. } => {
-                ExpressionFact::Unsupported { form: "member" }
-            }
+            Expression::SafeNavigation { .. }
+            | Expression::Member { .. }
+            | Expression::ContractView { .. } => ExpressionFact::Unsupported { form: "member" },
             Expression::Call { .. } => ExpressionFact::Unsupported { form: "call" },
             Expression::Index { .. } => ExpressionFact::Unsupported { form: "index" },
             Expression::KeywordArgument { .. } => ExpressionFact::Unsupported {

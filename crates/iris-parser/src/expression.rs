@@ -197,6 +197,49 @@ impl Parser {
                         SourceKind::Expression(ExpressionFact::NonNull { value }),
                     );
                 }
+            } else if self.consume("?.") {
+                if self.check("(") {
+                    self.error("PARSE_UNSUPPORTED_SAFE_CALL");
+                    return None;
+                }
+                let selector_start = self.current_offset();
+                let selector = self.selector()?;
+                let name = NameSite {
+                    text: selector.clone(),
+                    span: Span {
+                        start: selector_start,
+                        end: self.consumed_end,
+                    },
+                };
+                expression = match expression {
+                    Expression::SafeNavigation {
+                        receiver,
+                        mut parts,
+                    } => {
+                        parts.push(iris_syntax::PostfixPart::Member {
+                            selector,
+                            safe: true,
+                        });
+                        Expression::SafeNavigation { receiver, parts }
+                    }
+                    receiver => Expression::SafeNavigation {
+                        receiver: Box::new(receiver),
+                        parts: vec![iris_syntax::PostfixPart::Member {
+                            selector,
+                            safe: true,
+                        }],
+                    },
+                };
+                if let Some(receiver) = receiver {
+                    self.recorder.wrap(
+                        mark,
+                        Span {
+                            start,
+                            end: self.consumed_end,
+                        },
+                        SourceKind::Expression(ExpressionFact::SafeNavigation { receiver, name }),
+                    );
+                }
             } else if self.consume(".") {
                 let dot = Span {
                     start: self.consumed_end - 1,
@@ -242,9 +285,21 @@ impl Parser {
                         }),
                     );
                 }
-                expression = Expression::Member {
-                    receiver: Box::new(expression),
-                    selector,
+                expression = match expression {
+                    Expression::SafeNavigation {
+                        receiver,
+                        mut parts,
+                    } => {
+                        parts.push(iris_syntax::PostfixPart::Member {
+                            selector,
+                            safe: false,
+                        });
+                        Expression::SafeNavigation { receiver, parts }
+                    }
+                    receiver => Expression::Member {
+                        receiver: Box::new(receiver),
+                        selector,
+                    },
                 };
             } else if self.consume("..") {
                 let selector_start = self.current_offset();
@@ -274,14 +329,26 @@ impl Parser {
                     receiver: Box::new(expression),
                     selector,
                 };
+            } else if self.check("?") && self.peek_next() == Some("[") {
+                self.error("PARSE_UNSUPPORTED_SAFE_INDEX");
+                return None;
             } else if self.check("[") {
                 self.advance();
                 let index = self.with_layout(true, |parser| parser.expression(0))?;
                 let index_node = self.recorder.last();
                 self.expect("]")?;
-                expression = Expression::Index {
-                    receiver: Box::new(expression),
-                    index: Box::new(index),
+                expression = match expression {
+                    Expression::SafeNavigation {
+                        receiver,
+                        mut parts,
+                    } => {
+                        parts.push(iris_syntax::PostfixPart::Index(Box::new(index)));
+                        Expression::SafeNavigation { receiver, parts }
+                    }
+                    receiver => Expression::Index {
+                        receiver: Box::new(receiver),
+                        index: Box::new(index),
+                    },
                 };
                 if let (Some(receiver), Some(index)) = (receiver, index_node) {
                     self.recorder.wrap(
@@ -303,30 +370,74 @@ impl Parser {
                 // otherwise, so reaching here means the `(` is already next.
                 self.expect("(")?;
                 let (mut arguments, mut site) = self.call_arguments()?;
-                if self.check("{")
+                let trailing_block = if self.check("{")
                     && !self.no_trailing_block
                     && !self.property_accessor_block_start()
                 {
-                    arguments.push(self.trailing_call_block(&mut site)?);
-                }
-                expression = Expression::Call {
-                    callee: Box::new(expression),
-                    type_arguments,
-                    arguments,
+                    Some(self.trailing_call_block(&mut site)?)
+                } else {
+                    None
+                };
+                expression = match expression {
+                    Expression::SafeNavigation {
+                        receiver,
+                        mut parts,
+                    } => {
+                        parts.push(iris_syntax::PostfixPart::Call {
+                            type_arguments,
+                            arguments,
+                        });
+                        if let Some(block) = trailing_block {
+                            parts.push(iris_syntax::PostfixPart::TrailingBlock(Box::new(block)));
+                        }
+                        Expression::SafeNavigation { receiver, parts }
+                    }
+                    callee => {
+                        if let Some(block) = trailing_block {
+                            arguments.push(block);
+                        }
+                        Expression::Call {
+                            callee: Box::new(callee),
+                            type_arguments,
+                            arguments,
+                        }
+                    }
                 };
                 self.record_call((mark, start, receiver), site);
             } else if self.consume("(") {
                 let (mut arguments, mut site) = self.call_arguments()?;
-                if self.check("{")
+                let trailing_block = if self.check("{")
                     && !self.no_trailing_block
                     && !self.property_accessor_block_start()
                 {
-                    arguments.push(self.trailing_call_block(&mut site)?);
-                }
-                expression = Expression::Call {
-                    callee: Box::new(expression),
-                    type_arguments: Vec::new(),
-                    arguments,
+                    Some(self.trailing_call_block(&mut site)?)
+                } else {
+                    None
+                };
+                expression = match expression {
+                    Expression::SafeNavigation {
+                        receiver,
+                        mut parts,
+                    } => {
+                        parts.push(iris_syntax::PostfixPart::Call {
+                            type_arguments: Vec::new(),
+                            arguments,
+                        });
+                        if let Some(block) = trailing_block {
+                            parts.push(iris_syntax::PostfixPart::TrailingBlock(Box::new(block)));
+                        }
+                        Expression::SafeNavigation { receiver, parts }
+                    }
+                    callee => {
+                        if let Some(block) = trailing_block {
+                            arguments.push(block);
+                        }
+                        Expression::Call {
+                            callee: Box::new(callee),
+                            type_arguments: Vec::new(),
+                            arguments,
+                        }
+                    }
                 };
                 self.record_call((mark, start, receiver), site);
             } else {
