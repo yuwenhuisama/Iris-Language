@@ -1,6 +1,6 @@
 # GRAMMAR Vector Classification
 
-This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear as rows in the chapter 02 vector tables at `spec/iris-v1/02-lexical-grammar.md:549-554` and `spec/iris-v1/02-lexical-grammar.md:568-606`.
+This document classifies 45 `IRIS-V1-GRAMMAR` rows: 41 published rows in the chapter 02 vector tables at `spec/iris-v1/02-lexical-grammar.md:549-554` and `spec/iris-v1/02-lexical-grammar.md:568-606`, plus errata records `IRIS-V1-GRAMMAR-V907` through `IRIS-V1-GRAMMAR-V910`.
 
 | Vector ID | Chapter 02 line | Category | Applicability | Classification | Concrete front-end artifact |
 | --- | --- | --- | --- | --- | --- |
@@ -46,15 +46,19 @@ This document classifies the 41 committed `IRIS-V1-GRAMMAR` vectors that appear 
 | `IRIS-V1-GRAMMAR-V192` | `spec/iris-v1/02-lexical-grammar.md:605` | positive | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert Contract declaration parsing with ordered parent Type list `ParentA`, `ParentB`. |
 | `IRIS-V1-GRAMMAR-V193` | `spec/iris-v1/02-lexical-grammar.md:606` | positive | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert implicit-root and explicit-`Object` Class headers parse as distinct source forms. |
 | `IRIS-V1-GRAMMAR-V907` | v1.36 errata | positive | interpreter required; JIT required; native not applicable | executable | Assert `%[]`, `is?`, and postfix `!` parse and evaluate together; the same record anchors the v1.36 declaration productions exercised by dedicated chapter vectors. |
+| `IRIS-V1-GRAMMAR-V908` | v1.37 errata | positive | interpreter required; JIT required; native not applicable | executable | Assert atomic `?.` tokenization and compatibility with `ready?` and `save!` selectors. |
+| `IRIS-V1-GRAMMAR-V909` | v1.37 errata | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert `a?.()` and `a.!` are rejected with their current parser diagnostics. |
+| `IRIS-V1-GRAMMAR-V910` | v1.37 errata | diagnostic | interpreter not applicable; JIT not applicable; native not applicable | executable | Assert `a?[0]` is rejected with `PARSE_UNSUPPORTED_SAFE_INDEX`. |
 
 ## Classification Totals
 
 | Classification | Count |
 | --- | ---: |
-| executable | 26 |
+| executable | 30 |
 | prose-fixture | 9 |
 | authored-expect | 5 |
 | deferred | 1 |
+| **Total** | **45** |
 
 ## Prose Fixture Reclassification
 

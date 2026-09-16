@@ -1,6 +1,6 @@
 # RUNTIME Vector Classification
 
-This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in chapter 03 at `spec/iris-v1/03-runtime-object-model.md`. The chapter contains 125 table rows: 10 unique Stable Hash rows at lines 418-427, 36 overview rows at lines 526-561, and 79 detailed Runtime Coverage rows at lines 570-648. Sixteen IDs occur in both the overview and coverage tables (`V011`-`V017`, `V019`, `V026`, `V036`, `V039`-`V043`, and `V048`). Each is one vector represented at two granularities, not two definitions. Thus `10 + 36 + 79 - 16 = 109` unique IDs.
+This document classifies 111 `IRIS-V1-RUNTIME` rows: 109 unique chapter 03 vectors at `spec/iris-v1/03-runtime-object-model.md` plus errata vectors `V985` and `V986`. The chapter contains 125 table rows: 10 unique Stable Hash rows at lines 418-427, 36 overview rows at lines 526-561, and 79 detailed Runtime Coverage rows at lines 570-648. Sixteen IDs occur in both the overview and coverage tables (`V011`-`V017`, `V019`, `V026`, `V036`, `V039`-`V043`, and `V048`). Each is one vector represented at two granularities, not two definitions. Thus `10 + 36 + 79 - 16 = 109` chapter IDs, and `109 + 2 = 111` classified rows.
 
 `executable` means that the chapter gives a concrete controlled fixture or directly assertable runtime value/bit/hash artifact and a concrete observable within the milestone 2 object-kernel boundary. `no-fixture` means the overview gives only an incomplete prose scenario. `needs-subsystem` means the vector is concrete but its required observable depends on a subsystem excluded from that boundary. `differential` requires the interpreter/JIT comparison that does not yet exist.
 
@@ -118,19 +118,20 @@ This document classifies the 109 unique committed `IRIS-V1-RUNTIME` vectors in c
 | `IRIS-V1-RUNTIME-V111` | `:631` | negative | needs-subsystem | Re-probed again after the v1.15 errata. `IRIS-V1-CONTROL-C078` now names `DECLARATION_REBINDING`, but that does NOT close this row: three of its four sources rebind with an ANONYMOUS class, module or contract expression (`A = class {}`), which has no v1 production and fails as a parse error, and the fourth assigns to a `const` and fails as an immutable-binding error. The row needs anonymous declaration expressions before its rebinding rejection can be observed at all. |
 | `IRIS-V1-RUNTIME-V112` | `:636` | positive | executable | Concrete `0 ** -1` source asserts positive `Float64` infinity without error. |
 | `IRIS-V1-RUNTIME-V985` | v1.36 errata | positive | executable | Explicit `let @field` and `mut @field` declarations initialize once per instance, retain independent cells, and permit only the mutable write. |
+| `IRIS-V1-RUNTIME-V986` | v1.37 errata | positive | executable | Assert safe navigation on a nil receiver skips a raising downstream call argument. |
 
 ## Classification Totals
 
 | Classification | Count |
 | --- | ---: |
-| executable | 60 |
-| no-fixture | 18 |
-| needs-subsystem | 28 |
+| executable | 98 |
+| no-fixture | 5 |
+| needs-subsystem | 5 |
 | differential | 3 |
 | unclear | 0 |
-| **Total** | **109** |
+| **Total** | **111** |
 
-The bucket sum is explicitly `60 + 18 + 28 + 3 + 0 = 109`. The realistic milestone 2 executable target is **60** vectors, not 109.
+The bucket sum is explicitly `98 + 5 + 5 + 3 + 0 = 111`. The current executable target is **98** vectors; the remaining rows are held only by their stated no-fixture, subsystem, or differential constraints.
 
 ## Overview-Only Vectors
 
