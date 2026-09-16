@@ -1,6 +1,6 @@
 # Iris v1 规范索引
 
-状态：Iris v1.36，冻结语义并有所有者批准的语言修订勘误。
+状态：Iris v1.37，冻结语义并有所有者批准的语言修订勘误。
 
 翻译说明：本文是 `../README.md` 的忠实简体中文翻译。代码、标识符、稳定 ID、D-ID、字面量和规范性术语保留原文形式或在中文译词后保留英文令牌，以便核对。
 
@@ -23,6 +23,8 @@ IRIS-V1-TRACE-C022: 每次勘误修订在发布前 MUST 对照已提交一致性
 IRIS-V1-TRACE-C023: v1.35 装饰器勘误由所有者已记录的指令 `按照建议开始` 授权，该指令批准[批准记录](../../../docs/decorator-capability-boundaries-proposal.md#approved-v135-checklist)中的完整建议表。它在[第 08 章](08-modules-metaprogramming.md#v135-装饰器调用协议)添加 IRIS-V1-META-C127 至 IRIS-V1-META-C139，在[第 12 章](12-conformance.md#v135-装饰器覆盖义务)添加 IRIS-V1-CONFORMANCE-C076。所有者明确授权对本 README 的 IRIS-V1-TRACE-C021 作有界例外：META-C139 仅取代 META-C125 对错误种类 Transformation 无条件静态拒绝的阶段要求，可证明时保留静态拒绝，否则要求运行时候选验证、`IRIS-DECORATOR-KIND` 及发布前完整回滚。作者 MUST NOT 将此例外推广至任何其他冻结保证，也不得重写已发布条款/向量文本。其他新增内容补全获批调用、操作和生命周期空缺，不增加关键字或可调用运行时种类；14 产物清单保持不变。[缺陷台账](../../../docs/spec-defects-v1.md#v135-approved-decorator-errata)记录语料库影响及审计证据。文档发布 MUST NOT 被表述为运行时支持或一致性冻结通过：未覆盖的新条款及既有语料库缺陷仍按 C022 和 CONFORMANCE-C057 报告。
 
 IRIS-V1-TRACE-C024: v1.36 语言修订由缺陷台账中记录的所有者明确批准予以授权，在语言主版本 1 内建立了获准的有界破坏性修订。在此批准下，允许进行破坏性语法调整以建立连贯的 v1.36 基础：顶层静态 `impl Class for Contract` 声明取代类头部 `for` 与成员级 `impl fun`；origin 类与模块体为纯声明式；动态结构修改受限于 `open` 块；实例字段要求显式可变性标记 `let @field` 或 `mut @field`；数组字面量要求 `%[]` 前缀以消除与索引和模式的歧义；`is?` 取代单纯的 `is` 作为类型查询运算符；后缀 `!` 提供非空求值并与 `foo!` 选择器消除歧义。这些变更就地取代了早期的过渡规则，同时保留 14 产物规范清单。一致性与迁移义务受 IRIS-V1-CONFORMANCE-C077、IRIS-V1-CONFORMANCE-C078 以及 IRIS-V1-MIGRATION-C013 管辖。
+
+IRIS-V1-TRACE-C025: v1.37 安全导航勘误由所有者已记录的指令 “按照你的推荐来” 授权，根据 IRIS-V1-TRACE-C019 至 IRIS-V1-TRACE-C022 的修订程序批准了安全成员导航设计。它在第 02 章添加 IRIS-V1-GRAMMAR-C080 至 IRIS-V1-GRAMMAR-C084，在第 03 章添加 IRIS-V1-RUNTIME-C168 至 IRIS-V1-RUNTIME-C170，在第 04 章添加 IRIS-V1-CONTROL-C084 至 IRIS-V1-CONTROL-C086，并在第 12 章添加 IRIS-V1-CONFORMANCE-C079 至 IRIS-V1-CONFORMANCE-C080，附带匹配的中文翻译。该勘误将 `?.` 定义为区别于选择器后缀 `?` 的原子词元，确立仅限成员的安全导航并采用仅限 nil 的短路求值，对接收者表达式求值恰好一次，遇到 nil 时跳过后续成员访问、调用参数求值、索引以及块，保留 `ready?` 与 `save!` 选择器身份，保留 `(expr)!` 非空断言求值，排除 `?.(...)`、`?[...]` 与 `.!`，并映射已提交的一致性证据 `IRIS-V1-GRAMMAR-V908` 至 `IRIS-V1-GRAMMAR-V910`、`IRIS-V1-RUNTIME-V986` 和 `IRIS-V1-CONFORMANCE-V938`。已发布的向量行与早期语义保持完整。
 
 ## 产物清单
 
