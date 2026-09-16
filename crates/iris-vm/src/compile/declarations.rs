@@ -59,6 +59,29 @@ pub(super) fn written_constructions(
         found: &mut Vec<Vec<TypeExpression>>,
     ) {
         match expression {
+            iris_syntax::Expression::SafeNavigation { receiver, parts } => {
+                visit_expression(receiver, class, found);
+                for part in parts {
+                    match part {
+                        iris_syntax::PostfixPart::Member { .. } => {}
+                        iris_syntax::PostfixPart::Call {
+                            type_arguments,
+                            arguments,
+                        } => {
+                            for argument in type_arguments {
+                                visit_type(Some(argument), class, found);
+                            }
+                            for argument in arguments {
+                                visit_expression(argument, class, found);
+                            }
+                        }
+                        iris_syntax::PostfixPart::Index(index)
+                        | iris_syntax::PostfixPart::TrailingBlock(index) => {
+                            visit_expression(index, class, found);
+                        }
+                    }
+                }
+            }
             iris_syntax::Expression::ClosedGeneric { name, arguments } => {
                 if name == class
                     && crate::compile::lowering::Lowering::type_selector(arguments).is_some()

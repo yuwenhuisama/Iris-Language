@@ -833,6 +833,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
         match self.instructions.get_mut(at) {
             Some(
                 Instruction::JumpUnless { target: slot, .. }
+                | Instruction::JumpIfNil { target: slot, .. }
                 | Instruction::Jump { target: slot }
                 | Instruction::EnterTry { handler: slot, .. },
             ) => {

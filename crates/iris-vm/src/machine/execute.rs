@@ -380,6 +380,7 @@ impl Machine {
                         self.execute_task(instruction, &mut state, program, classes)
                     }
                     Instruction::JumpUnless { .. }
+                    | Instruction::JumpIfNil { .. }
                     | Instruction::Jump { .. }
                     | Instruction::ArrayVersion { .. }
                     | Instruction::ArrayNext { .. }
@@ -1847,6 +1848,12 @@ instruction_group!(execute_iteration, (self, instruction, state, registers, prog
                 // the backends to diverge.
                 Instruction::JumpUnless { condition, target } => {
                     if !truthy(&registers[*condition as usize]) {
+                        state.counter = *target;
+                    }
+                    return Ok(InstructionAction::Continue);
+                }
+                Instruction::JumpIfNil { value, target } => {
+                    if registers[*value as usize] == Value::Nil {
                         state.counter = *target;
                     }
                     return Ok(InstructionAction::Continue);

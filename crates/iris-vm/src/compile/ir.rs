@@ -624,6 +624,11 @@ pub enum Instruction {
         condition: Register,
         target: usize,
     },
+    /// Jumps to `target` when `value` is nil.
+    JumpIfNil {
+        value: Register,
+        target: usize,
+    },
     /// Jumps to `target` unconditionally.
     Jump {
         target: usize,
@@ -993,6 +998,7 @@ impl Instruction {
             Self::CatchMatch { destination, .. } => Some(*destination),
             // A branch or a return produces no value.
             Self::JumpUnless { .. }
+            | Self::JumpIfNil { .. }
             | Self::Jump { .. }
             | Self::EnterTry { .. }
             | Self::LeaveTry

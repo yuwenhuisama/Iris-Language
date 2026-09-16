@@ -85,6 +85,36 @@ fn construction_discovery_recurses_through_v136_nodes() {
 }
 
 #[test]
+fn construction_discovery_recurses_through_safe_navigation_parts() {
+    // Given
+    let safe = Expression::SafeNavigation {
+        receiver: Box::new(construction("Receiver")),
+        parts: vec![
+            iris_syntax::PostfixPart::Member {
+                selector: "call".into(),
+                safe: true,
+            },
+            iris_syntax::PostfixPart::Call {
+                type_arguments: vec![construction_type("TypeArgument")],
+                arguments: vec![construction("Argument")],
+            },
+            iris_syntax::PostfixPart::Index(Box::new(construction("Index"))),
+            iris_syntax::PostfixPart::TrailingBlock(Box::new(construction("Trailing"))),
+        ],
+    };
+
+    // When
+    let found = written_constructions(&[], &[Statement::Expression(safe)], "Box");
+
+    // Then
+    assert_eq!(
+        found,
+        ["Receiver", "TypeArgument", "Argument", "Index", "Trailing"]
+            .map(|name| vec![TypeExpression::Name(name.into())])
+    );
+}
+
+#[test]
 fn v136_runtime_forms_lower_to_vm_metadata() {
     let field = super::compile("class Pair { let @left: Integer = 1 } Pair.new()")
         .expect("instance field lowers");

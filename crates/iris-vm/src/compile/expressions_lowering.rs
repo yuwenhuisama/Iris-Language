@@ -1,6 +1,6 @@
 //! Expression and closure lowering.
 
-use iris_syntax::{BinaryOperator, Expression, Statement, UnaryOperator};
+use iris_syntax::{BinaryOperator, Expression, PostfixPart, Statement, UnaryOperator};
 
 use super::calls::{binary_selector, compound_selector, construct_name};
 use super::lowering::Lowering;
@@ -157,6 +157,7 @@ impl<'a, 'b> Lowering<'a, 'b> {
                 Ok(destination)
             }
             Expression::Grouped(inner) => self.expression(inner),
+            Expression::SafeNavigation { receiver, parts } => self.safe_navigation(receiver, parts),
             Expression::NonNull(operand) => {
                 let source = self.expression(operand)?;
                 let destination = self.allocate()?;
@@ -1207,6 +1208,105 @@ impl<'a, 'b> Lowering<'a, 'b> {
             }
             other => Err(CompileError::new(construct_name(other))),
         }
+    }
+
+    fn safe_navigation(
+        &mut self,
+        receiver: &Expression,
+        parts: &[PostfixPart],
+    ) -> Result<Register, CompileError> {
+        let destination = self.allocate()?;
+        self.instructions.push(Instruction::LoadNil { destination });
+        let mut current = self.expression(receiver)?;
+        let mut nil_branches = Vec::with_capacity(parts.len());
+        let mut position = 0;
+        while position < parts.len() {
+            nil_branches.push(self.instructions.len());
+            self.instructions.push(Instruction::JumpIfNil {
+                value: current,
+                target: 0,
+            });
+            match &parts[position] {
+                PostfixPart::Member { selector, .. }
+                    if matches!(parts.get(position + 1), Some(PostfixPart::Call { .. })) =>
+                {
+                    let PostfixPart::Call {
+                        type_arguments,
+                        arguments,
+                    } = &parts[position + 1]
+                    else {
+                        unreachable!("safe navigation call follows member");
+                    };
+                    let mut arguments = arguments.clone();
+                    let consumed =
+                        if let Some(PostfixPart::TrailingBlock(block)) = parts.get(position + 2) {
+                            arguments.push((**block).clone());
+                            3
+                        } else {
+                            2
+                        };
+                    let (first, count) = self.argument_window(&arguments)?;
+                    let next = self.allocate()?;
+                    self.instructions.push(Instruction::Send {
+                        destination: next,
+                        receiver: current,
+                        selector: selector.clone(),
+                        first,
+                        count,
+                        caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                        caller_module: self.enclosing_module.clone(),
+                    });
+                    if !type_arguments.is_empty() {
+                        let call = self
+                            .instructions
+                            .pop()
+                            .ok_or_else(|| CompileError::new("generic call"))?;
+                        self.instructions.push(Instruction::GenericCall {
+                            call: Box::new(call),
+                            type_arguments: type_arguments.clone(),
+                        });
+                    }
+                    current = next;
+                    position += consumed;
+                }
+                PostfixPart::Member { selector, .. } => {
+                    let next = self.allocate()?;
+                    self.instructions.push(Instruction::BindMember {
+                        destination: next,
+                        receiver: current,
+                        selector: selector.clone(),
+                        caller: self.current_method.as_ref().map(|(owner, _)| *owner),
+                        caller_module: self.enclosing_module.clone(),
+                    });
+                    current = next;
+                    position += 1;
+                }
+                PostfixPart::Index(index) => {
+                    let index = self.expression(index)?;
+                    let next = self.allocate()?;
+                    self.instructions.push(Instruction::Index {
+                        destination: next,
+                        receiver: current,
+                        index,
+                    });
+                    current = next;
+                    position += 1;
+                }
+                PostfixPart::Call { .. } => return Err(CompileError::new("safe navigation call")),
+                PostfixPart::TrailingBlock(_) => {
+                    return Err(CompileError::new("safe navigation trailing block"));
+                }
+            }
+        }
+        self.instructions.push(Instruction::Move {
+            destination,
+            source: current,
+        });
+        let after = self.instructions.len();
+        for branch in nil_branches {
+            self.patch(branch, after)?;
+        }
+        Ok(destination)
     }
 
     pub(super) fn closure(

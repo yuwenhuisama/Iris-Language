@@ -403,7 +403,9 @@ fn verify_body(
                     }
                 }
             }
-            Instruction::JumpUnless { target, .. } | Instruction::Jump { target } => {
+            Instruction::JumpUnless { target, .. }
+            | Instruction::JumpIfNil { target, .. }
+            | Instruction::Jump { target } => {
                 if *target > instructions.len() {
                     return Err(VerifyError::JumpOutOfRange { target: *target });
                 }
@@ -546,7 +548,7 @@ fn verify_body(
             | Instruction::Propagate { .. } => Vec::new(),
             Instruction::Jump { target } => vec![(*target, next.clone())],
             // Both edges are live: the branch may be taken or not.
-            Instruction::JumpUnless { target, .. } => {
+            Instruction::JumpUnless { target, .. } | Instruction::JumpIfNil { target, .. } => {
                 vec![(*target, next.clone()), (at + 1, next.clone())]
             }
             Instruction::ArrayNext { exhausted, .. }
@@ -643,7 +645,7 @@ fn fall_through(
             | Instruction::RaiseNoActiveException
             | Instruction::Propagate { .. } => false,
             Instruction::Jump { target } => *target >= instructions.len(),
-            Instruction::JumpUnless { target, .. } => {
+            Instruction::JumpUnless { target, .. } | Instruction::JumpIfNil { target, .. } => {
                 *target >= instructions.len() || at + 1 >= instructions.len()
             }
             Instruction::ArrayNext { exhausted, .. }
@@ -698,6 +700,7 @@ pub(super) fn reads(instruction: &Instruction) -> Vec<Register> {
         Instruction::Await { task, .. } | Instruction::HostRun { task, .. } => vec![*task],
         Instruction::UnobservedFailures { .. } => Vec::new(),
         Instruction::JumpUnless { condition, .. } => vec![*condition],
+        Instruction::JumpIfNil { value, .. } => vec![*value],
         Instruction::Return { value } | Instruction::Raise { value, .. } => vec![*value],
         Instruction::ReRaise { value, context, .. } => vec![*value, *context],
         Instruction::Propagate { value, context } => vec![*value, *context],

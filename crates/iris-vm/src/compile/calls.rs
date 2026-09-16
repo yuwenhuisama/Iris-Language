@@ -1295,6 +1295,7 @@ pub(super) fn construct_name(expression: &Expression) -> String {
         Expression::KeywordArgument { .. } => "expression keyword argument",
         Expression::BlockArgument { .. } => "expression block argument",
         Expression::NonNull(_) => "expression non-null",
+        Expression::SafeNavigation { .. } => "safe navigation",
         Expression::ContractView { .. } => "expression contract view",
         Expression::ClassVar(_) => "expression class variable",
         Expression::Symbol(_) => "symbol",

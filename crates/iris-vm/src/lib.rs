@@ -176,6 +176,55 @@ mod tests {
         }
     }
 
+    #[test]
+    fn safe_navigation_short_circuits_the_entire_chain_only_for_nil() {
+        for (source, expected) in [
+            (
+                "mut counter = 0; let value = nil; value?.missing(counter = counter + 1)[counter = counter + 1].call() { counter = counter + 1 }; counter",
+                iris_runtime::Value::Array(iris_runtime::ArrayRef::new(vec![
+                    iris_runtime::Value::Nil,
+                    iris_runtime::Value::Integer(iris_runtime::IntegerValue::from(0_u8)),
+                ])),
+            ),
+            ("nil?.missing(nil!)", iris_runtime::Value::Nil),
+            (
+                "false?.to_string()",
+                iris_runtime::Value::Text("false".to_owned()),
+            ),
+            (
+                "true?.to_string()",
+                iris_runtime::Value::Text("true".to_owned()),
+            ),
+            (
+                "class C { public fun same?(other: Object) -> Bool { true } } C.new()?.same?(nil)",
+                iris_runtime::Value::Bool(true),
+            ),
+            (
+                "class C { public fun ready?() -> Bool { true } public fun save!() -> Bool { true } } let value = C.new(); %[value?.ready?(), value?.save!()]",
+                iris_runtime::Value::Array(iris_runtime::ArrayRef::new(vec![
+                    iris_runtime::Value::Bool(true),
+                    iris_runtime::Value::Bool(true),
+                ])),
+            ),
+            ("nil?.to_string().length()", iris_runtime::Value::Nil),
+            (
+                "class C { public fun missing() -> Nil { nil } } C.new()?.missing().length()",
+                iris_runtime::Value::Nil,
+            ),
+            (
+                "class C { public fun same?(other: Object) -> Bool { true } } C.new()?.same?(nil).to_string()",
+                iris_runtime::Value::Text("true".to_owned()),
+            ),
+        ] {
+            let given = program(source);
+
+            let when = run(&given);
+
+            assert_eq!(when, Ok(expected), "{source}");
+            assert_eq!(verify(&given), Ok(()), "{source}");
+        }
+    }
+
     /// The IR is three-address: every instruction names its operands and its
     /// destination, so an instruction's meaning does not depend on execution
     /// history. `1 + 2` is two loads and one binary, with NO push or pop.
