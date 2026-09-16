@@ -159,6 +159,14 @@ fn source_shape(expression: &Expression, enclosing_precedence: u8) -> String {
             ),
             17,
         ),
+        Expression::SafeNavigation { receiver, parts } => (
+            format!(
+                "{}{}",
+                source_shape(receiver, 17),
+                postfix_source_shape(parts)
+            ),
+            17,
+        ),
         Expression::Member { receiver, selector } => {
             (format!("{}.{}", source_shape(receiver, 17), selector), 17)
         }
@@ -272,6 +280,15 @@ fn structural_shape(expression: &Expression) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Expression::SafeNavigation { receiver, parts } => format!(
+            "safe_navigation({}, [{}])",
+            structural_shape(receiver),
+            parts
+                .iter()
+                .map(postfix_structural_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Expression::Member { receiver, selector } => {
             format!("member({}, {selector})", structural_shape(receiver))
         }
@@ -332,6 +349,59 @@ fn structural_shape(expression: &Expression) -> String {
         Expression::If { .. } => "if".into(),
         Expression::Try { .. } => "try".into(),
         Expression::While { .. } => "while".into(),
+    }
+}
+
+fn postfix_source_shape(parts: &[crate::PostfixPart]) -> String {
+    parts
+        .iter()
+        .map(|part| match part {
+            crate::PostfixPart::Member { selector, safe } => {
+                format!("{}{}", if *safe { "?." } else { "." }, selector)
+            }
+            crate::PostfixPart::Call {
+                type_arguments,
+                arguments,
+            } => format!(
+                "{}({})",
+                if type_arguments.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", type_arguments.len())
+                },
+                arguments
+                    .iter()
+                    .map(|argument| source_shape(argument, 0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            crate::PostfixPart::Index(index) => format!("[{}]", source_shape(index, 0)),
+            crate::PostfixPart::TrailingBlock(block) => format!(" {}", source_shape(block, 0)),
+        })
+        .collect()
+}
+
+fn postfix_structural_shape(part: &crate::PostfixPart) -> String {
+    match part {
+        crate::PostfixPart::Member { selector, safe } => {
+            format!("{}member({selector})", if *safe { "safe_" } else { "" })
+        }
+        crate::PostfixPart::Call {
+            type_arguments,
+            arguments,
+        } => format!(
+            "call({}, [{}])",
+            type_arguments.len(),
+            arguments
+                .iter()
+                .map(structural_shape)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        crate::PostfixPart::Index(index) => format!("index({})", structural_shape(index)),
+        crate::PostfixPart::TrailingBlock(block) => {
+            format!("trailing_block({})", structural_shape(block))
+        }
     }
 }
 

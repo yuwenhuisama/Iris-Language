@@ -466,6 +466,10 @@ pub enum Expression {
     Literal(String),
     Symbol(String),
     Array(Vec<Expression>),
+    SafeNavigation {
+        receiver: Box<Expression>,
+        parts: Vec<PostfixPart>,
+    },
     Member {
         receiver: Box<Expression>,
         selector: String,
@@ -591,6 +595,20 @@ pub enum Expression {
     GlobalVar(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PostfixPart {
+    Member {
+        selector: String,
+        safe: bool,
+    },
+    Call {
+        type_arguments: Vec<TypeExpression>,
+        arguments: Vec<Expression>,
+    },
+    Index(Box<Expression>),
+    TrailingBlock(Box<Expression>),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UnaryOperator {
     Plus,
@@ -658,8 +676,8 @@ pub enum AssignmentOperator {
 mod tests {
     use super::{
         AssignmentOperator, BinaryOperator, ClassDeclaration, Constraint, ContractDeclaration,
-        Declaration, Expression, PRECEDENCE_ROWS_COVERED, Program, Statement, TypeExpression,
-        UnaryOperator, render_parse_shape, render_parse_shapes,
+        Declaration, Expression, PRECEDENCE_ROWS_COVERED, PostfixPart, Program, Statement,
+        TypeExpression, UnaryOperator, render_parse_shape, render_parse_shapes,
     };
 
     #[test]
@@ -675,6 +693,32 @@ mod tests {
         };
 
         assert!(matches!(expression, Expression::Unary { .. }));
+    }
+
+    #[test]
+    fn render_parse_shape_preserves_a_guarded_postfix_chain() {
+        let expression = Expression::SafeNavigation {
+            receiver: Box::new(Expression::Name("a".into())),
+            parts: vec![
+                PostfixPart::Member {
+                    selector: "b".into(),
+                    safe: true,
+                },
+                PostfixPart::Member {
+                    selector: "c".into(),
+                    safe: false,
+                },
+                PostfixPart::Call {
+                    type_arguments: Vec::new(),
+                    arguments: Vec::new(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            render_parse_shape(&expression),
+            "safe_navigation(a, [safe_member(b), member(c), call(0, [])])"
+        );
     }
 
     #[test]

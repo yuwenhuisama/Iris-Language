@@ -52,6 +52,7 @@ pub enum TokenKind {
     RightBrace,
     Colon,
     Semicolon,
+    SafeDot,
     Dot,
     At,
     DoubleAt,
@@ -227,6 +228,11 @@ fn scan(source: &[u8], mode: Mode, record_comments: bool) -> LexedSource {
                 };
                 push(&mut tokens, kind, (offset, width));
                 advance(&mut index, width, &mut position);
+                expression_start = true;
+            }
+            b'?' if bytes.get(index + 1) == Some(&b'.') => {
+                push(&mut tokens, TokenKind::SafeDot, (offset, 2));
+                advance(&mut index, 2, &mut position);
                 expression_start = true;
             }
             byte if byte.is_ascii_digit()

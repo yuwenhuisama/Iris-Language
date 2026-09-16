@@ -166,6 +166,50 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_safe_dot_as_a_distinct_longest_match_token() {
+        // Given
+        let source = b"a?.b a ? . b ready? save! a != b a !~ b as? T a..=b a?..b";
+
+        // When
+        let result = lex(source);
+
+        // Then
+        assert!(result.is_clean(), "{result:#?}");
+        assert_eq!(
+            kinds(&result),
+            [
+                TokenKind::Identifier,
+                TokenKind::SafeDot,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::SourceCharacter,
+                TokenKind::Dot,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::SourceCharacter,
+                TokenKind::Identifier,
+                TokenKind::SourceCharacter,
+                TokenKind::Identifier,
+                TokenKind::BangEqual,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::NotMatchTilde,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::SourceCharacter,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::RangeInclusive,
+                TokenKind::Identifier,
+                TokenKind::Identifier,
+                TokenKind::SafeDot,
+                TokenKind::Dot,
+                TokenKind::Identifier,
+            ]
+        );
+    }
+
+    #[test]
     fn splits_nested_generic_closers_only_in_type_context() {
         // Given
         let source = b"Box<Array<String>>";
